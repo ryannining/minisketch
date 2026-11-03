@@ -2,6 +2,8 @@
 .claude
 .gemini
 .opencode
+.commandcode
+.freebuff
 
 # IDE and Editors
 **/.idea/
@@ -176,6 +178,4 @@
 *.iso
 
 # Local agent state
-.freebuff/
-.commandcode/
 .qoder/
