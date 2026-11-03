@@ -1,0 +1,811 @@
+{
+  "name": "minisketch-ai-tools",
+  "version": 1,
+  "description": "MiniSketch CAD tool manifest. Single source of truth for the AI chat tab, the ai-bridge server, and future MCP wrappers. Names use snake_case; the chat executor maps each to the camelCase toolApi() function in app.js. Units are world millimetres, Y-up. Coordinates are clamped to +/-10000.",
+  "colorLegend": {
+    "#000000": "Cut through (black) — the ONLY color for shapes the part keeps as separate pieces; drilled holes are black circles too",
+    "#0000ff": "Engrave (blue)",
+    "#00ffff": "V-carve (cyan)",
+    "#800080": "Pocket (purple)",
+    "#ff0000": "Marking line (red) — LOW POWER: scores the surface, does NOT cut through; never for outlines or holes",
+    "#00ff00": "Mark/construction (green, never machined, never grouped)",
+    "#800000": "Cut tab (maroon)",
+    "#008080": "Start point (teal)"
+  },
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "add_line",
+        "description": "Draw one straight cut line between two world points. Points at exactly the same spot are welded into one joint.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "a": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ]
+            },
+            "b": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ]
+            },
+            "color": {
+              "type": "string",
+              "description": "Hex operation color, defaults to current UI color"
+            }
+          },
+          "required": [
+            "a",
+            "b"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "add_circle",
+        "description": "Draw a circle from center point and radius in mm. COLOR RULE: a drilled hole (lubang/bor/hole) is a THROUGH cut, so it MUST be #000000 (black). Red #ff0000 is a low-power marking line only — never for holes or cut shapes.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "c": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ]
+            },
+            "r": {
+              "type": "number",
+              "description": "Radius in mm, must be > 0"
+            },
+            "color": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "c",
+            "r"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "add_arc",
+        "description": "Draw an arc from centre point and two points ON the arc (start and end).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "c": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ]
+            },
+            "s": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ]
+            },
+            "e": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ]
+            },
+            "color": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "c",
+            "s",
+            "e"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "add_spline",
+        "description": "Draw a smooth Bezier curve through 2+ points. Use for slots, ovals, S-curves, ogee edges, fillets — any smooth outline. closed=true makes a closed loop panel. COLOR RULE follows the operation: cut-out loop = #000000, engraved mark = #0000ff, pocket boundary = #800080.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "x",
+                  "y"
+                ]
+              },
+              "minItems": 2
+            },
+            "closed": {
+              "type": "boolean"
+            },
+            "color": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pts"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "add_panel",
+        "description": "Draw a closed sharp-corner polygon panel (rectangle, flange plate, bracket outline). Minimum 3 points. This is the tool for boxes, plates and any straight-edge closed shape. COLOR RULE: a shape to CUT OUT uses #000000 (black = CUT through); red #ff0000 is marking-only (low power, never through); construction = #00ff00.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "x",
+                  "y"
+                ]
+              },
+              "minItems": 3
+            },
+            "color": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pts"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "add_polyline",
+        "description": "Draw an open sharp-corner polyline. Use for kerf slits (through = #000000), score lines (surface = #0000ff) and construction guides (#00ff00, never machined). Minimum 2 points.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "x",
+                  "y"
+                ]
+              },
+              "minItems": 2
+            },
+            "color": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pts"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "add_note",
+        "description": "Place a text COMMENT (yellow, never machined) at a world position. Use ONLY for annotations the laser must ignore. For any text that must be CUT as glyph outlines (house numbers, labels, signs), use add_text instead.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "text",
+            "x",
+            "y"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "add_text",
+        "description": "Place real TEXT whose glyph outlines are cuttable geometry (house numbers, labels, signs). COLOR RULE: text to cut through = #000000 (black); engraved look = #0000ff; red #ff0000 only for a low-power surface marking of the text. Set height in mm (default: last used). Use add_note only for non-machined annotations.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number",
+              "description": "Cap height in mm (0.5-500)"
+            },
+            "font": {
+              "type": "string"
+            },
+            "weight": {
+              "type": "number"
+            },
+            "italic": {
+              "type": "boolean"
+            },
+            "tracking": {
+              "type": "number"
+            },
+            "align": {
+              "type": "string",
+              "enum": [
+                "left",
+                "center",
+                "right"
+              ]
+            },
+            "color": {
+              "type": "string",
+              "description": "#000000 = cut through, #0000ff = engrave"
+            }
+          },
+          "required": [
+            "text",
+            "x",
+            "y"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "add_constraint",
+        "description": "Add a parametric constraint. Entity/point ids come from the state summary (selected: [...]). Omit value for coincident/horizontal/vertical/midpoint/tangent/parallel/perpendicular/equal/anchor; give value in mm or degrees for distance/radius/angle/dimension.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "coincident",
+                "distance",
+                "radius",
+                "horizontal",
+                "vertical",
+                "pointDim",
+                "pointOn",
+                "midpoint",
+                "tangent",
+                "parallel",
+                "perpendicular",
+                "equal",
+                "angle",
+                "aspect",
+                "fix"
+              ]
+            },
+            "entity": {
+              "type": "number",
+              "description": "Entity id the constraint acts on"
+            },
+            "entity2": {
+              "type": "number",
+              "description": "Second entity id (parallel, perpendicular, equal, angle)"
+            },
+            "p": {
+              "type": "number",
+              "description": "Point id (fix, midpoint, pointOn, pointDim)"
+            },
+            "p1": {
+              "type": "number",
+              "description": "First point id (coincident, distance)"
+            },
+            "p2": {
+              "type": "number",
+              "description": "Second point id (coincident, distance)"
+            },
+            "value": {
+              "type": "number",
+              "description": "mm for distance/radius/pointDim, degrees for angle"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "move_selection",
+        "description": "Move the current selection by dx, dy millimetres.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "dx": {
+              "type": "number"
+            },
+            "dy": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "dx",
+            "dy"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "scale_selection",
+        "description": "Scale the current selection by sx, sy about origin point ox, oy (defaults to selection centre when omitted).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sx": {
+              "type": "number"
+            },
+            "sy": {
+              "type": "number"
+            },
+            "ox": {
+              "type": "number"
+            },
+            "oy": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "sx",
+            "sy"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "set_selection_color",
+        "description": "Recolor the current selection. The color IS the machine operation: #000000=cut through (also drilled holes), #0000ff=engrave, #ff0000=low-power marking line (scores, never through), #00ff00=construction (never machined).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "color": {
+              "type": "string",
+              "description": "Hex color, e.g. #ff0000"
+            }
+          },
+          "required": [
+            "color"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "set_default_color",
+        "description": "Set the drawing color for subsequently created geometry.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "color": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "color"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "remove_entity",
+        "description": "Delete one entity by id. Destructive: the chat tab asks for confirmation first.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "delete_selection",
+        "description": "Delete everything currently selected. Destructive: the chat tab asks for confirmation first.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "clear_selection",
+        "description": "Deselect everything.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "group_selection",
+        "description": "Group the current selection into one named object (bake). Pass a name so double-click can re-edit it.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "call_generator",
+        "description": "Run a parametric generator. Must be the ONLY op in its turn (generators manage their own undo step). Params are the generator dialog fields: box {l,w,h,t,fw,lid,dim}, gear {teeth,module_mm,...}, slot {length,width,...}, wall {length,height,...}, hinge/slidetop/pulltop (their dialog fields).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "box",
+                "slot",
+                "gear",
+                "wall",
+                "hinge",
+                "slidetop",
+                "pulltop"
+              ]
+            },
+            "params": {
+              "type": "object",
+              "description": "Generator dialog fields as numbers/strings/booleans"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "set_selection",
+        "description": "Select specific entities by id (from get_entities / get_selection / earlier op results). The next ops (boolean, text_to_curves, ungroup, offset, move, color, delete) act on this selection.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "ids": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          },
+          "required": [
+            "ids"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "text_to_curves",
+        "description": "Convert the selected TEXT object into individual curve outlines (one per glyph contour), deleting the text object. THE stencil step: after this, every letter part can be booleans/moved/deleted separately. Needs the text selected (set_selection or user selection).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "number",
+              "description": "Optional text entity id; omit to use current selection"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "ungroup",
+        "description": "Break the selection apart: a group loses its tag; a text/art object converts to raw curves (same as text_to_curves).",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "boolean",
+        "description": "Boolean op on selected closed loops: union (merge all), cut (first selected loop punches through the second), intersect (keep only overlap). ORDER MATTERS for cut/intersect: select the TOOL loop first, then the TARGET. This is how stencil counters and holes are made.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "union",
+                "cut",
+                "intersect"
+              ]
+            }
+          },
+          "required": [
+            "mode"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "offset_selection",
+        "description": "Offset the selected closed loops by distance mm (positive grows, negative shrinks) into NEW panel entities. Use for stencil bridges, kerf compensation, inlay sockets, border rings.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "distance": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "distance"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_entities",
+        "description": "Query: list up to 100 entities with id, type, color and text content. Use to find the id of a text object before text_to_curves.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_svg",
+        "description": "Query: return the drawing as SVG markup. Prefer this over get_entities when you need to understand shape, position, size or nesting: you read SVG natively. Coordinates are Y-up world millimetres and every path carries the CNC operation colour as its stroke (see colorLegend). Use scope='selection' to get only what is currently selected and 'all' (default) for the whole document. Large drawings are capped at 60k characters and flagged with truncated=true.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "scope": {
+              "type": "string",
+              "enum": [
+                "all",
+                "selection"
+              ],
+              "description": "'all' (default) exports every visible entity; 'selection' exports only the current selection."
+            },
+            "includeHidden": {
+              "type": "boolean",
+              "description": "Also export entities on hidden layers. Defaults to false."
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "import_svg",
+        "description": "Create: insert a complete SVG drawing into the workspace as real vector entities (lines, splines, circles). This is the PREFERRED way to build anything with more than ~4 paths: write one SVG document (paths, circles, rects, lines) instead of many add_line/add_circle calls — far fewer tokens and one undo step. Coordinates: world millimetres, Y-up. Place with viewBox='0 0 W H' so 1 user unit = 1 mm; a plain width/height in mm also works. Stroke colours become the entity colours — use the colorLegend hex codes so the result is machinable. Fill attributes are decoration; outlines are what get imported.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "svg": {
+              "type": "string",
+              "description": "Complete SVG document text (starts with <svg ...>). Max ~150k characters."
+            },
+            "at": {
+              "type": "object",
+              "properties": {
+                "x": { "type": "number" },
+                "y": { "type": "number" }
+              },
+              "description": "World point where the centre of the drawing lands. Omit to centre on the canvas."
+            },
+            "scale": {
+              "type": "number",
+              "description": "Extra scale multiplier on top of the viewBox/width mapping. Default 1."
+            },
+            "yUp": {
+              "type": "boolean",
+              "description": "true (default): read the SVG coordinates as Y-up world millimetres — write them the way you think, bottom-left origin, up is +Y; do NOT flip anything yourself. Set false ONLY when pasting back an SVG you got from get_svg (that export is Y-down)."
+            },
+            "keepGroups": {
+              "type": "boolean",
+              "description": "true = each <g id=...> becomes one grouped object. Default false (flat entities)."
+            }
+          },
+          "required": [
+            "svg"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_bounds",
+        "description": "Query: world bounding box of all geometry, plus canvas centre in world mm. Use to place new shapes relative to existing ones (e.g. a hole in the middle).",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_loops",
+        "description": "Query: closed machinable loops with area and entity count. Use to verify a shape really closed.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "describe_selection",
+        "description": "Query: rich detail of the USER'S CURRENT selection — per entity: id, type, color, text content, world bbox, and loop analysis (which loops are outer rings vs enclosed counters, loop areas). Call this FIRST whenever the user says 'the selected X' / 'yang saya pilih' before any boolean or edit.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "use_skill",
+        "description": "Force-load a named skill for this turn (available: stencil-bridges). Use when the user names a technique explicitly, or when the request clearly matches a skill whose trigger words did not appear in their message.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Skill name, e.g. stencil-bridges"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      }
+    }
+  ]
+}

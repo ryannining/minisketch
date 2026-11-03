@@ -1,0 +1,24 @@
+Nama bahan,kecepatan potong mm/s,pengulangan,harga bahan percm persegi, harga jasa cutting per menit.
+
+Laser Akrilik 1.5mm,10,1,30,2000
+Laser Akrilik 2mm,8,1,32,2000
+Laser Akrilik 2mm Warna,8,1,37,2000
+Laser Akrilik 3mm,6,1,42,2000
+Laser Akrilik 3mm Warna,6,1,47,2000
+Laser Akrilik 4mm,4,1,52,2000
+Laser Akrilik 4mm Warna,4,1,57,2000
+Laser Akrilik 5mm,3,1,62,2000
+Laser Akrilik 5mm Warna,3,1,67,2000
+Laser Akrilik 6mm,2,1,72,2000
+Laser Akrilik 6mm Warna,2,1,77,2000
+Laser Triplek 3mm,8,1,5,2000
+Laser Triplek 5mm,6,1,7,2000
+Laser Triplek 9mm,6,2,11,2000
+Laser Triplek 15mm,6,3,17,2000
+MDF Hijau 3mm,6,1,7,2000
+CNC MDF-H 6mm,30,3,9,2000,7
+CNC MDF-H 9.5mm,30,4,12,2000,10
+CNC ACP 3mm,20,1,22,2000,4.5
+CNC ACP 4mm,25,2,29,2000,6
+CNC PVC 5mm,40,1,25,2000,6
+CNC PVC 9mm,40,2,35,2000,10
