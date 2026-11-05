@@ -1730,7 +1730,23 @@
     return state.points[id];
   }
 
+  // entityPointIds is called from dozens of render/hit-test sites per frame;
+  // splines allocated a fresh .slice() and arrays recursed with spread pushes
+  // every call. The ids of an entity only change structurally, which always
+  // goes through invalidateLoops() — the cache drops there. Every mutator of
+  // the returned array already copies first (audited .slice() at the trim /
+  // split sites); treat the return value as read-only.
+  const epiCache = new Map();
   function entityPointIds(e) {
+    const eid = e.id;
+    const hit = eid != null ? epiCache.get(eid) : null;
+    if (hit) return hit;
+    const out = entityPointIdsBuild(e);
+    if (eid != null) epiCache.set(eid, out);
+    return out;
+  }
+
+  function entityPointIdsBuild(e) {
     if (e.type === 'line') return [e.a, e.b];
     if (e.type === 'arc') return [e.c, e.s, e.e];
     if (e.type === 'circle') return [e.c];
@@ -1770,7 +1786,12 @@
   // on a big drawing. The map is rebuilt on demand; every mutator of
   // state.layers must call invalidateLayerIndex() (they are few and obvious).
   let layerIndex = null;
-  function invalidateLayerIndex() { layerIndex = null; }
+  function invalidateLayerIndex() {
+    layerIndex = null;
+    // drawEntities groups entities per layer; a layer assignment / create /
+    // delete changes the grouping without touching geometry
+    byLayerCache = null;
+  }
 
   function getLayer(id) {
     if (!layerIndex) {
@@ -2353,6 +2374,7 @@
     hitGridCache = null;
     entityCountCache = -1;
     pointGridCache = null;
+    epiCache.clear();
     // sample/contour caches always drop (cheap to rebuild, must track moving
     // points during a drag); only the loop topology is deferred below
     splineSampleCache = new Map();
@@ -8796,25 +8818,42 @@
     });
   }
 
-  function loopPath(loop) {
+  // Screen-space Path2D per loop, cached per (geometry, camera) frame key:
+  // fills/outlines repaint on every render, but the world->screen mapping only
+  // changes with the geometry or the camera. Hovering / selection changes now
+  // reuse the cached paths instead of re-walking every polygon vertex.
+  let loopPathFrameCache = null;
+  function loopFramePath(loop) {
+    const key = geometryEpoch + '|' + view.zoom + '|' + view.ox + '|' + view.oy;
+    if (!loopPathFrameCache || loopPathFrameCache.key !== key) {
+      loopPathFrameCache = { key, paths: new Map() };
+    }
+    const hit = loopPathFrameCache.paths.get(loop);
+    if (hit !== undefined) return hit;
+    const p = buildLoopPath(loop);
+    loopPathFrameCache.paths.set(loop, p);
+    return p;
+  }
+
+  function buildLoopPath(loop) {
     if (loop.circle) {
       const cd = circleData(state.entities[loop.entity]);
-      if (!cd) return false;
+      if (!cd) return null;
       const cs = w2s(cd.c.x, cd.c.y);
-      ctx.beginPath();
-      ctx.arc(cs.x, cs.y, cd.r * view.zoom, 0, TAU);
-      return true;
+      const p = new Path2D();
+      p.arc(cs.x, cs.y, cd.r * view.zoom, 0, TAU);
+      return p;
     }
-    if (!loop.poly || !loop.poly.length) return false;
+    if (!loop.poly || !loop.poly.length) return null;
     const p0 = w2s(loop.poly[0].x, loop.poly[0].y);
-    ctx.beginPath();
-    ctx.moveTo(p0.x, p0.y);
+    const p = new Path2D();
+    p.moveTo(p0.x, p0.y);
     for (let k = 1; k < loop.poly.length; k++) {
-      const p = w2s(loop.poly[k].x, loop.poly[k].y);
-      ctx.lineTo(p.x, p.y);
+      const q = w2s(loop.poly[k].x, loop.poly[k].y);
+      p.lineTo(q.x, q.y);
     }
-    ctx.closePath();
-    return true;
+    p.closePath();
+    return p;
   }
 
   // Loop fill (KaryaCNC offset flip) stays visible even when the loop overlay
@@ -8830,12 +8869,13 @@
       const fill = loopFill(loop);
       if (fill === 'none') continue;
       if (!loopVisibleOnCanvas(loop)) continue;
-      if (!loopPath(loop)) continue;
+      const p = loopFramePath(loop);
+      if (!p) continue;
       // a fill on a dimmed layer fades with the rest of that layer
       const fade = ui.dimOthers && loopLayerId(loop) !== ui.activeLayer;
       if (fade) { ctx.save(); ctx.globalAlpha = 0.5; }
       ctx.fillStyle = LOOP_FILL_TINT[fill];
-      ctx.fill();
+      ctx.fill(p);
       if (fade) ctx.restore();
     }
   }
@@ -8869,12 +8909,13 @@
       // the Fill chips and must never paint, or a deselected loop keeps looking
       // selected.
       const sel = loopShapeSelected(loop);
-      if (!loopPath(loop)) continue;
+      const p = loopFramePath(loop);
+      if (!p) continue;
       const fill = loopFill(loop);
       // fills only — the outline stroke (and its dashes) just cost frame time
       if (fill === 'none') {
         ctx.fillStyle = sel ? 'rgba(37, 99, 235, 0.10)' : 'rgba(22, 163, 74, 0.045)';
-        ctx.fill();
+        ctx.fill(p);
       }
     }
   }
@@ -14420,6 +14461,10 @@
     closeTextEditor();
   }
 
+  // per-epoch grouping cache for drawEntities (see above)
+  let byLayerCache = null;
+  let byLayerEpoch = -1;
+
   function drawEntities() {
     const bulk = bulkActive();
     // stroke width = Settings > Renderer: base px at 100% zoom, clamped growth
@@ -14447,16 +14492,27 @@
     // painted first (furthest back) and row 0 is painted last (on top).
     // Entities keep their own order inside a layer, and any entity whose layer
     // is missing falls back to the first one (same rule as layerOf()).
+    // grouping is purely structural (entity set + layer assignment), so it is
+    // cached per geometryEpoch and dropped on layer mutations — one linear
+    // pass over the document instead of one per frame
+    if (byLayerEpoch !== geometryEpoch) {
+      byLayerCache = null;
+      byLayerEpoch = geometryEpoch;
+    }
+    if (!byLayerCache) {
     const byLayer = new Map();
     for (const l of (state.layers || [])) byLayer.set(l.id, []);
-    const fallbackLayer = state.layers && state.layers[0] ? state.layers[0].id : null;
+    const fallbackLayer0 = state.layers && state.layers[0] ? state.layers[0].id : null;
     for (const id in state.entities) {
       const e = state.entities[id];
       const lid = layerOf(e);
       let bucket = byLayer.get(lid);
-      if (!bucket) bucket = byLayer.get(fallbackLayer) || null;
+      if (!bucket) bucket = byLayer.get(fallbackLayer0) || null;
       if (bucket) bucket.push(e);
     }
+    byLayerCache = byLayer;
+    }
+    const byLayer = byLayerCache;
     const layers = state.layers || [];
     for (let li = layers.length - 1; li >= 0; li--) {
       const l = layers[li];
@@ -16528,6 +16584,13 @@
 
   function render() {
     const t0 = performance.now();
+    // consume a pending hover probe first: the pointer may have moved since
+    // the last frame, and everything below draws with the fresh hover state
+    if (ui.hoverProbe) {
+      const p = ui.hoverProbe;
+      ui.hoverProbe = null;
+      if (!ui.drag && !ui.pan && !pinch && ui.tool === 'select') runHoverProbe(p.x, p.y);
+    }
     // one layer-state check per frame (see pointCachesValid), not per marker
     pointSigTick++;
     if (ui.pan && ui.pan.snap) {
@@ -19897,59 +19960,54 @@ function cmdSplitCurve() {
     if (ui.tool === 'transform') return;
 
     if (ui.tool === 'select') {
-      // Hover testing walks every entity, which is fine for a sketch and not fine
-      // for an imported drawing: on a big document test at most ~15 times a second.
-      if (bulkActive()) {
-        const now = performance.now();
-        if (ui.hoverCheckedAt && now - ui.hoverCheckedAt < 66) {
-          if (!ui.hover) return;
-        }
-        ui.hoverCheckedAt = now;
-      }
-      // A part marker under the cursor is the strongest hover: it says "this
-      // point is draggable and the whole assembly will answer". While a mate
-      // job waits for side B, hovering a bare EDGE highlights that edge — it
-      // is the slider target a click would pick. The mate job also widens the
-      // layer rule (cross-layer picking), the normal hover does not.
-      const pm = hitPartMarker(pos.x, pos.y, null, !!mateJob);
-      let hit = null;
-      if (pm) hit = { kind: 'partMarker', part: pm.part, u: pm.u, v: pm.v };
-      else if (mateJob && mateJob.stage === 'b') {
-        const ep = hitPartEdge(pos.x, pos.y, true);
-        if (ep) hit = { kind: 'partEdge', id: ep.part, edge: ep.edge };
-      }
-      if (!hit) {
-        const ph = hitPoint(pos.x, pos.y);
-        if (ph != null) hit = { kind: 'point', id: ph };
-        else {
-          const dim = hitDimension(pos.x, pos.y);
-          if (dim != null) hit = { kind: 'constraint', id: dim };
-          else {
-            const eh = hitEntity(pos.x, pos.y);
-            // an entity on another layer is not selectable: it must not glow
-            // either, or the hover promises a click that cannot happen
-            if (eh != null && entityEditable(state.entities[eh])) {
-              hit = { kind: 'entity', id: eh };
-            }
-          }
-        }
-      }
-      const edgeKey = hit && hit.edge ? hit.edge.from + ':' + hit.edge.to : '';
-      const changed = (hit && hit.kind) + ':' + (hit && hit.id) + ':' + (hit ? 1 : 0) +
-        ':' + (hit && hit.u != null ? Math.round(hit.u * 10) : 0) + ':' + edgeKey !==
-        (ui.hover && ui.hover.kind) + ':' + (ui.hover && ui.hover.id) + ':' + (ui.hover ? 1 : 0) +
-        ':' + (ui.hover && ui.hover.u != null ? Math.round(ui.hover.u * 10) : 0) +
-        ':' + (ui.hover && ui.hover.edge ? ui.hover.edge.from + ':' + ui.hover.edge.to : '');
-      ui.hover = hit;
-      updateCanvasCursor();
-      // Hover runs at the mouse polling rate; coalesce it like every other
-      // per-event path instead of drawing synchronously inside the handler.
-      if (changed) scheduleRender();
+      // Hover testing walks the hit-test pipeline (part marker → point →
+      // dimension → entity). At a 125 Hz mouse that ran the pipeline 125 times
+      // a second even though at most one frame paints between events. The
+      // probe is now COALESCED: store the latest pointer position and run the
+      // pipeline once, at the top of the next render — the same coalescing
+      // every other per-event path already uses.
+      ui.hoverProbe = { x: pos.x, y: pos.y };
+      scheduleRender();
       return;
     }
 
     ui.hoverSnap = snapPoint(world);
     if (ui.draft || ui.tool !== 'select') scheduleRender();
+  }
+
+  // The deferred hover test (see the select branch of onPointerMove). Runs at
+  // the top of render() so the hover state is fresh before anything draws.
+  function runHoverProbe(x, y) {
+    // A part marker under the cursor is the strongest hover: it says "this
+    // point is draggable and the whole assembly will answer". While a mate
+    // job waits for side B, hovering a bare EDGE highlights that edge — it
+    // is the slider target a click would pick. The mate job also widens the
+    // layer rule (cross-layer picking), the normal hover does not.
+    const pm = hitPartMarker(x, y, null, !!mateJob);
+    let hit = null;
+    if (pm) hit = { kind: 'partMarker', part: pm.part, u: pm.u, v: pm.v };
+    else if (mateJob && mateJob.stage === 'b') {
+      const ep = hitPartEdge(x, y, true);
+      if (ep) hit = { kind: 'partEdge', id: ep.part, edge: ep.edge };
+    }
+    if (!hit) {
+      const ph = hitPoint(x, y);
+      if (ph != null) hit = { kind: 'point', id: ph };
+      else {
+        const dim = hitDimension(x, y);
+        if (dim != null) hit = { kind: 'constraint', id: dim };
+        else {
+          const eh = hitEntity(x, y);
+          // an entity on another layer is not selectable: it must not glow
+          // either, or the hover promises a click that cannot happen
+          if (eh != null && entityEditable(state.entities[eh])) {
+            hit = { kind: 'entity', id: eh };
+          }
+        }
+      }
+    }
+    ui.hover = hit;
+    updateCanvasCursor();
   }
 
   function applyRubberSelection(d, pos) {
@@ -21247,6 +21305,7 @@ function cmdSplitCurve() {
         setTool('select');
       }
       ui.hover = null;
+      ui.hoverProbe = null;
       updateUI();
       render();
       return;
@@ -21264,6 +21323,7 @@ function cmdSplitCurve() {
       if (ui.draft.type === 'curve') finishCurve(false);
       else cancelDraft();
       ui.hover = null;
+      ui.hoverProbe = null;
       updateUI();
       render();
       return;
@@ -21501,6 +21561,7 @@ function cmdSplitCurve() {
       // outside) must not leave a stale pair behind and wedge the camera
       if (!pinch) touchPts.clear();
       ui.hover = null;
+      ui.hoverProbe = null;
       ui.raw = null;
       // a modifier released while the pointer was outside sends no keyup to a
       // focused canvas: drop the drafting overrides so they cannot stick
