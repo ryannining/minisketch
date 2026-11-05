@@ -158,8 +158,15 @@
 
   function themedCanvasColor(v) {
     if (themeName !== 'dark') return v;
-    return CANVAS_DARK[v.toLowerCase().replace(/\s+/g, '')] || v;
+    let hit = themeColorMemo.get(v);
+    if (hit === undefined) {
+      hit = CANVAS_DARK[v.toLowerCase().replace(/\s+/g, '')] || v;
+      themeColorMemo.set(v, hit);
+    }
+    return hit;
   }
+  // drawOneEntity asks this per entity per frame; the palette is tiny
+  const themeColorMemo = new Map();
 
   function themeCanvas() {
     const proto = Object.getPrototypeOf(ctx);
@@ -180,6 +187,7 @@
 
   function applyTheme(name, opts) {
     themeName = name === 'light' ? 'light' : 'dark';
+    themeColorMemo.clear();
     document.documentElement.setAttribute('data-theme', themeName);
     if (!opts || opts.persist !== false) {
       try { localStorage.setItem(THEME_KEY, themeName); } catch (err) { /* ignore */ }
@@ -14684,6 +14692,8 @@
     return false;
   }
 
+  let segSelCache = null;
+  let segSelCacheFor = null;
   function drawSegmentHighlight() {
     // A "segment" is an adjacent pair of selected points. That covers three
     // shapes with one rule, and all three get the same amber band:
@@ -14697,7 +14707,14 @@
     // `if (!sel.size) return` here silently skipped the whole highlight for
     // exactly that case, which is why selecting one line looked nothing like
     // selecting one curve segment.
-    const sel = new Set(selectedPointIds().map(Number));
+    // the selected-point set rebuilt per frame allocated a 24k-element array
+    // plus Set on a big selection (GC pressure); cache per selection rebuild
+    const selIdx0 = selectionIndex();
+    if (segSelCacheFor !== selIdx0) {
+      segSelCache = new Set(selectedPointIds().map(Number));
+      segSelCacheFor = selIdx0;
+    }
+    const sel = segSelCache;
     const anyPointSel = sel.size > 0;
     // Select-all must not paint the whole drawing amber: above this many picked
     // entities the generic selected colour is the honest signal.
@@ -14710,7 +14727,12 @@
     // stroke, one width — the setting drives it, with the same zoom clamp the
     // other strokes use.
     const SEG_WIDTH = Math.max(2, SEL_WIDTH * clamp(view.zoom, LINE_ZOOM_MIN, LINE_ZOOM_MAX));
-    let drew = false;
+    // one batched path for every highlighted segment: the old loop issued a
+    // beginPath/stroke pair PER segment — 9k selected lines meant 18k draw
+    // calls where one stroke of one path answers the same picture
+    let segPath = null;
+    const segMoveTo = (x, y) => { if (!segPath) segPath = new Path2D(); segPath.moveTo(x, y); };
+    const segLineTo = (x, y) => segPath.lineTo(x, y);
 
     if (entityHighlight) {
       for (const eid of selEnts) {
@@ -14723,18 +14745,9 @@
         // selected curve segment reads.
         const a = P(e.a), b = P(e.b);
         if (!a || !b) continue;
-        if (!drew) {
-          ctx.save();
-          ctx.strokeStyle = SEG_COLOR;
-          ctx.lineWidth = SEG_WIDTH;
-          ctx.lineCap = 'round';
-          drew = true;
-        }
         const sa = w2s(a.x, a.y), sb = w2s(b.x, b.y);
-        ctx.beginPath();
-        ctx.moveTo(sa.x, sa.y);
-        ctx.lineTo(sb.x, sb.y);
-        ctx.stroke();
+        segMoveTo(sa.x, sa.y);
+        segLineTo(sb.x, sb.y);
       }
     }
     // a line selected by its POINTS (the curve-style selection) is highlighted
@@ -14747,18 +14760,9 @@
         if (!sel.has(+e.a) || !sel.has(+e.b)) continue;
         const a = P(e.a), b = P(e.b);
         if (!a || !b) continue;
-        if (!drew) {
-          ctx.save();
-          ctx.strokeStyle = SEG_COLOR;
-          ctx.lineWidth = SEG_WIDTH;
-          ctx.lineCap = 'round';
-          drew = true;
-        }
         const sa = w2s(a.x, a.y), sb = w2s(b.x, b.y);
-        ctx.beginPath();
-        ctx.moveTo(sa.x, sa.y);
-        ctx.lineTo(sb.x, sb.y);
-        ctx.stroke();
+        segMoveTo(sa.x, sa.y);
+        segLineTo(sb.x, sb.y);
       }
     }
 
@@ -14777,35 +14781,32 @@
         const P0 = P(ids[seg]);
         const P3 = P(ids[nxt]);
         if (!P0 || !P3) continue;
-        if (!drew) {
-          ctx.save();
-          ctx.strokeStyle = SEG_COLOR;
-          ctx.lineWidth = SEG_WIDTH;
-          ctx.lineCap = 'round';
-          drew = true;
-        }
-        ctx.beginPath();
         const s0 = w2s(P0.x, P0.y);
-        ctx.moveTo(s0.x, s0.y);
+        segMoveTo(s0.x, s0.y);
         // a span with no handles on either side IS a straight chord: draw the
         // line instead of sampling a degenerate cubic 18 times
         if (!e.hs.o[seg] && !e.hs.i[nxt]) {
           const s3 = w2s(P3.x, P3.y);
-          ctx.lineTo(s3.x, s3.y);
+          segLineTo(s3.x, s3.y);
         } else {
+          // the exact cubic, drawn natively: the old path sampled cubicAt 18
+          // times per span per frame
           const P1 = e.hs.o[seg] || P0;
           const P2 = e.hs.i[nxt] || P3;
-          for (let k = 1; k <= 18; k++) {
-            const q = cubicAt(P0, P1, P2, P3, k / 18);
-            const sp = w2s(q.x, q.y);
-            ctx.lineTo(sp.x, sp.y);
-          }
+          const s1 = w2s(P1.x, P1.y), s2 = w2s(P2.x, P2.y), s3 = w2s(P3.x, P3.y);
+          segPath.bezierCurveTo(s1.x, s1.y, s2.x, s2.y, s3.x, s3.y);
         }
-        ctx.stroke();
       }
     }
 
-    if (drew) ctx.restore();
+    if (segPath) {
+      ctx.save();
+      ctx.strokeStyle = SEG_COLOR;
+      ctx.lineWidth = SEG_WIDTH;
+      ctx.lineCap = 'round';
+      ctx.stroke(segPath);
+      ctx.restore();
+    }
   }
 
   // Control handles show for exactly one curve: a single selected spline, or
@@ -15416,9 +15417,19 @@
     // zoom thousands of them overlap into one blob anyway. Selected and
     // hovered points are always drawn.
     const cellSeen = new Set();
-    for (const key in state.points) {
-      const id = +key;
-      const p = state.points[key];
+    // spatial cull: at medium/high zoom most of the 24k points sit off-screen;
+    // the grid answers which points are even near the viewport. When the query
+    // box covers most of the grid (far zoom) it returns null and we fall back
+    // to the full scan — the same set the cull below would have kept.
+    const wA = s2w(0, H), wB = s2w(W, 0);
+    const cullCands = pointCandidatesNear(
+      (wA.x + wB.x) / 2, (wA.y + wB.y) / 2,
+      Math.max(Math.abs(wB.x - wA.x), Math.abs(wB.y - wA.y)) / 2 + 12 / view.zoom
+    );
+    const scanPoints = (ids) => {
+      for (const id of ids) {
+      const p = state.points[id];
+      if (!p) continue;
       if (!pointShown(id)) continue;
       const isSel = selPts.has(id);
       const isHover = ui.hover && ui.hover.kind === 'point' && ui.hover.id === id;
@@ -15476,6 +15487,13 @@
         plain.rect(sx - half, sy - half, ms, ms);
         plainCount++;
       }
+      }
+    };
+    if (cullCands) scanPoints(cullCands);
+    else {
+      const all = [];
+      for (const key in state.points) all.push(+key);
+      scanPoints(all);
     }
     if (plainCount) {
       ctx.fillStyle = '#ffffff';
