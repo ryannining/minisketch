@@ -8383,12 +8383,477 @@
     return best;
   }
 
-  function getLoops() {
-    if (loopsDeferred && !ui.drag) {
-      loopsDeferred = false;
-      loopCache = null;
+  // ---- Loop detection -------------------------------------------------------
+  //
+  // Dua jalur rebuild memakai mesin yang sama:
+  //
+  //  FULL — setelah perubahan STRUKTURAL (entity ditambah/dihapus/di-trim/
+  //         di-join, kepemilikan titik berubah, constraint coincident
+  //         berubah, layer entity berubah, atau F8 manual): scan semuanya,
+  //         weld, bangun edge graph, ekstrak semua loop.
+  //
+  //  FAST — hanya KOORDINAT yang bergerak (drag / nudge / solver). Weld titik
+  //         yang tidak bergerak BEKU; hanya titik yang benar-benar pindah yang
+  //         di-weld ulang, dan hanya komponen terhubung yang memuat titik itu
+  //         yang diekstrak ulang. Komponen lain memakai poligon cache —
+  //         memindahkan 1 titik di gambar 1000 loop = 1 komponen, bukan
+  //         seluruh dokumen.
+  //
+  // Kejadian aneh apa pun di jalur FAST jatuh ke FULL — kebenaran di atas
+  // kecepatan, selalu.
+
+  // loopCache / loopsDeferred dideklarasi di atas (deklarasi state dokumen);
+  // loopBuild: state inkremental persisten (null = jalur FULL)
+  let loopBuild = null;
+
+  // Tanda tangan struktural: entity ids + jenis + titik miliknya (+ layer),
+  // plus constraint coincident. Apa pun yang mengubah ini = rebuild FULL;
+  // pergerakan koordinat murni tidak mengubahnya dan mengambil jalur FAST.
+  function loopStructuralSig() {
+    let s = '';
+    for (const id in state.entities) {
+      const e = state.entities[id];
+      if (e.type === 'part') continue;
+      if (e.type === 'line') s += id + 'L' + layerOf(e) + ':' + e.a + ',' + e.b + ';';
+      else if (e.type === 'arc') s += id + 'A' + layerOf(e) + ':' + e.s + ',' + e.e + ';';
+      else if (e.type === 'circle') s += id + 'C' + layerOf(e) + ':' + e.c + ';';
+      else if (e.type === 'spline') s += id + 'S' + layerOf(e) + (e.closed ? 'c' : 'o') + (e.pts ? e.pts.join(',') : '') + ';';
     }
-    if (loopCache) return loopCache;
+    for (const cid in state.constraints) {
+      const c = state.constraints[cid];
+      if (c.type === 'coincident') s += cid + 'X' + c.p1 + ',' + c.p2 + ';';
+    }
+    return s;
+  }
+
+  // --- weld grid persisten: Map<cx, Map<cy, pid[]>> (kunci numerik, tanpa string) ---
+  function wgridCell(B, x, y, make) {
+    const cx = Math.floor(x / B.cell), cy = Math.floor(y / B.cell);
+    let mx = B.grid.get(cx);
+    if (!mx) { if (!make) return null; mx = new Map(); B.grid.set(cx, mx); }
+    let arr = mx.get(cy);
+    if (!arr) { if (!make) return null; arr = []; mx.set(cy, arr); }
+    return arr;
+  }
+  function wgridAdd(B, pid, x, y) { wgridCell(B, x, y, true).push(+pid); }
+  function wgridRemove(B, pid, x, y) {
+    const arr = wgridCell(B, x, y, false);
+    if (!arr) return;
+    const i = arr.indexOf(+pid);
+    if (i >= 0) arr.splice(i, 1);
+  }
+
+  function loopFlatView(B) {
+    const out = [];
+    for (const l of B.standalone) out.push(l);
+    for (const c of B.comps) {
+      if (c.dead) continue;
+      for (const l of c.loops) out.push(l);
+    }
+    return out;
+  }
+
+  // Ekstraksi loop dari sekumpulan edge (walk trail + bangun poligon).
+  // Dipakai FULL (semua edge) dan FAST (edge satu komponen).
+  function loopExtract(B, edgeKeys) {
+    const out = [];
+    const byComp = new Map();
+    if (!edgeKeys.length) return { loops: out, byComp };
+    const usedEdges = new Set();
+    const noLoop = new Set();
+    let guardLeft = edgeKeys.length + 1;
+    const bfs = (start, goal, skipKey) => {
+      const prevEdge = {};
+      const prevNode = {};
+      const q = [start];
+      const seen = new Set([start]);
+      for (let qi = 0; qi < q.length; qi++) {
+        const u = q[qi];
+        if (u === goal) {
+          const path = [];
+          let cur = goal;
+          while (cur !== start) {
+            path.push(prevEdge[cur]);
+            cur = prevNode[cur];
+          }
+          return path.reverse();
+        }
+        const list = B.adj[u] || [];
+        for (const ek of list) {
+          if (ek === skipKey || usedEdges.has(ek)) continue;
+          const eg = B.edges[ek];
+          const v = eg.aNode === u ? eg.bNode : eg.aNode;
+          if (seen.has(v)) continue;
+          seen.add(v);
+          prevEdge[v] = ek;
+          prevNode[v] = u;
+          q.push(v);
+        }
+      }
+      return null;
+    };
+    const edgesByComp = new Map();
+    for (const key of edgeKeys) {
+      const root = B.edges[key].aNode;
+      if (!edgesByComp.has(root)) edgesByComp.set(root, []);
+      edgesByComp.get(root).push(key);
+    }
+    for (const [root, compKeys] of edgesByComp) {
+      const compLoops = [];
+      for (const startKey of compKeys) {
+        if (guardLeft-- <= 0) break;
+        if (usedEdges.has(startKey) || noLoop.has(startKey)) continue;
+        const startEdge = B.edges[startKey];
+        const path = bfs(startEdge.bNode, startEdge.aNode, startKey);
+        if (!path) { noLoop.add(startKey); continue; }
+        const found = { key: startKey, eg: startEdge, path };
+        const steps = [];
+        let cur = found.eg.aNode;
+        steps.push({ edge: found.eg, from: cur, to: found.eg.bNode });
+        cur = found.eg.bNode;
+        for (const key of found.path) {
+          const eg = B.edges[key];
+          const to = eg.aNode === cur ? eg.bNode : eg.aNode;
+          steps.push({ edge: eg, from: cur, to });
+          cur = to;
+        }
+        usedEdges.add(found.key);
+        for (const key of found.path) usedEdges.add(key);
+        const poly = [];
+        for (const step of steps) {
+          const e = state.entities[step.edge.entity];
+          if (!e) continue;
+          const forward = step.from === step.edge.aNode;
+          let pts = [];
+          if (e.type === 'line') {
+            const a = P(step.edge.pa);
+            const b = P(step.edge.pb);
+            if (!a || !b) continue;
+            const ac = { x: a.x, y: a.y };
+            const bc = { x: b.x, y: b.y };
+            pts = forward ? [ac, bc] : [bc, ac];
+          } else if (e.type === 'arc') {
+            const ad = arcData(e);
+            if (!ad) continue;
+            pts = sampleArc(ad.c, ad.r, ad.a0, ad.sweep, !forward);
+          } else if (e.type === 'spline') {
+            pts = splineSamplesOf(e);
+            if (!forward) pts = pts.slice().reverse();
+          }
+          for (const p of pts) {
+            if (!poly.length || Math.hypot(p.x - poly[poly.length - 1].x, p.y - poly[poly.length - 1].y) > 1e-9) {
+              poly.push(p);
+            }
+          }
+        }
+        if (poly.length > 2) {
+          if (Math.hypot(poly[0].x - poly[poly.length - 1].x, poly[0].y - poly[poly.length - 1].y) < 1e-6) poly.pop();
+          if (poly.length > 2) {
+            let area = 0;
+            for (let i = 0; i < poly.length; i++) {
+              const a = poly[i], b = poly[(i + 1) % poly.length];
+              area += a.x * b.y - b.x * a.y;
+            }
+            compLoops.push({ poly, area: Math.abs(area) / 2, steps });
+          }
+        }
+      }
+      byComp.set(root, compLoops);
+      for (const l of compLoops) out.push(l);
+    }
+    return { loops: out, byComp };
+  }
+
+  function adjRemoveEdge(B, eg) {
+    let l = B.adj[eg.aNode];
+    if (l) { const i = l.indexOf(eg.key); if (i >= 0) l.splice(i, 1); }
+    l = B.adj[eg.bNode];
+    if (l) { const i = l.indexOf(eg.key); if (i >= 0) l.splice(i, 1); }
+    delete B.edges[eg.key];
+  }
+
+  // Rebuild SATU komponen (plus komponen lain yang tertarik oleh weld baru).
+  // Mengembalikan daftar comp index lain yang ikut terkonsumsi.
+  function loopRebuildComp(B, ci, work, changedSet) {
+    const comp = B.comps[ci];
+    const pids = new Map();              // pid -> true (set titik komponen gabungan)
+    const consumedComps = new Set([ci]);
+    const collectComp = (ci2) => {
+      const c2 = B.comps[ci2];
+      if (!c2 || c2.dead) return;
+      for (const [pid, r] of B.roots) {
+        if (B.compOf.get(r) === ci2) pids.set(pid, true);
+      }
+      consumedComps.add(ci2);
+    };
+    collectComp(ci);
+    for (const pid of changedSet) {
+      const r = B.roots.get(pid);
+      if (r != null && B.compOf.get(r) === ci) pids.set(pid, true);
+    }
+    // weld ulang FRESH untuk set ini (union-find lokal — split otomatis benar)
+    const parent = new Map();
+    for (const pid of pids.keys()) parent.set(+pid, +pid);
+    const find = (x) => {
+      x = +x;
+      if (!parent.has(x)) parent.set(x, x);
+      let r = x;
+      while (parent.get(r) !== r) r = parent.get(r);
+      while (parent.get(x) !== r) { const nx = parent.get(x); parent.set(x, r); x = nx; }
+      return r;
+    };
+    const union = (a, b) => {
+      const ra = find(a), rb = find(b);
+      if (ra !== rb) parent.set(rb, ra);
+    };
+    for (const cid in state.constraints) {
+      const c = state.constraints[cid];
+      if (c.type !== 'coincident') continue;
+      if (!state.points[c.p1] || !state.points[c.p2]) continue;
+      if (pids.has(+c.p1) && pids.has(+c.p2)) union(c.p1, c.p2);
+    }
+    // kedekatan via weld grid persisten; tetangga dari komponen LAIN ikut
+    // ditarik masuk (merge), sehingga weld antar komponen tetap benar
+    const cell = B.cell;
+    for (const pid of Array.from(pids.keys())) {
+      const p = P(pid);
+      if (!p) continue;
+      const cx = Math.floor(p.x / cell), cy = Math.floor(p.y / cell);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const mx = B.grid.get(cx + dx);
+          if (!mx) continue;
+          const list = mx.get(cy + dy);
+          if (!list) continue;
+          for (const q of list) {
+            if (q === +pid) continue;
+            const pq = P(q);
+            if (!pq) continue;
+            if (Math.hypot(p.x - pq.x, p.y - pq.y) >= JOIN_TOL) continue;
+            if (!B.sameLayer(pid, q)) continue;
+            if (B.sameEnds.has(Math.min(+pid, q) + ':' + Math.max(+pid, q))) continue;
+            const rq = B.roots.get(q);
+            if (rq != null && !pids.has(q)) {
+              const ci2 = B.compOf.get(rq);
+              if (ci2 != null && !B.comps[ci2].dead && !consumedComps.has(ci2)) {
+                collectComp(ci2);
+                work.add(ci2 === ci ? ci : ci2);
+              } else if (ci2 == null) {
+                pids.set(q, true);            // titik lepas tanpa komponen: ikut set
+              }
+            }
+            union(pid, q);
+          }
+        }
+      }
+    }
+    // buang edge & komponen lama semua yang terkonsumsi (termasuk ci sendiri:
+    // satu komponen bisa TERBELAH menjadi beberapa komponen baru)
+    for (const ci2 of consumedComps) {
+      const c2 = B.comps[ci2];
+      if (c2.dead) continue;
+      for (const ek of c2.edgeKeys) {
+        const eg = B.edges[ek];
+        if (eg) adjRemoveEdge(B, eg);
+      }
+      c2.dead = true;
+      B.compOf.delete(c2.root);
+    }
+    // final roots untuk set
+    const rootMap = new Map();
+    for (const pid of pids.keys()) rootMap.set(+pid, find(+pid));
+    const newRoot = rootMap.size ? rootMap.values().next().value : comp.root;
+    for (const [pid, r] of rootMap) B.roots.set(pid, r);
+    // bangun edge baru untuk entity milik set
+    const addEdge = (entityId, aNode, bNode, pa, pb) => {
+      if (aNode === bNode) return;
+      const key = B.nextEdge++;
+      B.edges[key] = { key, entity: entityId, aNode, bNode, pa, pb };
+      if (!B.adj[aNode]) B.adj[aNode] = [];
+      if (!B.adj[bNode]) B.adj[bNode] = [];
+      B.adj[aNode].push(key);
+      B.adj[bNode].push(key);
+    };
+    const doneEnt = new Set();
+    for (const pid of pids.keys()) {
+      for (const e2 of (pointUses(+pid) || [])) {
+        if (!e2 || doneEnt.has(+e2.id)) continue;
+        doneEnt.add(+e2.id);
+        if (e2.type === 'line') {
+          if (!P(e2.a) || !P(e2.b)) continue;
+          addEdge(+e2.id, find(e2.a), find(e2.b), e2.a, e2.b);
+        } else if (e2.type === 'arc') {
+          if (!P(e2.s) || !P(e2.e)) continue;
+          addEdge(+e2.id, find(e2.s), find(e2.e), e2.s, e2.e);
+        } else if (e2.type === 'spline' && !e2.closed) {
+          const sids = entityPointIds(e2).filter(x => P(x));
+          if (sids.length < 2) continue;
+          const spa = P(sids[0]), spb = P(sids[sids.length - 1]);
+          const nearClosed = spa && spb && Math.hypot(spa.x - spb.x, spa.y - spb.y) < JOIN_TOL;
+          if (nearClosed && sids.length > 2) continue;   // standalone: disegarkan terpisah
+          const sa = sids[0], sb = sids[sids.length - 1];
+          if (+sa === +sb) continue;
+          addEdge(+e2.id, find(sa), find(sb), sa, sb);
+        }
+      }
+    }
+    // kumpulkan edge milik set (yang baru dibangun): node mereka adalah root lokal
+    const localRoots = new Set();
+    for (const [pid, r] of rootMap) localRoots.add(r);
+    const newEdgeKeys = [];
+    for (const key in B.edges) {
+      const eg = B.edges[key];
+      if (localRoots.has(eg.aNode) && localRoots.has(eg.bNode)) newEdgeKeys.push(+key);
+    }
+    const ex = loopExtract(B, newEdgeKeys);
+    // satu komponen lama bisa jadi beberapa komponen baru (terbelah): satu
+    // entry comps baru per kelompok akar
+    const newRoots = new Set(rootMap.values());
+    for (const [root, ls] of ex.byComp) {
+      const ciN = B.comps.length;
+      const ek = [];
+      for (const l of ls) for (const st of l.steps) ek.push(st.edge.key);
+      B.comps.push({ root, edgeKeys: ek, loops: ls });
+      B.compOf.set(root, ciN);
+      newRoots.delete(root);
+    }
+    // akar yang tersisa (titik terisolasi tanpa cycle) tidak punya komponen
+    for (const r of newRoots) B.compOf.delete(r);
+    // standalone near-closed spline milik set: segarkan poligonnya
+    for (let i = 0; i < B.standalone.length; i++) {
+      const rec = B.standalone[i];
+      if (rec.kind !== 'spline') continue;
+      const e = state.entities[rec.entity];
+      if (!e || !pids.has(+e.pts[0])) continue;
+      const poly = splineSamplesOf(e);
+      if (poly.length > 2) {
+        let ar = 0;
+        for (let k = 0; k < poly.length; k++) {
+          const a = poly[k], b = poly[(k + 1) % poly.length];
+          ar += a.x * b.y - b.x * a.y;
+        }
+        rec.loop.poly = poly;
+        rec.loop.area = Math.abs(ar) / 2;
+        rec.loop.steps = [];
+      }
+    }
+    return;
+  }
+
+  // Jalur FAST: hanya titik yang berpindah yang diproses.
+  function loopIncremental(B) {
+    const changed = [];
+    for (const [pid, c] of B.coords) {
+      const p = P(pid);
+      if (!p) return null;                       // titik hilang -> FULL
+      if (p.x !== c.x || p.y !== c.y) changed.push(+pid);
+    }
+    if (!changed.length) { loopCache = loopFlatView(B); return loopCache; }
+    const affectedComps = new Set();
+    const refreshStandalone = new Set();
+    const considerPoint = (pid) => {
+      const root = B.roots.get(+pid);
+      if (root != null) {
+        const ci = B.compOf.get(root);
+        if (ci != null && !B.comps[ci].dead) affectedComps.add(ci);
+      } else {
+        // titik tanpa komponen yang berpindah bisa baru SAAT INI berada dalam
+        // JOIN_TOL dari titik milik komponen lain: probe tetangganya
+        const p = P(pid);
+        if (p) {
+          const cx = Math.floor(p.x / B.cell), cy = Math.floor(p.y / B.cell);
+          for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+              const mx = B.grid.get(cx + dx);
+              if (!mx) continue;
+              const list = mx.get(cy + dy);
+              if (!list) continue;
+              for (const q of list) {
+                if (q === +pid) continue;
+                const rq = B.roots.get(q);
+                if (rq == null) continue;
+                const ci = B.compOf.get(rq);
+                if (ci != null && !B.comps[ci].dead) affectedComps.add(ci);
+              }
+            }
+          }
+        }
+      }
+      for (const e2 of (pointUses(+pid) || [])) {
+        if (!e2) continue;
+        if (e2.type === 'circle' || (e2.type === 'spline' && e2.closed)) {
+          for (let i = 0; i < B.standalone.length; i++) {
+            if (B.standalone[i].entity === +e2.id) refreshStandalone.add(i);
+          }
+          continue;
+        }
+        let r = null;
+        if (e2.type === 'line') r = B.roots.get(+e2.a);
+        else if (e2.type === 'arc') r = B.roots.get(+e2.s);
+        else if (e2.type === 'spline' && !e2.closed && e2.pts && e2.pts.length) r = B.roots.get(+e2.pts[0]);
+        if (r != null) {
+          const ci = B.compOf.get(r);
+          if (ci != null && !B.comps[ci].dead) affectedComps.add(ci);
+        }
+      }
+    };
+    for (const pid of changed) considerPoint(pid);
+    // segarkan standalone loop (circle / closed spline) milik titik berubah
+    for (const idx of refreshStandalone) {
+      const rec = B.standalone[idx];
+      const e = state.entities[rec.entity];
+      if (!e) continue;
+      if (e.type === 'circle') {
+        const c = P(e.c);
+        if (c) {
+          const poly = [];
+          const n = 72;
+          for (let i = 0; i < n; i++) {
+            const t = TAU * i / n;
+            poly.push({ x: c.x + Math.cos(t) * e.r, y: c.y + Math.sin(t) * e.r });
+          }
+          rec.loop.poly = poly;
+          rec.loop.area = Math.PI * e.r * e.r;
+        }
+      } else if (e.type === 'spline') {
+        const poly = splineSamplesOf(e);
+        if (poly.length > 2) {
+          let ar = 0;
+          for (let k = 0; k < poly.length; k++) {
+            const a = poly[k], b = poly[(k + 1) % poly.length];
+            ar += a.x * b.y - b.x * a.y;
+          }
+          rec.loop.poly = poly;
+          rec.loop.area = Math.abs(ar) / 2;
+          rec.loop.steps = [];
+        }
+      }
+    }
+    if (affectedComps.size) {
+      const work = new Set(affectedComps);
+      const changedSet = new Set(changed);
+      while (work.size) {
+        const ci = work.values().next().value;
+        work.delete(ci);
+        const comp = B.comps[ci];
+        if (!comp || comp.dead) continue;
+        loopRebuildComp(B, ci, work, changedSet);
+      }
+    }
+    // snapshot koordinat + pindahkan weld grid untuk titik berubah
+    for (const pid of changed) {
+      const c = B.coords.get(pid);
+      const p = P(pid);
+      if (!p || !c) continue;
+      wgridRemove(B, pid, c.x, c.y);
+      wgridAdd(B, pid, p.x, p.y);
+      c.x = p.x; c.y = p.y;
+    }
+    loopCache = loopFlatView(B);
+    return loopCache;
+  }
+
+  function loopFullBuild(sig) {
     const loops = [];
     const usedPoints = new Set();
     // Which layer(s) each point belongs to. Loop detection must not join
@@ -8432,7 +8897,6 @@
       if (!la || !lb || la.size !== 1 || lb.size !== 1) return false;
       return la.has(Array.from(lb)[0]);
     };
-
     const parent = {};
     const find = (x) => {
       x = +x;
@@ -8453,22 +8917,8 @@
       const c = state.constraints[cid];
       if (c.type !== 'coincident') continue;
       if (!state.points[c.p1] || !state.points[c.p2]) continue;
-      // a coincident constraint may legitimately tie two layers together — it
-      // was made on purpose — so it is honoured as-is
       union(c.p1, c.p2);
     }
-    // Weld ends that the machine would treat as touching. A grid keeps this near
-    // linear even with thousands of points (the old pairwise scan was quadratic
-    // and used a 1e-6 tolerance, which never bridged a real drawing's gap).
-    // Only points on the SAME layer weld: another layer is reference geometry,
-    // not part of this shape.
-    //
-    // One exception guards tiny drawings: the two ends of ONE entity are never
-    // welded to each other. A segment shorter than JOIN_TOL (a detail on a
-    // small import) would otherwise collapse into a self-loop and vanish from
-    // the graph — chain 64->35->40->41->38->39 with every span ~0.08 mm turned
-    // into a single node and the whole shape stopped being a loop. Same-entity
-    // ends keep separate nodes; only gaps BETWEEN entities close up.
     const sameEnds = new Set();
     for (const id in state.entities) {
       const e = state.entities[id];
@@ -8485,13 +8935,21 @@
     }
     const ids = Array.from(usedPoints);
     const cell = Math.max(JOIN_TOL, 1e-4);
-    const grid = new Map();
+    const B = loopBuild = {
+      sig, cell,
+      coords: new Map(),
+      roots: new Map(),
+      ptLayers, sameEnds, sameLayer,
+      grid: new Map(),
+      edges: {}, adj: {}, nextEdge: 1,
+      comps: [], compOf: new Map(),
+      standalone: [],
+    };
     for (const pid of ids) {
       const p = P(pid);
       if (!p) continue;
-      const k = Math.floor(p.x / cell) + ':' + Math.floor(p.y / cell);
-      if (!grid.has(k)) grid.set(k, []);
-      grid.get(k).push(+pid);
+      wgridAdd(B, pid, p.x, p.y);
+      B.coords.set(+pid, { x: p.x, y: p.y });
     }
     for (const pid of ids) {
       const p = P(pid);
@@ -8499,7 +8957,9 @@
       const cx = Math.floor(p.x / cell), cy = Math.floor(p.y / cell);
       for (let dx = -1; dx <= 1; dx++) {
         for (let dy = -1; dy <= 1; dy++) {
-          const list = grid.get((cx + dx) + ':' + (cy + dy));
+          const mx = B.grid.get(cx + dx);
+          if (!mx) continue;
+          const list = mx.get(cy + dy);
           if (!list) continue;
           for (const q of list) {
             if (+q <= +pid) continue;
@@ -8513,20 +8973,15 @@
         }
       }
     }
-
-    const edges = {};
-    const adj = {};
-    let nextEdge = 1;
     const addEdge = (entityId, aNode, bNode, pa, pb) => {
       if (aNode === bNode) return;
-      const key = nextEdge++;
-      edges[key] = { key, entity: entityId, aNode, bNode, pa, pb };
-      if (!adj[aNode]) adj[aNode] = [];
-      if (!adj[bNode]) adj[bNode] = [];
-      adj[aNode].push(key);
-      adj[bNode].push(key);
+      const key = B.nextEdge++;
+      B.edges[key] = { key, entity: entityId, aNode, bNode, pa, pb };
+      if (!B.adj[aNode]) B.adj[aNode] = [];
+      if (!B.adj[bNode]) B.adj[bNode] = [];
+      B.adj[aNode].push(key);
+      B.adj[bNode].push(key);
     };
-
     for (const id in state.entities) {
       const e = state.entities[id];
       if (e.type === 'line') {
@@ -8536,10 +8991,6 @@
         if (!P(e.s) || !P(e.e)) continue;
         addEdge(+id, find(e.s), find(e.e), e.s, e.e);
       } else if (e.type === 'spline' && !e.closed) {
-        // Open curves are ordinary edges of the loop graph, so a shape made of
-        // lines and converted curves still closes into one loop. A curve that
-        // stops within JOIN_TOL of its own start counts as closed: that is what
-        // an exported outline with a hairline gap looks like.
         const sids = entityPointIds(e).filter(pid => P(pid));
         if (sids.length < 2) continue;
         const spa = P(sids[0]), spb = P(sids[sids.length - 1]);
@@ -8554,7 +9005,7 @@
               const a = poly[i], b = poly[(i + 1) % poly.length];
               ar += a.x * b.y - b.x * a.y;
             }
-            loops.push({ poly, area: Math.abs(ar) / 2, steps: [], splineEntity: +id });
+            B.standalone.push({ kind: 'spline', entity: +id, loop: { poly, area: Math.abs(ar) / 2, steps: [], splineEntity: +id } });
           }
           continue;
         }
@@ -8570,13 +9021,8 @@
           const t = TAU * i / n;
           poly.push({ x: c.x + Math.cos(t) * e.r, y: c.y + Math.sin(t) * e.r });
         }
-        loops.push({ circle: true, entity: +id, poly, area: Math.PI * e.r * e.r });
+        B.standalone.push({ kind: 'circle', entity: +id, loop: { circle: true, entity: +id, poly, area: Math.PI * e.r * e.r } });
       } else if (e.type === 'spline' && e.closed) {
-        // Sample the fill exactly like the outline (splineSamplesOf). The old
-        // code popped a duplicated closing node and then sampled with the
-        // un-sliced handle arrays: the length mismatch made splineSamples swap
-        // in autoHandles, so the fill followed an approximated curve while the
-        // outline followed the real handles.
         const poly = splineSamplesOf(e);
         if (poly.length > 2) {
           let ar = 0;
@@ -8584,131 +9030,55 @@
             const a = poly[i], b = poly[(i + 1) % poly.length];
             ar += a.x * b.y - b.x * a.y;
           }
-          loops.push({ poly, area: Math.abs(ar) / 2, steps: [], splineEntity: +id });
+          B.standalone.push({ kind: 'spline', entity: +id, loop: { poly, area: Math.abs(ar) / 2, steps: [], splineEntity: +id } });
         }
       }
     }
-
-    const usedEdges = new Set();
-    const bfs = (start, goal, skipKey) => {
-      const prevEdge = {};
-      const prevNode = {};
-      const q = [start];
-      const seen = new Set([start]);
-      for (let qi = 0; qi < q.length; qi++) {
-        const u = q[qi];
-        if (u === goal) {
-          const path = [];
-          let cur = goal;
-          while (cur !== start) {
-            path.push(prevEdge[cur]);
-            cur = prevNode[cur];
-          }
-          return path.reverse();
-        }
-        const list = adj[u] || [];
-        for (const ek of list) {
-          if (ek === skipKey || usedEdges.has(ek)) continue;
-          const eg = edges[ek];
-          const v = eg.aNode === u ? eg.bNode : eg.aNode;
-          if (seen.has(v)) continue;
-          seen.add(v);
-          prevEdge[v] = ek;
-          prevNode[v] = u;
-          q.push(v);
-        }
-      }
-      return null;
-    };
-
-    const edgeKeys = Object.keys(edges).map(Number);
-    // A cycle can never leave its union-find component, so every BFS is confined
-    // to the component of the edge it starts from. Before this the inner scan
-    // walked the WHOLE edge list for each found loop and the BFS could wander
-    // across the entire graph: O(E·(E+V)), which is what made the synchronous
-    // rebuild on mouse-up show up as a hitch. Grouping by component first makes
-    // the extraction O(E+V+Σ loop length).
-    const edgesByComp = new Map();
-    for (const key of edgeKeys) {
-      const root = edges[key].aNode;         // aNode/bNode are union-find roots
-      if (!edgesByComp.has(root)) edgesByComp.set(root, []);
-      edgesByComp.get(root).push(key);
+    for (const pid of usedPoints) B.roots.set(pid, find(pid));
+    const edgeKeys = [];
+    for (const key in B.edges) edgeKeys.push(+key);
+    const ex = loopExtract(B, edgeKeys);
+    for (const [root, compLoops] of ex.byComp) {
+      const ci = B.comps.length;
+      const compEdgeKeys = [];
+      for (const l of compLoops) for (const st of l.steps) compEdgeKeys.push(st.edge.key);
+      B.comps.push({ root, edgeKeys: compEdgeKeys, loops: compLoops });
+      B.compOf.set(root, ci);
     }
-    // Every found loop consumes at least one edge, so edgeKeys.length is a
-    // natural bound — the old fixed 128 silently dropped loops on drawings
-    // with more contours (typical DXF import). An edge with no cycle through
-    // it can never gain one while loops are extracted (edges are only removed),
-    // so failed searches are remembered instead of repeated.
-    const noLoop = new Set();
-    let guardLeft = edgeKeys.length + 1;
-    for (const [, compKeys] of edgesByComp) {
-      for (const startKey of compKeys) {
-        if (guardLeft-- <= 0) break;
-        if (usedEdges.has(startKey) || noLoop.has(startKey)) continue;
-        const startEdge = edges[startKey];
-        const path = bfs(startEdge.bNode, startEdge.aNode, startKey);
-        if (!path) { noLoop.add(startKey); continue; }
-        const found = { key: startKey, eg: startEdge, path };
-        const steps = [];
-        let cur = found.eg.aNode;
-        steps.push({ edge: found.eg, from: cur, to: found.eg.bNode });
-        cur = found.eg.bNode;
-        for (const key of found.path) {
-          const eg = edges[key];
-          const to = eg.aNode === cur ? eg.bNode : eg.aNode;
-          steps.push({ edge: eg, from: cur, to });
-          cur = to;
-        }
-        usedEdges.add(found.key);
-        for (const key of found.path) usedEdges.add(key);
-
-        const poly = [];
-        for (const step of steps) {
-          const e = state.entities[step.edge.entity];
-          if (!e) continue;
-          const forward = step.from === step.edge.aNode;
-          let pts = [];
-          if (e.type === 'line') {
-            const a = P(step.edge.pa);
-            const b = P(step.edge.pb);
-            if (!a || !b) continue;
-            // copies: a live point object would follow a later drag and leave a
-            // needle sticking out of the otherwise frozen loop polygon
-            const ac = { x: a.x, y: a.y };
-            const bc = { x: b.x, y: b.y };
-            pts = forward ? [ac, bc] : [bc, ac];
-          } else if (e.type === 'arc') {
-            const ad = arcData(e);
-            if (!ad) continue;
-            pts = sampleArc(ad.c, ad.r, ad.a0, ad.sweep, !forward);
-          } else if (e.type === 'spline') {
-            pts = splineSamplesOf(e);
-            if (!forward) pts = pts.slice().reverse();
-          }
-          for (const p of pts) {
-            if (!poly.length || Math.hypot(p.x - poly[poly.length - 1].x, p.y - poly[poly.length - 1].y) > 1e-9) {
-              poly.push(p);
-            }
-          }
-        }
-        if (poly.length > 2) {
-          if (Math.hypot(poly[0].x - poly[poly.length - 1].x, poly[0].y - poly[poly.length - 1].y) < 1e-6) poly.pop();
-          if (poly.length > 2) {
-            let area = 0;
-            for (let i = 0; i < poly.length; i++) {
-              const a = poly[i];
-              const b = poly[(i + 1) % poly.length];
-              area += a.x * b.y - b.x * a.y;
-            }
-            loops.push({ poly, area: Math.abs(area) / 2, steps });
-          }
-        }
-      }   // end: for each start edge in this component
-    }     // end: for each component
-
-    loopCache = loops;
-    return loops;
+    loopCache = loopFlatView(B);
+    lastLoopBuildMs = performance.now() - loopFullBuildT0;
   }
+
+  let lastLoopBuildMs = 0;
+  let loopFullBuildT0 = 0;
+
+  function loopForceFullRebuild() {
+    loopBuild = null;
+    loopCache = null;
+    loopsDeferred = false;
+  }
+
+  function getLoops() {
+    if (loopsDeferred && !ui.drag) {
+      loopsDeferred = false;
+      loopCache = null;
+    }
+    if (loopCache) return loopCache;
+    const sig = loopStructuralSig();
+    if (loopBuild && loopBuild.sig === sig) {
+      try {
+        loopFullBuildT0 = performance.now();
+        const r = loopIncremental(loopBuild);
+        if (r) { lastLoopBuildMs = performance.now() - loopFullBuildT0; return loopCache; }
+      } catch (err) {
+        // jalur FAST menemui keadaan aneh: jatuh ke FULL, selalu benar
+      }
+    }
+    loopFullBuildT0 = performance.now();
+    loopFullBuild(sig);
+    return loopCache;
+  }
+
 
 
   function drawGrid() {
@@ -21260,6 +21630,13 @@ function cmdSplitCurve() {
     if (key === 'F9') {
       ev.preventDefault();
       solveAll();
+      return;
+    }
+    if (key === 'F8') {
+      ev.preventDefault();
+      loopForceFullRebuild();
+      render();
+      toast('Loops rebuilt penuh (F8)');
       return;
     }
     if (key === ';' || key === ':') {
