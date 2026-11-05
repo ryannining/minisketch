@@ -8906,22 +8906,56 @@
     gray: 'rgba(120, 130, 145, 0.20)'
   };
 
+  // ALL loop fills render into one offscreen layer, cached per
+  // (geometry, camera, dim, active layer, canvas size): fills only change when
+  // the geometry or the camera changes — hover / selection / marker drags do
+  // not touch them. Per frame the layer is one drawImage instead of 1.4k
+  // transparent fills, each a read-modify-write pass over overlapping pixels.
+  // Inside the layer the fills are still batched per style (yellow / gray /
+  // dimmed) so the build itself is ~3 fill calls, not one per loop.
+  let loopFillLayer = null;
+  let loopFillLayerCtx = null;
+  let loopFillLayerKey = null;
   function drawLoopFills() {
-    const loops = getLoops();
-    for (const loop of loops) {
-      const d = loopFrameData(loop);
-      const fill = d.fill;
-      if (fill === 'none') continue;
-      if (!d.visible) continue;
-      const p = d.path;
-      if (!p) continue;
-      // a fill on a dimmed layer fades with the rest of that layer
-      const fade = ui.dimOthers && loopLayerId(loop) !== ui.activeLayer;
-      if (fade) { ctx.save(); ctx.globalAlpha = 0.5; }
-      ctx.fillStyle = LOOP_FILL_TINT[fill];
-      ctx.fill(p);
-      if (fade) ctx.restore();
+    const key = geometryEpoch + '|' + view.zoom + '|' + view.ox + '|' + view.oy + '|' +
+      DPR + '|' + (ui.dimOthers ? 1 : 0) + '|' + ui.activeLayer + '|' + W + 'x' + H;
+    if (!loopFillLayer) {
+      loopFillLayer = document.createElement('canvas');
+      loopFillLayerCtx = loopFillLayer.getContext('2d');
     }
+    const pw = Math.max(1, Math.round(W * DPR));
+    const ph = Math.max(1, Math.round(H * DPR));
+    if (loopFillLayer.width !== pw || loopFillLayer.height !== ph) {
+      loopFillLayer.width = pw;
+      loopFillLayer.height = ph;
+      loopFillLayerKey = null;
+    }
+    if (loopFillLayerKey !== key) {
+      const lc = loopFillLayerCtx;
+      lc.setTransform(DPR, 0, 0, DPR, 0, 0);
+      lc.clearRect(0, 0, W, H);
+      const groups = new Map();
+      for (const loop of getLoops()) {
+        const d = loopFrameData(loop);
+        if (d.fill === 'none' || !d.visible || !d.path) continue;
+        const fade = ui.dimOthers && loopLayerId(loop) !== ui.activeLayer;
+        const style = d.fill + (fade ? '|dim' : '');
+        let p = groups.get(style);
+        if (!p) { p = new Path2D(); groups.set(style, p); }
+        p.addPath(d.path);
+      }
+      for (const [style, p] of groups) {
+        const bar = style.indexOf('|');
+        const fillName = bar < 0 ? style : style.slice(0, bar);
+        lc.save();
+        if (bar >= 0) lc.globalAlpha = 0.5;
+        lc.fillStyle = LOOP_FILL_TINT[fillName];
+        lc.fill(p);
+        lc.restore();
+      }
+      loopFillLayerKey = key;
+    }
+    ctx.drawImage(loopFillLayer, 0, 0, W, H);
   }
 
   // The layer a loop lives on: the first entity that makes it up.
@@ -8944,23 +8978,35 @@
 
   function drawLoops() {
     if (!ui.showLoops) return;
+    // batched: two tint groups (selected / plain) built from the cached per-
+    // loop paths — 2 fill calls per frame instead of one per loop. The tints
+    // are alpha 0.045 / 0.10: each individual fill was near-invisible but
+    // still a full read-modify-write pass over the loop's pixels.
+    const selPath = new Path2D();
+    let hasSel = false;
+    const plainPath = new Path2D();
+    let hasPlain = false;
     const loops = getLoops();
     for (let i = 0; i < loops.length; i++) {
       const loop = loops[i];
-      if (!loopVisibleOnCanvas(loop)) continue;
       // the bright tint / dashed outline marks a SELECTED loop — the same rule
       // as the Selection count and the list highlight. Click-focus only targets
       // the Fill chips and must never paint, or a deselected loop keeps looking
       // selected.
       const d = loopFrameData(loop);
-      if (!d.visible) continue;
-      const p = d.path;
-      if (!p) continue;
+      if (!d.visible || !d.path) continue;
       // fills only — the outline stroke (and its dashes) just cost frame time
-      if (d.fill === 'none') {
-        ctx.fillStyle = d.sel ? 'rgba(37, 99, 235, 0.10)' : 'rgba(22, 163, 74, 0.045)';
-        ctx.fill(p);
-      }
+      if (d.fill !== 'none') continue;
+      if (d.sel) { selPath.addPath(d.path); hasSel = true; }
+      else { plainPath.addPath(d.path); hasPlain = true; }
+    }
+    if (hasSel) {
+      ctx.fillStyle = 'rgba(37, 99, 235, 0.10)';
+      ctx.fill(selPath);
+    }
+    if (hasPlain) {
+      ctx.fillStyle = 'rgba(22, 163, 74, 0.045)';
+      ctx.fill(plainPath);
     }
   }
 
