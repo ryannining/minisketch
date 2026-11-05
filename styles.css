@@ -1069,7 +1069,7 @@ details[open] > .settings-group-title::before { content: '\25BE'; }
 .loop-dot.fill-yellow { background: #eab308; border-color: #eab308; }
 .loop-dot.fill-gray { background: #8b929c; border-color: #8b929c; }
 
-.text-box { width: 360px; }
+.text-box { width: 410px; }
 
 .fit-box { width: 380px; }
 
@@ -1106,6 +1106,16 @@ details[open] > .settings-group-title::before { content: '\25BE'; }
   border-color: var(--accent-border);
   background: var(--input-focus);
   box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+#text-preview {
+  display: block;
+  width: 100%;
+  height: auto;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--input);
 }
 
 .cnc-status {

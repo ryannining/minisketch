@@ -88,6 +88,7 @@
     for (const f of FONT_INDEX) {
       if (f.category && !seen.includes(f.category)) seen.push(f.category);
     }
+    if (imported.length && !seen.includes('Imported')) seen.push('Imported');
     return seen;
   };
 
@@ -613,11 +614,17 @@
   }
 
   // Import a font file: register now, persist for every future session.
+  // `registered` MUST be marked: app.js gates all text measurement and the
+  // preview on `registered(family)`, and an imported face that only lands in
+  // document.fonts renders nothing in the app (the classic "import worked but
+  // the text is invisible" — no error, just a frame-only glyph box).
   function importFile(file) {
     return Promise.resolve(file.arrayBuffer()).then(buffer => {
       const family = familyFromBytes(buffer, file.name);
-      buffers.set(family, buffer);
+      const key = faceKey(family, 400, 'normal');
+      buffers.set(key, buffer);
       return registerFace(family, 400, 'normal', buffer.slice(0), file.name).then(() => {
+        registered.add(key);
         imported.push({ family, category: 'Imported', weight: 400, style: 'normal' });
         return storeAll([{ family, category: 'Imported', weight: 400, style: 'normal', bytes: buffer, name: file.name }]);
       }).then(() => family);
@@ -632,6 +639,9 @@
   let imported = [];
 
   // Register every stored font (once, at startup). Resolves when done.
+  // Marks `registered` per member like importFile does — textMetricsOf skips
+  // unregistered fonts, so without this a reloaded document kept every
+  // imported-family text as frame-only (and keepRatio in app.js froze it).
   function loadImported() {
     if (typeof indexedDB === 'undefined') return Promise.resolve();
     return storeList().then(rows => {
@@ -639,9 +649,11 @@
       for (const row of rows) {
         if (!row || !row.family || !row.bytes) continue;
         imported.push({ family: row.family, category: 'Imported', weight: row.weight || 400, style: row.style || 'normal' });
-        if (!registered.has(faceKey(row.family, row.weight || 400, row.style || 'normal'))) {
-          buffers.set(row.family, row.bytes);
+        const key = faceKey(row.family, row.weight || 400, row.style || 'normal');
+        if (!registered.has(key)) {
+          buffers.set(key, row.bytes);
           jobs.push(registerFace(row.family, row.weight || 400, row.style || 'normal', row.bytes, row.name || row.family)
+            .then(() => { registered.add(key); })
             .catch(err => {
               if (typeof console !== 'undefined' && console.warn) console.warn('[fonts]', row.family, err);
             }));

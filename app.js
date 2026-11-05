@@ -9266,6 +9266,8 @@
 
   function textMetricsOf(e) {
     if (isSingleLineFont(e)) return textMetricsSingle(e);
+    const reg = window.MiniSketchFonts;
+    if (reg && !reg.registered(e.font || 'sans-serif')) return null; // font not loaded yet: skip, frame only
     const key = [e.text, e.font, e.weight, e.italic ? 1 : 0, e.tracking || 0, e.align || '', textLeadingOf(e), fontEpoch()].join('|');
     const cached = textMeasureCache.get(key);
     if (cached) return cached;
@@ -9332,6 +9334,7 @@
 
   function textNativeRatio(e) {
     const m = textMetricsOf(e);
+    if (!m) return 1; // font still loading: neutral ratio until glyph metrics exist
     return m.width / m.height;
   }
 
@@ -9353,22 +9356,32 @@
   // One aspect constraint per framed object (text / picture / pasted group),
   // kept in sync with its native ratio. The solver drops it when both handle
   // lines are dimensioned (see solveSketch).
-  function ensureTextAspect(e) {
+  //
+  // `keepRatio` is for document load: the constraint already carries the SAVED
+  // ratio (loadDocument copies it verbatim). While the font is still loading,
+  // a fresh measurement would use the fallback face and bake that wrong ratio
+  // into the constraint — the solver then reshapes the frame to match it and
+  // the text "narrows" after every reload. So on load with an unregistered
+  // font, only re-pin p0/pw/ph and leave the saved ratio alone; the fonts
+  // below call ensureTextAspect again once every wanted face has landed.
+  function ensureTextAspect(e, keepRatio) {
     if (!e || (e.type !== 'text' && e.type !== 'art' && e.type !== 'image')) return null;
-    const ratio = framedNativeRatio(e);
+    const fontPending = keepRatio && e.type === 'text' && window.MiniSketchFonts &&
+      !window.MiniSketchFonts.registered(e.font || 'sans-serif');
+    const ratio = fontPending ? null : framedNativeRatio(e);
     for (const cid in state.constraints) {
       const c = state.constraints[cid];
       if (c.type !== 'aspect' || +c.entity !== +e.id) continue;
       c.p0 = +e.p0;
       c.pw = +e.pw;
       c.ph = +e.ph;
-      c.ratio = ratio;
+      if (ratio != null) c.ratio = ratio;
       return c;
     }
     const id = newId();
     state.constraints[id] = {
       id, type: 'aspect', entity: +e.id,
-      p0: +e.p0, pw: +e.pw, ph: +e.ph, ratio
+      p0: +e.p0, pw: +e.pw, ph: +e.ph, ratio: ratio != null ? ratio : 1
     };
     return state.constraints[id];
   }
@@ -9521,6 +9534,28 @@
     const gg = textGeom(e);
     if (!gg) return;
     const m = textMetricsOf(e);
+    if (!m) {
+      // font still loading (e.g. imported from IndexedDB on reload): draw the
+      // frame only, glyphs render once the font lands and bumpEpoch re-draws.
+      const corners = [
+        gg.p0,
+        gg.pw,
+        { x: gg.p0.x + gg.A.x + gg.B.x, y: gg.p0.y + gg.A.y + gg.B.y },
+        gg.ph
+      ].map(q => w2s(q.x, q.y));
+      ctx.save();
+      ctx.strokeStyle = colorOf(e);
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(corners[0].x, corners[0].y);
+      for (let i = 1; i < corners.length; i++) ctx.lineTo(corners[i].x, corners[i].y);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+      return;
+    }
     const o = w2s(gg.p0.x, gg.p0.y);
     const zx = view.zoom / m.width;
     const zy = view.zoom / m.height;
@@ -14423,6 +14458,67 @@
     state.constraints[c.id] = c;
   }
 
+  function renderTextPreview() {
+    const cvs = document.getElementById('text-preview');
+    if (!cvs) return;
+    const ctx = cvs.getContext('2d');
+    const val = document.getElementById('text-value');
+    const font = document.getElementById('text-font');
+    const weight = document.getElementById('text-weight');
+    const italic = document.getElementById('text-italic');
+    const tracking = document.getElementById('text-tracking');
+    const leading = document.getElementById('text-leading');
+    const text = val ? val.value : '';
+    const family = font ? font.value : 'sans-serif';
+    const wt = weight ? weight.value : '400';
+    const it = italic ? italic.value : '0';
+    const tr = tracking ? parseFloat(tracking.value) : 0;
+    const ld = leading ? parseFloat(leading.value) : 125;
+    const single = HERSHEY_FAMILIES.includes(family);
+    // The preview canvas starts from a blank state: 'currentColor' is not a
+    // valid canvas fillStyle (the assignment is ignored and black is kept),
+    // so black text on the dark input background looked like "no preview".
+    // Resolve the theme ink explicitly instead.
+    let ink = '#000000';
+    try {
+      const got = getComputedStyle(cvs).color;
+      if (got) ink = got;
+    } catch (err) { /* keep the fallback */ }
+    ctx.fillStyle = ink;
+    ctx.clearRect(0, 0, cvs.width, cvs.height);
+    if (!text) return;
+    if (!single && window.MiniSketchFonts && !window.MiniSketchFonts.registered(family)) {
+      // An imported / bundled face may still be arriving: paint the fallback
+      // now, then repaint once it lands. Only repaint when the load actually
+      // registered the face — otherwise an unknown family would re-schedule
+      // itself forever.
+      window.MiniSketchFonts.load(family).then((ok) => {
+        if (!ok) return;
+        const f2 = document.getElementById('text-font');
+        if (f2 && f2.value === family && ui.textEdit) renderTextPreview();
+      }).catch(() => {});
+    }
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const boxW = cvs.width / dpr;
+    const boxH = cvs.height / dpr;
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.fillStyle = ink;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    const size = boxH * 0.72;
+    ctx.font = (it === '1' ? 'italic ' : '') + wt + ' ' + size + 'px ' + family;
+    if ('letterSpacing' in ctx) ctx.letterSpacing = ((tr || 0) / 100) * size + 'px';
+    const measure = ctx.measureText(text);
+    const drawW = measure.width || size * text.length * 0.6;
+    const scale = Math.min(1, boxW / Math.max(drawW, 1));
+    ctx.translate(boxW / 2, boxH / 2);
+    ctx.scale(scale, scale);
+    ctx.fillText(text, 0, 0);
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+    ctx.restore();
+  }
+
   function openTextEditor(id, isNew) {
     const e = state.entities[id];
     if (!e || e.type !== 'text') return;
@@ -14467,6 +14563,7 @@
     grab();
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(grab);
     setTimeout(grab, 40);
+    renderTextPreview();
   }
 
   // Cancelling a BRAND-NEW text must leave nothing behind: the placement
@@ -23546,6 +23643,12 @@ function cmdSplitCurve() {
     if (cncSendBtn) cncSendBtn.addEventListener('click', cncSend);
     const textApply = document.getElementById('text-apply');
     if (textApply) textApply.addEventListener('click', applyTextEditor);
+    const textPreview = document.getElementById('text-preview');
+    const previewInputs = ['text-value','text-font','text-weight','text-italic','text-tracking','text-leading'];
+    for (const id of previewInputs) {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', renderTextPreview);
+    }
     const btnHelp = document.getElementById('btn-help');
     if (btnHelp) btnHelp.addEventListener('click', openHelpModal);
     const langBtns = document.querySelectorAll('[data-help-lang]');
@@ -24376,7 +24479,7 @@ function cmdSplitCurve() {
     }
     for (const eid in state.entities) {
       const ent = state.entities[eid];
-      if (ent.type === 'text' || ent.type === 'art') ensureTextAspect(ent);
+      if (ent.type === 'text' || ent.type === 'art') ensureTextAspect(ent, true);
     }
     if (data.view && isFinite(data.view.zoom)) {
       view = {
@@ -25267,11 +25370,32 @@ function cmdSplitCurve() {
         invalidateLoops();
         render();
       });
-      window.MiniSketchFonts.loadImported().then(() => render());
+      window.MiniSketchFonts.loadImported().then(() => {
+        // Imported faces only just landed: re-measure every text that uses
+        // one. The load path kept the saved ratio while the font was pending
+        // (see ensureTextAspect keepRatio), so this heals old documents to
+        // the real glyph metrics; without it an imported-family text would
+        // keep whatever ratio it was saved with.
+        let touched = false;
+        for (const e of Object.values(state.entities)) {
+          if (e.type === 'text' && e.font && !window.MiniSketchFonts.known(e.font) &&
+            window.MiniSketchFonts.registered(e.font)) {
+            ensureTextAspect(e);
+            touched = true;
+          }
+        }
+        if (touched) requestSolve();
+        invalidateLoops();
+        render();
+      });
       // A document restored from storage keeps its text in whatever font it was
       // written in, and that face is not registered on a fresh page — fonts
       // load on demand. Until it is, the glyph outline is unavailable and the
-      // text cannot be converted. Ask for every family the document uses.
+      // text cannot be converted. Ask for every family the document uses, then
+      // re-measure the aspect with the REAL face: the load path above kept the
+      // saved ratio (see ensureTextAspect keepRatio), so this is what finally
+      // syncs the constraint to the true glyph metrics instead of the
+      // fallback's.
       const wanted = new Set();
       for (const e of Object.values(state.entities)) {
         if (e.type === 'text' && e.font && window.MiniSketchFonts.known(e.font)) {
@@ -25280,7 +25404,16 @@ function cmdSplitCurve() {
       }
       for (const key of wanted) {
         const [fam, w, st] = key.split('|');
-        window.MiniSketchFonts.load(fam, +w, st).then(() => { invalidateLoops(); render(); });
+        window.MiniSketchFonts.load(fam, +w, st).then((ok) => {
+          if (ok) {
+            for (const e of Object.values(state.entities)) {
+              if (e.type === 'text' && e.font === fam) ensureTextAspect(e);
+            }
+            requestSolve();
+          }
+          invalidateLoops();
+          render();
+        });
       }
     }
 
