@@ -15366,6 +15366,7 @@
 
   let selEntPointsCache = null;
   let selEntPointsCacheFor = null;
+  const EMPTY_SET = new Set();
   function drawPoints() {
     // The Points toggle shows the handles of the whole drawing: a point is drawn
     // when its layer is VISIBLE, whatever layer is active. Grabbing is the
@@ -15402,7 +15403,7 @@
     // points owned by selected entities, computed once per SELECTION (not per
     // frame): the cache key is the selection index object, which rebuilds
     // exactly when the selection changes
-    let selEntPoints = selEntPointsCache;
+    let selEntPoints = selEntPointsCache || EMPTY_SET;
     if (selEnts.size && selEntPointsCacheFor !== selIdx) {
       selEntPoints = new Set();
       for (const eid of selEnts) {
@@ -15414,9 +15415,13 @@
       selEntPointsCacheFor = selIdx;
     }
     // marker density: at most one plain marker per 8px screen cell — at low
-    // zoom thousands of them overlap into one blob anyway. Selected and
-    // hovered points are always drawn.
+    // zoom thousands of them overlap into one blob anyway. Selected points are
+    // exempt so a small selection always shows every handle — but a BULK
+    // selection (thousands of blue markers stacked into one blue paste) gets
+    // the same decimation: at that count the dots carry no information per
+    // pixel and the path building cost defeats the zoom.
     const cellSeen = new Set();
+    const decimateSel = selPts.size + selEntPoints.size > 500;
     // spatial cull: at medium/high zoom most of the 24k points sit off-screen;
     // the grid answers which points are even near the viewport. When the query
     // box covers most of the grid (far zoom) it returns null and we fall back
@@ -15463,8 +15468,7 @@
         }
         if (allTiny) continue;
       }
-      if (!isSel && !isHover) {
-        // numeric cell key: a string key allocated a small string per marker
+      if (!isHover && (!isSel || decimateSel)) {
         const k = (((sx / 8) | 0) << 16) | (((sy / 8) | 0) & 0xffff);
         if (cellSeen.has(k)) continue;
         cellSeen.add(k);
