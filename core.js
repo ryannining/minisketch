@@ -2917,8 +2917,84 @@ function cdrTrafoApply(t, x, y) {
   return [t.v0 * x + t.v1 * y + t.x0, t.v3 * x + t.v4 * y + t.y0];
 }
 
-// txsm (X6+ layout) -> the text string, best effort.
+// txsm, versions 800..1599 (libcdr readTxsm middle branch)
+function cdrTxsmTextLegacy(buf, version) {
+  const dv = new DataView(buf.buffer, buf.byteOffset);
+  const end = buf.length;
+  const u32 = (p) => cdrReadU32(dv, p);
+  let text = '';
+  try {
+    let p = 0;
+    const frameFlag = u32(p); p += 4;
+    p += 32;                                    // fixed header block
+    if (version >= 1500) p += 1;
+    const numFrames = u32(p); p += 4;
+    for (let f = 0; f < numFrames && p < end; f++) {
+      p += 4;                                   // frameId
+      p += 48;                                  // frame trafo (6 doubles)
+      if (version > 700) {
+        const onPath = u32(p); p += 4;
+        if (onPath === 1) {
+          p += 4;                               // var1
+          if (version > 1200) p += 8;           // orientation + var2
+          p += 28;                              // var3..mirrorH
+        } else if (version >= 1500) p += 8;
+      }
+      if (!frameFlag) {
+        if (version >= 1500) p += 40;
+        else if (version >= 1400) p += 36;
+        else if (version > 800) p += 34;
+        else if (version >= 800) p += 32;
+      } else if (version >= 1500) p += 4;
+    }
+    const numPara = u32(p); p += 4;
+    for (let j = 0; j < numPara && p < end; j++) {
+      p += 4;                                   // style id
+      p += 1;
+      if (version > 1200 && frameFlag) p += 1;
+      const numStyles = Math.min(u32(p), 64); p += 4;
+      for (let i = 0; i < numStyles && p < end; i++) {
+        p += 2;                                 // num chars using this style
+        const fl2 = buf[p]; p += 1;
+        const fl3 = version >= 800 ? buf[p] : 0; p += 1;
+        if (fl2 & 0x01) p += 4;                 // fontId + charSet
+        if (fl2 & 0x02) p += 4;
+        if (fl2 & 0x04) p += 4;                 // font size (coordinate)
+        if (fl2 & 0x08) p += 4;
+        if (fl2 & 0x10) p += 4;
+        if (fl2 & 0x20) p += 4;
+        if (fl2 & 0x40) p += 4 + (version >= 1300 ? 48 : 0);   // fill
+        if (fl2 & 0x80) p += 4;                                // outline
+        if (fl3 & 0x08) {
+          if (version >= 1300) {
+            const tlen = u32(p); p += 4 + tlen * 2;
+          } else p += 4;
+        }
+        if (fl3 & 0x20) {
+          const flag = buf[p];
+          if (flag) p += 4 + (version >= 1500 ? 48 : 0);
+        }
+      }
+      const numChars = u32(p); p += 4;
+      p += numChars * (version >= 1200 ? 8 : 4);   // char descriptions
+      let numBytes = numChars;
+      if (version >= 1200) { numBytes = u32(p); p += 4; }
+      if (p + numBytes > end) break;
+      text += pdfLatin1(buf.subarray(p, p + numBytes));
+      p += numBytes + 1;                        // 0 ending character
+    }
+    return text.replace(/\u0000/g, '').trim();
+  } catch (err) {
+    return text;
+  }
+}
+
+// txsm -> the text string, best effort. X6+ (>=1600) uses the readTxsm16
+// layout below; versions 800..1599 use the older generic layout ported from
+// libcdr CDRParser::readTxsm (the branch between readTxsm6 and readTxsm16).
 function cdrTxsmText(buf, version) {
+  if (version < 800) return '';
+  if (version >= 800 && version < 1600) return cdrTxsmTextLegacy(buf, version);
   const dv = new DataView(buf.buffer, buf.byteOffset);
   const end = buf.length;
   try {
@@ -3154,15 +3230,24 @@ async function parseCdr(bytes) {
   const chunks = await cdrRiffChunks(root, 12, root.length, 0, []);
   const dvRoot = new DataView(root.buffer, root.byteOffset);
 
-  // version from the vrsn chunk (1700 = X7; legacy files carry a u16)
-  let version = 1700;
+  // version from the vrsn chunk (1700 = X7; legacy files carry a u16).
+  // zipped X4/X6-era files can carry vrsn = 0: fall back to the RIFF form
+  // letter ("CDRD" = 1300 ... "CDRH" = 1600), like libcdr getCDRVersion —
+  // the txsm text layout depends on getting this right.
+  let version = 0;
   for (const c of chunks) {
     if (c.id !== 'vrsn') continue;
     const dv = new DataView(c.buf.buffer, c.buf.byteOffset, c.buf.byteLength);
-    if (c.size >= 12) version = cdrReadU32(dv, c.body + 8) || version;
-    else if (c.size >= 2) version = cdrReadU16(dv, c.body) || version;
+    if (c.size >= 12) version = cdrReadU32(dv, c.body + 8);
+    else if (c.size >= 2) version = cdrReadU16(dv, c.body);
     break;
   }
+  if (!version) {
+    const formChar = pdfLatin1(root.subarray(8, 9));
+    const formVer = formChar >= 'A' && formChar <= 'Z' ? 100 * (formChar.charCodeAt(0) - 55) : 0;
+    if (formVer >= 300) version = formVer;
+  }
+  if (!version) version = 1700;
 
   // external streams: content/data/* listed by content/dataFileList.dat
   const listEntry = zip ? zip.get('content/dataFileList.dat') : null;

@@ -1316,6 +1316,22 @@ details[open] > .settings-group-title::before { content: '\25BE'; }
 .rb-btn.tool-btn { display: inline-flex; }
 .rb-btn.tool-btn span { display: inline; }
 .rb-mini { min-width: 38px; padding: 5px 3px 4px; }
+/* Zoom preset picker (spans two grid cells), Fit sits in the next cell */
+.rb-zoom {
+  grid-column: span 2;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--stage, #11161d);
+  color: var(--ink, #ddd);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rb-zoom:focus { outline: none; border-color: var(--accent, #4f8cff); }
 .rb-mini svg { width: 22px; height: 22px; }
 .rb-mini span {
   display: block;
@@ -1450,6 +1466,44 @@ details[open] > .settings-group-title::before { content: '\25BE'; }
   color: var(--faint);
   margin-bottom: 5px;
 }
+
+/* Plasticity-style pick filter (keys 1/2/3): what the cursor may select.
+   Bright = selectable, very dim with a red tint = locked. */
+.pick-filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.pick-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: none;
+  color: var(--ink, #ddd);
+  cursor: pointer;
+  user-select: none;
+  font-size: 9px;
+  line-height: 1;
+  opacity: 1;
+}
+.pick-btn svg { width: 13px; height: 13px; fill: currentColor; }
+.pick-btn span {
+  font-size: 8.5px;
+  font-weight: 700;
+  color: var(--faint);
+}
+.pick-btn:hover { border-color: var(--accent, #6cf); }
+.pick-btn.is-off {
+  color: var(--danger, #e5484d);      /* red tint: this kind is locked */
+  opacity: 0.28;                      /* ...and very dim */
+}
+.pick-btn.is-off span { color: var(--danger, #e5484d); opacity: 0.9; }
 .stage-layers .layer-tools { display: flex; gap: 3px; margin-top: 5px; }
 .stage-layers .layer-tools .btn { padding: 2px 7px; font-size: 10.5px; }
 

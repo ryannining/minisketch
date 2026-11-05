@@ -53,7 +53,8 @@
     { name: 'Drill (red)', value: '#ff0000' },
     { name: 'Mark (green)', value: '#00ff00' },
     { name: 'Cut tab (maroon)', value: '#800000' },
-    { name: 'Start point (teal)', value: '#008080' }
+    { name: 'Start point (teal)', value: '#008080' },
+    { name: 'Clip (yellow)', value: '#ffff00' }
   ];
 
   // the hex codes on their own, for the import colour mapping
@@ -69,6 +70,7 @@
   let JOIN_TOL = 0.1;
   let NUDGE_STEP = 1;               // mm per arrow key press (Settings)
   let NOTE_SIZE = 3;                // comment text height, mm (Settings)
+  let NOTE_MIN_PX = 20;             // comment text never renders smaller than this many screen px (Settings)
   let NOTE_COLOR = '#ffcc00';       // one colour for all comments (Settings)
   let PART_WIDTH = 2;               // part stroke width, px (Settings)
   // Part stroke: dark green on the light canvas; CANVAS_DARK translates it to
@@ -1175,10 +1177,10 @@
       help: 'Ends closer than this become one node when grouping (Ctrl+G) or offsetting (Ctrl+O).' },
     { group: 'Geometry', key: 'joinTol', label: 'Join tolerance', unit: 'mm',
       def: 0.1, min: 0.001, max: 5, step: 0.01,
-      help: 'The CNC tolerance: points closer than this count as one joint. Used when selecting connected geometry (N), when deciding whether an imported path is closed, and when building loops.' },
+      help: 'The CNC tolerance: points closer than this count as one joint. Used when selecting connected geometry (N), when deciding whether an imported path is closed, and when building loops. Keep it below half your SHORTEST segment: a value larger than a segment welds its ends to the neighbours and the shape stops being a loop.' },
     { group: 'Geometry', key: 'nudgeStep', label: 'Arrow key nudge', unit: 'mm',
       def: 1, min: 0.001, max: 50, step: 0.5,
-      help: 'How far the arrow keys move the selected objects or points.' },
+      help: 'How far the arrow keys move the selected objects or points AT 100% ZOOM. The step follows the view: zoomed out every press covers more world (fast), zoomed in it shrinks for precision. The live value is shown under the scale bar, bottom left.' },
     { group: 'Geometry', key: 'curveFitTol', label: 'Curve fit tolerance', unit: 'mm',
       def: 0.2, min: 0.01, max: 5, step: 0.01,
       help: 'Ctrl+K fits as few cubic curves through a polyline as stay within this distance of it. Smaller = closer to the original, more nodes; larger = fewer, smoother nodes.' },
@@ -1200,6 +1202,9 @@
     { group: 'Comments', key: 'noteSize', label: 'Comment size', unit: 'mm',
       def: 3, min: 0.5, max: 50, step: 0.5,
       help: 'The text height of every comment.' },
+    { group: 'Comments', key: 'noteMinPx', label: 'Comment min size', unit: 'px',
+      def: 20, min: 0, max: 200, step: 1,
+      help: 'Zooming out never shrinks a comment below this many screen pixels; 0 lets it shrink freely.' },
     { group: 'Comments', key: 'noteColor', label: 'Comment color', unit: '', text: true, def: '#ffcc00',
       help: 'One colour for all comments, as a plain hex code like #ffcc00.' },
     { group: 'Geometry', key: 'artTol', label: 'Object detail', unit: 'mm',
@@ -1246,6 +1251,46 @@
   ];
 
   const settings = {};
+
+  // Plasticity-style pick filter: keys 1/2/3 decide what the cursor may select
+  // (points / lines / loops). Default all on. Turn lines + loops off and only
+  // vertices answer a click, so editing points cannot grab a line by accident.
+  // Persisted separately from the settings modal on purpose: it is a mode, not
+  // a tuning value.
+  const PICK_FILTER_KEY = 'minisketch.pickfilter.v1';
+  const pickFilter = { point: true, line: true, loop: true };
+  function loadPickFilter() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(PICK_FILTER_KEY) || 'null');
+      if (stored) for (const k of ['point', 'line', 'loop']) {
+        if (typeof stored[k] === 'boolean') pickFilter[k] = stored[k];
+      }
+    } catch (err) { /* private mode: defaults stay on */ }
+  }
+  function savePickFilter() {
+    try {
+      localStorage.setItem(PICK_FILTER_KEY, JSON.stringify(pickFilter));
+    } catch (err) { /* ignore */ }
+  }
+  function setPickFilter(kind, on) {
+    if (!(kind in pickFilter)) return;
+    pickFilter[kind] = !!on;
+    savePickFilter();
+    syncPickFilterUI();
+    scheduleRender();
+    const label = { point: 'Points', line: 'Lines', loop: 'Loops' }[kind];
+    toast(label + (pickFilter[kind] ? ' selectable' : ' locked'));
+  }
+  function syncPickFilterUI() {
+    const map = { point: 'pick-points', line: 'pick-lines', loop: 'pick-loops' };
+    for (const k in map) {
+      const el = document.getElementById(map[k]);
+      if (el) {
+        el.classList.toggle('is-off', !pickFilter[k]);
+        el.setAttribute('aria-pressed', pickFilter[k] ? 'true' : 'false');
+      }
+    }
+  }
   let CIRCLE_CHORD = 1.5;
   let OFFSET_MITER = 4;
   let OFFSET_TOL = 0.05;
@@ -1331,6 +1376,7 @@
     JOIN_TOL = settings.joinTol;
     NUDGE_STEP = settings.nudgeStep;
     NOTE_SIZE = settings.noteSize;
+    NOTE_MIN_PX = Math.max(0, +settings.noteMinPx || 0);
     NOTE_COLOR = /^#[0-9a-fA-F]{3,8}$/.test(String(settings.noteColor)) ? settings.noteColor : '#ffcc00';
     SPLINE_SEG = settings.splineSeg;
     ARC_SEG = settings.arcSeg;
@@ -2094,11 +2140,6 @@
     if (undoBtn) undoBtn.disabled = history.length === 0;
     const redoBtn = document.getElementById('btn-redo');
     if (redoBtn) redoBtn.disabled = future.length === 0;
-    // quickbar mirrors (tablet: no keyboard shortcuts)
-    const qbUndo = document.getElementById('qb-undo');
-    if (qbUndo) qbUndo.disabled = history.length === 0;
-    const qbRedo = document.getElementById('qb-redo');
-    if (qbRedo) qbRedo.disabled = future.length === 0;
   }
 
   function applySnapshot(str) {
@@ -4261,6 +4302,14 @@
         const e = state.entities[s.id];
         if (!e) continue;
         for (const pid of entityPointIds(e)) ids.add(+pid);
+        // framed objects own their guides: arrow-key / dialog moves must move
+        // the masters too, or the release refit snaps the shape back home
+        if ((e.type === 'art' || e.type === 'text') && Array.isArray(e.guide)) {
+          for (const gid of e.guide) {
+            const g = state.entities[gid];
+            if (g) for (const pid of entityPointIds(g)) ids.add(+pid);
+          }
+        }
       }
     }
     return ids;
@@ -6854,6 +6903,7 @@
   // click must land on the active layer's own loop — or on nothing, never on
   // another layer's shape.
   function hitLoopPicks(world) {
+    if (!pickFilter.loop) return [];   // pick filter: loops locked
     const loops = getLoops();
     const out = [];
     for (const loop of loops) {
@@ -6906,6 +6956,7 @@
     for (const key in state.points) {
       const id = +key;
       if (!pointEditable(id)) continue;
+      if (!pickFilter.point) break;   // pick filter: points locked
       const p = state.points[key];
       const s = w2s(p.x, p.y);
       if (Math.hypot(s.x - pos.x, s.y - pos.y) <= 5) pts.push(id);
@@ -6920,6 +6971,7 @@
     for (const id in state.entities) {
       const e = state.entities[id];
       if (!layerVisible(e) || !entityEditable(e)) continue;
+      if (!pickFilter.line && (e.type === 'line' || e.type === 'arc' || e.type === 'circle' || e.type === 'spline')) continue;
       if (entityScreenDistance(e, pos.x, pos.y) < 9) ents.push(+id);
     }
     if (ents.length) {
@@ -6933,6 +6985,7 @@
 
   function selectLoopBelow(ev) {
     if (ui.tool !== 'select') return;
+    if (!pickFilter.loop) return;   // pick filter: loops locked
     const pos = pointerPos(ev);
     const world = s2w(pos.x, pos.y);
     const loop = pickLoopAt(world, true);
@@ -7335,7 +7388,7 @@
       const p = P(e.p);
       if (!p) return Infinity;
       const s = w2s(p.x, p.y);
-      const h = NOTE_SIZE * view.zoom;
+      const h = noteFontPx();
       ctx.font = h + 'px sans-serif';
       const w = ctx.measureText(e.text || '').width;
       const dx = Math.max(s.x - sx, 0, sx - (s.x + w));
@@ -8093,6 +8146,7 @@
   }
 
   function hitPoint(sx, sy, skip) {
+    if (!pickFilter.point) return null;   // pick filter: points locked
     let best = null;
     let bestD = 9;
     for (const key in state.points) {
@@ -8116,6 +8170,10 @@
     for (const id of hitCandidates(sx, sy, bestD)) {
       const e = state.entities[id];
       if (!e) continue;
+      // Pick filter: when lines are locked, only drafting geometry (the things
+      // a loop is built from) is unreachable; parts, text, notes, art and
+      // images stay clickable so those tools keep working.
+      if (!pickFilter.line && (e.type === 'line' || e.type === 'arc' || e.type === 'circle' || e.type === 'spline')) continue;
       let d = entityScreenDistance(e, sx, sy);
       // A generated object loses ties: the zig-zag's baseline runs collinear
       // with its master line, and without this the line could never be picked.
@@ -8264,6 +8322,27 @@
     // and used a 1e-6 tolerance, which never bridged a real drawing's gap).
     // Only points on the SAME layer weld: another layer is reference geometry,
     // not part of this shape.
+    //
+    // One exception guards tiny drawings: the two ends of ONE entity are never
+    // welded to each other. A segment shorter than JOIN_TOL (a detail on a
+    // small import) would otherwise collapse into a self-loop and vanish from
+    // the graph — chain 64->35->40->41->38->39 with every span ~0.08 mm turned
+    // into a single node and the whole shape stopped being a loop. Same-entity
+    // ends keep separate nodes; only gaps BETWEEN entities close up.
+    const sameEnds = new Set();
+    for (const id in state.entities) {
+      const e = state.entities[id];
+      let a, b;
+      if (e.type === 'line') { a = +e.a; b = +e.b; }
+      else if (e.type === 'arc') { a = +e.s; b = +e.e; }
+      else if (e.type === 'spline') {
+        const sids = entityPointIds(e).filter(pid => P(pid));
+        if (sids.length < 2) continue;
+        a = +sids[0]; b = +sids[sids.length - 1];
+      } else continue;
+      if (a === b) continue;
+      sameEnds.add(Math.min(a, b) + ':' + Math.max(a, b));
+    }
     const ids = Array.from(usedPoints);
     const cell = Math.max(JOIN_TOL, 1e-4);
     const grid = new Map();
@@ -8288,6 +8367,7 @@
             if (!pq) continue;
             if (Math.hypot(p.x - pq.x, p.y - pq.y) >= JOIN_TOL) continue;
             if (!sameLayer(pid, q)) continue;
+            if (sameEnds.has(Math.min(+pid, +q) + ':' + Math.max(+pid, +q))) continue;
             union(pid, q);
           }
         }
@@ -10202,7 +10282,7 @@
       const wx = gg.p0.x + n.u * gg.A.x + n.v * gg.B.x;
       const wy = gg.p0.y + n.u * gg.A.y + n.v * gg.B.y;
       const s = w2s(wx, wy);
-      const h = NOTE_SIZE * view.zoom;
+      const h = noteFontPx();
       ctx.save();
       ctx.font = h + 'px sans-serif';
       ctx.textBaseline = 'top';
@@ -12774,10 +12854,10 @@
         const e = state.entities[+u.id];
         if (e && e.type !== 'note' && e.type !== 'array') lines++;
       }
-      if (lines > 2) out.push({ kind: 'point', id: pid });
+      if (lines > 3) out.push({ kind: 'point', id: pid });
     }
     if (!out.length) {
-      toast('No junction points (used by more than 2 lines)');
+      toast('No junction points (used by more than 3 lines)');
       return;
     }
     ui.selection = out;
@@ -16083,11 +16163,39 @@
     return mult * pow;
   }
 
+  // Arrow-key nudge follows the zoom: the STEP setting is the world distance
+  // moved at 100% zoom. Zoomed out every press covers more world (fast), zoomed
+  // in it shrinks towards fine precision — 1 px of screen travel stays roughly
+  // constant. Rounded to 2 decimals so the value shown on the scale bar is
+  // exactly what a press moves.
+  function nudgeStepZoomed() {
+    return Math.round((NUDGE_STEP / Math.max(view.zoom, 0.01)) * 100) / 100;
+  }
+
+  // Zoom to a preset percentage about the CANVAS CENTRE: the world point at
+  // the middle stays in the middle, so 100% always feels like "back to real
+  // scale" without the drawing jumping. Wheel zoom stays pointer-anchored.
+  function setZoomPct(pct) {
+    const z = clamp(pct / 100, 0.03, 100);
+    const w = s2w(W / 2, H / 2);
+    view.zoom = z;
+    view.ox = W / 2 - w.x * z;
+    view.oy = H / 2 + w.y * z;
+    scheduleRender();
+    scheduleViewSave();
+  }
+
   function drawScaleBar() {
     const unit = scaleBarUnit();
     const px = unit * view.zoom;
     const x0 = 18;
     const y0 = H - 26;
+    // keep the zoom preset dropdown honest (it shows blank off-preset zooms)
+    const zoomSel = document.getElementById('qb-zoom');
+    if (zoomSel && document.activeElement !== zoomSel) {
+      zoomSel.value = String(view.zoom);
+      if (zoomSel.selectedIndex < 0) zoomSel.value = '';
+    }
     ctx.save();
     ctx.strokeStyle = '#7b8798';
     ctx.lineWidth = 1.4;
@@ -16104,6 +16212,15 @@
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
     ctx.fillText(fmt(unit) + ' mm', x0 + px + 8, y0 + 4);
+    // current zoom %, rounded to a whole number, right of the scale label
+    ctx.fillStyle = '#5b6573';
+    ctx.fillText('Zoom ' + Math.round(view.zoom * 100) + '%', x0 + px + 8, y0 - 8);
+    // arrow-key nudge step, centred under the bar (moves with the zoom)
+    ctx.font = '500 10px ui-sans-serif, system-ui, sans-serif';
+    ctx.fillStyle = '#7b8798';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('\u2194 ' + nudgeStepZoomed().toFixed(2) + ' mm', x0 + px / 2, y0 + 9);
     ctx.restore();
   }
 
@@ -16268,8 +16385,15 @@
 
   // Comments: one size and one colour for all of them (Settings). They are
   // annotation only — never sent to KaryaCNC and skipped by grouping/offset.
+  // comment font height in screen px: NOTE_SIZE in mm scaled by zoom, but
+  // never below NOTE_MIN_PX so comments stay readable when zoomed out
+  // (0 disables the floor)
+  function noteFontPx() {
+    return Math.max(NOTE_SIZE * view.zoom, NOTE_MIN_PX);
+  }
+
   function drawNotes() {
-    const h = NOTE_SIZE * view.zoom;
+    const h = noteFontPx();
     ctx.save();
     ctx.font = h + 'px sans-serif';
     ctx.textBaseline = 'top';
@@ -16994,6 +17118,16 @@
     const ids = new Set(selectedPointIds());
     for (const e of selectedEntities()) {
       for (const pid of entityPointIds(e)) ids.add(pid);
+      // A framed object (text, art group, generated panel) owns its guide
+      // lines: dragging the object without its masters moves the frame and the
+      // release refit then snaps the contours back onto the unmoved guides —
+      // the classic "I dragged it and it jumped home". Masters travel along.
+      if ((e.type === 'art' || e.type === 'text') && Array.isArray(e.guide)) {
+        for (const gid of e.guide) {
+          const g = state.entities[gid];
+          if (g) for (const pid of entityPointIds(g)) ids.add(pid);
+        }
+      }
     }
     return Array.from(ids).filter(id => !pointAnchored(id));
   }
@@ -17931,20 +18065,26 @@
         }
         if (selected('entity', eh)) {
           const e = state.entities[eh];
-          // A generated object (finger joint, slot, ...) is a passive modifier:
-          // selectable and double-clickable, but its body never drags — the
-          // only thing allowed to move it is its master geometry via the
-          // watcher refit.
-          if (e.gen && e.gen.kind) {
-            updateUI();
-            render();
-            return;
+          // A generated object (finger joint, slot, box panel, ...) used to be
+          // a passive modifier: selectable, but its body never dragged — the
+          // release refit then snapped it back onto its unmoved masters, which
+          // FELT like "cannot drag". Now the body drag translates the whole
+          // object: the frame points AND every master guide endpoint together,
+          // so the contours follow the frame live and the release refit
+          // recomputes the same shape at the new place. No snap-back, no skew
+          // (skew only happened when a single master line moved alone).
+          const dragIds = new Set(entityPointIds(e));
+          if (e.type === 'art' && Array.isArray(e.guide)) {
+            for (const gid of e.guide) {
+              const g = state.entities[gid];
+              if (g) for (const pid of entityPointIds(g)) dragIds.add(+pid);
+            }
           }
           pushHistory();
           if (e.type === 'circle') {
             ui.drag = bodyDragFor(e, pos, world, [e.c]);
           } else {
-            ui.drag = bodyDragFor(e, pos, world, entityPointIds(e));
+            ui.drag = bodyDragFor(e, pos, world, Array.from(dragIds));
           }
           // A multi-point selection (a whole loop, several objects) drags with
           // the parts-style bounded snap: t1 = its own vertex nearest the
@@ -19060,23 +19200,36 @@ function cmdSplitCurve() {
     // Two chains that shared a corner each got their own private point (the id
     // reuse above hands each original point out once), so weld those back
     // together: the fitted curves must stay joined where the polylines were.
+    //
+    // The walk is a flood fill with a visited set, NOT a live-growing for..of:
+    // pushing into `ends` while iterating it ping-ponged forever on a mutual
+    // pair (A finds B, B finds A again — two chains whose shared corner got
+    // two private points at the exact same coordinates froze Apply on an O(1)
+    // job). Each point enters the queue exactly once.
     {
       const ends = [];
       for (const nid of made) {
         const ids = entityPointIds(state.entities[nid]);
         if (ids.length) ends.push(ids[0], ids[ids.length - 1]);
       }
+      const seen = new Set(ends.map(Number));
+      const queue = ends.slice();
       const keys = Object.keys(state.points).map(Number);
-      for (const pid of ends) {
+      for (let qi = 0; qi < queue.length; qi++) {
+        const pid = queue[qi];
         const p = state.points[pid];
         if (!p) continue;
         for (const other of keys) {
+          if (seen.has(other)) continue;
           const q = state.points[other];
-          if (!q || other === pid) continue;
-          if (Math.hypot(q.x - p.x, q.y - p.y) <= 1e-6) ends.push(other);
+          if (!q) continue;
+          if (Math.hypot(q.x - p.x, q.y - p.y) <= 1e-6) {
+            seen.add(other);
+            queue.push(other);
+          }
         }
       }
-      fuseCoincidentPoints(ends);
+      fuseCoincidentPoints(queue);
     }
     normalizeSplineLoops(new Set(made));
     removeDuplicateLines(new Set(made));
@@ -20416,6 +20569,17 @@ function cmdSplitCurve() {
         return;
       }
       insertPointOnEntity(eh, s2w(pos.x, pos.y), { addOnly: ev.shiftKey });
+      return;
+    }
+    // Double-click on a loop: select the loop and everything it encloses —
+    // the same selection a Ctrl+click on the loop performs.
+    if (ui.tool === 'select') {
+      const world = s2w(pos.x, pos.y);
+      const loop = pickLoopAt(world, false);
+      if (loop) {
+        applyLoopClick(loop, true, false, false);
+        return;
+      }
     }
   }
 
@@ -20677,6 +20841,13 @@ function cmdSplitCurve() {
       }
       return;
     }
+    // Plasticity-style pick filter: 1 = points, 2 = lines, 3 = loops. Plain
+    // digits only — with Ctrl/Alt the chord shortcuts keep their meaning.
+    if (!ev.ctrlKey && !ev.metaKey && !ev.altKey && (key === '1' || key === '2' || key === '3')) {
+      ev.preventDefault();
+      setPickFilter({ '1': 'point', '2': 'line', '3': 'loop' }[key], !pickFilter[{ '1': 'point', '2': 'line', '3': 'loop' }[key]]);
+      return;
+    }
     // Ctrl+T opens a browser tab and the page cannot stop it (like Ctrl+N):
     // the Mate button carries the key hint, and Alt+T is the sketch shortcut.
     if (ev.altKey && !ev.ctrlKey && !ev.metaKey && lower === 't') {
@@ -20751,7 +20922,7 @@ function cmdSplitCurve() {
         scheduleViewSave();
         return;
       }
-      const s = NUDGE_STEP;
+      const s = nudgeStepZoomed();
       const dx = key === 'ArrowLeft' ? -s : key === 'ArrowRight' ? s : 0;
       const dy = key === 'ArrowDown' ? -s : key === 'ArrowUp' ? s : 0;
       if (nudgeSelection(dx, dy)) ev.preventDefault();
@@ -20760,6 +20931,12 @@ function cmdSplitCurve() {
     if (ev.altKey && lower === 'q') {
       ev.preventDefault();
       cncQuickSend();
+      return;
+    }
+    // Alt+C opens the cost estimator (the ribbon "Biaya" button)
+    if (ev.altKey && !ev.ctrlKey && !ev.metaKey && lower === 'c') {
+      ev.preventDefault();
+      costOpen();
       return;
     }
     if (ev.altKey && lower === 'd') {
@@ -21189,8 +21366,8 @@ function cmdSplitCurve() {
   // depth*10 mm for cut/pocket/mark (00 = use the app's own default depth).
   // The line colour IS the operation: the swatches carry KaryaCNC stroke codes
   // (black cut, blue engrave, cyan v-carve, purple pocket, red drill, green
-  // mark, maroon cut tab, teal start point). The loop fill switches the offset
-  // direction: none / gray rail / yellow flip.
+  // mark, maroon cut tab, teal start point, yellow engrave clip boundary).
+  // The loop fill switches the offset direction: none / gray rail / yellow flip.
   const CNC_KEY = 'minisketch.cnc.v2';
   const CNC_CHUNK = 15000;
   const CNC_FILL = { none: 'none', gray: '#808080', yellow: '#ffff00' };
@@ -21309,6 +21486,7 @@ function cmdSplitCurve() {
   const cost = {
     presets: [],          // {name, speed, repeats, matPerCm2, ratePerMin, kerf}
     presetIdx: 0,
+    inputIdx: -1,         // which preset the editable inputs were last filled from
     dpi: 200,             // engrave raster resolution
     cutMm: 0,             // black (and other cut) path length
     fastMm: 0,            // red drill: billed at 2x the cut speed
@@ -21425,9 +21603,12 @@ function cmdSplitCurve() {
     let engravePaths = 0; // blue path length, informational
     let last = null;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    // Engrave is billed over the box of the ENGRAVE geometry only, not the
-    // whole drawing: a small logo on a large panel must not price the panel.
-    let eMinX = Infinity, eMinY = Infinity, eMaxX = -Infinity, eMaxY = -Infinity;
+    // Engrave is billed per blue SHAPE: each chain rasters its own bounding
+    // box, and the areas are SUMMED. One merged box of all blue geometry
+    // over-billed badly — two small logos far apart priced the whole empty
+    // span between them. Overlapping boxes do double-count; that errs on the
+    // safe (quoted) side.
+    const engraveBoxes = [];
     let hasEngrave = false;
     for (const it of items) {
       const pts = it.pts || [];
@@ -21448,12 +21629,14 @@ function cmdSplitCurve() {
       if (col === COST_BLUE) {
         hasEngrave = true;
         engravePaths += len;
+        let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
         for (const q of pts) {
-          if (q[0] < eMinX) eMinX = q[0];
-          if (q[0] > eMaxX) eMaxX = q[0];
-          if (q[1] < eMinY) eMinY = q[1];
-          if (q[1] > eMaxY) eMaxY = q[1];
+          if (q[0] < bMinX) bMinX = q[0];
+          if (q[0] > bMaxX) bMaxX = q[0];
+          if (q[1] < bMinY) bMinY = q[1];
+          if (q[1] > bMaxY) bMaxY = q[1];
         }
+        engraveBoxes.push([bMinX, bMinY, bMaxX, bMaxY]);
       } else if (col === COST_RED) {
         fast += len;
       } else {
@@ -21475,15 +21658,18 @@ function cmdSplitCurve() {
     // does. Stored in mm so both the panel and any future export agree.
     cost.boxW = isFinite(minX) ? Math.max(0, maxX - minX) : 0;
     cost.boxH = isFinite(minY) ? Math.max(0, maxY - minY) : 0;
-    // Every blue shape shares ONE merged box: the head rasters one rectangle,
-    // so two separate logos inside the same span cost the same as one.
-    cost.engrave = hasEngrave ? costEngraveBox(eMinX, eMinY, eMaxX, eMaxY) : null;
+    // Each blue shape prices its own raster box; the boxes are summed, never
+    // merged, so empty space between shapes is never billed.
+    cost.engrave = hasEngrave ? costEngraveBoxes(engraveBoxes) : null;
   }
 
-  // Raster estimate: the head sweeps the box one line per 1/DPI inch.
+  // Raster estimate, per blue box: the head sweeps the box one line per
+  // 1/DPI inch.
   //   lines  = height_mm / (25.4 / dpi)
   //   length = lines * width_mm
   //   time   = length / 250 mm/s
+  // The quote is the SUM over every blue box — empty space between separate
+  // engrave shapes is never billed, overlapping boxes double-count (safe side).
   function costEngraveBox(minX, minY, maxX, maxY) {
     const wMm = Math.max(0, maxX - minX);
     const hMm = Math.max(0, maxY - minY);
@@ -21495,6 +21681,21 @@ function cmdSplitCurve() {
     return { wMm, hMm, dpi, lineMm, lines, lengthMm, minutes };
   }
 
+  function costEngraveBoxes(boxes) {
+    const dpi = isFinite(+cost.dpi) && +cost.dpi > 0 ? +cost.dpi : 200;
+    const per = boxes.map(b => costEngraveBox(b[0], b[1], b[2], b[3]));
+    const sum = (pick) => per.reduce((a, g) => a + g[pick], 0);
+    return {
+      boxes: per,
+      dpi,
+      lineMm: 25.4 / dpi,
+      lines: sum('lines'),
+      lengthMm: sum('lengthMm'),
+      minutes: sum('minutes'),
+      areaMm2: per.reduce((a, g) => a + g.wMm * g.hMm, 0)
+    };
+  }
+
   function costMoney(v) {
     const n = Math.round(v);
     return 'Rp ' + String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
@@ -21504,9 +21705,9 @@ function cmdSplitCurve() {
     const p = cost.presets[cost.presetIdx] || null;
     if (!p) return null;
     const speed = p.speed > 0 ? p.speed : 10;
-    // Cut and drill are separate path sets on the same job: black at the preset
-    // speed, red at twice that (a drill cycle drops fast). Engrave is not a
-    // path at all — it is a raster sweep priced from its own box.
+    // Cut and gores are separate path sets on the same job: black at the preset
+    // speed, red gores at twice that (a scratch pass is quick). Engrave is not
+    // a path at all — it is a raster sweep priced from the summed blue boxes.
     const cutMin = (cost.cutMm / speed) * p.repeats / 60;
     const drillMin = (cost.fastMm / (speed * 2)) * p.repeats / 60;
     const engraveMin = cost.engrave ? cost.engrave.minutes * p.repeats : 0;
@@ -21536,6 +21737,53 @@ function cmdSplitCurve() {
     sel.value = String(cost.presetIdx);
   }
 
+  // ---- adjustable preset inputs: pick a preset to fill them, edit freely,
+  // ---- then "Save ke preset" writes the edits back into the list and storage
+
+  function costRenderInputs() {
+    const p = cost.presets[cost.presetIdx] || { name: '', speed: 10, repeats: 1, matPerCm2: 0, ratePerMin: 0 };
+    cost.inputIdx = cost.presetIdx;
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    set('cost-name', p.name);
+    set('cost-mat', String(p.matPerCm2));
+    set('cost-rate', String(p.ratePerMin));
+    set('cost-speed', String(p.speed));
+    set('cost-repeats', String(p.repeats));
+  }
+
+  // Copy whatever the inputs hold onto the selected preset (in memory only —
+  // saving to storage is an explicit Save click, so a stray keystroke never
+  // rewrites the saved list). Returns false when there is no preset to edit.
+  function costApplyInputs() {
+    const p = cost.presets[cost.presetIdx];
+    if (!p) return false;
+    const num = (id, dflt) => costNum((document.getElementById(id) || {}).value, dflt);
+    p.name = String((document.getElementById('cost-name') || {}).value || '').trim() || p.name;
+    p.matPerCm2 = Math.max(0, num('cost-mat', p.matPerCm2));
+    p.ratePerMin = Math.max(0, num('cost-rate', p.ratePerMin));
+    p.speed = Math.max(0.1, num('cost-speed', p.speed));
+    p.repeats = Math.max(1, Math.round(num('cost-repeats', p.repeats)));
+    return true;
+  }
+
+  // Back to the exact cost.txt line format, so the storage text stays
+  // hand-editable and the shipped defaults and saved presets share one shape.
+  function costPresetsText() {
+    return cost.presets.map(p => [
+      p.name, String(p.speed), String(p.repeats), String(p.matPerCm2), String(p.ratePerMin),
+      p.kerf ? String(p.kerf) : ''
+    ].join(',')).join('\n');
+  }
+
+  function costSaveInputs() {
+    if (!costApplyInputs()) { toast('No preset selected'); return; }
+    try { localStorage.setItem(COST_KEY, costPresetsText()); } catch (err) { /* no storage */ }
+    costFillPresets();   // the edited name may have changed the option label
+    costMeasure();
+    costRender();
+    toast('Preset tersimpan: ' + cost.presets[cost.presetIdx].name);
+  }
+
   function costRender() {
     const box = document.getElementById('cost-result');
     const rows = document.getElementById('cost-params');
@@ -21558,19 +21806,19 @@ function cmdSplitCurve() {
       };
       add('Panjang potong', fmt(cost.cutMm) + ' mm @ ' + fmt(p.speed) + ' mm/s');
       if (cost.fastMm > 0) {
-        add('Drill (merah)', fmt(cost.fastMm) + ' mm @ ' + fmt(p.speed * 2) + ' mm/s');
+        add('Gores (merah)', fmt(cost.fastMm) + ' mm @ ' + fmt(p.speed * 2) + ' mm/s');
       }
       add('Bounding box', fmt(cost.boxW) + ' × ' + fmt(cost.boxH) + ' mm');
       add('Luas bahan', fmt(cost.boxW / 10) + ' × ' + fmt(cost.boxH / 10) +
         ' cm = ' + fmt(cost.areaCm2) + ' cm²');
       if (cost.engrave) {
         const g = cost.engrave;
-        add('Engrave size', fmt(g.wMm) + ' × ' + fmt(g.hMm) + ' mm');
+        add('Engrave area', g.boxes.length + ' area = ' + fmt(g.areaMm2 / 100) + ' cm²');
         add('Engrave garis', fmt(g.lines) + ' baris @ ' + g.dpi + ' dpi');
       }
       add('Pengulangan', String(p.repeats) + '×');
       add('Waktu potong', fmt(t.cutMin) + ' menit');
-      if (t.drillMin > 0) add('Waktu drill', fmt(t.drillMin) + ' menit');
+      if (t.drillMin > 0) add('Waktu gores', fmt(t.drillMin) + ' menit');
       if (t.engraveMin > 0) add('Waktu engrave', fmt(t.engraveMin) + ' menit');
       if (t.minutes !== t.cutMin) add('Total waktu', fmt(t.minutes) + ' menit');
     }
@@ -21604,6 +21852,13 @@ function cmdSplitCurve() {
   function costOpen() {
     costLoadPresets();
     costFillPresets();
+    // only refill the inputs when the preset actually changed since the last
+    // fill: an unsaved edit must survive close/open of the panel (one job is
+    // often priced several times in a row). The reload above rebuilt the
+    // preset objects from storage, so surviving edits must be re-applied to
+    // them — otherwise the inputs would show one price and the totals another.
+    if (cost.inputIdx !== cost.presetIdx) costRenderInputs();
+    else costApplyInputs();
     costMeasure();
     costRender();
     const modal = document.getElementById('cost-modal');
@@ -21621,9 +21876,21 @@ function cmdSplitCurve() {
     const sel = document.getElementById('cost-preset');
     if (sel) sel.addEventListener('change', () => {
       cost.presetIdx = Math.max(0, Math.round(costNum(sel.value, 0)));
+      costRenderInputs();  // the inputs follow the chosen preset
       costMeasure();       // the preset carries the speed the lengths are billed at
       costRender();
     });
+    // editable preset values: every keystroke reprices the quote in memory
+    for (const id of ['cost-name', 'cost-mat', 'cost-rate', 'cost-speed', 'cost-repeats']) {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', () => {
+        if (!costApplyInputs()) return;
+        costMeasure();
+        costRender();
+      });
+    }
+    const save = document.getElementById('cost-save');
+    if (save) save.addEventListener('click', costSaveInputs);
     const dpi = document.getElementById('cost-dpi');
     if (dpi) {
       dpi.value = String(cost.dpi);
@@ -22573,10 +22840,15 @@ function cmdSplitCurve() {
     qbClick('qb-nest', () => { const b = document.getElementById('btn-nest'); if (b) b.click(); });
     qbClick('qb-cnc', () => { const b = document.getElementById('btn-cnc'); if (b) b.click(); });
     // edit actions: every keyboard shortcut gets an icon (tablet)
-    qbClick('qb-undo', () => undo());
-    qbClick('qb-redo', () => redo());
     qbClick('qb-fit', () => fitView());
+    // Zoom preset picker: jumps straight to a percentage about the canvas centre.
+    const zoomSel = document.getElementById('qb-zoom');
+    if (zoomSel) zoomSel.addEventListener('change', () => {
+      const v = parseFloat(zoomSel.value);
+      if (isFinite(v)) setZoomPct(v * 100);
+    });
     qbClick('qb-selectall', () => cmdSelectAll());
+    qbClick('qb-samecolor', () => cmdSelectSameColor());
     qbClick('qb-copy', () => copySelection());
     qbClick('qb-paste', () => pasteClipboard());
     qbClick('qb-dup', () => cmdDuplicateSelection());
@@ -22816,6 +23088,7 @@ function cmdSplitCurve() {
       syncViewToggles();
     });
 
+
     const undoViewChk = document.getElementById('tgl-undoview');
     if (undoViewChk) undoViewChk.addEventListener('change', () => {
       settings.undoRestoresView = undoViewChk.checked ? 'on' : 'off';
@@ -22838,6 +23111,13 @@ function cmdSplitCurve() {
 
     const addLayerBtn = document.getElementById('btn-add-layer');
     if (addLayerBtn) addLayerBtn.addEventListener('click', addLayer);
+    // Pick filter checkboxes in the Layers panel (same state as keys 1/2/3).
+    for (const id of ['pick-points', 'pick-lines', 'pick-loops']) {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('click', () => {
+        setPickFilter({ 'pick-points': 'point', 'pick-lines': 'line', 'pick-loops': 'loop' }[id], !pickFilter[{ 'pick-points': 'point', 'pick-lines': 'line', 'pick-loops': 'loop' }[id]]);
+      });
+    }
     const layerUpBtn = document.getElementById('btn-layer-up');
     if (layerUpBtn) layerUpBtn.addEventListener('click', () => moveLayer(-1));
     const layerDownBtn = document.getElementById('btn-layer-down');
@@ -22946,6 +23226,11 @@ function cmdSplitCurve() {
       const sharpEl = document.getElementById('fit-sharp');
       const tol = tolEl ? clamp(parseFloat(tolEl.value), 0.01, 5) : job.tol;
       const sharp = sharpEl ? clamp(parseFloat(sharpEl.value), 0, 180) : job.sharpAngle;
+      // Remember the dialog's sliders as the new defaults: the next Ctrl+K
+      // opens with what the user last used, not the factory 0.2 mm / 25°.
+      settings.curveFitTol = tol;
+      settings.curveSharpAngle = sharp;
+      saveSettings();
       applyFitCurve(job.src, job.chains, tol, sharp);
     });
     const textCurve = document.getElementById('text-curve');
@@ -23739,6 +24024,9 @@ function cmdSplitCurve() {
   // inside an iframe, where the browser's picker is refused outright.
   //
   // Returns 'saved' | 'cancelled' | null (host not there / not framed).
+  // On 'saved' the chosen file's basename lands in save.hostName: the host
+  // dialog may have renamed the suggestion, and the next Save must suggest
+  // what was really written, not the stale name.
   async function saveViaHost(text, name) {
     if (!isEmbedded()) return null;
     try {
@@ -23753,7 +24041,12 @@ function cmdSplitCurve() {
       if (!res.ok) return null;
       const data = await res.json();
       if (!data || !data.status) return null;
-      if (data.status === 'saved') return 'saved';
+      if (data.status === 'saved') {
+        const p = String(data.path || '');
+        const base = p.replace(/.*[\\/]/, '');
+        save.hostName = base || null;
+        return 'saved';
+      }
       if (data.status === 'cancelled') return 'cancelled';
       return null;
     } catch (err) {
@@ -23771,6 +24064,10 @@ function cmdSplitCurve() {
     if (isEmbedded() || !forcePicker) {
       const viaHost = await saveViaHost(text, suggested);
       if (viaHost === 'saved') {
+        // Remember the name the dialog actually ended up with, so the next
+        // Save suggests THAT name instead of the stale default.
+        if (save.hostName) saveRememberName(save.hostName);
+        save.hostName = null;
         toast('Saved');
         return;
       }
@@ -24272,6 +24569,31 @@ function cmdSplitCurve() {
   }
 
   // Ctrl+A and the quickbar icon: select every editable object and point.
+  // Select Same Colour: every entity on the SAME LAYER as the selection whose
+  // stroke colour matches any selected colour. No connectivity needed — one
+  // click grabs a whole silhouette's outline without marquee-ing the rest.
+  function cmdSelectSameColor() {
+    const sel = selectedEntities();
+    if (!sel.length) {
+      toast('Select an object first — its colour is the filter');
+      return;
+    }
+    const colors = new Set(sel.map(e => String(colorOf(e) || '').toLowerCase()));
+    const layers = new Set(sel.map(e => layerOf(e)));
+    const items = [];
+    for (const eid in state.entities) {
+      const e = state.entities[eid];
+      if (!entityEditable(e)) continue;
+      if (!layers.has(layerOf(e))) continue;
+      if (!colors.has(String(colorOf(e) || '').toLowerCase())) continue;
+      items.push({ kind: 'entity', id: +eid });
+    }
+    ui.selection = items;
+    updateUI();
+    render();
+    toast('Selected ' + items.length + ' object(s) with ' + colors.size + ' colour(s)');
+  }
+
   function cmdSelectAll() {
     const items = [];
     for (const eid in state.entities) {
@@ -24323,7 +24645,7 @@ function cmdSplitCurve() {
         cmdSelectSameColor();
         return;
       }
-      // Alt+3: select the junction points (used by more than 2 lines)
+      // Alt+3: select the junction points (used by more than 3 lines)
       if (ev.altKey && (ev.key === '3' || ev.key === '#')) {
         ev.preventDefault();
         ev.stopPropagation();
@@ -24497,6 +24819,8 @@ function cmdSplitCurve() {
   function init() {
     initTheme();
     loadSettings();
+    loadPickFilter();
+    syncPickFilterUI();
     loadSolveMode();
     cncLoadSettings();
     mountTools();
@@ -24648,6 +24972,40 @@ function cmdSplitCurve() {
   window.MiniSketch = {
     getState: () => JSON.parse(JSON.stringify(state)),
     getLoops: () => getLoops().map(l => ({ area: l.area, circle: !!l.circle })),
+    // Loop-detection debug: rebuilds from scratch and logs the raw graph the
+    // extractor sees — edge count, each edge's welded node pair, and the
+    // union-find roots. Paste MiniSketch.debugLoops() in the DevTools console
+    // when a shape refuses to close, and the output names which ends welded
+    // (or failed to weld).
+    debugLoops: () => {
+      invalidateLoops();
+      const loops = getLoops();
+      const report = { joinTol: JOIN_TOL, loops: loops.length, edges: [], detail: [] };
+      // Second pass over the same data the builder used: entity endpoints and
+      // their weld fate. Kept simple on purpose — this is a console tool.
+      for (const id in state.entities) {
+        const e = state.entities[id];
+        let a, b;
+        if (e.type === 'line') { a = +e.a; b = +e.b; }
+        else if (e.type === 'arc') { a = +e.s; b = +e.e; }
+        else if (e.type === 'spline') { const s = e.pts || []; a = +s[0]; b = +s[s.length - 1]; }
+        else continue;
+        const pa = state.points[a], pb = state.points[b];
+        const d = pa && pb ? Math.hypot(pa.x - pb.x, pa.y - pb.y) : NaN;
+        report.edges.push({ entity: +id, type: e.type, a, b,
+          endDist: Math.round(d * 1000) / 1000,
+          aXY: pa ? [+pa.x.toFixed(3), +pa.y.toFixed(3)] : null,
+          bXY: pb ? [+pb.x.toFixed(3), +pb.y.toFixed(3)] : null });
+      }
+      for (const l of loops) {
+        report.detail.push({ area: Math.round((l.area || 0) * 100) / 100,
+          poly: l.poly ? l.poly.length : 0,
+          steps: l.steps ? l.steps.length : 0,
+          splineEntity: l.splineEntity != null ? l.splineEntity : null });
+      }
+      console.log('[debugLoops]', report);
+      return report;
+    },
     // Which curve currently owns the control knobs, and which of its nodes show
     // one. Debug aid: the on-screen rule is invisible to a DOM query.
     handleState: () => {

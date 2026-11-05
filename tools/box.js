@@ -111,10 +111,10 @@
     apply(api) {
       const el = (id) => document.getElementById(id);
       const clamp = api.clamp, fmt = api.fmt;
+      const T = clamp(+el('box-t').value || 4, 0.5, 100);
       let bl = clamp(+el('box-l').value || 100, 5, 5000);
       let bw = clamp(+el('box-w').value || 80, 5, 5000);
       let bh = clamp(+el('box-h').value || 60, 5, 5000);
-      const T = clamp(+el('box-t').value || 4, 0.5, 100);
       const FW = clamp(+el('box-fw').value || 10, 1, 500);
       const dim = el('box-dim').value === 'inside' ? 'inside' : 'outside';
       const lid = el('box-lid').checked;
@@ -124,11 +124,23 @@
       } catch (err) { /* ignore */ }
       // inside dimensions: grow every axis by two walls so the cavity matches
       const inside = dim === 'inside';
+      
       const sizeL = bl, sizeW = bw, sizeH = bh;
+      // Panel geometry of this layout: front/back walls carry +T tabs on both
+      // ends (outline bl+2T), side walls are notched (outline bw, full height),
+      // caps face bl x (bw-2T) and tab all round (outline bl+2T x bw).
+      // outside: pieces come out at the outer size L x W x H exactly.
+      // inside: cavity must be L x W x H, so walls grow by the mating parts.
       if (inside) {
-        bl += 2 * T;
-        bw += 2 * T;
-        bh += 2 * T;
+        bw += 2 * T;                       // side walls reach over the front/back walls
+        bh += 2 * T;                       // bottom + lid caps add T at each end
+      } else {
+        bl -= 2 * T;                       // front/back end tabs complete the outer size
+      }
+      if (bl <= 0) {
+        api.toast('Box maker: ' + fmt(sizeL) + '\u00d7' + fmt(sizeW) + '\u00d7' + fmt(sizeH) +
+          ' mm is too small for ' + fmt(T) + ' mm material');
+        return;
       }
 
       // side joints are finger joints too: the front and back parts carry tabs
@@ -155,8 +167,9 @@
       // bottom (and lid) below: l x w — bottom sides stick out, lid sides cut in.
       // The rows need extra room: the tongues reach past the nominal panel size.
       const capGap = Math.max(gap * 2, gap + T * 2);
-      panels.push({ x0: 0, y0: 0, w: bl, h: bw, m: bottomM });
-      if (lid) panels.push({ x0: bl + capGap, y0: 0, w: bl, h: bw, m: lidM });
+      const capH = bw - 2 * T;               // cap face = cavity; its tabs reach bw
+      panels.push({ x0: 0, y0: 0, w: bl, h: capH, m: bottomM });
+      if (lid) panels.push({ x0: bl + capGap, y0: 0, w: bl, h: capH, m: lidM });
 
       // centre the layout in the view
       const totalW = Math.max(stripW, lid ? bl + capGap + bl : bl);
