@@ -2375,6 +2375,7 @@
     entityCountCache = -1;
     pointGridCache = null;
     epiCache.clear();
+    eqbCache.clear();
     // sample/contour caches always drop (cheap to rebuild, must track moving
     // points during a drag); only the loop topology is deferred below
     splineSampleCache = new Map();
@@ -7395,7 +7396,19 @@
   // Conservative world bounds with no sampling: enough to bucket an entity for
   // hit-testing and to reject it before the expensive distance test. art/text
   // return null (they join the always-tested list; their own tests are cheap).
+  // pure w.r.t. geometry, and read per entity per frame (entityOnScreen in
+  // drawOneEntity, hit grid build): cache per entity id alongside the point
+  // id cache, dropped on invalidateLoops
+  const eqbCache = new Map();
   function entityQuickBounds(e) {
+    const eid = e.id;
+    if (eid != null && eqbCache.has(eid)) return eqbCache.get(eid);
+    const b = entityQuickBoundsBuild(e);
+    if (eid != null) eqbCache.set(eid, b);
+    return b;
+  }
+
+  function entityQuickBoundsBuild(e) {
     // art/text/note return null (they join the always-tested list; their own
     // tests are cheap and a note's text size only exists on screen)
     if (e.type === 'art' || e.type === 'text' || e.type === 'note' || e.type === 'part') return null;
@@ -8823,16 +8836,24 @@
   // changes with the geometry or the camera. Hovering / selection changes now
   // reuse the cached paths instead of re-walking every polygon vertex.
   let loopPathFrameCache = null;
-  function loopFramePath(loop) {
+  function loopFrameData(loop) {
     const key = geometryEpoch + '|' + view.zoom + '|' + view.ox + '|' + view.oy;
-    if (!loopPathFrameCache || loopPathFrameCache.key !== key) {
-      loopPathFrameCache = { key, paths: new Map() };
+    const selIdx = selectionIndex();
+    if (!loopPathFrameCache || loopPathFrameCache.key !== key ||
+      loopPathFrameCache.selIdx !== selIdx ||
+      loopPathFrameCache.selLen !== ui.selection.length) {
+      loopPathFrameCache = { key, selIdx, selLen: ui.selection.length, meta: new Map() };
     }
-    const hit = loopPathFrameCache.paths.get(loop);
+    const hit = loopPathFrameCache.meta.get(loop);
     if (hit !== undefined) return hit;
-    const p = buildLoopPath(loop);
-    loopPathFrameCache.paths.set(loop, p);
-    return p;
+    const d = {
+      path: buildLoopPath(loop),
+      sel: loopShapeSelected(loop),
+      fill: loopFill(loop),
+      visible: loopVisibleOnCanvas(loop)
+    };
+    loopPathFrameCache.meta.set(loop, d);
+    return d;
   }
 
   function buildLoopPath(loop) {
@@ -8866,10 +8887,11 @@
   function drawLoopFills() {
     const loops = getLoops();
     for (const loop of loops) {
-      const fill = loopFill(loop);
+      const d = loopFrameData(loop);
+      const fill = d.fill;
       if (fill === 'none') continue;
-      if (!loopVisibleOnCanvas(loop)) continue;
-      const p = loopFramePath(loop);
+      if (!d.visible) continue;
+      const p = d.path;
       if (!p) continue;
       // a fill on a dimmed layer fades with the rest of that layer
       const fade = ui.dimOthers && loopLayerId(loop) !== ui.activeLayer;
@@ -8908,13 +8930,13 @@
       // as the Selection count and the list highlight. Click-focus only targets
       // the Fill chips and must never paint, or a deselected loop keeps looking
       // selected.
-      const sel = loopShapeSelected(loop);
-      const p = loopFramePath(loop);
+      const d = loopFrameData(loop);
+      if (!d.visible) continue;
+      const p = d.path;
       if (!p) continue;
-      const fill = loopFill(loop);
       // fills only — the outline stroke (and its dashes) just cost frame time
-      if (fill === 'none') {
-        ctx.fillStyle = sel ? 'rgba(37, 99, 235, 0.10)' : 'rgba(22, 163, 74, 0.045)';
+      if (d.fill === 'none') {
+        ctx.fillStyle = d.sel ? 'rgba(37, 99, 235, 0.10)' : 'rgba(22, 163, 74, 0.045)';
         ctx.fill(p);
       }
     }
