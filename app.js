@@ -20022,13 +20022,39 @@ function cmdSplitCurve() {
       // probe is now COALESCED: store the latest pointer position and run the
       // pipeline once, at the top of the next render — the same coalescing
       // every other per-event path already uses.
-      ui.hoverProbe = { x: pos.x, y: pos.y };
-      scheduleRender();
+      // coalesced to one probe per frame, AND change-gated: a still cursor
+      // (or hand tremor) must not schedule a full render at all — before the
+      // rAF refactor only a hover CHANGE scheduled a redraw, keep that
+      scheduleHoverProbe(pos.x, pos.y);
       return;
     }
 
     ui.hoverSnap = snapPoint(world);
     if (ui.draft || ui.tool !== 'select') scheduleRender();
+  }
+
+  let hoverRaf = 0;
+  function scheduleHoverProbe(x, y) {
+    ui.hoverProbe = { x, y };
+    if (hoverRaf) return;
+    hoverRaf = requestAnimationFrame(() => {
+      hoverRaf = 0;
+      const p = ui.hoverProbe;
+      ui.hoverProbe = null;
+      if (!p || ui.drag || ui.pan || pinch || ui.tool !== 'select') return;
+      const prev = ui.hover;
+      runHoverProbe(p.x, p.y);
+      if (hoverChanged(prev, ui.hover)) {
+        render();
+      }
+    });
+  }
+
+  function hoverChanged(a, b) {
+    const key = (h) => (h && h.kind) + ':' + (h && h.id) + ':' + (h ? 1 : 0) +
+      ':' + (h && h.u != null ? Math.round(h.u * 10) : 0) +
+      ':' + (h && h.edge ? h.edge.from + ':' + h.edge.to : '');
+    return key(a) !== key(b);
   }
 
   // The deferred hover test (see the select branch of onPointerMove). Runs at
