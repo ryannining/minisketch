@@ -224,3 +224,13 @@ Semua commit di bawah titik aman `backup-pra-optimasi` / `9032f98`.
 2. Rebuild loop idle/chunk di mouse-up (spike tersisa kecil).
 3. Solver ke Web Worker (drag berat dengan constraint banyak).
 4. WebGL/WebGPU — hanya untuk target dokumen 10× lebih besar.
+
+## 7. Ronde 6 (ditunda): incremental loop rebuild
+Implementasi dua-jalur FULL/FAST per komponen pernah dibuat (commit db1967a,
+arsip /tmp/app_incremental_wip.js) mengikuti desain: identitas loop per
+komponen; hapus/tambah/trim/geser titik hanya membangun ulang komponen
+terkait; FULL hanya untuk load/import/F8.
+Status: kasus geser titik LULUS, kasus hapus garis menduplikasi loop
+(bookkeeping pointComps belum benar). Dikembalikan ke versi stabil
+(rebuild penuh sekali per perubahan geometry, ±100–120 ms per 1000 loop,
+semua pembacaan cached). Dilanjutkan nanti dengan test bed yang proper.
