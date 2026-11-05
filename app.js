@@ -16742,6 +16742,26 @@
     xfUpdatePanel();
   }
 
+  // innerHTML with an IDENTICAL string still costs a parse + layout, and the
+  // info panels are rebuilt on every selection change / drag frame. The string
+  // itself is the cheapest signature: skip the write when it did not change.
+  function setHTML(el, html) {
+    if (!el) return;
+    if (el.__lastHTML === html) return;
+    el.__lastHTML = html;
+    el.innerHTML = html;
+  }
+
+  // appendChild list panels: rebuilding N list items costs N element creates
+  // plus listener attaches; a signature string skips the whole rebuild when
+  // nothing visible changed.
+  function listUnchanged(el, sig) {
+    if (!el) return true;
+    if (el.__lastSig === sig) return true;
+    el.__lastSig = sig;
+    return false;
+  }
+
   function updateSelectionInfo() {
     const el = document.getElementById('selection-info');
     // the same cascade every outbound action uses: a marquee picks points, and
@@ -16750,12 +16770,12 @@
     const pts = selectedPointIds();
     const cons = selectedConstraintIds();
     if (!ents.length && !pts.length && !cons.length) {
-      el.innerHTML = 'Nothing selected. <span class="muted">Click geometry or a dimension label.</span>';
+      setHTML(el, 'Nothing selected. <span class="muted">Click geometry or a dimension label.</span>');
       return;
     }
     if (cons.length === 1 && !ents.length && !pts.length) {
       const c = state.constraints[cons[0]];
-      el.innerHTML = '<b>' + escapeXml(constraintName(c)) + '</b><br><span class="muted">Double-click the label to edit a value.</span>';
+      setHTML(el, '<b>' + escapeXml(constraintName(c)) + '</b><br><span class="muted">Double-click the label to edit a value.</span>');
       return;
     }
     const parts = [];
@@ -16791,8 +16811,8 @@
         ? 'Group select is on: a click takes the whole group. <b>Alt+click</b> takes one object.'
         : 'One object selected. Turn on <b>Group</b> (or Alt+click) to take the whole group; <b>Ctrl+Shift+G</b> ungroups.')
       : 'Apply a constraint or dimension.';
-    el.innerHTML = '<b>' + escapeXml(parts.join(' \u00b7 ')) + '</b>' + nameLine +
-      '<br><span class="muted">' + hint + '</span>';
+    setHTML(el, '<b>' + escapeXml(parts.join(' \u00b7 ')) + '</b>' + nameLine +
+      '<br><span class="muted">' + hint + '</span>');
   }
 
   function updateConstraintButtons() {
@@ -16916,6 +16936,9 @@
     const countEl = document.getElementById('constraint-count');
     if (countEl) countEl.textContent = ids.length;
     if (block) block.classList.toggle('hidden', ids.length === 0);
+    // rebuild only when the rows (ids + active flags) actually changed
+    const consSig = 'c' + ids.join(',') + '|' + Array.from(selectionIndex().constraint).join(',');
+    if (listUnchanged(list, consSig)) return;
     list.innerHTML = '';
     for (const id of ids) {
       const c = state.constraints[id];
@@ -16947,6 +16970,12 @@
     const loops = getLoops();
     const countEl = document.getElementById('loop-count');
     if (countEl) countEl.textContent = loops.length;
+    // loopShapeSelected per loop is the only per-row state; skip the rebuild
+    // when the topology (geometryEpoch) and the flags are unchanged
+    const loopSig = geometryEpoch + '|' + loops.length + '|' +
+      loops.map(l => loopShapeSelected(l) ? 1 : 0).join('');
+    if (ui.focusLoop != null && ui.focusLoop >= loops.length) ui.focusLoop = null;
+    if (listUnchanged(list, loopSig)) return;
     list.innerHTML = '';
     for (let i = 0; i < loops.length; i++) {
       const li = document.createElement('li');
@@ -16969,7 +16998,6 @@
       list.appendChild(li);
     }
     list.dataset.empty = 'No closed loops yet';
-    if (ui.focusLoop != null && ui.focusLoop >= loops.length) ui.focusLoop = null;
   }
 
   // Parts panel: one row per part with select + delete, and the open mate-job
@@ -16984,6 +17012,12 @@
     }
     const countEl = document.getElementById('parts-count');
     if (countEl) countEl.textContent = String(rows.length);
+    // rows show fixed flag, pose and selection state — all covered by
+    // geometryEpoch (pose changes bump it) + selection + mates keys
+    const partsSig = 'p' + geometryEpoch + '|' +
+      rows.map(e => e.id + (e.fixed ? 'F' : '') + (selected('entity', +e.id) ? 'S' : '')).join(',') +
+      '|' + Object.keys(state.mates).join(',') + '|' + ui.hoverListPart;
+    if (listUnchanged(list, partsSig)) return;
     list.innerHTML = '';
     for (const e of rows) {
       const li = document.createElement('li');
@@ -17134,6 +17168,9 @@
     }
     const countEl = document.getElementById('array-count');
     if (countEl) countEl.textContent = String(rows.length);
+    const arrSig = 'a' + geometryEpoch + '|' +
+      rows.map(e => e.id + (selected('entity', +e.id) ? 'S' : '') + JSON.stringify(e.params || null) + (e.kind || '')).join(',');
+    if (listUnchanged(list, arrSig)) return;
     list.innerHTML = '';
     for (const e of rows) {
       const li = document.createElement('li');
@@ -17188,7 +17225,12 @@
   function updateCoords(sx, sy) {
     const w = s2w(sx, sy);
     const el = document.getElementById('status-coords');
-    if (el) el.innerHTML = 'x ' + fmt(w.x) + '&nbsp;&nbsp;y ' + fmt(w.y);
+    if (el) {
+      // runs at the mouse polling rate: an identical-string write still
+      // dirties layout, and the readout usually holds still between ticks
+      const s = 'x ' + fmt(w.x) + '&nbsp;&nbsp;y ' + fmt(w.y);
+      if (el.__lastHTML !== s) { el.__lastHTML = s; el.innerHTML = s; }
+    }
   }
 
   function pointerPos(ev) {
