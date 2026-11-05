@@ -1177,9 +1177,6 @@
     { group: 'Renderer', key: 'renderAA', label: 'Anti-aliasing', unit: '',
       def: 'on', choices: [['on', 'Smooth'], ['off', 'Off — pixelated, faster']],
       help: 'Turning smoothing off draws at half resolution and upscales with hard pixels: visibly jagged, but cheaper to draw on big files.' },
-    { group: 'Renderer', key: 'selHalo', label: 'Bulk selection halo', unit: '',
-      def: 'on', choices: [['on', 'On — glow under a select-all'], ['off', 'Off — faster, brightened colours only']],
-      help: 'With more than 400 objects selected, a translucent blue band (4.5x the line width) is stroked under all selected geometry so a select-all reads as selected. That band is a FULL extra rasterisation of every selected shape at the widest width there is — the most expensive fill rate in the app. Off: selection still shows through the brightened line colours.' },
     { group: 'Renderer', key: 'renderScale', label: 'Canvas resolution', unit: '%',
       def: '100', choices: [['100', '100'], ['75', '75'], ['50', '50']],
       help: 'Resolution of the drawing canvas. 50% fills a quarter of the pixels — the cheapest speed dial there is.' },
@@ -1322,7 +1319,6 @@
   let LINE_ZOOM_MAX = 1.25;
   let RENDER_AA = true;
   let RENDER_SCALE = 1;
-  let SEL_HALO = true;
 
   function settingsDefaults() {
     const d = {};
@@ -1408,7 +1404,6 @@
     PART_WIDTH = settings.partWidth;
     RENDER_AA = settings.renderAA !== 'off';
     RENDER_SCALE = (+settings.renderScale || 100) / 100;
-    SEL_HALO = settings.selHalo !== 'off';
     if (cnc) cnc.tol = settings.cncFlatten;
     // the text tracer caches by raster size, so drop it whenever it changes
     if (textTraceCache && textTraceCache.clear) textTraceCache.clear();
@@ -14697,14 +14692,10 @@
       ctx.strokeStyle = color;
       ctx.stroke(path);
     }
-    if (manySelected && SEL_HALO) {
-      // one pass over the selected geometry instead of one stroke each
-      ctx.save();
-      ctx.strokeStyle = 'rgba(37, 99, 235, 0.16)';
-      ctx.lineWidth = lw * 4.5;
-      for (const [color, path] of batch) ctx.stroke(path);
-      ctx.restore();
-    }
+    // The old bulk-selection halo (a translucent blue band at 4.5x line width
+    // stroked under all selected geometry) is gone for good: it was a FULL
+    // extra rasterisation of every selected shape at the widest width in the
+    // app, and the brightened colours already show what is selected.
   }
 
   // A segment is identified by its two end points, so selecting several of them
