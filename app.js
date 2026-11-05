@@ -8362,6 +8362,11 @@
     let best = null;
     let bestD = Infinity;
     for (let idx = 0; idx < e.pts.length; idx++) {
+      // WYSIWYG: a knob that is not DRAWN must not be GRABBABLE. With more
+      // than 3 nodes selected (bulk gesture) or the whole curve selected,
+      // no knobs are rendered — yet the hit-test still accepted those
+      // handles, so invisible handles could silently reshape the curve.
+      if (!handleNodeShown(e, idx)) continue;
       const p = P(e.pts[idx]);
       const ns = p ? w2s(p.x, p.y) : null;
       const nodeD = ns ? Math.hypot(sx - ns.x, sy - ns.y) : Infinity;
