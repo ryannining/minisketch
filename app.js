@@ -2262,16 +2262,38 @@
   // Wheel zoom feels instant because the scene is not redrawn per tick: the
   // last full frame is blitted scaled (see ui.zoomBlast) and this timer does
   // the real render once the wheel stops spinning.
+  //
+  // A full settle render on a huge document rasterises everything (10k
+  // entities, 24k markers, 1.4k loops), so every micro-pause of the wheel
+  // landed as a visible hiccup. While the fast window is open (open for a
+  // short time after the last wheel tick) the settle renders a DEGRADED
+  // frame instead — no loop fills/tints, no plain markers, no annotations —
+  // and the full scene is drawn once, after the window closes.
   let zoomSettleTimer = 0;
-  function scheduleZoomSettle() {
+  let zoomFastUntil = 0;
+  let fastMode = false;          // true while the current render is degraded
+  function markZoomFast() {
+    zoomFastUntil = performance.now() + 150;
+  }
+  function scheduleZoomSettle(delay) {
     clearTimeout(zoomSettleTimer);
     zoomSettleTimer = setTimeout(() => {
       zoomSettleTimer = 0;
       if (ui.zoomBlast) {
         ui.zoomBlast = null;
+        const remain = zoomFastUntil - performance.now();
+        if (remain > 0) {
+          fastMode = true;
+          render();
+          fastMode = false;
+          // the frame just painted is degraded: render the full scene once
+          // the fast window closes
+          scheduleZoomSettle(remain + 20);
+          return;
+        }
         render();
       }
-    }, 120);
+    }, delay === undefined ? 120 : delay);
   }
 
   function scheduleSave() {
@@ -15457,6 +15479,12 @@
     const selEnts = selIdx.entity;
     const selPts = selIdx.point;
     if (!ui.showPoints && !selEnts.size && !selPts.size) return;
+    // fast zoom mode: plain markers carry almost no information per pixel at
+    // 24k points; selected/hover markers (decimated when bulk) still show
+    if (fastMode && !ui.showPoints) return;
+    // in fast mode plain markers drop only when the user did not explicitly
+    // turn Points on; selected/hover markers (decimated when bulk) still show
+    const skipPlain = fastMode && !ui.showPoints;
     // Every marker goes into one of three batched paths (plain, selected,
     // hovered) with a single fill + stroke each, and off-screen markers are
     // culled — so thousands of handles stay visible and selectable without a
@@ -15562,10 +15590,10 @@
         continue;
       }
       // a point owned only by other layers fades with them (dim other layers)
-      if (!onActiveLayer && ui.dimOthers) {
+      if (!onActiveLayer && ui.dimOthers && !skipPlain) {
         plainDim.rect(sx - half, sy - half, ms, ms);
         plainDimCount++;
-      } else {
+      } else if (!skipPlain) {
         plain.rect(sx - half, sy - half, ms, ms);
         plainCount++;
       }
@@ -16647,14 +16675,20 @@
     // geometry, so drawing on top of it behaves like drawing on blank paper.
     // Its dashed frame is still drawn with the other entities.
     drawImageBitmaps();
-    drawLoopFills();
-    drawLoops();
+    // FAST MODE (zoom settle inside the fast window): skip everything that
+    // paints large numbers of low-information pixels — loop fills/tints,
+    // notes, dimension/badge annotations — the full scene follows right after
+    // the window closes (see scheduleZoomSettle)
+    if (!fastMode) {
+      drawLoopFills();
+      drawLoops();
+    }
     drawEntities();
     drawArrays();
     drawPartMarkers();
     drawMates();
     drawPartHighlight();
-    drawNotes();
+    if (!fastMode) drawNotes();
     drawOffsetPreview();
     drawSegmentHighlight();
     drawPreview();
@@ -16681,7 +16715,7 @@
       (ui.drag.snappedSketch || ui.drag.snapAxis)) {
       drawSnapMarker(ui.drag.snapAt, !!ui.drag.snappedSketch);
     }
-    if (ui.showAnnots) {
+    if (ui.showAnnots && !fastMode) {
       drawConstraintBadges();
       drawDimensions();
     }
@@ -20589,6 +20623,7 @@ function cmdSplitCurve() {
     view.zoom = next;
     view.ox = pos.x - w.x * view.zoom;
     view.oy = pos.y + w.y * view.zoom;
+    markZoomFast();
     scheduleRender();
     scheduleZoomSettle();
     scheduleViewSave();
