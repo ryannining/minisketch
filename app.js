@@ -1840,10 +1840,11 @@
   }
 
   function pointVisible(pid) {
-    const uses = pointUses(pid);
-    if (!uses) return true;
-    for (const e of uses) if (layerVisible(e)) return true;
-    return false;
+    // same question as pointShown (any visible layer owns the point), so it
+    // rides the memoized pointShownCache — hitPoint used to answer this with
+    // a fresh pointUses + layerVisible scan per point per event, which made
+    // hover hit-testing the hottest path on a big drawing
+    return pointShown(pid);
   }
 
   // The point caches below answer questions about LAYER state, so they must not
@@ -2342,6 +2343,8 @@
     pointEditableCache = null;
     pointShownCache = null;
     hitGridCache = null;
+    entityCountCache = -1;
+    pointGridCache = null;
     // sample/contour caches always drop (cheap to rebuild, must track moving
     // points during a drag); only the loop topology is deferred below
     splineSampleCache = new Map();
@@ -2571,16 +2574,22 @@
     let best = null;
     let bestD = tol;
     const skip = opts.skip || null;
-    for (const key in state.points) {
-      const id = +key;
-      if (skip && skip.has(id)) continue;
-      const p = state.points[key];
-      const d = Math.hypot(p.x - world.x, p.y - world.y);
-      if (d < bestD) {
-        bestD = d;
-        best = id;
+    // the point grid answers "which points are even near the cursor"; the
+    // full scan remains as the far-zoom fallback (see pointCandidatesNear)
+    const cands = pointCandidatesNear(world.x, world.y, tol);
+    const scan = (ids) => {
+      for (const id of ids) {
+        if (skip && skip.has(id)) continue;
+        const p = state.points[id];
+        const d = Math.hypot(p.x - world.x, p.y - world.y);
+        if (d < bestD) {
+          bestD = d;
+          best = id;
+        }
       }
-    }
+    };
+    if (cands) scan(cands);
+    else for (const key in state.points) scan([+key]);
     if (best != null) {
       const p = state.points[best];
       // `weld` tells the marker (and the user) whether this snap will merge the
@@ -2694,6 +2703,12 @@
   let selIndexArr = null;
   let selIndexLen = -1;
   let selIndex = null;
+  // ui.selection is mutated IN PLACE by several paths (toggleSelect's
+  // splice/push, segment picks, name-target picks). Identity + length alone
+  // can alias: a push-then-splice cycle lands back at the same length with
+  // the same array and the cache goes stale. Every in-place mutator calls
+  // touchSelection(), which invalidates directly.
+  function touchSelection() { selIndex = null; }
 
   function selectionIndex() {
     if (selIndex && selIndexArr === ui.selection && selIndexLen === ui.selection.length) return selIndex;
@@ -2735,7 +2750,7 @@
     if (id == null) return;
     ui.selection = [{ kind, id }];
     if (kind === 'entity' && ui.groupSelect) {
-      for (const sib of groupSiblings(id)) ui.selection.push({ kind: 'entity', id: sib });
+      for (const sib of groupSiblings(id)) { ui.selection.push({ kind: 'entity', id: sib }); touchSelection(); }
     }
   }
 
@@ -2747,11 +2762,12 @@
 
   function toggleSelect(kind, id, single) {
     const i = ui.selection.findIndex(s => s.kind === kind && s.id === id);
-    if (i >= 0) ui.selection.splice(i, 1);
+    if (i >= 0) { ui.selection.splice(i, 1); touchSelection(); }
     else {
       ui.selection.push({ kind, id });
+      touchSelection();
       if (kind === 'entity' && !single && ui.groupSelect) {
-        for (const sib of groupSiblings(id)) ui.selection.push({ kind: 'entity', id: sib });
+        for (const sib of groupSiblings(id)) { ui.selection.push({ kind: 'entity', id: sib }); touchSelection(); }
       }
     }
   }
@@ -4939,7 +4955,7 @@
       if (copy) copy.group = gmap[source.group];
     }
     for (const pid of Array.from(new Set(Object.values(pMap)))) {
-      if (pMap && state.points[pid]) ui.selection.push({ kind: 'point', id: pid });
+      if (pMap && state.points[pid]) { ui.selection.push({ kind: 'point', id: pid }); touchSelection(); }
     }
     ui.focusLoop = null;
     invalidateLoops();
@@ -8145,22 +8161,81 @@
     if (modal) modal.classList.add('hidden');
   }
 
+  // Spatial bucketing for POINT hit-testing and snapping — the same idea as
+  // the entity hit grid above, but one point = one cell, so building it is a
+  // single linear pass. hitPoint()/snapPoint() used to walk EVERY point per
+  // call, and both run at the mouse polling rate while hovering; on a big
+  // drawing that was the hottest path in the profile. The grid drops on
+  // invalidateLoops(), which every coordinate change already calls, so a
+  // moving point never sits in a stale bucket at query time.
+  let pointGridCache = null;
+  function pointGrid() {
+    if (pointGridCache) return pointGridCache;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const key in state.points) {
+      const p = state.points[key];
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+    const span = Math.max(maxX - minX, maxY - minY) || 1;
+    const cell = span / 64;
+    const buckets = new Map();
+    for (const key in state.points) {
+      const p = state.points[key];
+      const k = Math.floor((p.x - minX) / cell) + ':' + Math.floor((p.y - minY) / cell);
+      let arr = buckets.get(k);
+      if (!arr) { arr = []; buckets.set(k, arr); }
+      arr.push(+key);
+    }
+    pointGridCache = { minX, minY, cell, buckets };
+    return pointGridCache;
+  }
+
+  // Point ids near (x, y) within r (world units), or null when the query box
+  // covers most of the grid (zoomed far out) and the caller should just scan.
+  function pointCandidatesNear(x, y, r) {
+    const g = pointGrid();
+    const x0 = Math.floor((x - r - g.minX) / g.cell);
+    const x1 = Math.floor((x + r - g.minX) / g.cell);
+    const y0 = Math.floor((y - r - g.minY) / g.cell);
+    const y1 = Math.floor((y + r - g.minY) / g.cell);
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > 256) return null;
+    const out = [];
+    for (let cx = x0; cx <= x1; cx++) {
+      for (let cy = y0; cy <= y1; cy++) {
+        const arr = g.buckets.get(cx + ':' + cy);
+        if (arr) for (const id of arr) out.push(id);
+      }
+    }
+    return out;
+  }
+
   function hitPoint(sx, sy, skip) {
     if (!pickFilter.point) return null;   // pick filter: points locked
     let best = null;
     let bestD = 9;
-    for (const key in state.points) {
-      const id = +key;
-      if (skip && skip.has(id)) continue;
-      if (!pointVisible(id) || !pointEditable(id)) continue;
-      const p = state.points[key];
-      const s = w2s(p.x, p.y);
-      const d = Math.hypot(sx - s.x, sy - s.y);
-      if (d < bestD) {
-        bestD = d;
-        best = id;
+    const a = s2w(sx - bestD, sy + bestD);
+    const b = s2w(sx + bestD, sy - bestD);
+    const rad = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y)) / 2 + 1 / view.zoom;
+    const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+    const cands = pointCandidatesNear(cx, cy, rad);
+    const scan = (ids) => {
+      for (const id of ids) {
+        if (skip && skip.has(id)) continue;
+        if (!pointVisible(id) || !pointEditable(id)) continue;
+        const p = state.points[id];
+        const s = w2s(p.x, p.y);
+        const d = Math.hypot(sx - s.x, sy - s.y);
+        if (d < bestD) {
+          bestD = d;
+          best = id;
+        }
       }
-    }
+    };
+    if (cands) scan(cands);
+    else for (const key in state.points) scan([+key]);
     return best;
   }
 
@@ -8904,10 +8979,18 @@
 
   // Big documents are painted in colour batches: one Path2D and one stroke per
   // colour instead of a beginPath/stroke pair per entity.
+  // entityCount is read per draw call through bulkActive(); a for..in over
+  // every entity per call was O(entities²) per frame on a big drawing. The
+  // count only changes with document structure, which always goes through
+  // invalidateLoops() — the same signal that drops the hit grid.
+  let entityCountCache = -1;
   function entityCount() {
-    let n = 0;
-    for (const k in state.entities) n++;
-    return n;
+    if (entityCountCache < 0) {
+      let n = 0;
+      for (const k in state.entities) n++;
+      entityCountCache = n;
+    }
+    return entityCountCache;
   }
 
   function bulkActive() {
@@ -14506,8 +14589,8 @@
       dropSegment();
       return;
     }
-    if (!hasA) ui.selection.push({ kind: 'point', id: seg.a });
-    if (!hasB) ui.selection.push({ kind: 'point', id: seg.b });
+    if (!hasA) { ui.selection.push({ kind: 'point', id: seg.a }); touchSelection(); }
+    if (!hasB) { ui.selection.push({ kind: 'point', id: seg.b }); touchSelection(); }
   }
 
   // Every segment implied by the current point selection: an adjacent pair of
@@ -15280,6 +15363,8 @@
     return !(b.maxX < x0 || b.minX > x1 || b.maxY < y0 || b.minY > y1);
   }
 
+  let selEntPointsCache = null;
+  let selEntPointsCacheFor = null;
   function drawPoints() {
     // The Points toggle shows the handles of the whole drawing: a point is drawn
     // when its layer is VISIBLE, whatever layer is active. Grabbing is the
@@ -15313,15 +15398,19 @@
     const half = ms / 2;
     const selHalf = ms * 0.6875;   // selected: hover: plain = 4.4 : 4 : 3.2
     const hovHalf = ms * 0.625;
-    // points owned by selected entities, computed once: scanning every point's
-    // uses per frame is what made big selections crawl
-    const selEntPoints = new Set();
-    if (selEnts.size) {
+    // points owned by selected entities, computed once per SELECTION (not per
+    // frame): the cache key is the selection index object, which rebuilds
+    // exactly when the selection changes
+    let selEntPoints = selEntPointsCache;
+    if (selEnts.size && selEntPointsCacheFor !== selIdx) {
+      selEntPoints = new Set();
       for (const eid of selEnts) {
         const e = state.entities[eid];
         if (!e) continue;
         for (const pid of entityPointIds(e)) selEntPoints.add(+pid);
       }
+      selEntPointsCache = selEntPoints;
+      selEntPointsCacheFor = selIdx;
     }
     // marker density: at most one plain marker per 8px screen cell — at low
     // zoom thousands of them overlap into one blob anyway. Selected and
@@ -15364,7 +15453,8 @@
         if (allTiny) continue;
       }
       if (!isSel && !isHover) {
-        const k = ((sx / 8) | 0) + ',' + ((sy / 8) | 0);
+        // numeric cell key: a string key allocated a small string per marker
+        const k = (((sx / 8) | 0) << 16) | (((sy / 8) | 0) & 0xffff);
         if (cellSeen.has(k)) continue;
         cellSeen.add(k);
       }
@@ -16512,8 +16602,20 @@
     setFrameTime(lastFrameDone ? t1 - lastFrameDone : t1 - t0, t1 - t0);
     lastFrameDone = t1;
     updateStatusCounts();
-    updateTransformPanel();
+    // per-frame DOM panel: only touch it when the selection or the geometry
+    // actually changed — selectionBounds() samples arcs/splines per selected
+    // entity and the value writes forced style/layout work every frame
+    const tpSel = ui.selection;
+    if (tpSel !== tpLastSel || tpSel.length !== tpLastLen || geometryEpoch !== tpLastEpoch) {
+      tpLastSel = tpSel; tpLastLen = tpSel.length; tpLastEpoch = geometryEpoch;
+      updateTransformPanel();
+    }
   }
+
+  // per-frame call guard for the transform panel (see render)
+  let tpLastSel = null;
+  let tpLastLen = -1;
+  let tpLastEpoch = -1;
 
   // Frame stats next to "saved", so optimisations can be measured directly:
   // "frame" is the gap between completed renders (everything the app did),
@@ -16521,16 +16623,24 @@
   let lastFrameDone = 0;
   function setFrameTime(frameMs, drawMs) {
     const el = document.getElementById('status-frame');
-    if (el) el.textContent = 'frame ' + frameMs.toFixed(2) + ' / draw ' + drawMs.toFixed(2) + ' ms';
+    if (el) {
+      // identical textContent writes still dirty layout; skip them
+      const s = 'frame ' + frameMs.toFixed(2) + ' / draw ' + drawMs.toFixed(2) + ' ms';
+      if (el.textContent !== s) el.textContent = s;
+    }
   }
 
   function updateStatusCounts() {
     const zoomEl = document.getElementById('status-zoom');
-    if (zoomEl) zoomEl.textContent = Math.round(view.zoom * 100) + '%';
+    if (zoomEl) {
+      const s = Math.round(view.zoom * 100) + '%';
+      if (zoomEl.textContent !== s) zoomEl.textContent = s;
+    }
     const loopsEl = document.getElementById('status-loops');
     if (loopsEl) {
       const n = getLoops().length;
-      loopsEl.textContent = n + (n === 1 ? ' loop' : ' loops');
+      const s = n + (n === 1 ? ' loop' : ' loops');
+      if (loopsEl.textContent !== s) loopsEl.textContent = s;
     }
     const solverEl = document.getElementById('status-solver');
     if (solverEl) {
@@ -16540,12 +16650,14 @@
       else if (ui.solverCost < 1e-6) text = 'solver ok';
       else if (ui.solverCost < 1e-2) text = 'solver near';
       else text = 'solver residual';
-      solverEl.textContent = text +
+      const stext = text +
         (ui.solveMode === 'live' ? '' : ' \u00b7 ' + (ui.solveMode === 'manual' ? 'manual' : 'release'));
+      if (solverEl.textContent !== stext) solverEl.textContent = stext;
       solverEl.classList.toggle('unsolved', !!ui.solveDirty);
-      solverEl.title = SOLVE_MODE_LABEL[ui.solveMode] +
+      const stitle = SOLVE_MODE_LABEL[ui.solveMode] +
         ' \u2014 click to switch (on release \u2192 manual \u2192 live). F9 solves now' +
         (ui.solveDirty ? '. The geometry has moved away from its constraints since the last solve.' : '');
+      if (solverEl.title !== stitle) solverEl.title = stitle;
     }
   }
 
