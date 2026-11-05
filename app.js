@@ -2898,6 +2898,7 @@
       // 3. no points at all: decide by containment
       if (!box) continue;
       if (e.type !== 'art' && e.type !== 'array' && e.type !== 'part') continue;
+      if (!pickFilter.loop && e.type !== 'part') continue;   // filter 3: container loop-like terkunci
       const b = entityBounds(e);
       if (!b) continue;
       const inside = b.minX >= box.minX - 1e-6 && b.maxX <= box.maxX + 1e-6 &&
@@ -7041,6 +7042,7 @@
       const e = state.entities[id];
       if (!layerVisible(e) || !entityEditable(e)) continue;
       if (!pickFilter.line && (e.type === 'line' || e.type === 'arc' || e.type === 'circle' || e.type === 'spline')) continue;
+      if (!pickFilter.loop && (e.type === 'text' || e.type === 'image' || e.type === 'art' || e.type === 'array')) continue;
       if (entityScreenDistance(e, pos.x, pos.y) < 9) ents.push(+id);
     }
     if (ents.length) {
@@ -8314,6 +8316,11 @@
       // a loop is built from) is unreachable; parts, text, notes, art and
       // images stay clickable so those tools keep working.
       if (!pickFilter.line && (e.type === 'line' || e.type === 'arc' || e.type === 'circle' || e.type === 'spline')) continue;
+      // Pick filter 3 (loops locked): seluruh kelompok "loop-like" — teks,
+      // grup art, image, clone/array — ikut terkunci, sesuai makna tombol 3
+      // ("yang menyusun/mewakili loop tidak bisa disentuh"). Part tetap
+      // pickable karena punya pick filter sendiri lewat markernya.
+      if (!pickFilter.loop && (e.type === 'text' || e.type === 'image' || e.type === 'art' || e.type === 'array')) continue;
       let d = entityScreenDistance(e, sx, sy);
       // A generated object loses ties: the zig-zag's baseline runs collinear
       // with its master line, and without this the line could never be picked.
@@ -20199,6 +20206,7 @@ function cmdSplitCurve() {
       const e = state.entities[key];
       if (!e) continue;
       if (e.type !== 'art' && e.type !== 'array' && e.type !== 'part') continue;
+      if (!pickFilter.loop && e.type !== 'part') continue;   // filter 3: container loop-like terkunci
       if (!d.crossLayer && !entityEditable(e)) continue;
       const bb = entityBounds(e);
       if (!bb) continue;
