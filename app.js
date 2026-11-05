@@ -17981,43 +17981,6 @@
 
   // The selection a plain (or modifier) click inside a loop performs. Shared by
   // the deferred loop click and the Alt (loop below) variant.
-  // Klik interior container (teks / grup art / clone-array / image) saat pick
-  // filter loop terkunci: interior mereka hanya terjangkau lewat jalur
-  // loop-enclosure, jadi butuh pengganti langsung. Mengembalikan entity id
-  // container terkecil yang memuat titik klik (dua array bertumpuk: yang
-  // terkecil menang), atau null.
-  function containerHitAt(world) {
-    let best = null;
-    let bestArea = Infinity;
-    for (const id in state.entities) {
-      const e = state.entities[id];
-      if (!e || e.dead) continue;
-      if (e.type !== 'text' && e.type !== 'image' && e.type !== 'art' && e.type !== 'array') continue;
-      if (!layerVisible(e) || !entityEditable(e)) continue;
-      let inside = false;
-      if (e.type === 'text' || e.type === 'image') {
-        const gg = textGeom(e);
-        if (gg && textInBox(world, gg)) inside = true;
-      } else if (e.type === 'art') {
-        const gg = textGeom(e);
-        if (gg) {
-          const loc = artLocalOf(gg, world);
-          if (loc && artInside(gg, e, loc)) inside = true;
-        }
-      } else if (e.type === 'array') {
-        const bb = arrayBounds(e);
-        if (bb && world.x >= bb.minX && world.x <= bb.maxX && world.y >= bb.minY && world.y <= bb.maxY) inside = true;
-      }
-      if (!inside) continue;
-      // terkecil menang: array kecil di dalam grup besar, dsb.
-      let area = Infinity;
-      const bb = entityBounds(e);
-      if (bb) area = (bb.maxX - bb.minX) * (bb.maxY - bb.minY);
-      if (area < bestArea) { bestArea = area; best = +id; }
-    }
-    return best;
-  }
-
   function applyLoopClick(loop, addMod, subMod, altMod) {
     const loopIdx = getLoops().indexOf(loop);
     if (loopIdx >= 0) ui.focusLoop = loopIdx;
@@ -18498,26 +18461,6 @@
         }
       }
       const loop = pickLoopAt(world, ev.altKey);
-      // Loop pick terkunci (tombol 3): klik di INTERIOR container (teks, grup
-      // art, clone/array) tetap harus memilih container-nya — selama ini
-      // interior hanya terjangkau lewat jalur loop-enclosure yang memang
-      // mati saat loop dikunci, sehingga teks/grup/clone/array tidak bisa
-      // diseleksi sama sekali.
-      if (!loop && !pickFilter.loop && !ev.altKey) {
-        const cont = containerHitAt(world);
-        if (cont != null) {
-          ui.drag = {
-            kind: 'rubber',
-            start: pos,
-            additive: addMod || subMod,
-            subtract: ev.altKey || ui.altToggle,
-            deferredContainer: cont,
-            deferredMods: { add: addMod, sub: subMod, alt: ev.altKey || ui.altToggle }
-          };
-          render();
-          return;
-        }
-      }
       // Another layer's loop is LOCKED for selection: a plain click inside it
       // falls through to the rubber rectangle (which itself only takes
       // editable entities), it never selects the foreign shape. Only the
@@ -20625,30 +20568,6 @@ function cmdSplitCurve() {
       if (d.deferredLoop && !moved) {
         const m = d.deferredMods || {};
         applyLoopClick(d.deferredLoop, !!m.add, !!m.sub, !!m.alt);
-        return;
-      }
-      if (d.deferredContainer != null && !moved) {
-        // klik (tanpa geser) di interior container saat loop terkunci:
-        // pilih container-nya, lalu siapkan body drag seperti entity biasa
-        const m = d.deferredMods || {};
-        const world = s2w(p.x, p.y);
-        const contE = state.entities[d.deferredContainer];
-        if (contE) {
-          if (m.sub) {
-            toggleSelect('entity', d.deferredContainer);
-          } else if (m.add) {
-            if (!selected('entity', d.deferredContainer)) toggleSelect('entity', d.deferredContainer);
-          } else if (!selected('entity', d.deferredContainer)) {
-            selectOnlySingle('entity', d.deferredContainer);
-          }
-          if (selected('entity', d.deferredContainer)) {
-            const dragIds = new Set(entityPointIds(contE));
-            pushHistory();
-            ui.drag = selectionBodyDragFor(world) || bodyDragFor(contE, p, world, Array.from(dragIds));
-          }
-          updateUI();
-        }
-        render();
         return;
       }
       applyRubberSelection(d, p);
