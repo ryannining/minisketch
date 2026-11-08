@@ -11711,6 +11711,492 @@
     return out;
   }
 
+  // ---- Nesting (local GA + NFP2, output = clone) -----------------------
+  // Port of KaryaCNC nestjs2/frontend (tools/nest.js). The user selects the
+  // loops to nest plus ONE green (#00ff00) loop marking the sheet; Start runs
+  // the GA on the main thread (yielding between evaluations) and drops the
+  // result as clone entities to the RIGHT of the original green loop. Parts
+  // that do not fit stack to the right of the result block. Masters never
+  // move; every result is a clone (`type:'array', kind:'clone'`), so undo
+  // removes the whole layout in one step and edits to masters reshape it.
+  const NEST_OUT_GAP = 10; // mm between the sheet and the result block
+  const NEST_PREFS_KEY = 'minisketch.v1.nestPrefs';
+  let nestJob = null; // { stateAtStart, cancelled, done, total, running }
+
+  function nestPrefsLoad() {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(NEST_PREFS_KEY) || '{}') || {}; } catch (err) { saved = {}; }
+    const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+    set('nest-spacing', saved.spacing);
+    set('nest-rotation', saved.rotation);
+    set('nest-pop', saved.pop);
+    set('nest-gen', saved.gen);
+    if (typeof saved.flip === 'boolean') {
+      const el = document.getElementById('nest-flip');
+      if (el) el.checked = saved.flip;
+    }
+  }
+
+  function nestPrefsSave() {
+    const val = (id) => { const el = document.getElementById(id); return el ? el.value : null; };
+    const flip = document.getElementById('nest-flip');
+    try {
+      localStorage.setItem(NEST_PREFS_KEY, JSON.stringify({
+        spacing: val('nest-spacing'), rotation: val('nest-rotation'),
+        pop: val('nest-pop'), gen: val('nest-gen'),
+        flip: flip ? flip.checked : false
+      }));
+    } catch (err) { /* private mode: settings just do not persist */ }
+  }
+
+  // The loops worth nesting: fully selected, not owned guide lines. Returns
+  // { sheetLoops, partLoops } — green loops (all entities #00ff00) are sheet
+  // candidates, everything else is a part.
+  function nestCollectLoops() {
+    const loops = getLoops();
+    const guides = ownedGuideIds();
+    const sheetLoops = [];
+    const partLoops = [];
+    for (const loop of loops) {
+      if (!loopShapeSelected(loop)) continue;
+      const eids = loopEntities(loop).filter(eid => !guides.has(+eid));
+      if (!eids.length) continue;
+      const allGreen = eids.every(eid => {
+        const e = state.entities[eid];
+        return e && isConstructionColor(colorOf(e));
+      });
+      (allGreen ? sheetLoops : partLoops).push({ loop, entityIds: eids });
+    }
+    return { sheetLoops, partLoops };
+  }
+
+  // Group part loops into objects: a loop fully inside another loop becomes
+  // that loop's hole (compound part = one object). Uses the sampled loop
+  // polygon and pointInPoly from core.js.
+  function nestGroupParts(partLoops) {
+    const items = partLoops.map(rec => ({ rec, area: rec.loop.area }));
+    items.sort((a, b) => b.area - a.area); // outer candidates first
+    const objects = [];
+    for (const it of items) {
+      let parent = null;
+      for (const obj of objects) {
+        const poly = obj.outer.loop.poly;
+        if (poly && poly.length > 2 && pointInPoly(it.rec.loop.poly[0], poly)) { parent = obj; break; }
+      }
+      if (parent) parent.holeRecs.push(it.rec);
+      else objects.push({ outer: it.rec, holeRecs: [] });
+    }
+    return objects;
+  }
+
+  // Build the engine part entries from the selection: one entry per object
+  // (outer + holes as extra paths), variants per rotation/flip, plus the green
+  // sheet entry. Everything is a copy — the engine never touches the document.
+  function nestBuildEntries(sel, spacingMm, rotation, flip) {
+    const GEOM = MiniSketchNest.GEOM_SCALE;
+    const angles = nestRotationAngles(rotation);
+    // variant list: for each angle one base variant, plus a flipped twin when
+    // flip is on (so rotList order is angle0, angle0-flip, angle1, ...)
+    const rotList = [];
+    for (const a of angles) {
+      rotList.push({ a, f: false });
+      if (flip) rotList.push({ a, f: true });
+    }
+    const entries = [];
+    // parts: poly (mm -> engine units); offset() grows by distance/2 on every
+    // side, so offset(spacingMm) reserves spacingMm/2 per part — the packing
+    // gap between two ORIGINAL outlines ends up exactly spacingMm (reference
+    // behaviour: packing uses the grown shape, the result draws the original).
+    for (let oi = 0; oi < sel.objects.length; oi++) {
+      const obj = sel.objects[oi];
+      // ClipperOffset only keeps a hole when its winding opposes the outer
+      // path, so the hole poly is reversed when needed before building the
+      // engine Path.
+      const mkPath = (rec, holes) => {
+        const paths = [rec.loop.poly.map(p => new MiniSketchNest.Point(p.x * GEOM, p.y * GEOM))];
+        const outerArea = MiniSketchNest.Path.getSignedArea(paths[0]);
+        for (const h of holes) {
+          const hp = h.loop.poly.map(p => new MiniSketchNest.Point(p.x * GEOM, p.y * GEOM));
+          if (Math.sign(MiniSketchNest.Path.getSignedArea(hp)) === Math.sign(outerArea)) hp.reverse();
+          paths.push(hp);
+        }
+        return new MiniSketchNest.Path(paths, oi + 1, null, null);
+      };
+      const base = mkPath(obj.outer, obj.holeRecs);
+      base.align();
+      const opart = base.clone().offset(spacingMm);
+      const variants = [];
+      for (const { a: rot, f: useFlip } of rotList) {
+        const v = opart.clone();
+        if (useFlip) v.flip();
+        if (rot !== 0) v.rotate(rot);
+        else v.align();
+        variants.push(v);
+      }
+      entries.push({
+        originIndex: oi + 1,
+        lcolor: null,
+        childIndex: [],
+        variants,
+        _rec: { outer: obj.outer, holes: obj.holeRecs, nPerAngle: flip ? 2 : 1 }
+      });
+    }
+    // sheet: exactly one green loop
+    if (sel.sheetLoops.length === 1) {
+      const rec = sel.sheetLoops[0];
+      const paths = [rec.loop.poly.map(p => new MiniSketchNest.Point(p.x * GEOM, p.y * GEOM))];
+      const sheetPath = new MiniSketchNest.Path(paths, 0, null, '#00ff00');
+      sheetPath.align();
+      entries.push({ originIndex: 0, lcolor: '#00ff00', childIndex: [], variants: [sheetPath], _rec: { outer: rec, holes: [] } });
+    }
+    return entries;
+  }
+
+  function nestRotationAngles(rotation) {
+    if (!rotation) return [0];
+    const out = [];
+    for (const item of String(rotation).split(',')) {
+      const v = parseFloat(item);
+      if (!isNaN(v)) {
+        const norm = ((v % 360) + 360) % 360;
+        if (!out.includes(norm)) out.push(norm);
+      }
+    }
+    return out.length ? out : [0];
+  }
+
+  // Validate the current selection and build the whole job input. Returns
+  // null (with a toast) when the selection is not usable.
+  function nestPrepare() {
+    if (xfBlock()) return null;
+    if (typeof MiniSketchNest === 'undefined') {
+      toast('Engine nesting belum dimuat (tools/nest.js)');
+      return null;
+    }
+    const sel = nestCollectLoops();
+    if (sel.sheetLoops.length === 0 && sel.partLoops.length === 0) {
+      toast('Pilih loop yang mau dinesting + satu loop hijau sebagai lembar');
+      return null;
+    }
+    if (sel.sheetLoops.length !== 1) {
+      toast(sel.sheetLoops.length === 0
+        ? 'Pilih satu loop garis hijau sebagai lembar (sheet)'
+        : 'Pilih hanya satu loop hijau sebagai lembar — sekarang ada ' + sel.sheetLoops.length);
+      return null;
+    }
+    if (sel.partLoops.length === 0) {
+      toast('Tidak ada loop part di seleksi — pilih loop yang mau dinesting');
+      return null;
+    }
+    const objects = nestGroupParts(sel.partLoops);
+    const spacing = Math.max(0, parseFloat(document.getElementById('nest-spacing').value) || 0);
+    const rotation = document.getElementById('nest-rotation').value;
+    const flip = document.getElementById('nest-flip').checked;
+    const popSize = Math.max(2, parseInt(document.getElementById('nest-pop').value, 10) || 6);
+    const generations = Math.max(1, parseInt(document.getElementById('nest-gen').value, 10) || 5);
+    return { sel, objects, spacing, rotation, flip, popSize, generations };
+  }
+
+  function nestStart() {
+    if (nestJob && nestJob.running) return;
+    const prep = nestPrepare();
+    if (!prep) return;
+
+    const stateAtStart = state;
+    const entries = nestBuildEntries(prep.sel, prep.spacing, prep.rotation, prep.flip);
+    const sheetLoop = prep.sel.sheetLoops[0].loop;
+    let sxMin = Infinity, syMin = Infinity, sxMax = -Infinity, syMax = -Infinity;
+    for (const p of sheetLoop.poly) {
+      sxMin = Math.min(sxMin, p.x); syMin = Math.min(syMin, p.y);
+      sxMax = Math.max(sxMax, p.x); syMax = Math.max(syMax, p.y);
+    }
+    const ga = new MiniSketchNest.NFPGA();
+    ga.setSpacing(prep.spacing);
+    ga.setAllowFlip(prep.flip);
+    ga.setGAParams(prep.popSize, prep.generations, 0.1);
+    const gridSize = prep.spacing > 0 ? prep.spacing * MiniSketchNest.GEOM_SCALE : MiniSketchNest.GEOM_SCALE;
+
+    nestJob = {
+      stateAtStart, entries, sheetLoop,
+      sheetBounds: { minX: sxMin, minY: syMin, maxX: sxMax, maxY: syMax },
+      spacing: prep.spacing,
+      variantAngles: nestRotationAngles(prep.rotation),
+      cancelled: false, running: true, done: 0, total: 1,
+      partRecs: prep.sel.partLoops
+    };
+
+    // UI: Start <-> Stop
+    const startBtn = document.getElementById('nest-start');
+    const stopBtn = document.getElementById('nest-stop');
+    const prog = document.getElementById('nest-progress');
+    if (startBtn) startBtn.disabled = true;
+    if (stopBtn) stopBtn.hidden = false;
+    if (prog) prog.hidden = false;
+    nestSetStatus('Nesting…');
+
+    const gen = ga.findBestPositionGen(entries, { width: 1, height: 1 }, gridSize, {
+      shouldCancel: () => nestJob.cancelled || state !== stateAtStart
+    });
+    nestJob.ga = ga;
+
+    const step = () => {
+      if (!nestJob || nestJob.ga !== ga) return;
+      if (state !== stateAtStart) { nestAbort(); return; }
+      if (nestJob.cancelled) { nestFinishGen(gen); return; }
+      const t0 = performance.now();
+      let n;
+      try {
+        while (performance.now() - t0 < 12) {
+          n = gen.next();
+          if (n.done) { nestFinishGen(gen, n.value); return; }
+          nestJob.done = n.value.done;
+          nestJob.total = n.value.total;
+        }
+      } catch (err) {
+        console.error('[nest] crash', err);
+        toast('Nesting gagal: ' + err.message);
+        nestAbort();
+        return;
+      }
+      nestPaintProgress();
+      setTimeout(step, 0);
+    };
+    setTimeout(step, 0);
+  }
+
+  function nestFinishGen(gen, value) {
+    if (!nestJob) return;
+    const job = nestJob;
+    let res = value;
+    if (!res) {
+      // cancelled: pull the best-so-far from the generator
+      const n = gen.next();
+      res = n.value;
+    }
+    job.running = false;
+    nestJob = null;
+    nestUIIdle();
+    if (!res || !res.placements || res.placements.filter(p => p.lcolor !== '#00ff00').length === 0) {
+      nestSetStatus('Tidak ada yang muat di lembar');
+      toast('Nesting: tidak ada part yang muat di lembar');
+      return;
+    }
+    const placedCount = res.placements.filter(p => p.lcolor !== '#00ff00').length;
+    const unplacedCount = job.entries.filter(e => e.lcolor !== '#00ff00').length - placedCount;
+    try {
+      nestApplyResult(job, res.placements, placedCount, unplacedCount, res.cancelled);
+    } catch (err) {
+      console.error('[nest] apply failed', err);
+      toast('Nesting gagal diterapkan: ' + err.message);
+    }
+  }
+
+  function nestAbort() {
+    if (nestJob) { nestJob.cancelled = true; }
+    nestUIIdle();
+    nestSetStatus('Dibatalkan');
+  }
+
+  function nestUIIdle() {
+    const startBtn = document.getElementById('nest-start');
+    const stopBtn = document.getElementById('nest-stop');
+    const prog = document.getElementById('nest-progress');
+    if (startBtn) startBtn.disabled = false;
+    if (stopBtn) stopBtn.hidden = true;
+    if (prog) prog.hidden = true;
+  }
+
+  function nestPaintProgress() {
+    if (!nestJob) return;
+    const fill = document.getElementById('nest-progress-fill');
+    if (fill && nestJob.total > 0) {
+      fill.style.width = Math.min(100, Math.round(100 * nestJob.done / nestJob.total)) + '%';
+    }
+    nestSetStatus('Nesting… eval ' + nestJob.done + '/' + nestJob.total);
+  }
+
+  function nestSetStatus(text) {
+    const el = document.getElementById('nest-status');
+    if (el) el.textContent = text;
+  }
+
+  function nestApplyResult(job, placements, placedCount, unplacedCount, wasCancelled) {
+    const GEOM = MiniSketchNest.GEOM_SCALE;
+    // results are placed to the right of the ORIGINAL green loop
+    const outX = job.sheetBounds.maxX + NEST_OUT_GAP;
+    const outY = job.sheetBounds.minY;
+    // total bounds of the placed block (engine units)
+    const bounds = job.ga.calculateTotalBounds(placements);
+    const blockW = bounds.width / GEOM;
+    const blockH = bounds.height / GEOM;
+
+    // master entity ids per originIndex (1-based; 0 = sheet)
+    const recsByOrigin = new Map();
+    for (const e of job.entries) recsByOrigin.set(e.originIndex, e._rec);
+
+    pushHistory();
+    const newIds = [];
+    for (const p of placements) {
+      if (p.lcolor === '#00ff00') continue; // sheet frame marker, not a part
+      const rec = recsByOrigin.get(p.originIndex);
+      if (!rec) continue;
+      // masters must still exist (undo/new during the job is caught by the
+      // stateAtStart guard, but an explicit check is cheap)
+      const masters = rec.outer.entityIds.concat(...rec.holeRecs.map(h => h.entityIds))
+        .filter(id => state.entities[id]);
+      if (!masters.length) continue;
+      // engine position: the placement is already aligned to its bbox; place
+      // the block to the right of the sheet, bottom-aligned to the sheet.
+      const pb = p.getBounds();
+      const px = outX + (pb.x - bounds.x) / GEOM;
+      const py = outY + (pb.y - bounds.y) / GEOM;
+      const variantIdx = p._variantIdx != null ? p._variantIdx : 0;
+      // The instance matrix: rebuild the same rigid chain from the variant
+      // index and land the result at (px, py).
+      const M = nestPlacementMatrixAt(job, rec, variantIdx, px, py);
+      // anchor: first master's first point AT THIS MOMENT (clone stays put
+      // when the master moves later)
+      const anchor = nestAnchorOf(masters);
+      const inst = { m: M };
+      if (anchor) inst.a = anchor;
+      const id = newId();
+      state.entities[id] = {
+        id, type: 'array', kind: 'clone',
+        params: { origin: 'nest' },
+        color: colorOf(state.entities[masters[0]]),
+        layer: ui.activeLayer,
+        masters, instances: [inst]
+      };
+      delete state.entities[id].shapes;
+      newIds.push(id);
+    }
+    // unplaced parts: stack to the right of the result block
+    if (unplacedCount > 0) {
+      const placedIdx = new Set(placements.filter(p => p.lcolor !== '#00ff00').map(p => p.originIndex));
+      let cursorY = outY;
+      const stackX = outX + blockW + NEST_OUT_GAP;
+      for (const e of job.entries) {
+        if (e.lcolor === '#00ff00' || placedIdx.has(e.originIndex)) continue;
+        const rec = e._rec;
+        const masters = rec.outer.entityIds.concat(...rec.holeRecs.map(h => h.entityIds))
+          .filter(id => state.entities[id]);
+        if (!masters.length) continue;
+        // master bbox in world mm
+        let minX = Infinity, minY = Infinity, maxY = -Infinity;
+        for (const p of rec.outer.loop.poly) {
+          minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+        }
+        const M = [1, 0, 0, 1, stackX - minX, cursorY - minY];
+        const anchor = nestAnchorOf(masters);
+        const inst = { m: M };
+        if (anchor) inst.a = anchor;
+        const id = newId();
+        state.entities[id] = {
+          id, type: 'array', kind: 'clone',
+          params: { origin: 'nest' },
+          color: colorOf(state.entities[masters[0]]),
+          layer: ui.activeLayer,
+          masters, instances: [inst]
+        };
+        delete state.entities[id].shapes;
+        newIds.push(id);
+        cursorY += (maxY - minY) + Math.max(2, job.spacing);
+      }
+    }
+    if (newIds.length) {
+      ui.selection = newIds.map(id => ({ kind: 'entity', id }));
+    }
+    invalidateLoops();
+    commit();
+    const msg = 'Nesting selesai: ' + placedCount + ' diletakkan' +
+      (unplacedCount ? ', ' + unplacedCount + ' tidak muat (kanan hasil)' : '') +
+      (wasCancelled ? ' (dihentikan — best so far)' : '') +
+      ' — blok ' + Math.round(blockW) + '×' + Math.round(blockH) + ' mm';
+    toast(msg);
+    nestSetStatus('Placed ' + placedCount + '/' + (placedCount + unplacedCount) +
+      ' · blok ' + Math.round(blockW) + '×' + Math.round(blockH) + ' mm' +
+      (wasCancelled ? ' · stopped' : ''));
+  }
+
+  // Rebuild the rigid chain for one variant and land its aligned bbox min
+  // corner at (px, py) in world mm. The chain must match nestBuildEntries
+  // exactly (align -> [flip] -> rotate/align), minus the spacing offset which
+  // only exists to reserve the packing gap. The engine's own transformMatrix
+  // is NOT trustworthy (translate() appends while bounds caches copy), so the
+  // similarity is solved from point correspondence: run the same chain on a
+  // copy of the master poly, then match the first master vertex to its image.
+  function nestPlacementMatrixAt(job, rec, variantIdx, px, py) {
+    const GEOM = MiniSketchNest.GEOM_SCALE;
+    const flip = document.getElementById('nest-flip').checked;
+    const nPerAngle = flip ? 2 : 1;
+    const vIdx = variantIdx != null && variantIdx >= 0 ? variantIdx : 0;
+    const angle = job.variantAngles[vIdx % job.variantAngles.length] || 0;
+    const useFlip = flip && (vIdx % nPerAngle === 1);
+
+    const srcPts = rec.outer.loop.poly.map(p => new MiniSketchNest.Point(p.x * GEOM, p.y * GEOM));
+    // fresh Point objects for the chain: Path ops mutate their points in place,
+    // and the similarity solve below reads srcPts as the WORLD reference
+    const chain = new MiniSketchNest.Path([srcPts.map(p => p.clone())], 0, null, null);
+    chain.align();
+    if (useFlip) chain.flip();
+    if (angle) chain.rotate(angle);
+    else chain.align();
+    // chain.paths[0][k] corresponds 1:1 to srcPts[k] (no offset ran here)
+    const fin = chain.paths[0];
+    // solve the rotation from vertex pairs [0]->[1]
+    const toMm = (p) => ({ x: p.x / GEOM, y: p.y / GEOM });
+    const a1 = toMm(srcPts[0]), a2 = toMm(srcPts[1]);
+    const b1 = toMm(fin[0]), b2 = toMm(fin[1]);
+    const dvx = a2.x - a1.x, dvy = a2.y - a1.y;
+    const dwx = b2.x - b1.x, dwy = b2.y - b1.y;
+    const det = dvx * dvx + dvy * dvy;
+    if (det < 1e-12) return [1, 0, 0, 1, 0, 0]; // degenerate
+    const c0 = (dvx * dwx + dvy * dwy) / det;
+    const s0 = (dvx * dwy - dvy * dwx) / det;
+    // The chain ends with align(): its bbox min corner sits at (0,0). That
+    // corner is generally NOT a vertex image (a diamond's leftmost vertex is
+    // mid-y), so translate so that the ROTATED shape's bbox min corner lands
+    // on the target: M(p) = R0(p) + t with R0 = [c0,-s0; s0,c0].
+    let rMinX = Infinity, rMinY = Infinity;
+    for (const p of srcPts) {
+      const a = toMm(p);
+      const qx = c0 * a.x - s0 * a.y;
+      const qy = s0 * a.x + c0 * a.y;
+      rMinX = Math.min(rMinX, qx);
+      rMinY = Math.min(rMinY, qy);
+    }
+    const e = px - rMinX;
+    const f = py - rMinY;
+    return [c0, s0, -s0, c0, e, f];
+  }
+
+  function nestAnchorOf(masterIds) {
+    for (const id of masterIds) {
+      const m = state.entities[id];
+      if (!m) continue;
+      const ids = entityPointIds(m);
+      if (ids.length) {
+        const p = P(ids[0]);
+        if (p) return [p.x, p.y];
+      }
+    }
+    return null;
+  }
+
+  // Badge + disabled state; cheap because it only reads cached values.
+  function updateNestPanel() {
+    const badge = document.getElementById('nest-count');
+    if (!badge) return;
+    const startBtn = document.getElementById('nest-start');
+    if (nestJob && nestJob.running) return; // buttons are managed by the job
+    const sel = nestCollectLoops();
+    const parts = sel.partLoops.length;
+    badge.textContent = String(parts);
+    if (startBtn) {
+      startBtn.disabled = !(parts > 0 && sel.sheetLoops.length === 1);
+    }
+  }
+
   // ---- Nesting (KaryaCNC nesting server) ------------------------------
   // Mirrors the KaryaCNC Inkscape extension protocol: POST /upload_svg with a
   // multipart svg_data file (plus inkscape=y), GET /result_svg returns the
@@ -17564,6 +18050,7 @@
     updateLoopList();
     updateArrayList();
     updatePartsList();
+    updateNestPanel();
     updateNamedSelections();
     updateLayers();
     const hintEl = document.getElementById('status-hint');
@@ -24035,6 +24522,17 @@ function cmdSplitCurve() {
     if (btnArray) btnArray.addEventListener('click', cmdCreateArray);
     const btnNest = document.getElementById('btn-nest');
     if (btnNest) btnNest.addEventListener('click', cmdNest);
+    // local nesting panel (GA + NFP2)
+    const nestStartBtn = document.getElementById('nest-start');
+    if (nestStartBtn) nestStartBtn.addEventListener('click', nestStart);
+    const nestStopBtn = document.getElementById('nest-stop');
+    if (nestStopBtn) nestStopBtn.addEventListener('click', () => { if (nestJob) nestJob.cancelled = true; });
+    const nestSetting = () => { nestPrefsSave(); updateNestPanel(); };
+    for (const id of ['nest-spacing', 'nest-rotation', 'nest-pop', 'nest-gen', 'nest-flip']) {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', nestSetting);
+    }
+    nestPrefsLoad();
     const btnMakePart = document.getElementById('btn-make-part');
     if (btnMakePart) btnMakePart.addEventListener('click', cmdMakePart);
     const btnMate = document.getElementById('btn-mate');

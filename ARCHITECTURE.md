@@ -11,8 +11,9 @@ Plain static files, no build step, opened straight from disk
 
 - **No ES modules** (`import`/`export` is blocked over `file://` in Chrome).
   Files are classic `<script>` tags loaded in order: `tools/imagetracer.js`,
-  `tools/clipper.js`, `tools/registry.js`, the tool files (`tools/box.js`,
-  `tools/slot.js`, `tools/gear.js`, `tools/wall.js`), `core.js`, `app.js`.
+  `tools/clipper.js`, `tools/nest.js`, `tools/registry.js`, the tool files
+  (`tools/box.js`, `tools/slot.js`, `tools/gear.js`, `tools/wall.js`),
+  `core.js`, `app.js`.
 - `core.js` is pure (no DOM, no app state) and doubles as a Node module so
   `tests/smoke.js` can run it.
 
@@ -24,7 +25,7 @@ Plain static files, no build step, opened straight from disk
 | `app.js` | The whole application in one IIFE: document state, rendering, hit-testing, tools/commands, solver wiring, import/export, CNC, UI. |
 | `index.html` | Layout, menus, modals, the bilingual Help text. |
 | `styles.css` | All styling. |
-| `tools/` | `registry.js` + one file per generator (`box.js`, `slot.js`, `gear.js`, `wall.js`, `hinge.js`, …), the tracer (`trace.js`, our wrapper) and the vendored libraries (`imagetracer.js`, `clipper.js`). Do not edit the vendored ones. |
+| `tools/` | `registry.js` + one file per generator (`box.js`, `slot.js`, `gear.js`, `wall.js`, `hinge.js`, …), the tracer (`trace.js`, our wrapper), the local nesting engine (`nest.js`, a trimmed port of KaryaCNC nestjs2's GA + NFP2 — pure, DOM-free, exports `window.MiniSketchNest`) and the vendored libraries (`imagetracer.js`, `clipper.js`). Do not edit the vendored ones. |
 | `fonts/` | The Text dialog's font catalogue. `fonts.js` is the registry (lazy loader, IndexedDB for imported fonts, `FONT_EPOCH`); `build.js` turns `fonts/src/*.ttf` into one generated `fonts/<slug>.js` per face (base64 bytes, registered through `FontFace` — the only route that works from `file://`); `hershey-data.js` + `hershey.js` are the public-domain single-line (stroke) fonts. Do not hand-edit the generated files or `hershey-data.js`. |
 | `TOOLS.md` | How to write a tool/plugin: the registration contract, the whole `api` surface, conventions, and testing. |
 | `testing/` | Standalone probes (`node testing/<name>_probe.js`). They slice functions out of the sources and run them without a DOM. `tools_probe.js` checks every registered tool against the contract. |
@@ -200,6 +201,17 @@ measure-only.
     `entityEditable()` in the part hit-tests and `drawPartMarkers` shows every
     visible part's markers — an assembly spans layers. Everything else keeps
     the active-layer rule; locked still means locked even for a mate.
+16. **Local nesting never touches masters.** The whole nesting section in
+    `app.js` works on loop-polygon copies handed to `tools/nest.js` (engine
+    units = mm × 1000, green `#00ff00` = sheet, exactly the KaryaCNC nestjs2
+    conventions). Every result lands as a `clone` entity; a master is never
+    moved, so one undo removes a whole layout. A clone instance's matrix is
+    solved from point correspondence — do NOT read the engine Path's
+    `transformMatrix` (its `translate()` mutates cached state and drifts).
+    The nesting job holds `stateAtStart` and cancels itself when `state`
+    changes (undo/new/load swap the object), and the hole-winding rule is
+    Clipper's: a hole path must wind opposite to its outer path or offset()
+    silently unions them into one outline.
 
 ## Performance contracts
 

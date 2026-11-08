@@ -1935,6 +1935,35 @@ textarea:focus-visible {
   box-shadow: var(--shadow);
 }
 
+/* Nesting panel: one 6px progress bar under the controls */
+.nest-progress {
+  height: 6px;
+  margin: 8px 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--panel-2, transparent);
+}
+
+.nest-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width .12s linear;
+}
+
+#nest-panel .row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+}
+
+#nest-panel input[type="number"],
+#nest-panel select {
+  width: 52px;
+}
+
 .panel h3 {
   margin: 0 0 9px;
   font-size: 11px;

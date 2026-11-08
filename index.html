@@ -349,6 +349,27 @@
         <ul class="list" id="array-list"></ul>
       </section>
 
+      <section class="panel" id="nest-panel">
+        <h3>Nesting <span class="count" id="nest-count">0</span></h3>
+        <div class="row">
+          <label>Sp <input type="number" id="nest-spacing" value="2" min="0" step="0.5" title="Spacing between parts in mm"></label>
+          <label>Rot <select id="nest-rotation" title="Allowed rotations">
+            <option value="0">0&deg;</option><option value="90">90&deg;</option>
+            <option value="180">180&deg;</option><option value="270">270&deg;</option>
+            <option value="15">15&deg; steps</option>
+          </select></label>
+          <label class="check"><input type="checkbox" id="nest-flip">Flip</label>
+        </div>
+        <div class="row">
+          <label>Pop <input type="number" id="nest-pop" value="6" min="2" max="40" step="1" title="GA population size"></label>
+          <label>Gen <input type="number" id="nest-gen" value="5" min="1" max="60" step="1" title="GA generations"></label>
+          <button class="btn small primary" id="nest-start" title="Nest the selected loops to the right of the green sheet loop">Start</button>
+          <button class="btn small" id="nest-stop" hidden title="Stop and keep the best result so far">Stop</button>
+        </div>
+        <div class="nest-progress" id="nest-progress" hidden><div class="nest-progress-fill" id="nest-progress-fill"></div></div>
+        <div class="meta" id="nest-status">&mdash;</div>
+      </section>
+
 
       
     </aside>
@@ -748,6 +769,7 @@
 <script src="help.js"></script>
   <script src="tools/imagetracer.js"></script>
 <script src="tools/clipper.js"></script>
+<script src="tools/nest.js"></script>
 <script src="tools/path-bool.js"></script>
 <script src="tools/registry.js"></script>
 <script src="tools/trace.js"></script>
