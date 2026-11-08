@@ -223,7 +223,7 @@ console.log('parseCdr');
 {
   const fs = require('fs');
   const path = require('path');
-  const cdrPath = path.join(__dirname, '..', 'test1.cdr');
+  const cdrPath = path.join(__dirname, '..', 'testimport', 'test1.cdr');
   if (fs.existsSync(cdrPath)) {
     const bytes = new Uint8Array(fs.readFileSync(cdrPath));
     // parseCdr is async (zip inflate); run it in the async tail below
@@ -239,7 +239,7 @@ console.log('parseCdr');
   const path = require('path');
   for (const name of ['test1.pdf', 'test2.pdf']) {
     try {
-      const bytes = new Uint8Array(fs.readFileSync(path.join(__dirname, '..', name)));
+      const bytes = new Uint8Array(fs.readFileSync(path.join(__dirname, '..', 'testimport', name)));
       const prims = await C.parsePdf(bytes);
       ok(prims.length > 0, name + ' yields vector primitives (got ' + prims.length + ')');
       ok(prims.every(pr => pr.nodes.length >= 2), name + ' primitives carry nodes');
@@ -250,26 +250,33 @@ console.log('parseCdr');
     }
   }
 
-  // multi-page PDFs lay out left to right using the MediaBox sizes from the file
+  // multi-page PDFs lay out from each page's real bbox: page 2 starts
+  // after page 1's real right edge + gap (not its nominal MediaBox width)
   {
     const pdfText = [
       '1 0 obj\n<< /Type /Page /MediaBox [0 0 100 50] /Contents 10 0 R >>\nendobj',
       '2 0 obj\n<< /Type /Page /MediaBox [0 0 200 50] /Contents 11 0 R >>\nendobj',
+      '3 0 obj\n<< /Type /Page /MediaBox [0 0 100 50] /Contents 12 0 R >>\nendobj',
       '10 0 obj\n<< /Length 16 >>\nstream\n0 0 m 50 25 l S\nendstream\nendobj',
-      '11 0 obj\n<< /Length 16 >>\nstream\n0 0 m 50 25 l S\nendstream\nendobj'
+      // page 2 artwork bleeds past its box (to x=300): page 3 must start
+      // after the bleed, not after the nominal box edge
+      '11 0 obj\n<< /Length 18 >>\nstream\n0 0 m 300 25 l S\nendstream\nendobj',
+      '12 0 obj\n<< /Length 16 >>\nstream\n0 0 m 40 25 l S\nendstream\nendobj'
     ].join('\n');
     const b = new Uint8Array(pdfText.length);
     for (let i = 0; i < pdfText.length; i++) b[i] = pdfText.charCodeAt(i) & 0xff;
     try {
       const all = await C.parsePdf(b);
       const prims = all.filter(p => p.kind !== 'note');
-      ok(prims.length === 2, 'two pages give two paths (got ' + prims.length + ')');
+      ok(prims.length === 3, 'three pages give three paths (got ' + prims.length + ')');
       const xs = prims.map(pr => pr.nodes[pr.nodes.length - 1].p[0]);
       ok(xs[0] === 50, 'page 1 keeps its own coordinates');
-      ok(Math.abs(xs[1] - (50 + 100 + 28.34646)) < 1e-6,
-        'page 2 shifts right by page-1 width + gap (got ' + xs[1] + ')');
+      ok(Math.abs(xs[1] - (50 + 28.34646 + 300)) < 1e-6,
+        'page 2 starts after page-1 right edge + gap (got ' + xs[1] + ')');
+      ok(Math.abs(xs[2] - (50 + 28.34646 + 300 + 28.34646 + 40)) < 1e-6,
+        'page 3 starts after the page-2 bleed, not the box edge (got ' + xs[2] + ')');
       const marks = all.filter(p => p.kind === 'note' && /^=== Page/.test(p.text));
-      ok(marks.length === 2, 'multi-page PDF gets page marker comments (got ' + marks.length + ')');
+      ok(marks.length === 3, 'multi-page PDF gets page marker comments (got ' + marks.length + ')');
     } catch (err) {
       ok(false, 'multi-page layout parses without throwing (' + err + ')');
     }
@@ -294,7 +301,7 @@ console.log('parseCdr');
   }
 
   // test3.cdr: legacy RIFF (X4 era) container with "cmpr" compressed subtrees
-  const t3path = path.join(__dirname, '..', 'test3.cdr');
+  const t3path = path.join(__dirname, '..', 'testimport', 'test3.cdr');
   if (fs.existsSync(t3path)) {
     try {
       const prims = await C.parseCdr(new Uint8Array(fs.readFileSync(t3path)));
@@ -316,7 +323,7 @@ console.log('parseCdr');
 
   // test4.cdr: X5+ rectangles store coordinates as float64 (readRectCoord) —
   // reading them as S32 made one rect 316 kilometres tall
-  const t4path = path.join(__dirname, '..', 'test4.cdr');
+  const t4path = path.join(__dirname, '..', 'testimport', 'test4.cdr');
   if (fs.existsSync(t4path)) {
     try {
       const prims = await C.parseCdr(new Uint8Array(fs.readFileSync(t4path)));
@@ -334,7 +341,7 @@ console.log('parseCdr');
   }
 
   // test5.cdr: zip "CDRF" layout keeps the RIFF tree in content/riffData.cdr
-  const t5path = path.join(__dirname, '..', 'test5.cdr');
+  const t5path = path.join(__dirname, '..', 'testimport', 'test5.cdr');
   if (fs.existsSync(t5path)) {
     try {
       const prims = await C.parseCdr(new Uint8Array(fs.readFileSync(t5path)));
@@ -348,7 +355,7 @@ console.log('parseCdr');
 
   // test6.cdr: five labelled rectangles — 43X5CM .. 24X5CM must read 430x50 ..
   // 240x50 mm (this pins the float64 rect coordinates for X5+ files)
-  const t6path = path.join(__dirname, '..', 'test6.cdr');
+  const t6path = path.join(__dirname, '..', 'testimport', 'test6.cdr');
   if (fs.existsSync(t6path)) {
     try {
       const prims = await C.parseCdr(new Uint8Array(fs.readFileSync(t6path)));

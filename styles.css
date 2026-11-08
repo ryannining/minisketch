@@ -640,6 +640,17 @@ button {
   border-color: var(--accent-border);
 }
 
+/* P1-8: the layer a blocked click belongs to flashes, so the fix (click the
+   row to make it active) is visible without reading the toast. */
+.layer-row.flash {
+  border-color: var(--accent);
+  animation: layer-flash 1.2s ease;
+}
+@keyframes layer-flash {
+  0%, 100% { background: transparent; }
+  25%, 55% { background: var(--accent-soft); }
+}
+
 .layer-row.hidden-layer .layer-name {
   color: var(--faint);
   text-decoration: line-through;
@@ -1040,6 +1051,62 @@ details[open] > .settings-group-title::before { content: '\25BE'; }
   color: var(--faint);
 }
 
+/* P1-13: search box + menu-linked readonly rows */
+.settings-search-row {
+  margin: 0 0 8px;
+}
+.settings-search-row input {
+  width: 100%;
+  padding: 5px 9px;
+  font: inherit;
+  font-size: 12px;
+  background: var(--input);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.settings-search-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--input-focus);
+}
+.settings-row.linked {
+  opacity: 0.85;
+}
+.settings-linked-btn {
+  min-width: 0;
+  justify-self: stretch;
+}
+.settings-linked-tag {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+.settings-row.hidden,
+details.settings-group.hidden {
+  display: none;
+}
+.settings-groups[data-empty]:not([data-empty=""])::after {
+  content: attr(data-empty);
+  display: block;
+  padding: 12px 4px;
+  font-size: 11.5px;
+  color: var(--faint);
+  text-align: center;
+}
+/* flash target for the menu-linked jump ( Tool menu toggle ) */
+.menu-item.flash,
+.menu-item.check.flash {
+  outline: 2px solid var(--accent);
+  border-radius: 6px;
+}
+
 .sel-name {
   font-size: 11px;
   color: var(--accent-ink);
@@ -1057,6 +1124,7 @@ details[open] > .settings-group-title::before { content: '\25BE'; }
 .constraint-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
   font-size: 10px;
   font-weight: 700;
@@ -1065,6 +1133,43 @@ details[open] > .settings-group-title::before { content: '\25BE'; }
   color: var(--faint);
   margin-bottom: 5px;
 }
+.constraint-head.hidden { display: none; }
+
+/* P1-9: DOF counter + toolbar + row states */
+.constraint-dof {
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 10.5px;
+  color: var(--faint);
+}
+.constraint-dof.free { color: var(--accent-ink, #2563eb); }
+.constraint-dof.locked { color: #16a34a; }
+.constraint-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 5px;
+  flex-wrap: wrap;
+}
+.constraint-tools.hidden { display: none; }
+.constraint-tools select {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 5px;
+  font: inherit;
+  font-size: 11px;
+  background: var(--input);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.constraint-tools select:focus { outline: none; border-color: var(--accent); }
+#constraint-list li.conflict {
+  border-left: 3px solid #dc2626;
+  background: rgba(220, 38, 38, 0.07);
+}
+#constraint-list li.dup .name { color: var(--faint); text-decoration: line-through; }
 
 .loop-dot.fill-yellow { background: #eab308; border-color: #eab308; }
 .loop-dot.fill-gray { background: #8b929c; border-color: #8b929c; }
@@ -1076,6 +1181,90 @@ details[open] > .settings-group-title::before { content: '\25BE'; }
 .img-density {
   color: var(--ink-soft, #7b8798);
   font-size: 12px;
+}
+
+/* trace preview: the raster on the left, the traced outline drawn over it.
+   The user changes the tolerance and watches the result instead of guessing
+   and pressing OK blind. */
+.trace-preview {
+  flex: 0 0 auto;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.trace-preview canvas {
+  display: block;
+  width: 100%;
+  /* the height is set from the settings column, so the preview fills the
+     column instead of leaving a hole under it */
+  height: 320px;
+  border: 1px solid var(--line, #2b3442);
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.trace-preview-info {
+  font-size: 11px;
+  color: var(--ink-soft, #7b8798);
+  min-height: 15px;
+}
+
+/* trace settings: a slider for the rough tuning and a number box for the
+   exact value. The number box is the value of record — the slider is the
+   fast way to get near it. */
+.trace-box {
+  width: min(700px, calc(100vw - 32px));
+}
+
+/* the trace dialog needs more room than the generator dialogs: the preview
+   is the point of it, and the sliders need track to be worth dragging */
+.modal-cols .opt-col.trace-opts {
+  flex: 0 0 auto;
+  width: 300px;
+}
+
+.trace-row .cnc-label {
+  flex: 0 0 78px;
+  font-size: 9px;
+}
+
+.trace-row input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
+.trace-val {
+  flex: 0 0 48px;
+  width: 48px;
+  font: inherit;
+  font-size: 11px;
+  text-align: right;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text-2, var(--text-3));
+}
+
+/* the spin buttons eat the little box: hide them, the slider is the coarse
+   control and the arrows are not needed */
+.trace-val::-webkit-outer-spin-button,
+.trace-val::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.trace-val[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+@media (max-width: 620px) {
+  .trace-preview { width: 100%; }
+  .trace-preview canvas { height: 260px; }
+  .modal-cols .opt-col.trace-opts { width: auto; flex: 1 1 auto; min-width: 0; }
 }
 
 .fit-box input[type="range"] {
@@ -1323,8 +1512,27 @@ details[open] > .settings-group-title::before { content: '\25BE'; }
 .rb-btn:active:not(:disabled) { transform: translateY(1px); }
 .rb-btn:disabled { opacity: 0.35; cursor: default; }
 .rb-btn.tool-btn.active { background: var(--accent); color: var(--accent-ink, #fff); }
-.rb-btn.tool-btn { display: inline-flex; }
+.rb-btn.tool-btn { display: inline-flex; position: relative; }
 .rb-btn.tool-btn span { display: inline; }
+
+/* P0-1: kbd-chip — the key that fires this button, from KEYMAP. auto-sized,
+   top-right, never steals clicks. */
+.rb-btn { position: relative; }
+.kbd-chip {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  font: 600 8px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 0 3px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  color: var(--faint);
+  background: var(--surface-2);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.tool-btn.active .kbd-chip { color: inherit; border-color: currentColor; opacity: 0.85; }
 .rb-mini { min-width: 38px; padding: 5px 3px 4px; }
 /* Zoom preset picker (spans two grid cells), Fit sits in the next cell */
 .rb-zoom {
@@ -2397,6 +2605,26 @@ body.xf-active .sidebar .panel {
 .toast.show {
   opacity: 1;
   transform: translate(-50%, 0);
+  pointer-events: auto;
+  cursor: default;
+}
+
+/* P0-4: queued toast variants — warn is amber, error stays until clicked */
+.toast.warn {
+  background: #92400e;
+  color: #fef3c7;
+}
+
+.toast.error {
+  background: #991b1b;
+  color: #fee2e2;
+  font-weight: 600;
+}
+
+.toast.sticky {
+  cursor: pointer;
+  box-shadow: 0 8px 28px rgba(153, 27, 27, 0.55);
+  outline: 1px solid rgba(255, 255, 255, 0.35);
 }
 
 @media (max-width: 1300px) {

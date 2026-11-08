@@ -1,0 +1,211 @@
+/*
+ * MiniSketch raster tracer — ImageTracerJS based.
+ *
+ * Why this file exists
+ * --------------------
+ * The old tracer was tools/Potrace.js (Peter Selinger's potrace port), which
+ * is GPL. That made a closed-source distribution impossible: a combined work
+ * containing GPL code must itself be GPL. ImageTracerJS is Unlicense /
+ * public domain, so the same job can be shipped inside a proprietary product.
+ *
+ * What it does
+ * ------------
+ * ImageTracerJS quantises the raster into a palette and traces EVERY colour
+ * region. For a laser cutter that is wrong: the white background would come
+ * back as a giant rectangle and the cutter would try to cut it. So this
+ * wrapper binarises the source (dark = shape, light = background) and keeps
+ * only the dark layer — the silhouette the user actually wants to cut.
+ *
+ * Contract (registered on window.MiniSketchTrace)
+ * -----------------------------------------------
+ *   toImageData(blob)      -> Promise<ImageData>     decode + binarise
+ *   trace(imageData, opts) -> Promise<{svg, paths}>   foreground-only SVG
+ *   options for both are described in OPTION_DEFAULTS below.
+ *
+ * Loaded as a plain <script> (no build step, no modules) like the other
+ * files in tools/.
+ */
+(() => {
+  'use strict';
+
+  const NS = window.MiniSketchTrace = window.MiniSketchTrace || {};
+
+  // ---- option defaults ---------------------------------------------------
+  // The names are the app-facing ones (the image dialog speaks these), not
+  // ImageTracerJS's own names. The mapping lives in traceOptions().
+  const OPTION_DEFAULTS = {
+    detail: 2,        // straight-line error threshold (ImageTracerJS ltres)
+    curve: 1,         // quadratic error threshold (qtres)
+    speckle: 8,       // drop paths shorter than this (pathomit)
+    threshold: 128,   // 0-255 luminance cut between shape and background
+    blur: 0,          // 0-5 selective blur before tracing
+    corners: true,    // keep right-angle corners (rightangleenhance)
+    smooth: true      // drop 2-point noise segments (linefilter)
+  };
+
+  const OPTION_LIMITS = {
+    detail: [0.01, 20, 0.1],
+    curve: [0.01, 20, 0.1],
+    speckle: [0, 200, 1],
+    threshold: [0, 255, 1],
+    blur: [0, 5, 1],
+    corners: [null, null, null],
+    smooth: [null, null, null]
+  };
+
+  function clampNum(v, lo, hi, def) {
+    const n = +v;
+    if (!isFinite(n)) return def;
+    return Math.max(lo, Math.min(hi, n));
+  }
+
+  // Normalise whatever the caller passed into a full, in-range option set.
+  function normalizeOptions(opts) {
+    const o = opts || {};
+    const out = {};
+    for (const key of Object.keys(OPTION_DEFAULTS)) {
+      const def = OPTION_DEFAULTS[key];
+      const lim = OPTION_LIMITS[key];
+      if (typeof def === 'boolean') {
+        out[key] = o[key] === undefined ? def : !!o[key];
+      } else {
+        const raw = o[key] === undefined ? def : +o[key];
+        out[key] = clampNum(raw, lim[0], lim[1], def);
+      }
+    }
+    return out;
+  }
+
+  // The ImageTracerJS option object. Two colours only (black + white) so the
+  // quantiser cannot invent mid-tones: the binarisation already decided what
+  // is shape and what is background.
+  function traceOptions(o) {
+    return {
+      ltres: o.detail,
+      qtres: o.curve,
+      pathomit: o.speckle,
+      rightangleenhance: o.corners,
+      linefilter: o.smooth,
+      blurradius: o.blur,
+      blurdelta: 20,
+      colorsampling: 0,
+      numberofcolors: 2,
+      layering: 0,
+      strokewidth: 0,
+      scale: 1,
+      roundcoords: 2,
+      viewbox: false,
+      desc: false,
+      pal: [
+        { r: 0, g: 0, b: 0, a: 255 },
+        { r: 255, g: 255, b: 255, a: 255 }
+      ]
+    };
+  }
+
+  // ---- decode + binarise -------------------------------------------------
+
+  // Load a blob into an <img> and paint it to a canvas, so we can read the
+  // pixels. The browser does the decoding (PNG/JPEG/WEBP all work).
+  function blobToImage(blob) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('image could not be decoded'));
+      };
+      img.src = url;
+    });
+  }
+
+  // Binarise into a fresh ImageData: pixels at or above the threshold become
+  // white (background), the rest become black (shape). Working on a copy
+  // keeps the caller's ImageData untouched.
+  function binarize(src, threshold) {
+    const w = src.width, h = src.height;
+    const out = new ImageData(w, h);
+    const sd = src.data, od = out.data;
+    const cut = clampNum(threshold, 0, 255, 128);
+    for (let i = 0; i < sd.length; i += 4) {
+      // Rec. 601 luma — the same weighting the eye uses, so a saturated blue
+      // counts as dark even when its green+blue channels are high.
+      const luma = 0.299 * sd[i] + 0.587 * sd[i + 1] + 0.114 * sd[i + 2];
+      const dark = luma < cut ? 0 : 255;
+      od[i] = dark; od[i + 1] = dark; od[i + 2] = dark; od[i + 3] = 255;
+    }
+    return out;
+  }
+
+  // Decode a blob straight into a binarised ImageData.
+  async function toImageData(blob, opts) {
+    const o = normalizeOptions(opts);
+    const img = await blobToImage(blob);
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    if (!w || !h) throw new Error('image has no size');
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0);
+    const raw = ctx.getImageData(0, 0, w, h);
+    return binarize(raw, o.threshold);
+  }
+
+  // ---- trace -------------------------------------------------------------
+
+  // The tracer library. ImageTracerJS installs itself on `self` (the browser
+  // global) when loaded as a plain script, but a CommonJS/AMD loader puts it
+  // somewhere else — look in both places so the module works in the app and
+  // in the headless probes.
+  function tracerLib() {
+    if (typeof window !== 'undefined' && window.ImageTracer) return window.ImageTracer;
+    if (typeof self !== 'undefined' && self.ImageTracer) return self.ImageTracer;
+    if (typeof globalThis !== 'undefined' && globalThis.ImageTracer) return globalThis.ImageTracer;
+    return null;
+  }
+
+  // Trace a binarised ImageData and return the FOREGROUND ONLY as an SVG
+  // string plus the raw path data.
+  //
+  // ImageTracerJS returns one layer per palette colour. Layer 0 is the dark
+  // one because the palette lists black first; the white layer (the page
+  // background) is dropped on purpose — cutting it would cut the whole sheet.
+  async function trace(imageData, opts) {
+    const o = normalizeOptions(opts);
+    const IT = tracerLib();
+    if (!IT || typeof IT.imagedataToTracedata !== 'function') {
+      throw new Error('tracer library is missing');
+    }
+    const iopts = traceOptions(o);
+    const td = IT.imagedataToTracedata(imageData, iopts);
+    const dark = td.layers && td.layers[0] ? td.layers[0] : [];
+    const parts = [];
+    for (let p = 0; p < dark.length; p++) {
+      const s = IT.svgpathstring(td, 0, p, iopts);
+      if (s) parts.push(s);
+    }
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + imageData.width +
+      '" height="' + imageData.height + '" viewBox="0 0 ' + imageData.width + ' ' + imageData.height +
+      '">' + parts.join('') + '</svg>';
+    return { svg, paths: parts.length, width: imageData.width, height: imageData.height };
+  }
+
+  // Convenience: blob in, foreground SVG out.
+  async function traceBlob(blob, opts) {
+    const imgd = await toImageData(blob, opts);
+    return trace(imgd, opts);
+  }
+
+  NS.OPTION_DEFAULTS = OPTION_DEFAULTS;
+  NS.OPTION_LIMITS = OPTION_LIMITS;
+  NS.normalizeOptions = normalizeOptions;
+  NS.traceOptions = traceOptions;
+  NS.binarize = binarize;
+  NS.blobToImage = blobToImage;
+  NS.toImageData = toImageData;
+  NS.trace = trace;
+  NS.traceBlob = traceBlob;
+})();

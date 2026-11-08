@@ -215,7 +215,8 @@ console.log('\n== no stale id was left behind ==');
     .flatMap(m => m[1].split(/\s+/)).filter(Boolean));
   const sel = Array.from(appSrc.matchAll(/querySelector(?:All)?\('\.([\w-]+)'/g)).map(m => m[1]);
   // swatches, list-item names and their wrappers are created in JS
-  const builtByJs = new Set(['swatch', 'name', 'swatch-wrap']);
+  // (settings rows + linked buttons too: buildSettingsForm() builds them)
+  const builtByJs = new Set(['swatch', 'name', 'swatch-wrap', 'settings-row', 'settings-linked-btn']);
   const missClass = sel.filter(c => !classes.has(c) && !builtByJs.has(c));
   check('every querySelector class exists in the markup', missClass.length === 0, missClass.join(', '));
 }

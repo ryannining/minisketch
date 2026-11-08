@@ -55,15 +55,16 @@ function denseSamples(cps, hs, closed) {
 console.log('\n== the choice is in both dialogs ==');
 {
   check('text dialog has a fit checkbox', /id="text-fitcurve"/.test(html));
-  check('image dialog has a fit checkbox', /id="img-fitcurve"/.test(html));
-  check('the potrace checkbox is still separate', /id="img-optcurve"/.test(html));
+  check('the trace dialog has a fit checkbox', /id="img-fitcurve"/.test(html));
+  check('the fit checkbox is still separate from the tracer detail knobs',
+    /id="img-fitcurve"/.test(html) && /id="img-detail"/.test(html));
   check('applyTextEditor stores it on the object',
     /function applyTextEditor[\s\S]{0,2600}?e\.fitCurve = !!fitEl\.checked/.test(appSrc));
   check('applyTextEditor remembers it for new text',
     /function applyTextEditor[\s\S]{0,2600}?saveTextFit\(e\.fitCurve\)/.test(appSrc));
   check('the image dialog reads it back', /el\('img-fitcurve'\)\.checked = saved\.fitCurve !== false/.test(appSrc));
   check('the image dialog passes it to the trace',
-    /artFromBlob\(d\.blob, \{[\s\S]{0,200}?fitCurve,/.test(appSrc));
+    /artFromBlob\(d\.blob, \{[\s\S]{0,400}?fitCurve,/.test(appSrc));
   check('insertArt marks the new object',
     /if \(o\.fitCurve === true\) state\.entities\[id\]\.fitCurve = true;/.test(appSrc));
   check('a new text is born with the remembered choice',

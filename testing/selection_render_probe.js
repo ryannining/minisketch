@@ -96,7 +96,9 @@ check('SEG_WIDTH derives from the setting, not hardcoded 6',
 check('a helper decides which lines the amber band owns',
   /function lineDrawnAsSegment\(eid\)/.test(app));
 check('selected lines are skipped in the normal pass (no doubled stroke)',
-  /isSel && e\.type === 'line' && lineDrawnAsSegment\(\+e\.id\) && !isHover\) return;/.test(app));
+  /if \(e\.type === 'line' && lineDrawnAsSegment\(\+e\.id\)\) return;/.test(app));
+check('wholly selected splines are skipped too (amber owns every span)',
+  /if \(e\.type === 'spline'\) return;/.test(app));
 check('the helper shares the entityHighlight threshold (<=200)',
   /lineDrawnAsSegment[\s\S]{0,400}selEnts\.size > 200/.test(app));
 

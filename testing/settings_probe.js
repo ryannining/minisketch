@@ -67,9 +67,9 @@ console.log('\n== the spec is sane ==');
     if (sp.choices) {
       // a choice knob: default must be one of the offered values
       if (!sp.choices.some(pair => pair[0] === sp.def)) ok = false;
-    } else if (sp.text || sp.hidden) {
-      // a text field has no numeric bounds; a hidden spec lives on a menu
-      // toggle and carries its default only
+    } else if (sp.text || sp.password || sp.hidden) {
+      // a text field and a masked key have no numeric bounds; a hidden spec
+      // lives on a menu toggle and carries its default only
       if (sp.def == null) ok = false;
     } else {
       if (!(sp.min < sp.def && sp.def < sp.max)) ok = false;
@@ -163,9 +163,12 @@ console.log('\n== every knob reaches a working constant ==');
   // arms; the two AI keys are read by ai/chat.js (which owns the chat panel),
   // not by applySettings. A form key that is consumed somewhere else is fine —
   // the check below is about keys applySettings silently drops on the floor.
+  // These are read where they are used instead: the AI ones in ai/chat.js,
+  // the rest on the canvas or in the menus.
   const readAtUse = new Set(['curveFitTol', 'booleanFit', 'curveSharpAngle',
     'autoDimension', 'autoSolve', 'undoRestoresView',
-    'autoSolveInterval', 'aiBridgeUrl', 'aiMaxRounds']);
+    'autoSolveInterval', 'aiBridgeUrl', 'aiMaxRounds',
+    'aiApiUrl', 'aiApiKey', 'aiModel']);
   const formKeys = build({}).SETTINGS_SPEC.filter(sp => !sp.hidden).map(sp => sp.key);
   const missing = [];
   for (const key of formKeys) {

@@ -2639,9 +2639,15 @@ async function parsePdf(bytes) {
 
   if (pages.length) {
     const gap = 28.34646;   // 10 mm between pages, in pt
-    let x = 0;
+    // Bounding-box driven layout: each page starts after the previous
+    // page's REAL right edge (not its nominal MediaBox width), so artwork
+    // narrower than the box packs tight and artwork bleeding past the box
+    // never overlaps ("menumpuk") the next page.
+    let cursor = -Infinity;   // x where the next page's content may start
+    let pageNo = 0;
     const spans = [];
     for (const pg of pages) {
+      pageNo++;
       const from = out.length;
       let content = '';
       for (const ref of pg.refs) {
@@ -2651,18 +2657,41 @@ async function parsePdf(bytes) {
         if (t) content += t + '\n';
       }
       const box = pg.box;
-      const w = Math.abs(box[2] - box[0]) || 612;
-      const h = Math.abs(box[3] - box[1]) || 792;
-      // page lower-left at (x, 0); content coordinates are relative to the box
-      const dx = x - box[0];
+      // origin-normalized: page lower-left at (0, 0)
+      const dx = -box[0];
       const dy = -box[1];
       if (content) {
         try {
           for (const pr of pdfContentPrims(content, uniMap)) out.push(shiftPrim(pr, dx, dy));
         } catch (err) { /* keep going with the other pages */ }
       }
-      x += w + gap;
-      spans.push({ from, to: out.length });
+      if (out.length === from) continue;   // empty page: no slot, no marker
+      // bounding box of this page's own artwork (vectors and text notes)
+      let minX = Infinity, maxX = -Infinity;
+      for (let k = from; k < out.length; k++) {
+        const pr = out[k];
+        if (pr.kind === 'note') {
+          if (Number.isFinite(pr.x)) {
+            if (pr.x < minX) minX = pr.x;
+            if (pr.x > maxX) maxX = pr.x;
+          }
+          continue;
+        }
+        for (const nd of pr.nodes) {
+          if (nd.p[0] < minX) minX = nd.p[0];
+          if (nd.p[0] > maxX) maxX = nd.p[0];
+        }
+      }
+      if (!isFinite(minX)) continue;
+      // the first content page keeps its own coordinates; later pages
+      // start after the previous page's real right edge plus the gap
+      if (isFinite(cursor)) {
+        const shift = cursor + gap - minX;
+        for (let k = from; k < out.length; k++) shiftPrim(out[k], shift, 0);
+        maxX += shift;
+      }
+      cursor = maxX;
+      spans.push({ from, to: out.length, n: pageNo });
     }
     // multi-page documents get a marker comment above each page (in pt:
     // 34pt = 12mm above the page content)
@@ -2676,7 +2705,7 @@ async function parsePdf(bytes) {
           }
         }
         if (!isFinite(minX)) continue;
-        out.push({ kind: 'note', x: minX, y: maxY + 34, text: '=== Page ' + (i + 1) + ' ===', color: null, closed: false, nodes: [] });
+        out.push({ kind: 'note', x: minX, y: maxY + 34, text: '=== Page ' + spans[i].n + ' ===', color: null, closed: false, nodes: [] });
       }
     }
     return out;
@@ -3309,35 +3338,13 @@ async function parseCdr(bytes) {
     if (c.id === 'loda') groups.push({ depth: -1, items: [c], page: pageIdx });
   }
 
-  // multi-page documents lay out left to right: page N starts at
-  // (N-1) * (page width + 10mm) — the first page (and the master page above
-  // it) keep their own coordinates, like the PDF import
-  let pageW = 0;
-  for (const c of chunks) {
-    if (c.id !== 'mcfg') continue;
-    let src = c.buf, base = c.body;
-    if (c.size === 16 && version >= 1600) {
-      // the config record itself can be a redirect stub into the data streams
-      const dvw = new DataView(c.buf.buffer, c.buf.byteOffset, c.buf.byteLength);
-      const stream = cdrReadU32(dvw, c.body), len = cdrReadU32(dvw, c.body + 4), off = cdrReadU32(dvw, c.body + 8);
-      const s = streams[stream];
-      if (!s || off + len > s.length) continue;
-      src = s;
-      base = off;
-    }
-    const dvw = new DataView(src.buffer, src.byteOffset, src.byteLength);
-    // the page width/height pair sits after a small record header whose size
-    // varies between versions — take the first physically plausible pair
-    for (let k = 0; k < 8; k++) {
-      const w = cdrReadU32(dvw, base + k * 4);
-      const h = cdrReadU32(dvw, base + k * 4 + 4);
-      if (w >= 100000 && w <= 1000000000 && h >= 100000 && h <= 1000000000) {
-        pageW = w / 10000;
-        break;
-      }
-    }
-    if (pageW > 0) break;
-  }
+  // multi-page documents lay out left to right: each page starts after
+  // the previous page's REAL right edge (page width + 10mm is only the
+  // minimum gap), so a page whose artwork bleeds past its box — or whose
+  // master-page residue sits elsewhere — never overlaps ("menumpuk")
+  // the page before it. Page 0 is the master/cover residue and keeps its
+  // own coordinates; content pages 1..N slot in after it.
+  const PG_GAP = 10;   // mm between pages
 
   // X6+ chunks can be 16-byte redirect stubs into the external streams:
   // (stream number, payload length, offset in stream, 0)
@@ -3356,6 +3363,47 @@ async function parseCdr(bytes) {
   };
 
   const pageSpans = [];
+  let pgCursor = -Infinity;   // right edge of the previous page's real bbox
+  // measure prims[from..to) -> [minX, maxX]; circles use cx±r, text uses .x
+  const cdrSpanBox = (from, to) => {
+    let loX = Infinity, hiX = -Infinity;
+    for (let i = from; i < to; i++) {
+      const pr = out[i];
+      if (pr.kind === 'note') {
+        if (Number.isFinite(pr.x)) {
+          if (pr.x < loX) loX = pr.x;
+          if (pr.x > hiX) hiX = pr.x;
+        }
+        continue;
+      }
+      if (pr.kind === 'circle') {
+        if (Number.isFinite(pr.cx) && Number.isFinite(pr.r)) {
+          if (pr.cx - pr.r < loX) loX = pr.cx - pr.r;
+          if (pr.cx + pr.r > hiX) hiX = pr.cx + pr.r;
+        }
+        continue;
+      }
+      for (const nd of pr.nodes) {
+        if (!Number.isFinite(nd.p[0])) continue;
+        if (nd.p[0] < loX) loX = nd.p[0];
+        if (nd.p[0] > hiX) hiX = nd.p[0];
+      }
+    }
+    return [loX, hiX];
+  };
+  // shift prims[from..to) right by dx (vectors, circle centres, text notes)
+  const cdrShiftX = (from, to, dx) => {
+    for (let i = from; i < to; i++) {
+      const pr = out[i];
+      if (pr.kind === 'note') { pr.x += dx; continue; }
+      if (pr.kind === 'circle') { pr.cx += dx; continue; }
+      for (const nd of pr.nodes) {
+        nd.p[0] += dx;
+        if (nd.o) nd.o[0] += dx;
+        if (nd.i) nd.i[0] += dx;
+      }
+    }
+  };
   for (const g of groups) {
     const spanFrom = out.length;
     let trafo = null;
@@ -3370,13 +3418,11 @@ async function parseCdr(bytes) {
         if (r) textStr = cdrTxsmText(r.buf.subarray(r.base, r.base + r.size), version);
       } else if (c.id === 'loda') lodaChunk = c;
     }
-    // shift this page's objects into their left-to-right slot
-    const shiftX = (pageW > 0 && g.page > 0) ? (g.page - 1) * (pageW + 10) : 0;
-    if (shiftX) {
-      trafo = trafo
-        ? { v0: trafo.v0, v1: trafo.v1, x0: trafo.x0 + shiftX, v3: trafo.v3, v4: trafo.v4, y0: trafo.y0 }
-        : { v0: 1, v1: 0, x0: shiftX, v3: 0, v4: 1, y0: 0 };
-    }
+    // Defer the page shift until AFTER the primitives are built: parse at
+    // native coordinates, measure this group's real bbox, then shift to
+    // start after the previous page's right edge. (The old code folded a
+    // guessed shift into the trafo up front, which double-shifted rects
+    // and ellipses whose handles were transformed twice.)
     if (!lodaChunk) continue;
 
     const res = resolveChunk(lodaChunk);
@@ -3406,6 +3452,7 @@ async function parseCdr(bytes) {
       const ay = cdrCoord(cdrReadS32(dv, coords + 4));
       const at = cdrTrafoApply(trafo, ax, ay);
       if (textStr) out.push({ kind: 'note', x: at[0], y: at[1], text: textStr, color: null, closed: false, nodes: [] });
+      pageSpans.push({ page: g.page, from: spanFrom, to: out.length });
       continue;
     }
     if (chunkType !== 0x03 && chunkType !== 0x14) {
@@ -3430,6 +3477,7 @@ async function parseCdr(bytes) {
       } else {
         out.push({ color, closed: shape.closed, nodes });
       }
+      pageSpans.push({ page: g.page, from: spanFrom, to: out.length });
       continue;
     }
 
@@ -3448,6 +3496,42 @@ async function parseCdr(bytes) {
       out.push(prim);
     }
     pageSpans.push({ page: g.page, from: spanFrom, to: out.length });
+  }
+  // bounding-box page placement: measure each page's REAL combined bbox
+  // (across all its groups), then shift whole pages so page P starts
+  // after page P-1's right edge plus the gap. Page 0 is master/cover
+  // residue and keeps its own coordinates.
+  {
+    const pagesSeen = [];
+    for (const s of pageSpans) {
+      if (s.page > 0 && pagesSeen.indexOf(s.page) < 0) pagesSeen.push(s.page);
+    }
+    pagesSeen.sort((a, b) => a - b);
+    for (const pg of pagesSeen) {
+      let from = Infinity, to = -Infinity;
+      for (const s of pageSpans) {
+        if (s.page !== pg) continue;
+        if (s.from < from) from = s.from;
+        if (s.to > to) to = s.to;
+      }
+      if (!isFinite(from) || to <= from) continue;
+      const [loX, hiX] = cdrSpanBox(from, to);
+      if (!isFinite(loX)) continue;
+      if (isFinite(pgCursor)) {
+        const need = pgCursor + PG_GAP - loX;
+        if (need > 0) {
+          cdrShiftX(from, to, need);
+          pgCursor = hiX + need;
+        } else {
+          pgCursor = hiX;
+        }
+      } else {
+        pgCursor = hiX;
+      }
+    }
+    // fix up the recorded spans: shifting a page moves every group inside
+    // it — recompute is unnecessary since marker code only reads bbox, but
+    // spans stay valid as ranges (the prims themselves moved in place)
   }
   // multi-page documents get a marker comment above each page
   const maxPage = pageSpans.reduce((m, s) => Math.max(m, s.page), -1);

@@ -39,6 +39,7 @@
   // pointer. Screen-relative so it means the same thing at every zoom.
   const dragLandTolMm = () => Math.max(0.02, 2 / view.zoom);
   const STORAGE_KEY = 'minisketch.v1';
+  const BAK_KEY = 'minisketch.v1.bak';
   const VIEW_KEY = 'minisketch.v1.view';
   const LAYOUT_KEY = 'minisketch.v1.layout';
   const FORMAT = 'minisketch';
@@ -1252,7 +1253,13 @@
       def: 0.05, min: 0.005, max: 1, step: 0.005,
       help: 'One number, shown in both this window and the KaryaCNC window: circles and arcs are flattened so they never deviate more than this. Smaller = smoother and more points; 0.05 mm is a good laser default, 0.02 mm for fine detail.' },
     { group: 'AI chat', key: 'aiBridgeUrl', label: 'AI bridge URL', unit: '', text: true, def: '',
-      help: 'Local AI bridge server (server/ai-bridge.js), e.g. http://localhost:8787. Empty = offline mode: the chat tab parses simple Indonesian/English commands directly, no LLM needed. The API key always stays on the bridge server, never in the browser.' },
+      help: 'Local AI bridge server (server/ai-bridge.js), e.g. http://localhost:8787. Empty = offline mode: the chat tab parses simple Indonesian/English commands directly, no LLM needed.' },
+    { group: 'AI chat', key: 'aiApiUrl', label: 'AI API base URL', unit: '', text: true, def: '',
+      help: 'The OpenAI-compatible endpoint YOUR key belongs to, without /chat/completions. Empty = the bridge uses its own server/.env value. Fill this in together with the API key below.' },
+    { group: 'AI chat', key: 'aiApiKey', label: 'AI API key', unit: '', password: true, def: '',
+      help: 'Your own key for that service. It is sent to the bridge with each request and is never stored by the bridge (it forgets it when it stops). A key that is baked into the source code leaks with the source, so there is none here — you set it.' },
+    { group: 'AI chat', key: 'aiModel', label: 'AI model', unit: '', text: true, def: '',
+      help: 'Model name to ask for, e.g. glm-5.3-flash or deepseek-v4.1-flash-1017. Empty = the bridge uses its own default.' },
     { group: 'AI chat', key: 'aiMaxRounds', label: 'AI agent rounds', unit: '×',
       def: 4, min: 1, max: 8, step: 1,
       help: 'How many times the agent may loop (emit tool calls → execute → verify) before it must give a final answer. Each round is one provider request. 2–3 is cheaper; more rounds give the model more chances to self-correct complex jobs.' }
@@ -1332,7 +1339,7 @@
   }
 
   function clampSetting(sp, value) {
-    if (sp.text) {
+    if (sp.text || sp.password) {
       const s = value == null ? '' : String(value).trim();
       return s || sp.def;
     }
@@ -1433,7 +1440,9 @@
     const bodies = {};
     let idx = 0;
     for (const sp of SETTINGS_SPEC) {
-      if (sp.hidden) continue;   // lives elsewhere (e.g. a menu toggle)
+      // P1-13: hidden keys (lives in a menu toggle) still show as a readonly
+      // "menu-linked" row, so every key is searchable in one place.
+      const linked = !!sp.hidden;
       if (!bodies[sp.group]) {
         // collapsable group: collapsed by default so the panel reads as a
         // short list of section names, not a wall of fields
@@ -1454,12 +1463,26 @@
         idx++;
       }
       const row = document.createElement('div');
-      row.className = 'settings-row';
+      row.className = 'settings-row' + (linked ? ' linked' : '');
+      row.dataset.search = (sp.label + ' ' + sp.key + ' ' + sp.group + ' ' + (sp.unit || '')).toLowerCase();
       const name = document.createElement('span');
       name.className = 'settings-name';
       name.textContent = sp.label;
       let input;
-      if (sp.choices) {
+      if (linked) {
+        // menu-linked: read the live value from the menu toggle, not from the
+        // settings record — the menu owns it. Clicking jumps to the menu.
+        input = document.createElement('button');
+        input.type = 'button';
+        // built-by-JS class (see help_probe builtByJs): the row + button only
+        // exist after buildSettingsForm() runs, never in index.html markup.
+        input.className = 'btn small settings-linked-btn';
+        input.dataset.key = sp.key;
+        input.title = 'Controlled by the Tool menu toggle — click to flash it';
+        input.addEventListener('click', () => {
+          flashMenuLinked(sp.key);
+        });
+      } else if (sp.choices) {
         input = document.createElement('select');
         for (const pair of sp.choices) {
           const opt = document.createElement('option');
@@ -1470,6 +1493,12 @@
       } else if (sp.text) {
         input = document.createElement('input');
         input.type = 'text';
+      } else if (sp.password) {
+        // a secret: masked in the field, and never written to the console
+        input = document.createElement('input');
+        input.type = 'password';
+        input.autocomplete = 'off';
+        input.spellcheck = false;
       } else {
         input = document.createElement('input');
         input.type = 'number';
@@ -1477,20 +1506,86 @@
         input.max = String(sp.max);
         input.step = String(sp.step);
       }
-      input.id = 'set-' + sp.key;
+      if (!linked) input.id = 'set-' + sp.key;
       input.dataset.key = sp.key;
       const unit = document.createElement('span');
       unit.className = 'settings-unit';
-      unit.textContent = sp.unit || '';
+      unit.textContent = linked ? 'menu' : (sp.unit || '');
       row.appendChild(name);
       row.appendChild(input);
       row.appendChild(unit);
+      if (linked) {
+        // tag the row so the eye reads it as owned elsewhere
+        const tag = document.createElement('span');
+        tag.className = 'settings-linked-tag';
+        tag.textContent = 'Tool menu';
+        row.appendChild(tag);
+      }
       bodies[sp.group].appendChild(row);
       // help is no longer printed under the field: it appears as a tooltip
       // above the input while the input is focused (see bindSettingsTips)
     }
     host.dataset.built = '1';
     bindSettingsTips();
+    bindSettingsSearch();
+    refreshLinkedSettings();
+  }
+
+  // Live values of the menu-owned keys, painted onto their readonly rows.
+  function menuLinkedValue(key) {
+    if (key === 'undoRestoresView') return settings.undoRestoresView === 'on' ? 'On' : 'Off';
+    if (key === 'autoDimension') return settings.autoDimension !== 'off' ? 'On' : 'Off';
+    if (key === 'autoSolve') return settings.autoSolve !== 'off' ? 'On' : 'Off';
+    return '';
+  }
+  function refreshLinkedSettings() {
+    for (const btn of document.querySelectorAll('.settings-linked-btn')) {
+      btn.textContent = menuLinkedValue(btn.dataset.key);
+    }
+  }
+  // Close settings, open the Tool menu: the toggle lives there.
+  function flashMenuLinked(key) {
+    closeSettingsModal();
+    const menuBtn = document.getElementById('menu-tool');
+    if (menuBtn) menuBtn.click();
+    const target = key === 'undoRestoresView' ? 'tgl-undoview'
+      : key === 'autoDimension' ? 'tgl-autodim'
+      : key === 'autoSolve' ? 'tgl-autosolve' : null;
+    if (!target) return;
+    setTimeout(() => {
+      const el = document.getElementById(target);
+      if (!el || !el.scrollIntoView) return;
+      el.scrollIntoView({ block: 'nearest' });
+      const row = el.closest ? el.closest('.menu-item') : null;
+      const node = row || el;
+      node.classList.add('flash');
+      setTimeout(() => node.classList.remove('flash'), 1200);
+    }, 60);
+  }
+
+  // P1-13: filter-as-you-type over every settings row (label + key + group).
+  function bindSettingsSearch() {
+    const box = document.getElementById('settings-search');
+    const host = document.getElementById('settings-groups');
+    if (!box || !host || box.dataset.bound === '1') return;
+    box.dataset.bound = '1';
+    box.addEventListener('input', () => {
+      const q = box.value.trim().toLowerCase();
+      let anyGroup = false;
+      for (const sec of host.querySelectorAll('details.settings-group')) {
+        let shown = 0;
+        for (const row of sec.querySelectorAll('.settings-row')) {
+          const hit = !q || (row.dataset.search || '').indexOf(q) >= 0;
+          row.classList.toggle('hidden', !hit);
+          if (hit) shown++;
+        }
+        // a matching group opens itself; an empty one hides entirely
+        sec.classList.toggle('hidden', shown === 0);
+        sec.open = !!q ? shown > 0 : sec.open;
+        if (shown) anyGroup = true;
+      }
+      host.dataset.empty = anyGroup ? '' : 'No setting matches — try another word';
+    });
   }
 
   // One floating tooltip for the whole settings modal: focused input -> its
@@ -1531,6 +1626,7 @@
 
   function fillSettingsForm() {
     for (const sp of SETTINGS_SPEC) {
+      if (sp.hidden) continue;   // readonly menu-linked row, no input to fill
       const el = document.getElementById('set-' + sp.key);
       if (!el) continue;
       const value = settings[sp.key] != null ? settings[sp.key] : sp.def;
@@ -1544,8 +1640,16 @@
     if (Object.keys(settings).length !== SETTINGS_SPEC.length) loadSettings();
     buildSettingsForm();
     fillSettingsForm();
+    refreshLinkedSettings();
     const modal = document.getElementById('settings-modal');
     if (modal) modal.classList.remove('hidden');
+    // P1-13: search first — the modal is a big list, typing filters it.
+    const box = document.getElementById('settings-search');
+    if (box) {
+      box.value = '';
+      box.dispatchEvent(new Event('input'));
+      setTimeout(() => box.focus(), 30);
+    }
   }
 
   function closeSettingsModal() {
@@ -1555,6 +1659,7 @@
 
   function applySettingsForm() {
     for (const sp of SETTINGS_SPEC) {
+      if (sp.hidden) continue;   // menu-linked rows are readonly
       const el = document.getElementById('set-' + sp.key);
       if (!el) continue;
       settings[sp.key] = clampSetting(sp, el.value === '' ? sp.def : el.value);
@@ -1562,8 +1667,10 @@
     applySettings();
     saveSettings();
     fillSettingsForm();
+    refreshLinkedSettings();
     render();
-    closeSettingsModal();   // Apply is a commitment: apply AND close
+    // P1-13: Apply keeps the modal open — the search + tweak loop stays alive.
+    // Close explicitly with Close / Esc / backdrop.
     toast('Settings applied');
   }
 
@@ -1713,17 +1820,54 @@
     return String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[ch]));
   }
 
-  function toast(msg) {
+  // Toast queue: one #toast element, but messages never overwrite each other.
+  // info/warn auto-dismiss (error lingers 6 s), error/sticky stay until the
+  // user clicks them — a solver or CNC failure must not vanish in 2.2 s.
+  // toast(msg) keeps working; pass { type: 'warn'|'error', sticky: true }
+  // for anything the user must not miss.
+  const toastQueue = [];
+  let toastIsSticky = false;
+  function toast(msg, opts) {
     const el = document.getElementById('toast');
     // init() runs synchronously at the end of this file, and a boot-path toast
     // (storage unavailable, history could not be restored) would otherwise throw
     // here and kill the rest of init. The element also lives before the scripts
     // now, so this is belt and braces.
     if (!el) return;
+    const o = (typeof opts === 'string') ? { type: opts } : (opts || {});
+    const type = o.type === 'error' || o.type === 'warn' ? o.type : 'info';
+    const sticky = !!o.sticky || type === 'error';
+    if (el.classList.contains('show')) {
+      // A sticky error holds the floor: later messages queue behind it.
+      toastQueue.push({ msg: String(msg), type, sticky });
+      if (toastQueue.length > 5) toastQueue.shift();
+      return;
+    }
+    showToast(String(msg), type, sticky);
+  }
+  function showToast(msg, type, sticky) {
+    const el = document.getElementById('toast');
+    if (!el) return;
     el.textContent = msg;
-    el.classList.add('show');
+    el.className = 'toast show' +
+      (type && type !== 'info' ? ' ' + type : '') + (sticky ? ' sticky' : '');
+    el.title = sticky ? (msg + ' — click to dismiss') : msg;
+    toastIsSticky = sticky;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+    if (!sticky) toastTimer = setTimeout(hideToast, type === 'error' ? 6000 : 2200);
+  }
+  function hideToast() {
+    if (toastIsSticky) return;         // sticky errors wait for a click
+    const el = document.getElementById('toast');
+    clearTimeout(toastTimer);
+    if (!el) return;
+    el.classList.remove('show');
+    const next = toastQueue.shift();
+    if (next) setTimeout(() => showToast(next.msg, next.type, next.sticky), 120);
+  }
+  function dismissToast() {
+    toastIsSticky = false;
+    hideToast();
   }
 
   function P(id) {
@@ -2219,11 +2363,18 @@
   function persistNow(quiet) {
     if (ui.transform.pending) return;
     try {
+      // P0-6: keep the last-good document aside before overwriting it. A crash
+      // or a quota error mid-write used to leave localStorage corrupt with no
+      // fallback; load tries main → .bak → blank, in that order.
+      const prev = localStorage.getItem(STORAGE_KEY);
+      if (prev) {
+        try { localStorage.setItem(BAK_KEY, prev); } catch (err) { /* bak best-effort */ }
+      }
       localStorage.setItem(STORAGE_KEY, serializeDoc());
       docDirty = false;
       if (!quiet) setSavedLabel('saved');
     } catch (err) {
-      if (!quiet) toast('Browser storage is unavailable');
+      if (!quiet) toast('Browser storage is unavailable', { type: 'error' });
     }
   }
 
@@ -2306,6 +2457,44 @@
   function setSavedLabel(text) {
     const el = document.getElementById('status-saved');
     if (el) el.textContent = text;
+  }
+
+  // P0-6: read main, fall back to .bak. Returns { data, from } or null when
+  // nothing is stored; throws only when a stored copy exists but unparsable.
+  function loadRecord() {
+    let raw = null;
+    try { raw = localStorage.getItem(STORAGE_KEY); } catch (err) { raw = null; }
+    if (raw) return { data: JSON.parse(raw), from: 'main' };
+    let bak = null;
+    try { bak = localStorage.getItem(BAK_KEY); } catch (err) { bak = null; }
+    if (bak) return { data: JSON.parse(bak), from: 'bak' };
+    return null;
+  }
+
+  // P0-6: an exception in render/drag used to leave half-mutated state with no
+  // word to the user. Surface it as a sticky error toast instead of silence.
+  // Installed once (guarded), writes nothing, interrupts nothing.
+  let errorHandlerInstalled = false;
+  function installGlobalErrorHandler() {
+    if (errorHandlerInstalled) return;
+    errorHandlerInstalled = true;
+    const report = (msg) => {
+      try {
+        const el = document.getElementById('toast');
+        if (el && window.console) console.error('[minisketch]', msg);
+        toast('Something went wrong: ' + String(msg).slice(0, 160) +
+          ' — your work is still autosaved', { type: 'error', sticky: true });
+      } catch (err) { /* never break the app from its own handler */ }
+    };
+    window.addEventListener('error', (ev) => {
+      if (!ev || !ev.message) return;
+      report(ev.message);
+    });
+    window.addEventListener('unhandledrejection', (ev) => {
+      const r = ev && ev.reason;
+      const msg = (r && (r.message || String(r))) || 'unhandled error';
+      report(msg);
+    });
   }
 
   // The .sketch payload is compact: coordinates in the drawing are millimetres
@@ -3683,7 +3872,7 @@
         return;
       }
       toast('Could not satisfy every constraint (residual ' + cost.toExponential(1) +
-        ') — Ctrl+Z to undo the solve');
+        ') — Ctrl+Z to undo the solve', { type: 'error', sticky: true });
       return;
     }
     if (wasDirty) toast('Solved');
@@ -4267,9 +4456,14 @@
   // Safe arithmetic parser: numbers, + - * /, parentheses, unary sign and
   // postfix % (percent of the current value). Examples: "100*2", "150%", "(20+5)*3".
   function evalFormula(text, base) {
-    const s = String(text == null ? '' : text).replace(/\s+/g, '');
+    const raw = String(text == null ? '' : text).replace(/\s+/g, '');
     const b = isFinite(base) ? base : 0;
-    if (!s) return NaN;
+    if (!raw) return NaN;
+    // A leading + / - with no left operand means "relative to the current
+    // value": +20 on a field showing 100 edits as 100+20. Without this the
+    // primary() below sees no number and the whole field is NaN.
+    const s = (/^[+-]/.test(raw) && !/^[+-]?[0-9]*\.?[0-9]+(?:[eE][+-]?[0-9]+)?[+\-*/]/.test(raw) && !/^\(/.test(raw))
+      ? String(b) + raw : raw;
     let i = 0;
     function expr() {
       let v = term();
@@ -4542,6 +4736,20 @@
       }
     }
     refreshSelectionDimensions(pids, eids, sx, sy);
+  }
+
+  // Alt+R landing spot: focus L with its content selected, so a leading
+  // + / - edits relative to the current value (see evalFormula). Warns when
+  // there is no selection instead of focusing a dead field.
+  function focusFrameStrip() {
+    updateTransformPanel(true);
+    const l = document.getElementById('tf-left');
+    if (!l || l.disabled) {
+      toast('Select objects first, then Alt+R edits their frame');
+      return;
+    }
+    l.focus();
+    l.select();
   }
 
   function updateTransformPanel(force) {
@@ -10382,49 +10590,15 @@
     return Math.abs(a) / 2;
   }
 
-  // Contours from a picture: Potrace turns the raster into an SVG path, which is
-  // then parsed like any other SVG. Everything stays local: no network.
+  // Contours from a picture: the tracer (tools/trace.js, ImageTracerJS based)
+  // turns the raster into an SVG path, which is then parsed like any other SVG.
+  // Everything stays local: no network.
   function traceBlobToSvg(blob, opts) {
-    const o = opts || {};
-    return new Promise((resolve) => {
-      if (typeof window === 'undefined' || typeof Image !== 'function') {
-        resolve(null);
-        return;
-      }
-      if (typeof Potrace === 'undefined' || !Potrace || typeof Potrace.process !== 'function') {
-        resolve(null);
-        return;
-      }
-      const url = URL.createObjectURL(blob);
-      const img = new Image();
-      img.onload = () => {
-        try {
-          Potrace.loadImageFromFile(blob);
-          const info = Potrace.info || {};
-          info.alphamax = isFinite(+o.alphamax) ? clamp(+o.alphamax, 0, 1.34) : 1;
-          info.turdsize = isFinite(+o.turdsize) ? Math.max(0, +o.turdsize) : 2;
-          info.optcurve = o.optcurve !== false;
-          info.opttolerance = isFinite(+o.opttolerance) ? clamp(+o.opttolerance, 0.01, 1) : 0.3;
-          Potrace.info = info;
-          Potrace.process(() => {
-            try {
-              resolve(Potrace.getSVG(1, 'curve'));
-            } catch (err) {
-              resolve(null);
-            }
-          });
-        } catch (err) {
-          resolve(null);
-        } finally {
-          URL.revokeObjectURL(url);
-        }
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        resolve(null);
-      };
-      img.src = url;   // decode first, Potrace needs a finished bitmap
-    });
+    const T = window.MiniSketchTrace;
+    if (!T || typeof T.traceBlob !== 'function') {
+      return Promise.resolve(null);
+    }
+    return T.traceBlob(blob, opts).then((r) => (r && r.svg) || null).catch(() => null);
   }
 
   function artLocalOf(gg, world) {
@@ -12731,19 +12905,32 @@
     ctx.restore();
   }
 
-  // Drop parsed paths into the sketch as one framed object.
-  function insertArt(paths, opts) {
-    const o = opts || {};
-    const loops = [];
-    const srcTol = isFinite(+o.simplify) ? +o.simplify : 0.6;   // in source units
+  // The traced paths, thinned the way an import thins them: RDP simplify,
+  // then drop what is left too small to be a shape.
+  //
+  // The trace preview calls this too, so the contour count it shows is the
+  // count the import will actually produce — not the raw tracer's count.
+  // `tol` and `minArea` are in SOURCE pixels; the preview scales them with
+  // its downscale factor so both agree.
+  function simplifyTracedPaths(paths, tol, minArea) {
+    const out = [];
+    const srcTol = isFinite(+tol) ? +tol : 0.6;          // in source units
+    const area = isFinite(+minArea) ? +minArea : 2;
     for (const raw of paths || []) {
       if (!raw || raw.length < 3) continue;
       let simp = rdpSimplify(raw.concat([raw[0]]), srcTol);
       if (simp.length > 3) simp.pop();
       if (simp.length < 3) continue;
-      if (artArea(simp) < 2) continue;          // speckle
-      loops.push(simp);
+      if (artArea(simp) < area) continue;                 // speckle
+      out.push(simp);
     }
+    return out;
+  }
+
+  // Drop parsed paths into the sketch as one framed object.
+  function insertArt(paths, opts) {
+    const o = opts || {};
+    const loops = simplifyTracedPaths(paths, o.simplify, 2);
     if (!loops.length) {
       toast('Nothing to paste');
       return null;
@@ -14151,6 +14338,235 @@
     return null;
   }
 
+  // The trace dialog's settings, read straight from the inputs. These names
+  // match tools/trace.js (the tracer) plus the app-side simplify tolerance.
+  //
+  // The NUMBER box is the value of record; the slider next to it is the fast
+  // way to get near it. So the value is read from the number box, and an
+  // empty box falls back to the slider (and then to the default).
+  function traceOptionsFromDialog() {
+    const el = (id) => document.getElementById(id);
+    const num = (id, def) => {
+      const box = el(id + '-n');
+      const v = parseFloat(box ? box.value : '');
+      if (isFinite(v)) return v;
+      const s = parseFloat(el(id) ? el(id).value : '');
+      return isFinite(s) ? s : def;
+    };
+    return {
+      detail: num('img-detail', 2),
+      curve: num('img-curve', 1),
+      speckle: num('img-speckle', 8),
+      threshold: num('img-threshold', 128),
+      blur: num('img-blur', 0),
+      corners: !!(el('img-corners') && el('img-corners').checked),
+      smooth: !!(el('img-smooth') && el('img-smooth').checked),
+      simplify: num('img-tol', 0.6),
+      fitCurve: !!(el('img-fitcurve') && el('img-fitcurve').checked)
+    };
+  }
+
+  // Keep a slider and its number box in step, in both directions:
+  //   slider -> number   (dragging writes the exact value)
+  //   number -> slider   (typing moves the handle; a value outside the
+  //                       slider's range pins it to the nearest end)
+  //
+  // The number box is never overwritten while it has the focus — typing
+  // "1" on the way to "15" must not be fought by the slider.
+  function bindTraceSlider(sliderId, onChange) {
+    const s = document.getElementById(sliderId);
+    const n = document.getElementById(sliderId + '-n');
+    if (!s || !n) return;
+    s.addEventListener('input', () => {
+      n.value = s.value;
+      onChange();
+    });
+    n.addEventListener('input', () => {
+      const v = parseFloat(n.value);
+      if (isFinite(v)) {
+        const lo = parseFloat(s.min), hi = parseFloat(s.max);
+        s.value = String(Math.max(lo, Math.min(hi, v)));
+      }
+      onChange();
+    });
+    // typing over the old value without selecting it first
+    n.addEventListener('focus', () => n.select());
+    n.addEventListener('keydown', (ev) => {
+      if ((ev.ctrlKey || ev.metaKey) && ['c', 'v', 'x', 'd', 'k'].includes(ev.key.toLowerCase())) return;
+      ev.stopPropagation();
+      if (ev.key === 'Enter') { ev.preventDefault(); n.blur(); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); n.blur(); }
+    });
+  }
+
+  // Put a value into the slider AND its number box.
+  function setTraceValue(sliderId, value, fallback) {
+    const s = document.getElementById(sliderId);
+    const n = document.getElementById(sliderId + '-n');
+    const v = isFinite(+value) ? +value : fallback;
+    if (n) n.value = String(v);
+    if (s) {
+      const lo = parseFloat(s.min), hi = parseFloat(s.max);
+      s.value = String(Math.max(lo, Math.min(hi, v)));
+    }
+  }
+
+  // The trace settings are remembered between opens. They are written as
+  // soon as they change — not only when OK is pressed — so a tuning that was
+  // abandoned (Cancel, or a different picture) is still there next time.
+  function saveTracePrefs() {
+    const o = traceOptionsFromDialog();
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(IMG_OPTS_KEY) || '{}') || {}; } catch (err) { saved = {}; }
+    try {
+      localStorage.setItem(IMG_OPTS_KEY, JSON.stringify({
+        ...saved,
+        detail: o.detail, curve: o.curve, speckle: o.speckle,
+        threshold: o.threshold, blur: o.blur, corners: o.corners,
+        smooth: o.smooth, tol: o.simplify, fitCurve: o.fitCurve
+      }));
+    } catch (err) { /* private mode: the settings just do not persist */ }
+  }
+
+  // Live preview of the trace.
+  //
+  // The old dialog was blind: you picked a tolerance, pressed OK, and only
+  // then saw the result on the canvas — with Ctrl+Z if it was wrong. This
+  // draws the raster and the traced outline together, so the tolerance can be
+  // tuned by watching it.
+  //
+  // The trace runs on a downscaled copy (PREVIEW_MAX px) because a full-size
+  // raster takes seconds to trace; the OK button still traces the ORIGINAL
+  // pixels at full resolution. To keep the preview honest, the knobs that
+  // count PIXELS (speckle size) are scaled by the same factor, so what the
+  // preview shows is what the full-resolution trace will produce.
+  const PREVIEW_MAX = 320;
+
+  // The preview canvas fills the height of the settings column, so the panel
+  // has no hole under it. Measured after the dialog is shown, because a hidden
+  // dialog has no height to measure.
+  function sizeTracePreview() {
+    const canvas = document.getElementById('img-preview');
+    const col = document.querySelector('#image-modal .trace-opts');
+    if (!canvas || !col) return;
+    const info = document.getElementById('img-preview-info');
+    const infoH = info ? info.offsetHeight + 6 : 24;
+    const h = Math.max(200, Math.round(col.offsetHeight - infoH));
+    canvas.style.height = h + 'px';
+  }
+
+  function drawTracePreview(blob, opts) {
+    const canvas = document.getElementById('img-preview');
+    const info = document.getElementById('img-preview-info');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const T = window.MiniSketchTrace;
+    if (!T || typeof T.blobToImage !== 'function') {
+      if (info) info.textContent = 'tracer not loaded';
+      return;
+    }
+    T.blobToImage(blob).then((img) => {
+      const iw = img.naturalWidth || img.width;
+      const ih = img.naturalHeight || img.height;
+      if (!iw || !ih) return;
+      // downscale for the preview
+      const k = Math.min(1, PREVIEW_MAX / Math.max(iw, ih));
+      const pw = Math.max(1, Math.round(iw * k));
+      const ph = Math.max(1, Math.round(ih * k));
+      const c = document.createElement('canvas');
+      c.width = pw; c.height = ph;
+      const cx = c.getContext('2d', { willReadFrequently: true });
+      cx.drawImage(img, 0, 0, pw, ph);
+      const raw = cx.getImageData(0, 0, pw, ph);
+      const bin = T.binarize(raw, opts.threshold);
+      // the pixel-count knobs scale with the downscale, so the preview and the
+      // full-resolution trace agree on what counts as a speckle
+      const previewOpts = {
+        detail: opts.detail,
+        curve: opts.curve,
+        threshold: opts.threshold,
+        corners: opts.corners,
+        smooth: opts.smooth,
+        blur: opts.blur,
+        speckle: Math.max(0, opts.speckle * k)
+      };
+      // The canvas draws in CSS pixels; its backing store is scaled by the
+      // device pixel ratio so the outline stays sharp on a hi-dpi screen.
+      const dpr = Math.min(2, (window.devicePixelRatio || 1));
+      const cw = Math.max(1, Math.round(canvas.clientWidth || canvas.width));
+      const ch = Math.max(1, Math.round(canvas.clientHeight || canvas.height));
+      if (canvas.width !== Math.round(cw * dpr) || canvas.height !== Math.round(ch * dpr)) {
+        canvas.width = Math.round(cw * dpr);
+        canvas.height = Math.round(ch * dpr);
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // draw the raster dimmed, then the traced outline on top
+      ctx.clearRect(0, 0, cw, ch);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, cw, ch);
+      const disp = ctx.createImageData(pw, ph);
+      for (let i = 0; i < raw.data.length; i += 4) {
+        const v = raw.data[i];
+        disp.data[i] = disp.data[i + 1] = disp.data[i + 2] = v;
+        disp.data[i + 3] = 90;
+      }
+      const tmp = document.createElement('canvas');
+      tmp.width = pw; tmp.height = ph;
+      tmp.getContext('2d').putImageData(disp, 0, 0);
+      // fit the picture into the canvas keeping its aspect ratio: a stretched
+      // preview would show a shape the machine will never cut
+      const s = Math.min(cw / pw, ch / ph);
+      const ox = (cw - pw * s) / 2;
+      const oy = (ch - ph * s) / 2;
+      ctx.drawImage(tmp, ox, oy, pw * s, ph * s);
+      return T.trace(bin, previewOpts).then((r) => {
+        if (!r || !r.paths) return;
+        // The outline. The tracer emits M/L/Q/Z; the app's own SVG path
+        // parser turns those into flat point lists (curves included), so the
+        // preview shows the same geometry the import will produce — reading
+        // the numbers by hand would turn every curve control point into a
+        // corner.
+        const subs = svgTextToPaths(r.svg);
+        // Thin them the way the import thins them, so the contour count in
+        // the info line is the count that will really land in the document.
+        // Both the tolerance and the minimum area scale with the downscale.
+        const loops = simplifyTracedPaths(subs, opts.simplify * k, 2 * k * k);
+        ctx.strokeStyle = '#d92b2b';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (const sub of loops) {
+          if (!sub || sub.length < 2) continue;
+          ctx.moveTo(ox + sub[0][0] * s, oy + sub[0][1] * s);
+          for (let t = 1; t < sub.length; t++) {
+            ctx.lineTo(ox + sub[t][0] * s, oy + sub[t][1] * s);
+          }
+          ctx.closePath();
+        }
+        ctx.stroke();
+        // the count is the one the import will produce, and the point count
+        // says how heavy the cut will be
+        let points = 0;
+        for (const l of loops) points += l.length;
+        if (info) info.textContent = loops.length + ' contour' + (loops.length === 1 ? '' : 's') +
+          ' · ' + points + ' point' + (points === 1 ? '' : 's') +
+          ' · ' + iw + '×' + ih + ' px';
+      });
+    }).catch(() => {
+      if (info) info.textContent = 'that image could not be read';
+    });
+  }
+
+  // Debounced redraw of the preview: dragging a number field must not start a
+  // trace per keystroke.
+  let tracePreviewTimer = 0;
+  function scheduleTracePreview(blob) {
+    if (tracePreviewTimer) clearTimeout(tracePreviewTimer);
+    tracePreviewTimer = setTimeout(() => {
+      tracePreviewTimer = 0;
+      drawTracePreview(blob, traceOptionsFromDialog());
+    }, 180);
+  }
+
   function openImageDialog(blob) {
     const modal = document.getElementById('image-modal');
     if (!modal) { artFromBlob(blob); return; }
@@ -14162,11 +14578,19 @@
       const el = (id) => document.getElementById(id);
       el('img-mode-trace').checked = saved.mode !== 'image';
       el('img-mode-image').checked = saved.mode === 'image';
-      el('img-smooth').value = isFinite(+saved.smooth) ? +saved.smooth : 1;
-      el('img-turd').value = isFinite(+saved.turd) ? +saved.turd : 2;
-      el('img-tol').value = isFinite(+saved.tol) ? +saved.tol : 0.6;
-      el('img-optcurve').checked = saved.optcurve !== false;
+      // the remembered settings go into BOTH the slider and its number box
+      const numOr = (id, key, def) => {
+        setTraceValue(id, isFinite(+saved[key]) ? +saved[key] : def, def);
+      };
+      numOr('img-detail', 'detail', 2);
+      numOr('img-curve', 'curve', 1);
+      numOr('img-speckle', 'speckle', 8);
+      numOr('img-threshold', 'threshold', 128);
+      numOr('img-blur', 'blur', 0);
+      el('img-corners').checked = saved.corners !== false;
+      el('img-smooth').checked = saved.smooth !== false;
       el('img-fitcurve').checked = saved.fitCurve !== false;
+      setTraceValue('img-tol', isFinite(+saved.tol) ? +saved.tol : 0.6, 0.6);
       // DPI is the primary input: it is the one number that makes a pasted
       // capture the right physical size, and it is what gets remembered between
       // pastes. The mm width is derived from it and stays editable (editing the
@@ -14189,6 +14613,10 @@
       syncImageWidthFromDpi();
       URL.revokeObjectURL(url);
       modal.classList.remove('hidden');
+      // size the preview to the settings column, then draw the first preview
+      // so the user sees the trace before touching anything
+      sizeTracePreview();
+      drawTracePreview(blob, traceOptionsFromDialog());
       const ok = el('img-ok');
       if (ok) ok.focus();
     };
@@ -14238,11 +14666,9 @@
     if (!d || !d.blob) return;
     const el = (id) => document.getElementById(id);
     const mode = el('img-mode-image') && el('img-mode-image').checked ? 'image' : 'trace';
-    const smooth = clamp(+el('img-smooth').value || 1, 0, 1.34);
-    const turd = Math.max(0, Math.round(+el('img-turd').value || 0));
-    const tol = clamp(+el('img-tol').value || 0.6, 0.05, 10);
-    const optcurve = el('img-optcurve').checked;
-    const fitCurve = el('img-fitcurve').checked;
+    const traceOpts = traceOptionsFromDialog();
+    const tol = clamp(traceOpts.simplify, 0.05, 10);
+    const fitCurve = traceOpts.fitCurve;
     const widthEl = el('img-width');
     const dpiEl = el('img-dpi');
     // DPI is the authoritative input: the mm width is always recomputed from it,
@@ -14257,7 +14683,11 @@
       // for one particular pixel size, while the density is the property of the
       // source (a CAD capture, a screenshot, a scanned sheet).
       localStorage.setItem(IMG_OPTS_KEY, JSON.stringify({
-        mode, smooth, turd, tol, optcurve, fitCurve, dpi
+        ...JSON.parse(localStorage.getItem(IMG_OPTS_KEY) || '{}'),
+        mode, detail: traceOpts.detail, curve: traceOpts.curve,
+        speckle: traceOpts.speckle, threshold: traceOpts.threshold,
+        blur: traceOpts.blur, corners: traceOpts.corners, smooth: traceOpts.smooth,
+        tol, fitCurve, dpi
       }));
     } catch (err) { /* ignore */ }
     if (mode === 'image') {
@@ -14268,9 +14698,13 @@
       return;
     }
     artFromBlob(d.blob, {
-      alphamax: smooth,
-      turdsize: turd,
-      optcurve,
+      detail: traceOpts.detail,
+      curve: traceOpts.curve,
+      speckle: traceOpts.speckle,
+      threshold: traceOpts.threshold,
+      blur: traceOpts.blur,
+      corners: traceOpts.corners,
+      smooth: traceOpts.smooth,
       fitCurve,
       simplify: tol,
       mmPerUnit: width / Math.max(1, d.iw)
@@ -14401,11 +14835,53 @@
 
   function openHelpModal() {
     setHelpLang(helpLang());
+    renderHelpKeyGrid();
     const modal = document.getElementById('help-modal');
     if (!modal) return;
     modal.classList.remove('hidden');
     const body = modal.querySelector('.help-body');
     if (body) body.scrollTop = 0;
+  }
+
+  // P0-1 (? panel): the key grid is rendered from KEYMAP — the same table as
+  // the ribbon chips — so help can never go stale when a binding changes.
+  // Help keeps its hand-written prose; only the key reference regenerates.
+  function renderHelpKeyGrid() {
+    const groups = [
+      { title: { en: 'Tools', id: 'Alat' }, keys: ['L', 'K', 'Y', 'A', 'C', 'B', 'W', 'I', 'E', 'R'] },
+      { title: { en: 'Dimensions', id: 'Dimensi' }, keys: ['D', 'Shift+D', 'Shift+E'] },
+      { title: { en: 'Constraints', id: 'Constraint' }, keys: ['T', 'O', 'H', 'V', 'P', '[', 'Q', '.', 'M', 'F', 'J', 'Alt+T'] },
+      { title: { en: 'Edit', id: 'Edit' }, keys: ['Z', 'N', 'Ctrl+O', 'Ctrl+M', 'Ctrl+G', 'Ctrl+U', 'Ctrl+L'] },
+      { title: { en: 'Boolean', id: 'Boolean' }, keys: ['Ctrl++', 'Ctrl+-', 'Ctrl+0'] },
+      { title: { en: 'View & solve', id: 'Tampilan' }, keys: ['G', 'S', 'Shift+F', 'F9', '?', 'Shift+Z'] },
+      { title: { en: 'Machine', id: 'Mesin' }, keys: ['Alt+Q', 'Alt+C'] },
+      { title: { en: 'Frame', id: 'Bingkai' }, keys: ['Alt+R'] },
+    ];
+    const byKey = {};
+    for (const k of KEYMAP) byKey[k.key] = k.label;
+    const langOf = (pane) => (pane && pane.getAttribute('data-help-pane') === 'id') ? 'id' : 'en';
+    for (const pane of document.querySelectorAll('[data-help-pane]')) {
+      const lang = langOf(pane);
+      // The live grid always lives at the end of the pane in its own slot —
+      // no lookup of prose classes, so nothing to go stale when help.js edits
+      // its sections.
+      let slot = pane.querySelector('[data-key-grid]');
+      if (!slot) {
+        slot = document.createElement('div');
+        slot.setAttribute('data-key-grid', '1');
+        pane.appendChild(slot);
+      }
+      const html = groups.map(g => {
+        const rows = g.keys
+          .filter(k => byKey[k])
+          .map(k => '<div class="help-key"><kbd>' + k.replace('Shift+', 'Shift+') + '</kbd><span>' + byKey[k] + '</span></div>')
+          .join('');
+        return rows ? '<div class="help-key-group"><div class="help-key-title">' +
+          (lang === 'id' ? g.title.id : g.title.en) + ' · auto</div>' +
+          '<div class="help-keys">' + rows + '</div></div>' : '';
+      }).join('');
+      slot.innerHTML = html;
+    }
   }
 
   function closeHelpModal() {
@@ -14768,8 +15244,15 @@
     // A selected LINE is painted by the amber selection band instead (see
     // lineDrawnAsSegment): drawing the brightened stroke underneath too produced
     // a doubled line with a white rim. Skipped here entirely, so the band is the
-    // one and only stroke a picked line gets.
-    if (isSel && e.type === 'line' && lineDrawnAsSegment(+e.id) && !isHover) return;
+    // one and only stroke a picked line gets. Same for a WHOLLY selected spline
+    // (selected as an entity, within the entityHighlight budget): its spans all
+    // land in the amber path, so the brightened pass underneath would double
+    // every span. A partially selected spline (only some points picked) keeps
+    // its normal stroke — amber covers just the picked spans.
+    if (isSel && !isHover && selectionIndex().entity.size <= 200) {
+      if (e.type === 'line' && lineDrawnAsSegment(+e.id)) return;
+      if (e.type === 'spline') return;
+    }
     // Selected shapes batch too, into their own map keyed by the brightened
     // colour, and are stroked once at selLw. Drawing each one separately was the
     // other half of the drag slowdown: a thick stroke per shape plus a stroke
@@ -14794,20 +15277,17 @@
   }
 
   // The batched strokes, painted once after every layer has been walked.
+  // No halo pass: the old manySelected halo (a second wide translucent stroke
+  // over every batched path) cost a full extra rasterisation of the selection
+  // and read as a blue glow on dense picks. Selected geometry already reads
+  // through its brightened colour (see brightColor).
   function flushEntityBatch(batch, lw, manySelected) {
     if (!batch.size) return;
+    void manySelected;
     ctx.lineWidth = lw;
     for (const [color, path] of batch) {
       ctx.strokeStyle = color;
       ctx.stroke(path);
-    }
-    if (manySelected) {
-      // one pass over the selected geometry instead of one stroke each
-      ctx.save();
-      ctx.strokeStyle = 'rgba(37, 99, 235, 0.16)';
-      ctx.lineWidth = lw * 4.5;
-      for (const [color, path] of batch) ctx.stroke(path);
-      ctx.restore();
     }
   }
 
@@ -15864,7 +16344,10 @@
     return { x: Math.round(sx), y: Math.round(sy) };
   }
 
-  function drawBadge(text, sx, sy, id) {
+  // A badge is clickable — plain click deletes (undoable), Shift/Ctrl+click
+  // selects. A conflicting badge (P1-9) draws red; deleting one side of the
+  // fight resolves it.
+  function drawBadge(text, sx, sy, id, conflict) {
     ctx.font = '700 9px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
     const tw = ctx.measureText(text).width;
     const w = tw + 8;
@@ -15872,18 +16355,35 @@
     const slot = badgeSlot(sx, sy, w, h);
     sx = slot.x;
     sy = slot.y;
+    const hot = id != null && ui.hoverBadge === +id;
+    const bad = !!conflict;
     roundRectPath(sx - w / 2, sy - h / 2, w, h, 3);
-    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.fillStyle = bad ? 'rgba(220,38,38,0.12)' : hot ? 'rgba(37,99,235,0.14)' : 'rgba(255,255,255,0.92)';
     ctx.fill();
-    ctx.strokeStyle = id != null && selected('constraint', id) ? '#2563eb' : '#cbd5e1';
-    ctx.lineWidth = id != null && selected('constraint', id) ? 1.5 : 1;
+    ctx.strokeStyle = bad ? '#dc2626' : id != null && selected('constraint', id) ? '#2563eb'
+      : hot ? '#2563eb' : '#cbd5e1';
+    ctx.lineWidth = bad || (id != null && (selected('constraint', id) || hot)) ? 1.5 : 1;
     ctx.stroke();
-    ctx.fillStyle = id != null && selected('constraint', id) ? '#1d4ed8' : '#64748b';
+    ctx.fillStyle = bad ? '#b91c1c' : id != null && (selected('constraint', id) || hot) ? '#1d4ed8' : '#64748b';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(text, sx, sy + 0.5);
     ui.badgeZones.push({ x: sx - w / 2, y: sy - h / 2, w, h });
     if (id != null) ui.badgeHits.push({ id, x: sx - w / 2, y: sy - h / 2, w, h });
+  }
+
+  // Badge -> constraint: delete with a left click, undoable via history.
+  // Shift+click (or Ctrl) keeps the old select behaviour for multi-select.
+  function deleteConstraintById(id) {
+    id = +id;
+    const c = state.constraints[id];
+    if (!c) return;
+    pushHistory();
+    removeConstraint(id);
+    ui.selection = ui.selection.filter(s => !(s.kind === 'constraint' && +s.id === id));
+    if (ui.hoverBadge === id) ui.hoverBadge = null;
+    commit();
+    toast(constraintName(c) + ' deleted — Ctrl+Z to undo');
   }
 
   function lineIntersectionPoint(e1, e2) {
@@ -16224,51 +16724,61 @@
     ui.badgeRects = [];
     ui.badgeZones = [];
     const placed = {};
+    // P1-9: constraints fighting another one draw red, with the reason in the
+    // title — the same triage the panel list shows (see conflictOf).
+    const conflictSet = new Set();
+    for (const cid in state.constraints) {
+      if (conflictOf(state.constraints[cid], +cid)) conflictSet.add(+cid);
+    }
+    ui.conflictBadges = conflictSet;
     for (const cid in state.constraints) {
       const c = state.constraints[cid];
       if (constraintAnnotationHidden(c) || !constraintAnnotationActive(c)) continue;
+      const bid = +cid;
       if (c.type === 'coincident') {
         const p = P(c.p1);
         if (!p) continue;
         const s = w2s(p.x, p.y);
         ctx.beginPath();
         ctx.arc(s.x, s.y, 5.5, 0, TAU);
-        ctx.strokeStyle = '#2563eb';
-        ctx.lineWidth = 1.1;
+        ctx.strokeStyle = conflictSet.has(bid) ? '#dc2626' : '#2563eb';
+        ctx.lineWidth = conflictSet.has(bid) ? 2 : 1.1;
         ctx.stroke();
+        ui.badgeHits.push({ id: bid, x: s.x - 5.5, y: s.y - 5.5, w: 11, h: 11 });
       } else if (c.type === 'fix') {
         const p = P(c.p);
         if (!p) continue;
         const s = w2s(p.x, p.y);
         ctx.beginPath();
         ctx.arc(s.x, s.y, 7, 0, TAU);
-        ctx.strokeStyle = '#7c3aed';
-        ctx.lineWidth = 1.1;
+        ctx.strokeStyle = conflictSet.has(bid) ? '#dc2626' : '#7c3aed';
+        ctx.lineWidth = conflictSet.has(bid) ? 2 : 1.1;
         ctx.stroke();
+        ui.badgeHits.push({ id: bid, x: s.x - 7, y: s.y - 7, w: 14, h: 14 });
       } else if (c.type === 'horizontalPoints' || c.type === 'verticalPoints') {
         const a = P(c.p1), b = P(c.p2);
         if (!a || !b) continue;
         const mid = w2s((a.x + b.x) / 2, (a.y + b.y) / 2);
-        drawBadge(c.type === 'horizontalPoints' ? 'H' : 'V', mid.x + 14, mid.y + 14, null);
+        drawBadge(c.type === 'horizontalPoints' ? 'H' : 'V', mid.x + 14, mid.y + 14, bid, conflictSet.has(bid));
       } else if (c.type === 'pointOn') {
         const p = P(c.p);
         if (!p) continue;
         const s = w2s(p.x, p.y);
-        drawBadge('on', s.x + 11, s.y - 11, null);
+        drawBadge('on', s.x + 11, s.y - 11, bid, conflictSet.has(bid));
       } else if (c.type === 'midpoint') {
         const e = state.entities[c.entity];
         if (!e || e.type !== 'line') continue;
         const a = P(e.a), b = P(e.b);
         if (!a || !b) continue;
         const mid = w2s((a.x + b.x) / 2, (a.y + b.y) / 2);
-        drawBadge('M', mid.x, mid.y - 14, null);
+        drawBadge('M', mid.x, mid.y - 14, bid, conflictSet.has(bid));
       } else if (c.type === 'tangent' || c.type === 'tangentAt') {
         const e = state.entities[c.entity];
         const line = state.entities[c.line];
         const p = P(c.p || line && line.a);
         if (!line || !e) continue;
         const s = w2s(p.x, p.y);
-        drawBadge('T', s.x + 11, s.y - 11, null);
+        drawBadge('T', s.x + 11, s.y - 11, bid, conflictSet.has(bid));
       } else if (c.type === 'horizontal' || c.type === 'vertical' || c.type === 'parallel' || c.type === 'perpendicular' || c.type === 'equal') {
         const e = state.entities[c.entity] || state.entities[c.line1];
         if (!e || e.type !== 'line') continue;
@@ -16282,7 +16792,7 @@
           c.type === 'vertical' ? 'V' :
           c.type === 'parallel' ? '\u2225' :
           c.type === 'perpendicular' ? '\u22a5' : '=';
-        drawBadge(glyph, mid.x + 14 + count * 17, mid.y - 14, null);
+        drawBadge(glyph, mid.x + 14 + count * 17, mid.y - 14, bid, conflictSet.has(bid));
       }
     }
     ui.badgeHits = ui.badgeHits.filter(h => {
@@ -16290,8 +16800,10 @@
       return c && constraintAnnotationActive(c);
     });
     // A badge is decoration while the constraint itself is not a dimension: it
-    // is removed with its own shortcut (H, V, [, ., M, T, ...), never by a
-    // stray double click.
+    // is clickable now — a plain click deletes the constraint (undoable via
+    // history), Shift/Ctrl+click keeps the old select-for-multiselect gesture.
+    // Badges that carry no constraint id (H/V/pointOn/midpoint/tangent rows
+    // rendered with id null) still hit nothing, so they stay inert.
   }
 
   function drawPreview() {
@@ -16973,15 +17485,19 @@
   function statusHintText() {
     if (ui.offsetJob) return offsetHintText();
     if (mateJob) {
+      const aName = mateJob.a != null && state.entities[mateJob.a]
+        ? (state.entities[mateJob.a].name || 'Part ' + mateJob.a) : null;
       return mateJob.stage === 'a'
-        ? 'Mate: click a marker of the first part (node or midpoint). Esc cancels.'
-        : 'Mate: click a marker or an edge midpoint of the second part. Esc cancels.';
+        ? 'Mate ①: click a marker (node / midpoint) of the FIRST part. Alt+T reopens the dialog. Esc cancels.'
+        : 'Mate ②' + (aName ? ' — side A is ' + aName : '') +
+          ': click a marker or an edge midpoint of the SECOND part. Click the SAME marker as side A to ground it. Esc cancels.';
     }
     if (ui.moveJob) {
       return ui.moveJob.stage === 'ref'
         ? 'Move: click the reference point. Esc cancels.'
         : 'Move: click the destination point. Esc cancels.';
     }
+    if (ui.tool === 'select') return selectHintText();
     switch (ui.tool) {
       case 'line': return 'Click start point, then end point. Keep clicking to chain; click the first point again to close the loop and finish. Enter finishes, Esc takes the last line back, Esc again stops. Shift = 15° polar, Alt = inverse of the Snap toggle while held. With exactly two points selected, L creates the line between them.';
       case 'arc': return 'Click center, then start point, then end point. Shift snaps angles.';
@@ -16994,6 +17510,27 @@
       case 'transform': return 'Drag a square grip to scale, the round grip above to rotate, or the orange pivot to move it (snaps to points). Shift snaps. Type exact values in the Transform panel, then Apply.';
       default: return 'Click to select. Drag points or geometry. Shift-click adds to selection.';
     }
+  }
+
+  // P0-3: the select tool's hint is a state machine, not one static line.
+  // Boolean needs TOOL-first order and Offset needs a pre-selection — the two
+  // things users kept getting backwards — so the hint names the next click.
+  function selectHintText() {
+    const base = 'Click to select. Drag points or geometry. Shift-click adds to selection.';
+    const nLoops = pickedLoops().length;
+    if (ui.offsetJob) return offsetHintText();
+    const selN = selectedEntities().length;
+    // Boolean: order matters (tool first, then target), so say which is next.
+    if (nLoops >= 2) {
+      return 'Boolean ready: ' + nLoops + ' loops — Ctrl++ union · Ctrl+- cut (FIRST loop = tool, SECOND = target) · Ctrl+0 intersect.';
+    }
+    if (nLoops === 1) {
+      return 'Boolean: 1 loop picked — pick a SECOND loop, then Ctrl++ union · Ctrl+- cut (first = tool) · Ctrl+0 intersect. Offset: Ctrl+O offsets this selection.';
+    }
+    if (selN > 0) {
+      return base + ' Offset: Ctrl+O offsets the selection (wheel = distance, Enter confirms). Boolean: pick closed loops first (' + selN + ' selected, 0 loops).';
+    }
+    return base + ' Frame: Alt+R jumps to L/T/W/H (+20 = move +20, Tab = next box). Dimension: select 2 points / 1–2 lines / circle, then D (driving) or Shift+D (measure). Constraints: H V P Q O T M . [ F J on a selection.';
   }
 
   function updateUI() {
@@ -17022,6 +17559,7 @@
     updateSelectionInfo();
     updateLoopFillRow();
     updateConstraintButtons();
+    bindConstraintTools();
     updateConstraintList();
     updateLoopList();
     updateArrayList();
@@ -17224,26 +17762,188 @@
     return ids.sort((a, b) => a - b);
   }
 
+  // P1-9: conflict + duplicate + DOF helpers for the constraint panel.
+  // conflictOf reuses the same triage addConstraint runs (constraintConflict),
+  // so the panel flags exactly what the solver would refuse.
+  function conflictOf(c, id) {
+    if (!c || c.reference) return null;
+    try {
+      const why = constraintConflict(c, id);
+      return why || null;
+    } catch (err) { return null; }
+  }
+  // An EXACT duplicate: same type on the same targets (driving only). The add
+  // path already refuses these; this catches documents saved before that.
+  function duplicateOf(c, id) {
+    if (!c || c.reference) return null;
+    const sameTargets = (a, b) => {
+      for (const k of ['p', 'p1', 'p2', 'p0', 'pw', 'ph', 'entity', 'line', 'line1', 'line2']) {
+        if ((a[k] == null) !== (b[k] == null)) return false;
+        if (a[k] != null && +a[k] !== +b[k]) return false;
+      }
+      return true;
+    };
+    for (const oid in state.constraints) {
+      if (+oid === +id) continue;
+      const o = state.constraints[oid];
+      if (!o || o.reference || o.type !== c.type || c.kind !== o.kind) continue;
+      if (!sameTargets(o, c)) continue;
+      if ((c.type === 'distance' || c.type === 'pointDim' || c.type === 'radius' || c.type === 'angle') &&
+        Math.abs(+c.value - +o.value) > 1e-6) continue;
+      return +oid;
+    }
+    return null;
+  }
+  // Degrees of freedom left in the selection's points: 2 per free point minus
+  // one per driving (non-reference) constraint touching the selection. A rough
+  // counter, not a solver rank — enough to read "fully locked" vs "still free".
+  // Returns null when the selection owns no points at all.
+  function selectionDof(ids) {
+    const pts = new Set();
+    const pushE = (eid) => {
+      const e = state.entities[eid];
+      if (!e) return;
+      for (const pid of entityPointIds(e)) pts.add(+pid);
+    };
+    for (const s of ui.selection || []) {
+      if (s.kind === 'point') pts.add(+s.id);
+      else if (s.kind === 'entity') pushE(+s.id);
+    }
+    if (!pts.size) return null;
+    let driving = 0;
+    for (const id of (ids || selectionConstraintIds())) {
+      const c = state.constraints[id];
+      if (!c || c.reference) continue;
+      driving++;
+    }
+    return Math.max(0, pts.size * 2 - driving);
+  }
+  // Bulk ops over the listed (filter-visible) constraints. All undoable.
+  function listedConstraintIds() {
+    const filterEl = document.getElementById('constraint-filter');
+    const filter = filterEl ? filterEl.value : '';
+    const all = selectionConstraintIds();
+    if (!filter) return all;
+    return all.filter(id => {
+      const c = state.constraints[id];
+      if (!c) return false;
+      if (filter === 'dim') return isDimensionConstraint(c);
+      if (filter === 'tangent') return c.type === 'tangent' || c.type === 'tangentAt';
+      return c.type === filter;
+    });
+  }
+  function bindConstraintTools() {
+    const filterEl = document.getElementById('constraint-filter');
+    if (filterEl && !filterEl.dataset.bound) {
+      filterEl.dataset.bound = '1';
+      filterEl.addEventListener('change', () => updateConstraintList());
+    }
+    const on = (id, fn) => {
+      const el = document.getElementById(id);
+      if (el && !el.dataset.bound) {
+        el.dataset.bound = '1';
+        el.addEventListener('click', fn);
+      }
+    };
+    on('constraint-all', () => {
+      const ids = listedConstraintIds();
+      if (!ids.length) return;
+      ui.selection = ids.map(id => ({ kind: 'constraint', id }));
+      updateUI();
+      render();
+    });
+    on('constraint-none', () => {
+      ui.selection = ui.selection.filter(s => s.kind !== 'constraint');
+      updateUI();
+      render();
+    });
+    on('constraint-ref', () => {
+      const ids = listedConstraintIds().filter(id => isDimensionConstraint(state.constraints[id]));
+      if (!ids.length) {
+        toast('No dimensions in the list — filter to Dimensions first');
+        return;
+      }
+      pushHistory();
+      for (const id of ids) {
+        const c = state.constraints[id];
+        if (c.reference) {
+          const v = measureConstraintValue(c);
+          if (v != null && isFinite(v)) c.value = v;
+          delete c.reference;
+        } else c.reference = true;
+      }
+      requestSolve();
+      commit();
+      toast(ids.length + ' dimension' + (ids.length === 1 ? '' : 's') + ' toggled driving ↔ reference');
+    });
+    on('constraint-del', () => {
+      const ids = listedConstraintIds();
+      if (!ids.length) return;
+      const label = ids.length + ' constraint' + (ids.length === 1 ? '' : 's');
+      pushHistory();
+      for (const id of ids) removeConstraint(id);
+      ui.selection = ui.selection.filter(s => !(s.kind === 'constraint' && ids.includes(+s.id)));
+      commit();
+      toast(label + ' deleted — Ctrl+Z to undo');
+    });
+  }
+
   function updateConstraintList() {
     const list = document.getElementById('constraint-list');
     if (!list) return;
     const block = document.getElementById('constraint-block');
-    const ids = selectionConstraintIds();
+    const tools = document.getElementById('constraint-tools');
+    const filterEl = document.getElementById('constraint-filter');
+    const filter = filterEl ? filterEl.value : '';
+    const allIds = selectionConstraintIds();
+    // P1-9: filter by kind. 'dim' = every driving/reference dimension.
+    const ids = filter
+      ? allIds.filter(id => {
+        const c = state.constraints[id];
+        if (!c) return false;
+        if (filter === 'dim') return isDimensionConstraint(c);
+        if (filter === 'tangent') return c.type === 'tangent' || c.type === 'tangentAt';
+        return c.type === filter;
+      })
+      : allIds;
     const countEl = document.getElementById('constraint-count');
-    if (countEl) countEl.textContent = ids.length;
-    if (block) block.classList.toggle('hidden', ids.length === 0);
+    if (countEl) countEl.textContent = filter ? ids.length + ' / ' + allIds.length : String(allIds.length);
+    if (block) block.classList.toggle('hidden', allIds.length === 0);
+    if (tools) tools.classList.toggle('hidden', allIds.length === 0);
+    const dofEl = document.getElementById('constraint-dof');
+    if (dofEl) {
+      const dof = selectionDof(allIds);
+      dofEl.textContent = dof != null ? dof + ' DOF' : '';
+      dofEl.classList.toggle('free', dof != null && dof > 0);
+      dofEl.classList.toggle('locked', dof === 0);
+    }
+    // highlight rows whose constraint fights another one (see conflictOf)
+    const conflicts = new Set();
+    for (const id of ids) {
+      const why = conflictOf(state.constraints[id], id);
+      if (why) conflicts.add(id);
+    }
     // rebuild only when the rows (ids + active flags) actually changed
-    const consSig = 'c' + ids.join(',') + '|' + Array.from(selectionIndex().constraint).join(',');
+    const consSig = 'c' + ids.join(',') + '|' + filter + '|' +
+      Array.from(selectionIndex().constraint).join(',') + '|' + conflicts.size;
     if (listUnchanged(list, consSig)) return;
     list.innerHTML = '';
     for (const id of ids) {
       const c = state.constraints[id];
       const li = document.createElement('li');
       li.dataset.cid = id;
-      li.className = selected('constraint', id) ? 'active' : '';
+      li.className = (selected('constraint', id) ? 'active' : '') +
+        (conflicts.has(id) ? ' conflict' : '');
+      const why = conflicts.has(id) ? conflictOf(c, id) : null;
+      li.title = (why ? '⚠ ' + why + ' · ' : '') +
+        'Hover highlights the badge on canvas · click selects · × deletes';
+      // auto-cleanup affordance: an exact-duplicate row offers one-click dedupe
+      const dup = !why ? duplicateOf(c, id) : null;
+      if (dup) li.title = 'Exact duplicate of #' + dup + ' · click × to remove it';
       const name = document.createElement('span');
       name.className = 'name';
-      name.textContent = constraintName(c);
+      name.textContent = constraintName(c) + (dup ? ' =#' + dup : '');
+      if (dup) li.classList.add('dup');
       const meta = document.createElement('span');
       meta.className = 'meta';
       meta.textContent = '#' + id;
@@ -17251,13 +17951,34 @@
       del.className = 'mini-del';
       del.dataset.del = id;
       del.title = 'Delete constraint';
-      del.textContent = '\u00d7';
+      del.textContent = '×';
+      del.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        deleteConstraintById(id);
+      });
       li.appendChild(name);
       li.appendChild(meta);
       li.appendChild(del);
+      // P0-2 (list → canvas): hovering a row lights its badge on the canvas,
+      // so the row and the badge read as the same clickable thing.
+      li.addEventListener('mouseenter', () => {
+        ui.hoverBadge = +id;
+        render();
+      });
+      li.addEventListener('mouseleave', () => {
+        if (ui.hoverBadge === +id) {
+          ui.hoverBadge = null;
+          render();
+        }
+      });
+      li.addEventListener('click', () => {
+        selectOnly('constraint', +id);
+        updateUI();
+        render();
+      });
       list.appendChild(li);
     }
-    list.dataset.empty = 'No constraints on this selection';
+    list.dataset.empty = 'No constraints on this selection — click geometry, then press a constraint key (H/V/P/Q/…)';
   }
 
   function updateLoopList() {
@@ -18355,8 +19076,13 @@
       if (dimHit == null) {
         const badgeHit = hitBadge(pos.x, pos.y);
         if (badgeHit != null) {
-          if (addMod || subMod) toggleSelect('constraint', badgeHit);
-          else selectOnly('constraint', badgeHit);
+          // P0-2: a badge click deletes its constraint (undoable). The
+          // modifiers keep the old select gesture for multi-select.
+          if (!(addMod || subMod)) {
+            deleteConstraintById(badgeHit);
+            return;
+          }
+          toggleSelect('constraint', badgeHit);
           updateUI();
           render();
           return;
@@ -18385,6 +19111,15 @@
       const eh = hitEntity(pos.x, pos.y);
       if (eh != null) {
         const hitEnt = state.entities[eh];
+        // P1-8: a click on a visible but non-ACTIVE layer used to die silently —
+        // the entity is hit, just not editable, and nothing said why. Say it
+        // once (throttled) and flash that layer's row, so the fix (click the
+        // row to make it active) is visible.
+        if (!entityEditable(hitEnt)) {
+          flashLayerRow(layerOf(hitEnt));
+          toastInactiveLayer(hitEnt);
+          return;
+        }
         // A clone behaves like a group: a click SELECTS it, a drag moves it.
         // Entering Transform on a plain click was wrong — R is the transform key.
         if (hitEnt && hitEnt.type === 'array' && hitEnt.kind === 'clone') {
@@ -20234,16 +20969,23 @@ function cmdSplitCurve() {
         const dim = hitDimension(x, y);
         if (dim != null) hit = { kind: 'constraint', id: dim };
         else {
-          const eh = hitEntity(x, y);
-          // an entity on another layer is not selectable: it must not glow
-          // either, or the hover promises a click that cannot happen
-          if (eh != null && entityEditable(state.entities[eh])) {
-            hit = { kind: 'entity', id: eh };
+          const bh = hitBadge(x, y);
+          if (bh != null) hit = { kind: 'constraint', id: bh };
+          else {
+            const eh = hitEntity(x, y);
+            // an entity on another layer is not selectable: it must not glow
+            // either, or the hover promises a click that cannot happen
+            if (eh != null && entityEditable(state.entities[eh])) {
+              hit = { kind: 'entity', id: eh };
+            }
           }
         }
       }
     }
     ui.hover = hit;
+    // P0-2 (canvas → list): keep the badge hot while its constraint hovers,
+    // so the badge reads clickable. Stored as a plain id for drawBadge().
+    ui.hoverBadge = (hit && hit.kind === 'constraint') ? +hit.id : null;
     updateCanvasCursor();
   }
 
@@ -21289,6 +22031,81 @@ function cmdSplitCurve() {
     commit();
   }
 
+  // P0-1: single source of truth for every sketch shortcut. KEYMAP drives the
+  // ribbon kbd-chips (paintKeyChips) and the help grid (see renderHelpKeyGrid),
+  // so a new binding shows up in the UI by editing THIS table only.
+  // kind: 'tool' = select tool · 'cmd' = run command · 'toggle'.
+  // match: key for .tool-btn[data-tool], #qb-*, [data-quick], [data-cmd].
+  const KEYMAP = [
+    // Select carries no shortcut: Esc / clicking empty space deselects, so no chip.
+    { key: 'L', label: 'Line', match: 'line', kind: 'tool' },
+    { key: 'K', label: 'Curve', match: 'curve', kind: 'tool' },
+    { key: 'Y', label: 'Poly', match: 'poly', kind: 'tool' },
+    { key: 'A', label: 'Arc', match: 'arc', kind: 'tool' },
+    { key: 'C', label: 'Circle', match: 'circle', kind: 'tool' },
+    { key: 'B', label: 'Box', match: 'box', kind: 'tool' },
+    { key: 'W', label: 'Text', match: 'text', kind: 'tool' },
+    { key: 'I', label: 'Trim', match: 'trim', kind: 'tool' },
+    { key: 'E', label: 'Separate', match: 'separate', kind: 'tool' },
+    { key: 'R', label: 'Transform', match: 'qb-transform', kind: 'cmd' },
+    { key: 'D', label: 'Dimension', match: 'qb-dimension', kind: 'cmd' },
+    { key: 'Shift+D', label: 'Measure', match: 'qb-refdim', kind: 'cmd' },
+    { key: 'Shift+E', label: 'Driving ↔ ref', match: '', kind: 'cmd' },
+    { key: 'F', label: 'Fillet', match: 'qb-fillet', kind: 'cmd' },
+    { key: 'Shift+F', chip: 'Sh+F', label: 'Fit', match: 'qb-fit', kind: 'cmd' },
+    { key: 'J', label: 'Join', match: 'qb-join', kind: 'cmd' },
+    { key: '\\', label: 'Sharp', match: 'qb-sharp', kind: 'cmd' },
+    { key: 'O', label: 'Coincident', match: 'coincident', kind: 'cmd' },
+    { key: 'H', label: 'Horizontal', match: 'horizontal', kind: 'cmd' },
+    { key: 'V', label: 'Vertical', match: 'vertical', kind: 'cmd' },
+    { key: 'P', label: 'Parallel', match: 'parallel', kind: 'cmd' },
+    { key: '[', label: 'Perp', match: 'perpendicular', kind: 'cmd' },
+    { key: 'Q', label: 'Equal', match: 'equal', kind: 'cmd' },
+    { key: '.', label: 'Anchor', match: 'anchor', kind: 'cmd' },
+    { key: 'M', label: 'Midpoint', match: 'midpoint', kind: 'cmd' },
+    { key: 'T', label: 'Tangent', match: 'tangent', kind: 'cmd' },
+    { key: 'Z', label: 'Clean', match: 'rb-clean', kind: 'cmd' },
+    { key: 'N', label: 'Connected', match: 'btn-connected', kind: 'cmd' },
+    { key: 'G', label: 'Grid', match: 'tgl-grid', kind: 'toggle' },
+    { key: 'S', label: 'Snap', match: 'tgl-snap', kind: 'toggle' },
+    { key: 'F9', label: 'Solve', match: '', kind: 'cmd' },
+    { key: 'Alt+T', label: 'Mate', match: 'rb-mate', kind: 'cmd' },
+    { key: 'Alt+Q', label: 'CNC', match: 'qb-cnc', kind: 'cmd' },
+    { key: 'Alt+C', label: 'Biaya', match: 'qb-cost', kind: 'cmd' },
+    { key: 'Alt+R', label: 'Frame L/T/W/H', match: '', kind: 'cmd' },
+    { key: '?', label: 'Help', match: '', kind: 'cmd' },
+    { key: 'Shift+Z', label: 'Shortcuts', match: '', kind: 'cmd' },
+    // Ctrl chords: chip text shortened to Ct+ so wide chords fit the button.
+    // Full form stays in title/tooltip/help.
+    { key: 'Ctrl+O', chip: 'Ct+O', label: 'Offset', match: 'qb-offset', kind: 'cmd' },
+    { key: 'Ctrl+M', chip: 'Ct+M', label: 'Move', match: 'qb-move', kind: 'cmd' },
+    { key: 'Ctrl+G', chip: 'Ct+G', label: 'Group', match: 'rb-group', kind: 'cmd' },
+    { key: 'Ctrl+U', chip: 'Ct+U', label: 'Ungroup', match: 'rb-ungroup', kind: 'cmd' },
+    { key: 'Ctrl+L', chip: 'Ct+L', label: 'Clone', match: 'rb-clone', kind: 'cmd' },
+    { key: 'Ctrl++', chip: 'Ct++', label: 'Union', match: 'union', kind: 'cmd' },
+    { key: 'Ctrl+-', chip: 'Ct+-', label: 'Cut', match: 'cut', kind: 'cmd' },
+    { key: 'Ctrl+0', chip: 'Ct+0', label: 'Intersect', match: 'intersect', kind: 'cmd' }
+  ];
+  function paintKeyChips() {
+    // every ribbon button learns its key from KEYMAP — no per-button edits.
+    // Menu items are skipped: they already print their key inline (.menu-key).
+    for (const k of KEYMAP) {
+      if (!k.match) continue;
+      const btn = document.querySelector('.tool-btn[data-tool="' + k.match + '"]') ||
+        document.getElementById(k.match) ||
+        document.querySelector('[data-quick="' + k.match + '"]') ||
+        document.querySelector('[data-cmd="' + k.match + '"]');
+      if (!btn || btn.querySelector(':scope > .kbd-chip')) continue;
+      if (btn.closest && btn.closest('.menu-panel')) continue;
+      const chip = document.createElement('kbd');
+      chip.className = 'kbd-chip';
+      chip.textContent = k.chip || k.key;
+      btn.appendChild(chip);
+      const t = btn.getAttribute('title') || '';
+      if (t && t.indexOf('(' + k.key + ')') < 0) btn.setAttribute('title', t + ' (' + k.key + ')');
+    }
+  }
+
   function onKeyDown(ev) {
     const key = ev.key;
     const lower = key.toLowerCase();
@@ -21420,6 +22237,14 @@ function cmdSplitCurve() {
         ? 'on — snap leaves constraints'
         : 'off — snap only'));
       syncViewToggles();
+      return;
+    }
+    // Alt+R focuses the L/T/W/H frame strip: L is focused with its content
+    // selected, so typing +20 edits relative to the current value. Tab walks
+    // the row (L → T → W → H), Enter commits, Esc cancels.
+    if (ev.altKey && !ev.ctrlKey && !ev.metaKey && lower === 'r') {
+      ev.preventDefault();
+      focusFrameStrip();
       return;
     }
     if ((ev.ctrlKey || ev.metaKey) && lower === 'n' && !ev.shiftKey) {
@@ -21595,23 +22420,31 @@ function cmdSplitCurve() {
       fitView();
       return;
     }
+    // P0-1: Shift+E toggles driving <-> reference on the selected dimension.
+    // Plain E is the Separate tool only — overloading one letter for two jobs
+    // (tool vs constraint toggle) was invisible in the UI.
+    if (ev.shiftKey && lower === 'e') {
+      const dims = selectedConstraintIds().filter(cid => isDimensionConstraint(state.constraints[cid]));
+      if (dims.length) toggleDimensionReference(dims[0]);
+      else toast('Select a dimension first, then Shift+E toggles driving ↔ reference');
+      return;
+    }
+    // P0-1: Shift+Z opens the shortcut panel. Plain Z is Clean only — the old
+    // "Z also selects leftovers" overload is gone; Clean with no selection
+    // already covers that through selectLeftovers().
+    if (ev.shiftKey && lower === 'z') {
+      openHelpModal();
+      return;
+    }
     switch (lower) {
       case 'l': cmdLineFromPoints(); break;
       case 'a': setTool('arc'); break;
       case 'c': setTool('circle'); break;
       case 'b': setTool('box'); break;
-      case 'x': setTool('select'); break;
       case 'z': cmdCleanSelection(); break;
       case 'i': setTool('trim'); break;
       case 't': cmdTangent(); break;
-      case 'e': {
-        // With a dimension/angle constraint selected, E toggles driving <-> reference.
-        // Otherwise E is the Separate tool.
-        const dims = selectedConstraintIds().filter(cid => isDimensionConstraint(state.constraints[cid]));
-        if (dims.length) toggleDimensionReference(dims[0]);
-        else setTool('separate');
-        break;
-      }
+      case 'e': setTool('separate'); break;
       case 'k': setTool('curve'); break;
       case 'y': setTool('poly'); break;
       case 'n': cmdSelectConnected(); break;
@@ -23237,6 +24070,30 @@ function cmdSplitCurve() {
     if (imgDpi) imgDpi.addEventListener('input', syncImageWidthFromDpi);
     const imgWidth = document.getElementById('img-width');
     if (imgWidth) imgWidth.addEventListener('input', syncImageDpiFromWidth);
+    // every trace setting redraws the preview, so the tolerance can be tuned
+    // by watching the result instead of pressing OK blind. The settings are
+    // written down as they change, so a tuning that was abandoned is still
+    // there the next time the panel opens.
+    const onTraceSetting = () => {
+      saveTracePrefs();
+      if (ui.imageDraft && ui.imageDraft.blob) scheduleTracePreview(ui.imageDraft.blob);
+    };
+    for (const id of ['img-detail', 'img-curve', 'img-speckle', 'img-threshold',
+      'img-blur', 'img-tol']) {
+      bindTraceSlider(id, onTraceSetting);
+    }
+    for (const id of ['img-corners', 'img-smooth', 'img-fitcurve']) {
+      const f = document.getElementById(id);
+      if (f) f.addEventListener('input', onTraceSetting);
+    }
+    // the preview is sized to the settings column, so a window resize has to
+    // resize it too
+    window.addEventListener('resize', () => {
+      const m = document.getElementById('image-modal');
+      if (!m || m.classList.contains('hidden')) return;
+      sizeTracePreview();
+      if (ui.imageDraft && ui.imageDraft.blob) scheduleTracePreview(ui.imageDraft.blob);
+    });
     const arrRun = document.getElementById('arr-run');
     if (arrRun) arrRun.addEventListener('click', applyArrayDialog);
     const arrCancel = document.getElementById('arr-cancel');
@@ -23395,6 +24252,19 @@ function cmdSplitCurve() {
           ev.preventDefault();
           el.dataset.cancel = '1';
           el.blur();
+        } else if (ev.key === 'Tab') {
+          // Tab commits this field and jumps to the next L/T/W/H box, so
+          // Alt+R +20 Tab +20 Enter = move by (+20,+20) without the mouse.
+          // change fires on blur, which the blur below triggers.
+          ev.preventDefault();
+          const order = ['tf-left', 'tf-top', 'tf-width', 'tf-height'];
+          const at = order.indexOf(id);
+          const next = document.getElementById(order[(at + 1) % order.length]);
+          el.blur();
+          if (next && !next.disabled) {
+            next.focus();
+            next.select();
+          }
         }
       });
       el.addEventListener('focus', () => el.select());
@@ -23610,8 +24480,15 @@ function cmdSplitCurve() {
     const solverChip = document.getElementById('status-solver');
     if (solverChip) {
       solverChip.style.cursor = 'pointer';
-      solverChip.addEventListener('click', cycleSolveMode);
+      solverChip.addEventListener('click', () => {
+        // P0-4: an unsolved chip is a one-click fix, not a mode toggle —
+        // click solves now (F9), exactly what the hint says.
+        if (ui.solveDirty) { solveAll(); return; }
+        cycleSolveMode();
+      });
     }
+    const toastEl = document.getElementById('toast');
+    if (toastEl) toastEl.addEventListener('click', dismissToast);
 
     const armMiddleClickGuard = (ev) => {
       if (ev.button === 1) ignorePasteUntil = Date.now() + 900;
@@ -24025,6 +24902,35 @@ function cmdSplitCurve() {
     invalidateLayerIndex();
     ui.activeLayer = id;
     commit();
+  }
+
+  // P1-8: clicking a shape on another layer says why it cannot be edited.
+  // Throttled to one toast per layer per 4 s so a drag across layers is quiet.
+  let inactiveToastAt = 0;
+  let inactiveToastLayer = null;
+  function toastInactiveLayer(e) {
+    const l = getLayer(layerOf(e));
+    const name = l ? l.name : 'another layer';
+    const now = Date.now();
+    if (inactiveToastLayer === (l ? l.id : 0) && now - inactiveToastAt < 4000) return;
+    inactiveToastAt = now;
+    inactiveToastLayer = l ? l.id : 0;
+    const why = l && l.locked ? 'locked' : l && !l.visible ? 'hidden' : 'not the active layer';
+    toast('That shape is on "' + name + '" (' + why + ') — click its row in Layers to switch', { type: 'warn' });
+  }
+  // Flash the layer row so the eye finds the fix. CSS class is transient.
+  function flashLayerRow(layerId) {
+    const wrap = document.getElementById('layers');
+    if (!wrap) return;
+    const rows = wrap.children;
+    const layers = state.layers || [];
+    for (let i = 0; i < rows.length && i < layers.length; i++) {
+      if (+layers[i].id === +layerId) {
+        rows[i].classList.add('flash');
+        setTimeout(() => rows[i].classList.remove('flash'), 1200);
+        break;
+      }
+    }
   }
 
   // Reorder the highlighted layer. `delta` is the direction in `state.layers`:
@@ -25306,6 +26212,8 @@ function cmdSplitCurve() {
     loadSolveMode();
     cncLoadSettings();
     mountTools();
+    paintKeyChips();
+    installGlobalErrorHandler();
     if (window.MiniSketchAI) window.MiniSketchAI.mount(toolApi());
     initModalBehavior();
     bindCanvas();
@@ -25327,12 +26235,16 @@ function cmdSplitCurve() {
     try {
       savedView = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null');
     } catch (err) { savedView = null; }
+    // P0-6: main → .bak → blank. loadRecord() throws only when BOTH copies
+    // are unreadable; a recovered backup says so in the toast.
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const data = JSON.parse(raw);
-        loadDocument(data, true);
+      const rec = loadRecord();
+      if (rec) {
+        loadDocument(rec.data, true);
         loaded = true;
+        if (rec.from === 'bak') {
+          setTimeout(() => toast('Main save was corrupt — recovered from backup', { type: 'warn', sticky: true }), 400);
+        }
       }
     } catch (err) {
       loaded = false;

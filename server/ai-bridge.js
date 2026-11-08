@@ -27,9 +27,43 @@ try {
 } catch (err) { /* no .env: run on the built-in defaults */ }
 
 const PORT = +(process.env.AI_BRIDGE_PORT || 8787);
-const BASE = (process.env.OPENAI_BASE_URL || '').replace(/\/+$/, '');
-const KEY = process.env.OPENAI_API_KEY || '';
-const MODEL = process.env.MODEL || process.env.OPENAI_MODEL || 'deepseek-v4.1-flash-1017';
+
+// The API key belongs to whoever RUNS MiniSketch — it is not this project's
+// to ship. It arrives three ways, in this order:
+//   1. with the request  (the app sends the user's own key; nothing is kept)
+//   2. bridge settings  (POST /api/settings, kept in memory only)
+//   3. the environment   (OPENAI_API_KEY in server/.env — a self-hosted
+//                         bridge for one person)
+// There is deliberately NO built-in default: a key baked into the source is a
+// key that leaks with the source.
+let KEY = process.env.OPENAI_API_KEY || '';
+let BASE = process.env.OPENAI_BASE_URL || '';
+let MODEL = process.env.MODEL || process.env.OPENAI_MODEL || '';
+
+// Settings the user pushed to the bridge (in memory; gone when it restarts).
+let userSettings = { baseUrl: '', apiKey: '', model: '' };
+
+// ---- CORS ---------------------------------------------------------------
+// The bridge spends an API key, so a random web page must not be able to
+// reach it. Only the pages that are meant to talk to the bridge are allowed:
+// the app itself (a file:// page sends Origin: null), a MiniSketch served
+// from any local port, and a private LAN address (the phone or tablet
+// talking to this PC). AI_ALLOWED_ORIGINS adds exact origins on top.
+const EXTRA_ORIGINS = (process.env.AI_ALLOWED_ORIGINS || '')
+  .split(',').map(s => s.trim()).filter(Boolean);
+
+function originAllowed(origin) {
+  if (!origin) return true;            // no Origin header: not a browser page
+  if (origin === 'null') return true;  // a local file — that IS the app
+  if (EXTRA_ORIGINS.indexOf(origin) >= 0) return true;
+  try {
+    const h = new URL(origin).hostname;
+    if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return true;
+    if (/^10\./.test(h) || /^192\.168\./.test(h)) return true;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  } catch (err) { return false; }
+  return false;
+}
 
 let TOOLS = [];
 let SYSTEM = '';
@@ -113,10 +147,12 @@ function serializeUpstream(run) {
   return next;
 }
 
-function postUpstreamOnce(payload, register) {
+function postUpstreamOnce(payload, register, cfg) {
+  const base = (cfg && cfg.base) || BASE;
+  const key = (cfg && cfg.key) || KEY;
   return new Promise((resolve, reject) => {
-    if (!BASE || !KEY) return reject(new Error('missing OPENAI_BASE_URL or OPENAI_API_KEY'));
-    const url = new URL(BASE + '/chat/completions');
+    if (!base || !key) return reject(new Error('missing API key or base URL'));
+    const url = new URL(base + '/chat/completions');
     const lib = url.protocol === 'https:' ? https : http;
     const body = JSON.stringify(payload);
     const req = lib.request(url, {
@@ -126,7 +162,7 @@ function postUpstreamOnce(payload, register) {
         'Content-Type': 'application/json',
         'Connection': 'close',
         'Accept': 'text/event-stream',
-        'Authorization': 'Bearer ' + KEY,
+        'Authorization': 'Bearer ' + key,
         'Content-Length': Buffer.byteLength(body)
       }
     }, (res) => {
@@ -205,18 +241,18 @@ let upstreamInFlight = 0;
 
 // 429 (session/rate limit) waits once and retries — the provider frees
 // sessions within seconds, and a failed round is expensive to redo by hand.
-function postUpstream(payload, register) {
+function postUpstream(payload, register, cfg) {
   return serializeUpstream(async () => {
     upstreamInFlight++;
     if (upstreamInFlight > 1) console.log('  WARNING: ' + upstreamInFlight + ' upstream requests in flight (should never exceed 1)');
     try {
       try {
-        return await postUpstreamOnce(payload, register);
+        return await postUpstreamOnce(payload, register, cfg);
       } catch (err) {
         if (!/^upstream 429/.test(String(err && err.message))) throw err;
         console.log('  upstream 429: waiting 6s, retrying once…');
         await new Promise(r => setTimeout(r, 6000));
-        return await postUpstreamOnce(payload, register);
+        return await postUpstreamOnce(payload, register, cfg);
       }
     } finally {
       upstreamInFlight--;
@@ -225,13 +261,35 @@ function postUpstream(payload, register) {
 }
 
 function bridgeHandler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // A random web page must not be able to spend the user's API key.
+  const origin = req.headers.origin || '';
+  if (!originAllowed(origin)) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'origin not allowed: ' + origin }));
+    return;
+  }
+  res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
   if (req.method === 'GET' && req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, model: MODEL, tools: KNOWN.size, hasKey: !!KEY }));
+    res.end(JSON.stringify({
+      ok: true,
+      model: userSettings.model || MODEL,
+      tools: KNOWN.size,
+      hasKey: !!(userSettings.apiKey || KEY),
+      // where the bridge would get its values if the app sent none: this is
+      // what tells you whether the .env fallback is still in play
+      source: {
+        base: userSettings.baseUrl ? 'bridge settings' : (BASE ? '.env' : 'none'),
+        key: userSettings.apiKey ? 'bridge settings' : (KEY ? '.env' : 'none'),
+        model: userSettings.model ? 'bridge settings' : (MODEL ? '.env' : 'none')
+      },
+      // never the key itself, only whether there is one
+      keyLength: (userSettings.apiKey || KEY || '').length
+    }));
     return;
   }
   if (req.method === 'GET' && req.url === '/api/tools') {
@@ -242,6 +300,36 @@ function bridgeHandler(req, res) {
   if (req.method === 'GET' && req.url === '/api/skills') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ skills: SKILLS.map(s => ({ name: s.name, trigger: s.trigger })) }));
+    return;
+  }
+  // The user pushes their own endpoint settings here: the API key, the base
+  // URL of an OpenAI-compatible service, and the model name. They are kept in
+  // memory only (the bridge forgets them when it stops) and the key is never
+  // echoed back.
+  if (req.method === 'POST' && req.url === '/api/settings') {
+    let raw = '';
+    req.on('data', c => { raw += c; if (raw.length > 64 * 1024) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const s = JSON.parse(raw || '{}');
+        if (typeof s.baseUrl === 'string') userSettings.baseUrl = s.baseUrl.trim();
+        if (typeof s.apiKey === 'string') userSettings.apiKey = s.apiKey.trim();
+        if (typeof s.model === 'string') userSettings.model = s.model.trim();
+        console.log('  settings pushed: base=' + (userSettings.baseUrl || '(none)') +
+          ' model=' + (userSettings.model || '(none)') +
+          ' key=' + (userSettings.apiKey ? 'set' : 'none'));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          ok: true,
+          hasKey: !!(userSettings.apiKey || KEY),
+          model: userSettings.model || MODEL,
+          baseUrl: userSettings.baseUrl || BASE
+        }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'bad settings json' }));
+      }
+    });
     return;
   }
   if (req.method === 'POST' && req.url === '/api/chat') {
@@ -270,7 +358,30 @@ function bridgeHandler(req, res) {
           sys += '\n\n' + active.map(s =>
             '=== ACTIVE SKILL: ' + s.name + ' ===\n' + s.body).join('\n\n');
         }
-        console.log('  -> upstream: model=' + (input.model || MODEL) + ' tools=' + TOOLS.length);
+        // The user's own endpoint settings: what came with THIS request wins,
+        // then the settings pushed to the bridge, then the environment.
+        const rs = (input && input.settings) || {};
+        const cfg = {
+          base: String(rs.baseUrl || userSettings.baseUrl || BASE || '').replace(/\/+$/, ''),
+          key: String(rs.apiKey || userSettings.apiKey || KEY || '').trim(),
+          model: String(rs.model || userSettings.model || MODEL || '').trim()
+        };
+        // where each piece came from — the log has to say it, or a run that
+        // silently uses the .env key looks like the Settings key was used
+        const keyFrom = rs.apiKey ? 'request' : (userSettings.apiKey ? 'bridge settings' : '.env');
+        const baseFrom = rs.baseUrl ? 'request' : (userSettings.baseUrl ? 'bridge settings' : '.env');
+        const modelFrom = rs.model ? 'request' : (userSettings.model ? 'bridge settings' : '.env');
+        if (!cfg.key || !cfg.base) {
+          console.log('  no API key: set it in MiniSketch Settings (AI API key), or on the bridge');
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: 'No API key. Set "AI API key" in MiniSketch Settings, or start the bridge with OPENAI_API_KEY in server/.env.'
+          }));
+          return;
+        }
+        console.log('  -> upstream: model=' + (cfg.model || '(provider default)') + ' (' + modelFrom + ')' +
+          ' base=' + cfg.base + ' (' + baseFrom + ')' +
+          ' key=' + keyFrom + ' tools=' + TOOLS.length);
         // If the browser truly drops mid-flight (refresh, tab close), abort the
         // upstream request so its session frees at once. Detection MUST use the
         // RESPONSE 'close' (writableEnded=false): the request's own 'close'
@@ -288,7 +399,7 @@ function bridgeHandler(req, res) {
         // the answer: reasoning deltas are forwarded to the browser live
         // (SSE below), so the "pikiran model" panel fills while it thinks.
         const basePayload = {
-          model: input.model || MODEL,
+          model: cfg.model || undefined,
           messages: [{ role: 'system', content: sys }, ...messages.slice(-20)],
           tools: TOOLS,
           tool_choice: 'auto',
@@ -312,7 +423,7 @@ function bridgeHandler(req, res) {
           upstream = await postUpstream({
             ...basePayload,
             thinking: { type: 'enabled' }
-          }, (r) => { upstreamReq = r; });
+          }, (r) => { upstreamReq = r; }, cfg);
         } catch (err) {
           if (clientGone) {
             console.log('  upstream aborted (client gone) — nothing to answer');
@@ -320,7 +431,7 @@ function bridgeHandler(req, res) {
           }
           if (!/^upstream 400/.test(String(err && err.message))) throw err;
           console.log('  upstream rejected the thinking flag — retrying without it');
-          upstream = await postUpstream(basePayload, (r) => { upstreamReq = r; });
+          upstream = await postUpstream(basePayload, (r) => { upstreamReq = r; }, cfg);
         }
         const msg = (upstream.choices && upstream.choices[0] && upstream.choices[0].message) || {};
         // reasoning models (deepseek-r1 style) return their chain of thought in

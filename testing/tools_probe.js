@@ -18,7 +18,7 @@ const appSrc = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
 const TOOLS = fs.readdirSync(path.join(__dirname, '..', 'tools'))
   .filter(f => f.endsWith('.js'))
   .map(f => f.slice(0, -3))
-  .filter(n => n !== 'registry' && n !== 'clipper' && n !== 'Potrace')
+  .filter(n => n !== 'registry' && n !== 'clipper' && n !== 'imagetracer' && n !== 'trace')
   // the tool files call NS.register(...) where NS = window.MiniSketchTools
   .filter(n => /\bNS\.register\s*\(|MiniSketchTools\.register\s*\(/.test(
     fs.readFileSync(path.join(__dirname, '..', 'tools', n + '.js'), 'utf8')))

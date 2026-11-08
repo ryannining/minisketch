@@ -54,24 +54,81 @@ class El {
     this.type = '';
     this._id = '';
     this.attrs = {};
+    this.listeners = {};
+    this.open = false;
   }
   set id(v) { this._id = String(v); byId[this._id] = this; }
   get id() { return this._id; }
   setAttribute(k, v) { this.attrs[k] = String(v); }
-  appendChild(child) { this.children.push(child); return child; }
+  appendChild(child) { this.children.push(child); child.parentNode = this; return child; }
+  addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }
+  dispatchEvent(ev) { for (const fn of (this.listeners[ev.type] || [])) fn(ev); return true; }
+  querySelectorAll(sel) {
+    // enough for the form builder: details.settings-group and .settings-row
+    const out = [];
+    const walk = (el) => {
+      for (const ch of el.children) {
+        if (sel === 'details.settings-group' && ch.tagName === 'DETAILS') out.push(ch);
+        else if (sel === '.settings-row' && String(ch.className || '').split(' ').includes('settings-row')) out.push(ch);
+        walk(ch);
+      }
+    };
+    walk(this);
+    return out;
+  }
   set innerHTML(v) { if (!v) this.children = []; }
   get innerHTML() { return ''; }
 }
+// classList backed by className so toggle/add/remove work in the stub
+Object.defineProperty(El.prototype, 'classList', {
+  get() {
+    const el = this;
+    const list = () => String(el.className || '').split(' ').filter(Boolean);
+    const write = (a) => { el.className = a.join(' '); };
+    return {
+      add(...cs) { const a = list(); for (const c of cs) if (!a.includes(c)) a.push(c); write(a); },
+      remove(...cs) { write(list().filter(c => !cs.includes(c))); },
+      toggle(c, force) {
+        const a = list(); const has = a.includes(c);
+        const on = force === undefined ? !has : !!force;
+        if (on && !has) a.push(c);
+        if (!on && has) a.splice(a.indexOf(c), 1);
+        write(a);
+        return on;
+      },
+      contains(c) { return list().includes(c); }
+    };
+  }
+});
 const document = {
   createElement: (tag) => new El(tag),
-  getElementById: (id) => byId[id] || null
+  getElementById: (id) => byId[id] || null,
+  // scans every element created through this stub (the form is built here,
+  // so a global walk finds all linked buttons)
+  querySelectorAll: (sel) => {
+    const out = [];
+    const walk = (el) => {
+      for (const ch of Object.values(byId)) {
+        if (ch.__seen) continue;
+        ch.__seen = true;
+        if (sel === '.settings-linked-btn' && String(ch.className || '').split(' ').includes('settings-linked-btn')) out.push(ch);
+        walk(ch);
+      }
+    };
+    walk();
+    for (const ch of Object.values(byId)) delete ch.__seen;
+    return out;
+  },
+  querySelector: (sel) => document.querySelectorAll(sel)[0] || null
 };
 
 const specSrc = appSrc.slice(appSrc.indexOf('  const SETTINGS_SPEC = ['), appSrc.indexOf('  const settings = {};'));
 const api = new Function('document', 'localStorage', 'applySettings', 'invalidateLoops', 'render', 'toast',
   specSrc + '\nconst settings = {};\n' +
   ['settingsDefaults', 'settingSpec', 'clampSetting', 'loadSettings', 'saveSettings',
-    'buildSettingsForm', 'fillSettingsForm', 'applySettingsForm', 'resetSettingsForm'].map(sliceApp).join('\n') +
+    'buildSettingsForm', 'bindSettingsTips', 'bindSettingsSearch', 'menuLinkedValue',
+    'refreshLinkedSettings', 'flashMenuLinked', 'fillSettingsForm', 'applySettingsForm', 'resetSettingsForm',
+    'openSettingsModal', 'closeSettingsModal'].map(sliceApp).join('\n') +
   '\nreturn { SETTINGS_SPEC, settings, settingsDefaults, loadSettings, buildSettingsForm, fillSettingsForm, applySettingsForm, resetSettingsForm, saveSettings, clampSetting, settingSpec };'
 )(
   document,
@@ -99,7 +156,9 @@ api.fillSettingsForm();
   for (const sp of visible) {
     const el = document.getElementById('set-' + sp.key);
     if (!el) { blank.push(sp.key + ' (missing input)'); continue; }
-    if (el.value === '' || el.value == null) { blank.push(sp.key); continue; }
+    // text fields (aiBridgeUrl) are legitimately empty by default, and so is
+    // the masked key field (aiApiKey): an empty key is the default
+    if ((el.value === '' || el.value == null) && !sp.text && !sp.password) { blank.push(sp.key); continue; }
     filled++;
   }
   check('every field has a value', blank.length === 0, blank.join(', '));
@@ -107,9 +166,12 @@ api.fillSettingsForm();
   check('the values are the defaults', visible.every(sp =>
     String(document.getElementById('set-' + sp.key).value) === String(defaults[sp.key])),
     visible.map(sp => sp.key + '=' + document.getElementById('set-' + sp.key).value).join(' '));
-  // noteColor is a text field (a colour literal), everything else numeric
-  check('numbers are number inputs', visible.filter(sp => !sp.choices && !sp.text).every(sp =>
+  // noteColor is a text field (a colour literal), the key is masked,
+  // everything else numeric
+  check('numbers are number inputs', visible.filter(sp => !sp.choices && !sp.text && !sp.password).every(sp =>
     document.getElementById('set-' + sp.key).type === 'number'));
+  check('a secret is a masked input', visible.filter(sp => sp.password).every(sp =>
+    document.getElementById('set-' + sp.key).type === 'password'));
   check('a choice knob is a select with its options', (() => {
     const el = document.getElementById('set-offsetJoin');
     return el.tagName === 'SELECT' && el.children.length === 3 &&

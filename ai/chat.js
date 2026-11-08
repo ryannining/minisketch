@@ -725,7 +725,15 @@
             messages,
             stateSummary: stateSummary(),
             agent: { round, maxRounds: MAX_ROUNDS },
-            requestedSkills: NS.requestedSkills || []
+            requestedSkills: NS.requestedSkills || [],
+            // The user's own endpoint settings travel with the request: the key
+            // belongs to whoever runs MiniSketch, and the bridge keeps no copy
+            // of it.
+            settings: {
+              baseUrl: String(api.settings.aiApiUrl || '').trim(),
+              apiKey: String(api.settings.aiApiKey || '').trim(),
+              model: String(api.settings.aiModel || '').trim()
+            }
           }),
           signal: ac.signal
         });

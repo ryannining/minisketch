@@ -10,7 +10,7 @@ Plain static files, no build step, opened straight from disk
 (`file://…/index.html`). That is a hard constraint:
 
 - **No ES modules** (`import`/`export` is blocked over `file://` in Chrome).
-  Files are classic `<script>` tags loaded in order: `tools/Potrace.js`,
+  Files are classic `<script>` tags loaded in order: `tools/imagetracer.js`,
   `tools/clipper.js`, `tools/registry.js`, the tool files (`tools/box.js`,
   `tools/slot.js`, `tools/gear.js`, `tools/wall.js`), `core.js`, `app.js`.
 - `core.js` is pure (no DOM, no app state) and doubles as a Node module so
@@ -24,11 +24,41 @@ Plain static files, no build step, opened straight from disk
 | `app.js` | The whole application in one IIFE: document state, rendering, hit-testing, tools/commands, solver wiring, import/export, CNC, UI. |
 | `index.html` | Layout, menus, modals, the bilingual Help text. |
 | `styles.css` | All styling. |
-| `tools/` | `registry.js` + one file per generator (`box.js`, `slot.js`, `gear.js`, `wall.js`, `hinge.js`, …) and the vendored libraries (`Potrace.js`, `clipper.js`). Do not edit the vendored ones. |
+| `tools/` | `registry.js` + one file per generator (`box.js`, `slot.js`, `gear.js`, `wall.js`, `hinge.js`, …), the tracer (`trace.js`, our wrapper) and the vendored libraries (`imagetracer.js`, `clipper.js`). Do not edit the vendored ones. |
 | `fonts/` | The Text dialog's font catalogue. `fonts.js` is the registry (lazy loader, IndexedDB for imported fonts, `FONT_EPOCH`); `build.js` turns `fonts/src/*.ttf` into one generated `fonts/<slug>.js` per face (base64 bytes, registered through `FontFace` — the only route that works from `file://`); `hershey-data.js` + `hershey.js` are the public-domain single-line (stroke) fonts. Do not hand-edit the generated files or `hershey-data.js`. |
 | `TOOLS.md` | How to write a tool/plugin: the registration contract, the whole `api` surface, conventions, and testing. |
 | `testing/` | Standalone probes (`node testing/<name>_probe.js`). They slice functions out of the sources and run them without a DOM. `tools_probe.js` checks every registered tool against the contract. |
 | `tests/smoke.js` | `node tests/smoke.js` — regression tests for `core.js`. |
+| `server/` | The AI bridge (`ai-bridge.js`) and a dev static server. The bridge is the ONLY place a paid LLM call happens. |
+
+## The AI endpoint is BYOK
+
+**There is no API key in this repository.** A key baked into the source leaks
+with the source, so the bridge starts with none and takes one from the user.
+
+The key travels this way:
+
+1. **MiniSketch Settings › AI chat** holds `AI API base URL`, `AI API key`
+   (a masked field) and `AI model`. The app sends all three with every
+   `/api/chat` request, in a `settings` block.
+2. The bridge uses them **for that request only** and keeps no copy.
+3. `POST /api/settings` on the bridge stores the same three values in memory
+   (gone when the bridge stops) — for a bridge that serves several people.
+4. `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `MODEL` in `server/.env` are the
+   fallback for a bridge run by one person.
+
+Order of precedence: request → bridge settings → environment. With no key at
+all the bridge answers **400** and names the setting to fill — it must never
+fail silently.
+
+**CORS is an allowlist, not `*`.** `originAllowed()` accepts a local file
+(`Origin: null`, i.e. the app opened from disk), any `localhost` /
+`127.0.0.1` port, and a private LAN address (the phone or tablet talking to
+this PC). Everything else gets **403**. `AI_ALLOWED_ORIGINS` adds exact
+origins. Without this, any web page the user visits could spend their key
+through their own bridge.
+
+`testing/ai_bridge_probe.js` pins all of it (33 checks).
 
 ## Data model (`state`)
 
@@ -265,3 +295,61 @@ See [`agents.md`](agents.md) — testing is the owner's job. The short version:
   would prefer folding near ±180° — deliberate, unfixed.
 - `Ctrl+N` (Name selection) is reserved by Chrome; the panel button works.
 - Loop fills are intentionally stale while dragging (see invariant 5/8).
+
+## The raster tracer
+
+`tools/trace.js` wraps the vendored `tools/imagetracer.js` (ImageTracerJS,
+**Unlicense / public domain**). It replaced `tools/Potrace.js`, which was GPL
+and would have forced the whole app to be GPL — the single blocker to shipping
+a closed-source product. Do not reintroduce a GPL library here.
+
+Two rules the wrapper enforces, both worth preserving:
+
+1. **Foreground only.** ImageTracerJS traces every palette colour, so the
+   white background of a picture would come back as a rectangle spanning the
+   whole sheet. `binarize()` turns the raster into black/white (Rec. 601 luma
+   against `threshold`) and `trace()` keeps **only the dark layer**. A traced
+   picture must never contain the background rectangle — the cutter would try
+   to cut the whole sheet.
+2. **The preview is not the result.** The dialog draws a preview from a
+   downscaled copy (320 px) so the tolerance can be tuned by watching it, but
+   OK traces the **original pixels at full resolution**. Never make the
+   preview the thing that gets inserted.
+
+`testing/trace_probe.js` pins both, plus the option mapping
+(`detail`→`ltres`, `curve`→`qtres`, `speckle`→`pathomit`, `blur`→`blurradius`,
+`corners`→`rightangleenhance`, `smooth`→`linefilter`).
+
+The trace dialog's knobs are read by `traceOptionsFromDialog()` in `app.js`;
+the preview is drawn by `drawTracePreview()` and re-drawn (debounced 180 ms)
+by `scheduleTracePreview()` whenever a knob changes.
+
+**The preview-affecting knobs are sliders with a number box beside them.**
+`bindTraceSlider(id, onChange)` keeps the two in step in both directions: the
+slider writes the exact value into the box, the box moves the slider (a value
+outside the slider's range pins it to the nearest end). The **number box is the
+value of record** — `traceOptionsFromDialog()` reads it, falling back to the
+slider when the box is empty. `setTraceValue(id, value, fallback)` puts a
+remembered value into both.
+
+**The settings are saved as they change**, not only when OK is pressed
+(`saveTracePrefs()`), so a tuning that was abandoned is still there the next
+time the panel opens. The saved object is merged into the existing
+`minisketch.v1.imgOpts` record, so the DPI and the mode survive alongside.
+
+**The preview shows what the import will produce.** `simplifyTracedPaths()`
+is shared by `insertArt()` and by the preview, and the preview's tolerance and
+minimum-area scale with its downscale factor — so the contour count under the
+preview is the count that will really land in the document, not the raw
+tracer's count.
+
+**The trace dialog has its own layout classes** — `trace-box` and
+`trace-opts` — and must not borrow `wide-cols`. Nine generator dialogs use
+`wide-cols` with the shared `.modal-cols .opt-col { width: 200px }`, and that
+rule has the higher specificity: a plain `.trace-opts { width: ... }` would
+lose to it and the panel would keep a 200px settings column with the sliders
+squashed and a hole beside them. `.modal-cols .opt-col.trace-opts` is
+deliberately more specific. `sizeTracePreview()` measures the settings column
+and gives the canvas that height, so the preview fills the column instead of
+leaving a hole under it; the canvas backing store is scaled by the device
+pixel ratio, so the outline stays sharp.

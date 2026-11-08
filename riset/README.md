@@ -8,6 +8,7 @@ Folder ini menyimpan hasil riset pasar dan produk.
 | --- | --- | --- |
 | [`pasar-laser-cutting-shopee.md`](pasar-laser-cutting-shopee.md) | Riset pasar produk laser cutting akrilik/triplek di Shopee: kategori produk terlaris, harga jual, harga bahan, margin, dan strategi berjualan | Data (31 Okt 2026) |
 | [`plan-tools-desain-cutting.md`](plan-tools-desain-cutting.md) | Rencana tool di panel Tools MiniSketch untuk menghasilkan desain siap cutting per produk yang dijual — dipetakan dari tier riset, plus infrastruktur bersama, urutan pengerjaan, dan daftar keputusan | **DRAF, menunggu review** |
+| [`monetisasi-minisketch.md`](monetisasi-minisketch.md) | Analisa kelayakan jual MiniSketch + strategi menahan "jalankan salinan tanpa bayar": audit lisensi, kebocoran API key, model bisnis/tier harga, dan lapisan anti-pirasi | Analisa (6 Nov 2026, diupdate 7 Nov) |
 
 ## Cara pakai dokumen riset
 
@@ -21,3 +22,9 @@ Folder ini menyimpan hasil riset pasar dan produk.
 
 - Bagian **2. Peta kapasitas** dicek dulu — tool & fitur yang sudah ada, supaya tidak merencanakan hal yang sudah terpasang.
 - Bagian **5. Daftar keputusan** adalah yang perlu dijawab sebelum ada coding. Isi dokumen ini rencana murni, belum ada implementasi.
+
+**[`monetisasi-minisketch.md`](monetisasi-minisketch.md)**
+
+- Bagian **0. Ringkasan eksekutif** — jawaban langsung: bisa dijual atau tidak, dan tiga blocker yang harus dibereskan lebih dulu.
+- Bagian **2.2 (audit lisensi)** dicek sebelum shipping file ke siapa pun — ada komponen GPL yang menentukan boleh-tidaknya closed-source.
+- Bagian **5 (lapisan anti-pirasi)** adalah jawaban atas "bagaimana mengurangi orang jalankan salinan tanpa bayar".
