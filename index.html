@@ -352,19 +352,23 @@
       <section class="panel" id="nest-panel">
         <h3>Nesting <span class="count" id="nest-count">0</span></h3>
         <div class="row">
-          <label>Sp <input type="number" id="nest-spacing" value="2" min="0" step="0.5" title="Spacing between parts in mm"></label>
-          <label>Rot <select id="nest-rotation" title="Allowed rotations">
-            <option value="0">0&deg;</option><option value="90">90&deg;</option>
-            <option value="180">180&deg;</option><option value="270">270&deg;</option>
-            <option value="15">15&deg; steps</option>
-          </select></label>
+          <label>Sp <input type="number" id="nest-spacing" value="2" min="0" step="0.5" title="Spacing between parts in mm (offsets each part by half the value on every side before packing)"></label>
+          <label>Grid <input type="number" id="nest-grid" value="4" min="1" max="100" step="1" title="Grid snap: NFP scan step in mm. Smaller = tighter packing but much slower"></label>
           <label class="check"><input type="checkbox" id="nest-flip">Flip</label>
+        </div>
+        <div class="row">
+          <label>Rot <input type="text" id="nest-rotation" value="0,90,180,270" spellcheck="false" title="Allowed rotations: angles list (0,90), a preset (1,2,3,4,8), or a range 0-360:90. Same syntax as nestjs2"></label>
         </div>
         <div class="row">
           <label>Pop <input type="number" id="nest-pop" value="6" min="2" max="40" step="1" title="GA population size"></label>
           <label>Gen <input type="number" id="nest-gen" value="5" min="1" max="60" step="1" title="GA generations"></label>
+          <label>Mut <input type="number" id="nest-mut" value="0.1" min="0" max="1" step="0.05" title="GA mutation rate (0 = keep the parents' order, 1 = always reshuffle)"></label>
+        </div>
+        <div class="row">
           <button class="btn small primary" id="nest-start" title="Nest the selected loops to the right of the green sheet loop">Start</button>
+          <button class="btn small" id="nest-again" disabled title="Nest the same parts again without re-selecting (replaces the previous result)">Re-nest</button>
           <button class="btn small" id="nest-stop" hidden title="Stop and keep the best result so far">Stop</button>
+          <label class="check" title="Keep re-nesting with fresh GA seeds until Stop; only the best layout is applied"><input type="checkbox" id="nest-infinite">&infin;</label>
         </div>
         <div class="nest-progress" id="nest-progress" hidden><div class="nest-progress-fill" id="nest-progress-fill"></div></div>
         <div class="meta" id="nest-status">&mdash;</div>

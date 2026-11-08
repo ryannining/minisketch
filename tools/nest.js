@@ -13,6 +13,9 @@
 //     built, so packing uses the grown shape and the visual gap equals spacing
 'use strict';
 
+// Timing summary is accumulated on the instance (NFPGA._lastPlaceMs /
+// _lastPlaceCount) and logged ONCE per run by the app ([nest] timing) —
+// no per-place log spam.
 const GEOM_SCALE = 1000;
 
 class Point {
@@ -215,6 +218,53 @@ const GeometryUtil = {
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
     return Math.sqrt(dx * dx + dy * dy);
+  },
+
+  // Ramer-Douglas-Peucker on a closed ring, in ENGINE units (mm * GEOM_SCALE).
+  // Collision cost is O(n * m) in the vertex counts, so a traced outline with
+  // 400 points nests ~7x slower than the same outline reduced to ~120 (measured
+  // on 12 five-lobe blobs, GA 6x5: 12000 ms vs 1670 ms) while the layout is
+  // unchanged at the same tolerance. The app simplifies only the COPY it hands
+  // to the search; the geometry that lands in the document stays untouched.
+  rdpClosed: function (points, tol) {
+    const n = points ? points.length : 0;
+    if (n < 4 || !(tol > 0)) return (points || []).map(p => ({ x: p.x, y: p.y }));
+    const keep = new Uint8Array(n);
+    keep[0] = 1;
+    keep[n - 1] = 1;
+    const tol2 = tol * tol;
+    const stack = [[0, n - 1]];
+    while (stack.length) {
+      const seg = stack.pop();
+      const a = seg[0];
+      const b = seg[1];
+      if (b - a < 2) continue;
+      const ax = points[a].x, ay = points[a].y;
+      const dx = points[b].x - ax, dy = points[b].y - ay;
+      const len2 = dx * dx + dy * dy;
+      let best = -1, bestD = tol2;
+      for (let i = a + 1; i < b; i++) {
+        const px = points[i].x - ax, py = points[i].y - ay;
+        let d;
+        if (len2 > 0) {
+          let t = (px * dx + py * dy) / len2;
+          if (t < 0) t = 0;
+          else if (t > 1) t = 1;
+          const qx = px - t * dx, qy = py - t * dy;
+          d = qx * qx + qy * qy;
+        } else {
+          d = px * px + py * py;
+        }
+        if (d > bestD) { bestD = d; best = i; }
+      }
+      if (best > 0) {
+        keep[best] = 1;
+        stack.push([a, best], [best, b]);
+      }
+    }
+    const out = [];
+    for (let i = 0; i < n; i++) if (keep[i]) out.push({ x: points[i].x, y: points[i].y });
+    return out;
   },
 
   pointInPolygon: function (point, polygon) {
@@ -662,6 +712,10 @@ class NFP2 {
     const sheetParts = placedPartsAll.filter(p => p.lcolor === '#00ff00');
     let bestPlacement = null;
     let bestScore = Infinity;
+    // timing instrumentation: where does a part's placement search spend its
+    // time? Logged from _evaluateGen when NEST_TIMING is on.
+    const t0 = performance.now();
+    let candidates = 0, collisions = 0;
 
     // 1. Scanline-based search (top-first, then left).
     const yStep = Math.max(4 * GEOM_SCALE, gridSize);
@@ -721,6 +775,7 @@ class NFP2 {
           // collision test anyway; the prune stays exact when there are none.
           const mayFitInHole = this._holesOnSheet > 0 && variant.paths.length === 1;
           if (score > bestScore + 100 && !mayFitInHole) continue;
+          candidates++;
 
           variant.insideBonus = 0;
           if (!this.checkCollisions(variant, dx, dy, sheetParts)) {
@@ -738,8 +793,27 @@ class NFP2 {
     }
 
     // 2. Vertex refinement pass.
+    // DOMINANT COST: with text-traced parts (hundreds of points each), the
+    // raw candidate list is every placed vertex x 6-9 samples = tens of
+    // thousands, and bestScore (a y-based number ~2x sheet height) always
+    // exceeds sheet.height*0.5, so this pass runs for EVERY part. Collision-
+    // testing all of them is O(parts² × pts) — the whole crawl. The pass is
+    // a refinement heuristic: sorting by score and testing only the best K
+    // keeps its quality while bounding the cost.
+    let vertexPass = false, vertexCandidates = 0;
     if (!bestPlacement || bestScore > (sheet.height * 0.5)) {
+      vertexPass = true;
       const edgeCandidates = this.getCandidatePositions(part.variants[0], placedPartsAll, sheet, gridSize);
+      vertexCandidates = edgeCandidates.length;
+      const K = 200;
+      if (edgeCandidates.length > K) {
+        const vb = part.variants[0].getBounds();
+        for (const pos of edgeCandidates) {
+          pos._score = ((pos.y + vb.y) + vb.height * 2) * 2 + ((pos.x + vb.x) * 0.1);
+        }
+        edgeCandidates.sort((p, q) => p._score - q._score);
+        edgeCandidates.length = K;
+      }
       for (let pos of edgeCandidates) {
         const b = part.variants[0].getBounds();
         const score = ((pos.y + b.y) + b.height * 2) * 2 + ((pos.x + b.x) * 0.1);
@@ -752,6 +826,10 @@ class NFP2 {
       }
     }
 
+    // timing: accumulate instead of spamming — the GA constructor exposes a
+    // per-run summary via getPerformanceStats() so the console stays readable.
+    this._lastPlaceMs = (this._lastPlaceMs || 0) + (performance.now() - t0);
+    this._lastPlaceCount = (this._lastPlaceCount || 0) + 1;
     return bestPlacement;
   }
 
@@ -1036,12 +1114,22 @@ class NFPGA {
    * Decode one chromosome: place parts in `order` using a fresh NFP2 instance
    * as the decoder. Returns { placements, fitness, unplaced, unplacedArea }.
    */
-  _evaluate(ind, ctx) {
+  // Generator twin of _evaluate: identical math, but yields after every PART
+  // placement attempt so a main-thread scheduler can bound its time slices to
+  // one part (one glyph-heavy part can take seconds — a per-chromosome yield
+  // freezes the progress bar for that whole span). Yields {done, total,
+  // evalsDone} where done/total count PART steps within this decode.
+  *_evaluateGen(ind, ctx, evalsDone) {
     const order = Array.isArray(ind) ? ind : ind.order;
     const dec = new NFP2();
     dec.spacing = this.spacing;
     dec.allowFlip = this.allowFlip;
-    dec.gridSize = this.gridSize;
+    // Sync with the CALLER's grid size (the reference worker does
+    // `nfp.gridSize = gridSize` from its payload). setSpacing() alone leaves
+    // gridSize at spacing-derived 1 mm when spacing = 0, which silently
+    // enables the max-packing extra vertex samples in getCandidatePositions
+    // and makes every placement search crawl.
+    dec.gridSize = ctx.gridSize;
     dec.performanceStats = { boundaryPointsTested: 0, collisionAvoided: 0, collisionChecks: 0 };
     const cellSize = Math.max(50 * GEOM_SCALE, ctx.gridSize * 5);
     dec.spatialHash = new NFP2SpatialHash(cellSize);
@@ -1065,6 +1153,8 @@ class NFPGA {
       dec.spatialHash.add(c);
     }
 
+    const placeableCount = ctx.placeableCount || order.length;
+    let partStep = 0;
     let unplaced = 0;
     let unplacedArea = 0;
     for (let k = 0; k < order.length; k++) {
@@ -1091,6 +1181,8 @@ class NFPGA {
         unplaced++;
         unplacedArea += this._entryArea(e);
       }
+      partStep++;
+      yield { done: partStep, total: placeableCount, evalsDone };
     }
 
     let area = 0;
@@ -1100,6 +1192,13 @@ class NFPGA {
     }
     ctx.stats.collisionChecks += dec.performanceStats.collisionChecks || 0;
     return { placements: placed, fitness: area + unplacedArea, unplaced: unplaced, unplacedArea: unplacedArea };
+  }
+
+  _evaluate(ind, ctx) {
+    const gen = this._evaluateGen(ind, ctx, 0);
+    let n;
+    do { n = gen.next(); } while (!n.done);
+    return n.value;
   }
 
   /**
@@ -1132,6 +1231,9 @@ class NFPGA {
       height: sheet.height * GEOM_SCALE
     };
     this.hascustomsheet = false;
+    // The grid param is the authoritative scan step (like the reference
+    // worker's `nfp.gridSize = gridSize`); setSpacing() must not override it.
+    this.gridSize = gridSize;
     parts.forEach(p => { p.placed = false; });
 
     const entries = parts.slice();
@@ -1164,6 +1266,7 @@ class NFPGA {
       gridSize: gridSize,
       fixed: [],
       initialSet: null,
+      placeableCount: placeables.length,
       stats: stats
     };
 
@@ -1179,28 +1282,71 @@ class NFPGA {
         Array.from({ length: n }, (_, i) => i).filter(i => !baseSet.has(i))
       ), rots: baseRots
     }];
+    // Seed: the winner of the previous iteration (infinite mode / re-nest) as
+    // the second individual, exactly like the reference's gaSeedOrder. It is
+    // only accepted as a full permutation of the current entry positions, so a
+    // changed part list can never smuggle a stale gene in.
+    const seed = opts.seedOrder;
+    if (seed && Array.isArray(seed.order) && Array.isArray(seed.rots) &&
+        seed.order.length === n && seed.rots.length === n) {
+      const seen = new Array(n).fill(false);
+      let valid = true;
+      for (const v of seed.order) {
+        if (!Number.isInteger(v) || v < 0 || v >= n || seen[v]) { valid = false; break; }
+        seen[v] = true;
+      }
+      if (valid) pop.push({ order: seed.order.slice(), rots: seed.rots.slice() });
+    }
     while (pop.length < popSize) pop.push({ order: this._shuffled(n), rots: this._randomRots() });
 
     const totalEvals = pop.length * Math.max(1, this.generations) + 1;
+    const totalSteps = totalEvals * placeables.length; // progress counts PART steps
     let evalsDone = 0;
 
     const shouldCancel = opts.shouldCancel || null;
     let bestResult = null; // best COMPLETED evaluation (for early exit)
+    let bestIndRef = null; // chromosome behind bestResult, for the next iteration's seed
 
-    const evalInd = (ind) => {
-      const r = this._evaluate(ind, ctx);
-      evalsDone++;
-      stats.evaluations = evalsDone;
-      if (!bestResult || r.fitness < bestResult.fitness) bestResult = r;
-      return r;
-    };
+    // Run one evaluation as a sub-generator, re-yielding every PART step so
+    // the caller's time slices stay bounded by a single placement search.
+    // evalsDone here counts COMPLETED evaluations (bumped when the sub-gen
+    // returns); the caller's progress fraction uses evalsDone + partStep/total.
+    function* runEval(nfpga, ind, ctx2, evalsDoneRef) {
+      const gen = nfpga._evaluateGen(ind, ctx2, evalsDoneRef.v);
+      let sub;
+      for (;;) {
+        if (shouldCancel && shouldCancel()) return null;
+        sub = gen.next();
+        if (sub.done) break;
+        yield {
+          eval: evalsDoneRef.v, part: sub.value.done, parts: sub.value.total,
+          done: evalsDoneRef.v * placeables.length + sub.value.done, total: totalSteps
+        };
+      }
+      evalsDoneRef.v++;
+      return sub.value;
+    }
+    const evalsRef = { v: 0 };
 
     let cancelled = false;
     let fits = [];
     for (const o of pop) {
       if (shouldCancel && shouldCancel()) { cancelled = true; break; }
-      fits.push(evalInd(o).fitness);
-      yield { done: evalsDone, total: totalEvals };
+      const rGen = runEval(this, o, ctx, evalsRef);
+      let r;
+      for (;;) {
+        if (shouldCancel && shouldCancel()) { cancelled = true; break; }
+        const y = rGen.next();
+        if (y.done) { r = y.value; break; }
+        yield { done: y.value.done, total: y.value.total };
+      }
+      if (cancelled) break;
+      evalsDone = evalsRef.v;
+      stats.evaluations = evalsDone;
+      if (r) {
+        fits.push(r.fitness);
+        if (!bestResult || r.fitness < bestResult.fitness) { bestResult = r; bestIndRef = o; }
+      }
     }
 
     if (!cancelled) {
@@ -1219,13 +1365,27 @@ class NFPGA {
         }
         pop = next;
         const newFits = [];
+        let abortedGen = false;
         for (let i = 0; i < pop.length; i++) {
           if (i < ELITES) { newFits.push(fits[ranked[i]]); continue; }
-          if (shouldCancel && shouldCancel()) { cancelled = true; break; }
-          newFits.push(evalInd(pop[i]).fitness);
-          yield { done: evalsDone, total: totalEvals };
+          if (shouldCancel && shouldCancel()) { cancelled = true; abortedGen = true; break; }
+          const rGen = runEval(this, pop[i], ctx, evalsRef);
+          let r;
+          for (;;) {
+            if (shouldCancel && shouldCancel()) { cancelled = true; abortedGen = true; break; }
+            const y = rGen.next();
+            if (y.done) { r = y.value; break; }
+            yield { done: y.value.done, total: y.value.total };
+          }
+          if (cancelled) break;
+          if (r) {
+            newFits.push(r.fitness);
+            if (!bestResult || r.fitness < bestResult.fitness) { bestResult = r; bestIndRef = pop[i]; }
+          }
         }
-        if (cancelled) break;
+        if (abortedGen) break;
+        evalsDone = evalsRef.v;
+        stats.evaluations = evalsDone;
         fits = newFits;
       }
       stats.generations = gen;
@@ -1242,19 +1402,38 @@ class NFPGA {
         result = bestResult;
         cancelled = true;
       } else {
-        result = evalInd(bestInd);
-        yield { done: evalsDone, total: totalEvals };
+        const rGen = runEval(this, bestInd, ctx, evalsRef);
+        let r;
+        for (;;) {
+          if (shouldCancel && shouldCancel()) { cancelled = true; break; }
+          const y = rGen.next();
+          if (y.done) { r = y.value; break; }
+          yield { done: y.value.done, total: y.value.total };
+        }
+        if (cancelled || !r) {
+          result = bestResult;
+          cancelled = true;
+        } else {
+          result = r;
+          bestIndRef = bestInd;
+        }
       }
     }
+    evalsDone = evalsRef.v;
+    stats.evaluations = evalsDone;
 
     stats.collisionChecks = ctx.stats.collisionChecks;
-    stats.bestFitness = result.fitness;
+    stats.bestFitness = result ? result.fitness : Infinity;
+    const seedOut = bestIndRef && Array.isArray(bestIndRef.order)
+      ? { order: bestIndRef.order.slice(), rots: Array.isArray(bestIndRef.rots) ? bestIndRef.rots.slice() : null }
+      : null;
     return {
-      placements: result.placements,
-      fitness: result.fitness,
-      unplaced: result.unplaced,
+      placements: result ? result.placements : [],
+      fitness: result ? result.fitness : Infinity,
+      unplaced: result ? result.unplaced : placeables.length,
       stats,
-      cancelled
+      cancelled,
+      bestOrder: seedOut
     };
   }
 

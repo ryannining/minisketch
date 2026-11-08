@@ -43,7 +43,7 @@
   const VIEW_KEY = 'minisketch.v1.view';
   const LAYOUT_KEY = 'minisketch.v1.layout';
   const FORMAT = 'minisketch';
-  const VERSION = 2;
+  const VERSION = 3;
   const EPS = 1e-9;
   // Line colours are KaryaCNC stroke codes: the colour IS the operation.
   const COLORS = [
@@ -797,13 +797,12 @@
     if (isFinite(o.scale) && o.scale > 0) scale *= o.scale;
     const vbX = vb && isFinite(vb[0]) ? vb[0] : 0;
     const vbY = vb && isFinite(vb[1]) ? vb[1] : 0;
-    // Default flip: file SVG is Y-down (screen convention), the sketch is Y-up.
-    // o.flipY === false reads the SVG AS Y-up already (AI-authored drawings):
-    // y' = scale*(y - vbY), so the model writes coordinates the way it thinks
-    // — bottom-left origin, up is +Y — and nothing arrives mirrored.
+    // The sketch is Y-down (screen/SVG convention) — a file SVG maps straight
+    // in, no flip. o.flipY === false reads the SVG AS Y-up (AI-authored
+    // drawings): y' = -scale*(y - vbY), mirroring it into the sketch frame.
     const base = o.flipY === false
-      ? [scale, 0, 0, scale, -vbX * scale, -vbY * scale]
-      : [scale, 0, 0, -scale, -vbX * scale, vbY * scale];
+      ? [scale, 0, 0, -scale, -vbX * scale, vbY * scale]
+      : [scale, 0, 0, scale, -vbX * scale, -vbY * scale];
 
     const ctx = {
       rules,
@@ -2210,11 +2209,11 @@
   }
 
   function w2s(x, y) {
-    return { x: x * view.zoom + view.ox, y: -y * view.zoom + view.oy };
+    return { x: x * view.zoom + view.ox, y: y * view.zoom + view.oy };
   }
 
   function s2w(x, y) {
-    return { x: (x - view.ox) / view.zoom, y: -(y - view.oy) / view.zoom };
+    return { x: (x - view.ox) / view.zoom, y: (y - view.oy) / view.zoom };
   }
 
   function fitView() {
@@ -2231,7 +2230,7 @@
     zoom = clamp(zoom, 0.03, 100);
     view.zoom = zoom;
     view.ox = W / 2 - ((b.minX + b.maxX) / 2) * zoom;
-    view.oy = H / 2 + ((b.minY + b.maxY) / 2) * zoom;
+    view.oy = H / 2 - ((b.minY + b.maxY) / 2) * zoom;
     render();
     scheduleViewSave();
   }
@@ -7960,8 +7959,8 @@
     const m = 60 / view.zoom;   // slightly larger than the canvas margin
     const x0 = (0 - view.ox) / view.zoom - m;
     const x1 = (W - view.ox) / view.zoom + m;
-    const y1 = (view.oy - 0) / view.zoom + m;
-    const y0 = (view.oy - H) / view.zoom - m;
+    const y0 = (0 - view.oy) / view.zoom - m;
+    const y1 = (H - view.oy) / view.zoom + m;
     for (const key in state.points) {
       const p = state.points[key];
       if (p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1) continue;
@@ -8940,8 +8939,8 @@
     const br = s2w(W, H);
     const x0 = Math.floor(tl.x / step) * step;
     const x1 = Math.ceil(br.x / step) * step;
-    const y0 = Math.floor(br.y / step) * step;
-    const y1 = Math.ceil(tl.y / step) * step;
+    const y0 = Math.floor(tl.y / step) * step;
+    const y1 = Math.ceil(br.y / step) * step;
     ctx.lineWidth = 1;
     for (let x = x0; x <= x1 + 1e-9; x += step) {
       const s = w2s(x, 0);
@@ -9030,11 +9029,11 @@
           }
         }
         if (yVisible) {
-          const bottom = s2w(0, H).y;
           const top = s2w(0, 0).y;
+          const bottom = s2w(0, H).y;
           ctx.textAlign = 'left';
           ctx.textBaseline = 'middle';
-          for (let y = Math.ceil(bottom / labelStep) * labelStep; y <= top + 1e-9; y += labelStep) {
+          for (let y = Math.ceil(top / labelStep) * labelStep; y <= bottom + 1e-9; y += labelStep) {
             if (Math.abs(y) < labelStep * 0.5) continue;
             const sy = w2s(0, y).y;
             if (Math.abs(sy - o.y) < 26) continue;
@@ -9299,15 +9298,15 @@
         // every clone was stamped straight onto its master — the copy was there,
         // just invisible underneath.
         const m = t.m
-          ? new DOMMatrix([z, 0, 0, -z, view.ox, view.oy])
+          ? new DOMMatrix([z, 0, 0, z, view.ox, view.oy])
             .multiply(new DOMMatrix([t.m[0], t.m[1], t.m[2], t.m[3], t.m[4], t.m[5]]))
           : t.ang != null
-            ? new DOMMatrix([z, 0, 0, -z, view.ox, view.oy])
+            ? new DOMMatrix([z, 0, 0, z, view.ox, view.oy])
               .translate(t.cx, t.cy)
               .rotate(t.ang * 180 / Math.PI)
               .translate(-t.cx, -t.cy)
               .translate(t.dx || 0, t.dy || 0)
-            : new DOMMatrix([z, 0, 0, -z, view.ox + z * (t.dx || 0), view.oy - z * (t.dy || 0)]);
+            : new DOMMatrix([z, 0, 0, z, view.ox + z * (t.dx || 0), view.oy + z * (t.dy || 0)]);
         jobs.push({ m, src, eid: +id });
       }
     }
@@ -9383,8 +9382,8 @@
       if (!ad || ad.sweep < 1e-6) return;
       const cs = w2s(ad.c.x, ad.c.y);
       const r = ad.r * view.zoom;
-      path.moveTo(cs.x + Math.cos(ad.a0) * r, cs.y - Math.sin(ad.a0) * r);
-      path.arc(cs.x, cs.y, r, -ad.a0, -(ad.a0 + ad.sweep), true);
+      path.moveTo(cs.x + Math.cos(ad.a0) * r, cs.y + Math.sin(ad.a0) * r);
+      path.arc(cs.x, cs.y, r, ad.a0, ad.a0 + ad.sweep, false);
     }
   }
 
@@ -9421,7 +9420,7 @@
       const cs = w2s(ad.c.x, ad.c.y);
       if (ad.sweep < 1e-6) return;
       ctx.beginPath();
-      ctx.arc(cs.x, cs.y, ad.r * view.zoom, -ad.a0, -(ad.a0 + ad.sweep), true);
+      ctx.arc(cs.x, cs.y, ad.r * view.zoom, ad.a0, ad.a0 + ad.sweep, false);
       ctx.stroke();
     }
   }
@@ -9658,7 +9657,7 @@
     const z = view.zoom;
     ctx.save();
     // map the unit square onto the p0/pw/ph frame (the frame may skew/rotate)
-    ctx.transform(gg.A.x * z, -gg.A.y * z, gg.B.x * z, -gg.B.y * z, s0.x, s0.y);
+    ctx.transform(gg.A.x * z, gg.A.y * z, gg.B.x * z, gg.B.y * z, s0.x, s0.y);
     ctx.drawImage(img, 0, 0, 1, 1);
     ctx.restore();
   }
@@ -9712,10 +9711,10 @@
     const center = ui.lastWorld ? { x: ui.lastWorld.x, y: ui.lastWorld.y } : s2w(W / 2, H / 2);
     pushHistory();
     const left = center.x - w / 2;
-    const top = center.y + h / 2;
+    const top = center.y - h / 2;
     const p0 = privatePoint(left, top);
     const pwId = privatePoint(left + w, top);
-    const phId = privatePoint(left, top - h);
+    const phId = privatePoint(left, top + h);
     const idW = newId();
     state.entities[idW] = { id: idW, type: 'line', a: p0, b: pwId, color: '#00ff00', layer: ui.activeLayer };
     const idH = newId();
@@ -9773,7 +9772,7 @@
     // Local (0,0) is the top-left corner; +x runs along the width line and +y
     // along the height line, so rotation and skew come straight from the frame.
     ctx.translate(o.x, o.y);
-    ctx.transform(gg.A.x * zx, -gg.A.y * zx, gg.B.x * zy, -gg.B.y * zy, 0, 0);
+    ctx.transform(gg.A.x * zx, gg.A.y * zx, gg.B.x * zy, gg.B.y * zy, 0, 0);
     // Wireframe like every other entity: outline only, one device pixel wide,
     // in the stroke colour the user picked (no fill).
     const scaleX = Math.hypot(gg.A.x * zx, gg.A.y * zx) || 1;
@@ -11009,9 +11008,9 @@
     // A flat object (a single line) still needs a usable frame for its handles.
     if (!(w > 1e-3)) w = 1;
     if (!(h > 1e-3)) h = 1;
-    const p0 = privatePoint(minX, maxY);
-    const pwId = privatePoint(minX + w, maxY);
-    const phId = privatePoint(minX, maxY - h);
+    const p0 = privatePoint(minX, minY);
+    const pwId = privatePoint(minX + w, minY);
+    const phId = privatePoint(minX, minY + h);
     const idW = newId();
     state.entities[idW] = { id: idW, type: 'line', a: p0, b: pwId, color: CONSTRUCTION_COLOR, layer: o.layer == null ? ui.activeLayer : o.layer };
     const idH = newId();
@@ -11020,7 +11019,7 @@
     state.constraints[cH] = { id: cH, type: 'horizontal', entity: idW };
     const cPerp = newId();
     state.constraints[cPerp] = { id: cPerp, type: 'perpendicular', line1: idW, line2: idH };
-    const contours = contoursWorld.map(c => (c.pts || []).map(pt => [(pt.x - minX) / w, (maxY - pt.y) / h]));
+    const contours = contoursWorld.map(c => (c.pts || []).map(pt => [(pt.x - minX) / w, (pt.y - minY) / h]));
     const id = newId();
     state.entities[id] = {
       id, type: 'art', p0, pw: pwId, ph: phId, guide: [idW, idH],
@@ -11034,7 +11033,7 @@
     // Original curve data (nodes + Bézier handles), normalised into the same
     // frame as the contours so it survives frame edits; ungroup rebuilds from it.
     if (o.curves && o.curves.length) {
-      const nm = (p) => [(p.x - minX) / w, (maxY - p.y) / h];
+      const nm = (p) => [(p.x - minX) / w, (p.y - minY) / h];
       state.entities[id].curveSrc = o.curves.map(cv => ({
         closed: !!cv.closed,
         curved: !!cv.curved,
@@ -11056,7 +11055,7 @@
         .map(n => ({
           t: String(n.text),
           u: (n.p.x - minX) / w,
-          v: (maxY - n.p.y) / h
+          v: (n.p.y - minY) / h
         }));
     }
     if (o.name) state.entities[id].name = String(o.name).slice(0, 80);
@@ -11721,30 +11720,44 @@
   // removes the whole layout in one step and edits to masters reshape it.
   const NEST_OUT_GAP = 10; // mm between the sheet and the result block
   const NEST_PREFS_KEY = 'minisketch.v1.nestPrefs';
-  let nestJob = null; // { stateAtStart, cancelled, done, total, running }
+  // Debug logging gate: set false (or strip the nestLog calls) once nesting is
+  // verified end to end — the logs exist to diagnose layout bugs fast.
+  const NEST_DEBUG = true;
+  function nestLog(...args) { if (NEST_DEBUG) console.log('[nest]', ...args); }
+  let nestJob = null; // { stateAtStart, cancelled, done, total, running, infinite, best, seed }
+  let nestLastSpec = null; // last run's entity ids + params, for Re-nest / ∞
 
   function nestPrefsLoad() {
     let saved = {};
     try { saved = JSON.parse(localStorage.getItem(NEST_PREFS_KEY) || '{}') || {}; } catch (err) { saved = {}; }
     const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
     set('nest-spacing', saved.spacing);
+    set('nest-grid', saved.grid);
     set('nest-rotation', saved.rotation);
     set('nest-pop', saved.pop);
     set('nest-gen', saved.gen);
+    set('nest-mut', saved.mut);
     if (typeof saved.flip === 'boolean') {
       const el = document.getElementById('nest-flip');
       if (el) el.checked = saved.flip;
+    }
+    if (typeof saved.infinite === 'boolean') {
+      const el = document.getElementById('nest-infinite');
+      if (el) el.checked = saved.infinite;
     }
   }
 
   function nestPrefsSave() {
     const val = (id) => { const el = document.getElementById(id); return el ? el.value : null; };
     const flip = document.getElementById('nest-flip');
+    const inf = document.getElementById('nest-infinite');
     try {
       localStorage.setItem(NEST_PREFS_KEY, JSON.stringify({
-        spacing: val('nest-spacing'), rotation: val('nest-rotation'),
-        pop: val('nest-pop'), gen: val('nest-gen'),
-        flip: flip ? flip.checked : false
+        spacing: val('nest-spacing'), grid: val('nest-grid'),
+        rotation: val('nest-rotation'),
+        pop: val('nest-pop'), gen: val('nest-gen'), mut: val('nest-mut'),
+        flip: flip ? flip.checked : false,
+        infinite: inf ? inf.checked : false
       }));
     } catch (err) { /* private mode: settings just do not persist */ }
   }
@@ -11792,6 +11805,26 @@
   // Build the engine part entries from the selection: one entry per object
   // (outer + holes as extra paths), variants per rotation/flip, plus the green
   // sheet entry. Everything is a copy — the engine never touches the document.
+  // Engine input simplification: the search's collision test is O(n * m) in
+  // vertex counts, so the display polygons (72 points per circle, 12 per curve
+  // span, and every sample of an imported outline) make it crawl — a 400-point
+  // part costs ~7x the time of the same part at ~120 points, with the layout
+  // unchanged. Only the COPY handed to the engine is reduced; the clones draw
+  // the master's real geometry, and the placement matrix is rebuilt from it.
+  const NEST_SIMPLIFY_MM = 0.02;
+  function nestEnginePoly(poly, GEOM) {
+    const buf = poly.map(p => ({ x: p.x * GEOM, y: p.y * GEOM }));
+    const simp = MiniSketchNest.GeometryUtil.rdpClosed(buf, NEST_SIMPLIFY_MM * GEOM);
+    if (simp.length < 3) return buf.map(p => new MiniSketchNest.Point(p.x, p.y));
+    const a0 = Math.abs(MiniSketchNest.Path.getSignedArea(buf));
+    const a1 = Math.abs(MiniSketchNest.Path.getSignedArea(simp));
+    // A shape small enough to collapse under the tolerance keeps its points.
+    if (a0 > 0 && Math.abs(a1 - a0) / a0 > 0.01) {
+      return buf.map(p => new MiniSketchNest.Point(p.x, p.y));
+    }
+    return simp.map(p => new MiniSketchNest.Point(p.x, p.y));
+  }
+
   function nestBuildEntries(sheetLoops, objects, spacingMm, rotation, flip) {
     const GEOM = MiniSketchNest.GEOM_SCALE;
     const angles = nestRotationAngles(rotation);
@@ -11809,14 +11842,18 @@
     // behaviour: packing uses the grown shape, the result draws the original).
     for (let oi = 0; oi < objects.length; oi++) {
       const obj = objects[oi];
+      // Engine space == WORLD mm, Y-up, NO flip: what the engine packs is
+      // what the clone draws (upright). The engine packs small-y first, so
+      // the block grows from the sheet's y=0; nestApplyResult centers the
+      // finished block inside the sheet frame vertically.
       // ClipperOffset only keeps a hole when its winding opposes the outer
       // path, so the hole poly is reversed when needed before building the
       // engine Path.
       const mkPath = (rec, holes) => {
-        const paths = [rec.loop.poly.map(p => new MiniSketchNest.Point(p.x * GEOM, p.y * GEOM))];
+        const paths = [nestEnginePoly(rec.loop.poly, GEOM)];
         const outerArea = MiniSketchNest.Path.getSignedArea(paths[0]);
         for (const h of holes) {
-          const hp = h.loop.poly.map(p => new MiniSketchNest.Point(p.x * GEOM, p.y * GEOM));
+          const hp = nestEnginePoly(h.loop.poly, GEOM);
           if (Math.sign(MiniSketchNest.Path.getSignedArea(hp)) === Math.sign(outerArea)) hp.reverse();
           paths.push(hp);
         }
@@ -11824,6 +11861,9 @@
       };
       const base = mkPath(obj.outer, obj.holeRecs);
       base.align();
+      // Spacing is a pure PREPROCESSOR (exactly like nestjs2): offset the part
+      // outward by spacing/2 per side once, before nesting. It never plays a
+      // role during the search itself. Sp = 0 means no offset at all.
       const opart = base.clone().offset(spacingMm);
       const variants = [];
       for (const { a: rot, f: useFlip } of rotList) {
@@ -11841,10 +11881,10 @@
         _rec: { outer: obj.outer, holes: obj.holeRecs, nPerAngle: flip ? 2 : 1 }
       });
     }
-    // sheet: exactly one green loop
+    // sheet: exactly one green loop, same space as the parts (world mm)
     if (sheetLoops.length === 1) {
       const rec = sheetLoops[0];
-      const paths = [rec.loop.poly.map(p => new MiniSketchNest.Point(p.x * GEOM, p.y * GEOM))];
+      const paths = [nestEnginePoly(rec.loop.poly, GEOM)];
       const sheetPath = new MiniSketchNest.Path(paths, 0, null, '#00ff00');
       sheetPath.align();
       entries.push({ originIndex: 0, lcolor: '#00ff00', childIndex: [], variants: [sheetPath], _rec: { outer: rec, holes: [] } });
@@ -11852,17 +11892,51 @@
     return entries;
   }
 
-  function nestRotationAngles(rotation) {
-    if (!rotation) return [0];
-    const out = [];
-    for (const item of String(rotation).split(',')) {
-      const v = parseFloat(item);
-      if (!isNaN(v)) {
-        const norm = ((v % 360) + 360) % 360;
-        if (!out.includes(norm)) out.push(norm);
+  // Rotation angles from a string — full nestjs2 syntax (ported from
+  // main.js._getRotationAngles):
+  //   "0" / "90"            single angle
+  //   "1" / "2" / "3" / "4" / "8"   presets (0 / 0,180 / 0,90 / 0,90,180,270 / 8 x 45)
+  //   "0,90,180"            comma-separated angles
+  //   "0-360:90"            range with step ("0-90:15,180,270" mixes both)
+  function nestRotationAngles(rotationString) {
+    if (!rotationString) return [0];
+    const rotation = String(rotationString);
+    // old integer presets (only when the string is a bare number)
+    const rotationInt = parseInt(rotation);
+    if (!rotation.includes(',') && !rotation.includes('-') && !isNaN(rotationInt)) {
+      switch (rotationInt) {
+        case 1: return [0];
+        case 2: return [0, 180];
+        case 3: return [0, 90];
+        case 4: return [0, 90, 180, 270];
+        case 8: return [0, 45, 90, 135, 180, 225, 270, 315];
       }
     }
-    return out.length ? out : [0];
+    // comma-separated items, each a number or a "start-end:step" range
+    const items = rotation.split(',').map(s => s.trim());
+    const angleSet = new Set();
+    for (const item of items) {
+      const rangeMatch = item.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/);
+      if (rangeMatch) {
+        const start = parseFloat(rangeMatch[1]);
+        const end = parseFloat(rangeMatch[2]);
+        const step = parseFloat(rangeMatch[3]);
+        if (step > 0) {
+          for (let angle = start; angle <= end; angle += step) {
+            const normalized = ((angle % 360) + 360) % 360;
+            angleSet.add(Math.round(normalized * 100) / 100);
+          }
+        }
+      } else {
+        const angle = parseFloat(item);
+        if (!isNaN(angle)) {
+          const normalized = ((angle % 360) + 360) % 360;
+          angleSet.add(Math.round(normalized * 100) / 100);
+        }
+      }
+    }
+    const angles = Array.from(angleSet).sort((a, b) => a - b);
+    return angles.length > 0 ? angles : [0];
   }
 
   // Validate the current selection and build the whole job input. Returns
@@ -11890,67 +11964,202 @@
     }
     const objects = nestGroupParts(sel.partLoops);
     const spacing = Math.max(0, parseFloat(document.getElementById('nest-spacing').value) || 0);
+    // Grid snap: the NFP scanline step in mm (reference "Grid Snap", default
+    // 4). Kept SEPARATE from spacing: spacing=0 must not shrink the scan step
+    // to 1 mm (that made runs without spacing crawl).
+    const gridMm = Math.max(1, parseFloat(document.getElementById('nest-grid').value) || 4);
     const rotation = document.getElementById('nest-rotation').value;
     const flip = document.getElementById('nest-flip').checked;
     const popSize = Math.max(2, parseInt(document.getElementById('nest-pop').value, 10) || 6);
     const generations = Math.max(1, parseInt(document.getElementById('nest-gen').value, 10) || 5);
-    return { sel, objects, spacing, rotation, flip, popSize, generations };
+    const mutEl = document.getElementById('nest-mut');
+    let mutation = mutEl ? parseFloat(mutEl.value) : 0.1;
+    if (!isFinite(mutation)) mutation = 0.1;
+    mutation = Math.min(1, Math.max(0, mutation));
+    const infEl = document.getElementById('nest-infinite');
+    // The spec shape nestRun() takes: sheetLoops/objects plus the params.
+    return {
+      sheetLoops: sel.sheetLoops, objects,
+      spacing, gridMm, rotation, flip, popSize, generations, mutation,
+      infinite: infEl ? infEl.checked : false,
+      partLoops: sel.partLoops
+    };
+  }
+
+  // The spec of the last run is kept as ENTITY IDS only (nestLastSpec, declared
+  // with nestJob): Re-nest and the infinite loop must work without re-selecting.
+  // Applying a result replaces the selection with the clones, and ids survive
+  // the loop-cache invalidation that every apply triggers.
+  function nestSpecIds(spec) {
+    return {
+      sheetIds: (spec.sheetLoops[0].entityIds || []).slice(),
+      objects: spec.objects.map(o => ({
+        outerIds: (o.outer.entityIds || []).slice(),
+        holeIds: o.holeRecs.map(h => (h.entityIds || []).slice())
+      })),
+      params: {
+        spacing: spec.spacing, gridMm: spec.gridMm, rotation: spec.rotation,
+        flip: spec.flip, popSize: spec.popSize, generations: spec.generations,
+        mutation: spec.mutation, infinite: spec.infinite
+      }
+    };
+  }
+
+  function nestFindLoop(ids) {
+    if (!ids || !ids.length) return null;
+    const keyOf = (arr) => arr.map(Number).sort((a, b) => a - b).join(',');
+    const want = keyOf(ids);
+    const guides = ownedGuideIds();
+    for (const loop of getLoops()) {
+      const eids = loopEntities(loop).map(Number).filter(id => !guides.has(id));
+      if (eids.length && keyOf(eids) === want) return { loop, entityIds: eids };
+    }
+    return null;
+  }
+
+  // Rebuild a runnable spec from the remembered ids. null means the geometry it
+  // referred to is gone (deleted, merged or redrawn).
+  function nestResolveSpec() {
+    const mem = nestLastSpec;
+    if (!mem) return null;
+    const sheet = nestFindLoop(mem.sheetIds);
+    if (!sheet) return null;
+    const objects = [];
+    for (const o of mem.objects) {
+      const outer = nestFindLoop(o.outerIds);
+      if (!outer) return null;
+      const holeRecs = [];
+      for (const h of o.holeIds) {
+        const hr = nestFindLoop(h);
+        if (hr) holeRecs.push(hr);
+      }
+      objects.push({ outer, holeRecs });
+    }
+    if (!objects.length) return null;
+    const p = mem.params;
+    return {
+      sheetLoops: [sheet], objects,
+      spacing: p.spacing, gridMm: p.gridMm, rotation: p.rotation, flip: p.flip,
+      popSize: p.popSize, generations: p.generations, mutation: p.mutation,
+      infinite: p.infinite
+    };
   }
 
   function nestStart() {
     if (nestJob && nestJob.running) return;
     const prep = nestPrepare();
     if (!prep) return;
+    nestLastSpec = nestSpecIds(prep);
+    nestRun(prep);
+  }
 
+  function nestAgain() {
+    if (nestJob && nestJob.running) return;
+    const spec = nestResolveSpec();
+    if (!spec) {
+      toast('Re-nest: geometri dari hasil sebelumnya sudah berubah — pilih loop lagi');
+      return;
+    }
+    nestRun(spec);
+  }
+
+  function nestRun(spec) {
+    if (nestJob && nestJob.running) return;
     const stateAtStart = state;
-    const entries = nestBuildEntries(prep.sel.sheetLoops, prep.objects, prep.spacing, prep.rotation, prep.flip);
-    const sheetLoop = prep.sel.sheetLoops[0].loop;
+    const entries = nestBuildEntries(spec.sheetLoops, spec.objects, spec.spacing, spec.rotation, spec.flip);
+    const sheetLoop = spec.sheetLoops[0].loop;
     let sxMin = Infinity, syMin = Infinity, sxMax = -Infinity, syMax = -Infinity;
     for (const p of sheetLoop.poly) {
       sxMin = Math.min(sxMin, p.x); syMin = Math.min(syMin, p.y);
       sxMax = Math.max(sxMax, p.x); syMax = Math.max(syMax, p.y);
     }
     const ga = new MiniSketchNest.NFPGA();
-    ga.setSpacing(prep.spacing);
-    ga.setAllowFlip(prep.flip);
-    ga.setGAParams(prep.popSize, prep.generations, 0.1);
-    const gridSize = prep.spacing > 0 ? prep.spacing * MiniSketchNest.GEOM_SCALE : MiniSketchNest.GEOM_SCALE;
+    ga.setSpacing(spec.spacing);
+    ga.setAllowFlip(spec.flip);
+    ga.setGAParams(spec.popSize, spec.generations, spec.mutation);
 
     nestJob = {
       stateAtStart, entries, sheetLoop,
       sheetBounds: { minX: sxMin, minY: syMin, maxX: sxMax, maxY: syMax },
-      spacing: prep.spacing,
-      variantAngles: nestRotationAngles(prep.rotation),
+      spacing: spec.spacing,
+      gridMm: spec.gridMm,
+      variantAngles: nestRotationAngles(spec.rotation),
+      flip: spec.flip,
       cancelled: false, running: true, done: 0, total: 1,
-      partRecs: prep.sel.partLoops
+      partsPerEval: spec.objects.length,
+      evals: spec.popSize * (spec.generations + 1) + 1,
+      infinite: !!spec.infinite, stopRequested: false,
+      iteration: 1, best: null, seed: null,
+      ga, gridSize: spec.gridMm * MiniSketchNest.GEOM_SCALE,
+      t0: performance.now(), steps: 0, stepMsTotal: 0, stepMsMax: 0
     };
+    nestLog('start: ' + spec.objects.length + ' parts (' +
+      spec.objects.reduce((n, o) => n + o.holeRecs.length, 0) + ' holes), sheet ' +
+      Math.round(sxMax - sxMin) + '×' + Math.round(syMax - syMin) + ' mm, Sp=' + spec.spacing +
+      ' Grid=' + spec.gridMm + ' Rot=' + spec.rotation + (spec.flip ? ' +flip' : '') +
+      ', GA ' + spec.popSize + 'x' + spec.generations + ' M=' + spec.mutation +
+      (spec.infinite ? ' infinite' : ''));
 
-    // UI: Start <-> Stop
+    // UI: Start/Re-nest off, Stop on
     const startBtn = document.getElementById('nest-start');
+    const againBtn = document.getElementById('nest-again');
     const stopBtn = document.getElementById('nest-stop');
     const prog = document.getElementById('nest-progress');
     if (startBtn) startBtn.disabled = true;
+    if (againBtn) againBtn.disabled = true;
     if (stopBtn) stopBtn.hidden = false;
     if (prog) prog.hidden = false;
     nestSetStatus('Nesting…');
+    nestRunIteration(nestJob);
+  }
 
-    const gen = ga.findBestPositionGen(entries, { width: 1, height: 1 }, gridSize, {
-      shouldCancel: () => nestJob.cancelled || state !== stateAtStart
+  // One GA run over the job's entries. `job.seed` (the previous iteration's
+  // winner) becomes an extra individual, so an infinite run keeps improving on
+  // what it already found instead of restarting from scratch.
+  function nestRunIteration(job) {
+    const ga = job.ga;
+    ga._lastPlaceMs = 0;
+    ga._lastPlaceCount = 0;
+    job.done = 0;
+    job.total = 1;
+    job.t0 = performance.now();
+    job.steps = 0;
+    job.stepMsTotal = 0;
+    job.stepMsMax = 0;
+    const stateAtStart = job.stateAtStart;
+    const gen = ga.findBestPositionGen(job.entries, { width: 1, height: 1 }, job.gridSize, {
+      shouldCancel: () => job.cancelled || state !== stateAtStart,
+      seedOrder: job.seed
     });
-    nestJob.ga = ga;
 
     const step = () => {
-      if (!nestJob || nestJob.ga !== ga) return;
+      if (!nestJob || nestJob !== job) return;
       if (state !== stateAtStart) { nestAbort(); return; }
-      if (nestJob.cancelled) { nestFinishGen(gen); return; }
+      if (job.cancelled) { nestFinishGen(gen); return; }
       const t0 = performance.now();
       let n;
       try {
         while (performance.now() - t0 < 12) {
+          const stepStart = performance.now();
           n = gen.next();
-          if (n.done) { nestFinishGen(gen, n.value); return; }
-          nestJob.done = n.value.done;
-          nestJob.total = n.value.total;
+          const stepMs = performance.now() - stepStart;
+          job.steps++;
+          job.stepMsTotal += stepMs;
+          job.stepMsMax = Math.max(job.stepMsMax, stepMs);
+          if (n.done) {
+            // ONE human-readable line per run: compare Sp/grid/Mut here
+            const s = n.value && n.value.stats;
+            nestLog('done in ' + Math.round(performance.now() - job.t0) + ' ms' +
+              ' (place ' + Math.round(ga._lastPlaceMs || 0) + ' ms, ' +
+              job.steps + ' part-steps, avg ' +
+              Math.round(job.stepMsTotal / Math.max(1, job.steps)) + ' ms, max ' +
+              Math.round(job.stepMsMax) + ' ms' +
+              (s ? ', ' + s.collisionChecks + ' collision checks, ' + s.evaluations + ' evals' : '') + ')');
+            nestFinishGen(gen, n.value);
+            return;
+          }
+          job.done = n.value.done;
+          job.total = n.value.total;
         }
       } catch (err) {
         console.error('[nest] crash', err);
@@ -11969,30 +12178,111 @@
     const job = nestJob;
     let res = value;
     if (!res) {
-      // cancelled: pull the best-so-far from the generator
-      const n = gen.next();
-      res = n.value;
+      // cancelled: drain generator until done to obtain the return value
+      let n;
+      try {
+        do {
+          n = gen.next();
+        } while (!n.done);
+        res = n.value;
+      } catch (err) {
+        console.warn('[nest] gen drain failed', err);
+      }
     }
-    job.running = false;
-    nestJob = null;
-    nestUIIdle();
-    if (!res || !res.placements || res.placements.filter(p => p.lcolor !== '#00ff00').length === 0) {
+    const hasPlacements = res && Array.isArray(res.placements) && res.placements.some(p => p.lcolor !== '#00ff00');
+    if (!hasPlacements && !job.best) {
+      job.running = false;
+      nestJob = null;
+      nestUIIdle();
       nestSetStatus('Tidak ada yang muat di lembar');
       toast('Nesting: tidak ada part yang muat di lembar');
       return;
     }
-    const placedCount = res.placements.filter(p => p.lcolor !== '#00ff00').length;
-    const unplacedCount = job.entries.filter(e => e.lcolor !== '#00ff00').length - placedCount;
-    try {
-      nestApplyResult(job, res.placements, placedCount, unplacedCount, res.cancelled);
-    } catch (err) {
-      console.error('[nest] apply failed', err);
-      toast('Nesting gagal diterapkan: ' + err.message);
+
+    let entry = null;
+    if (hasPlacements) {
+      // nestjs2's "Recompact": slide every part up / left 1 mm at a time while it
+      // stays collision free (the sheet contour is still enforced, so nothing
+      // escapes the frame). Tens of ms on a normal job and it tightens the block
+      // measurably — measured 57% -> 63% utilisation on 12 dense parts — which is
+      // the pass the reference had and this port never ran.
+      let compactMs = 0;
+      try {
+        const tc = performance.now();
+        // res.placements = job.ga.compactSolution(res.placements, {
+        //   width: job.sheetBounds.maxX - job.sheetBounds.minX,
+        //   height: job.sheetBounds.maxY - job.sheetBounds.minY
+        // });
+        // compactMs = performance.now() - tc;
+      } catch (err) {
+        console.error('[nest] compact failed', err);
+      }
+      const G = MiniSketchNest.GEOM_SCALE;
+      const placedCount = res.placements.filter(p => p.lcolor !== '#00ff00').length;
+      const unplacedCount = job.entries.filter(e => e.lcolor !== '#00ff00').length - placedCount;
+      const bb = job.ga.calculateTotalBounds(res.placements);
+      const blockW = bb.width / G;
+      const blockH = bb.height / G;
+      entry = {
+        placements: res.placements, placedCount, unplacedCount,
+        cancelled: !!res.cancelled, blockW, blockH,
+        area: blockW * blockH, seed: res.bestOrder || null
+      };
+      const better = !job.best ||
+        entry.placedCount > job.best.placedCount ||
+        (entry.placedCount === job.best.placedCount && entry.area < job.best.area - 1e-6);
+      if (better) job.best = entry;
+      if (NEST_DEBUG) {
+        nestLog('iter ' + job.iteration + ': compact ' + Math.round(compactMs) + ' ms, block ' +
+          Math.round(blockW) + '×' + Math.round(blockH) + ' mm' +
+          (better ? ' (best)' : ' (kept best ' + Math.round(job.best.blockW) + '×' + Math.round(job.best.blockH) + ' mm)'));
+      }
+    }
+
+    // Infinite: keep mutating/decoding the same job until Stop.
+    // Display the best solution so far on every cycle.
+    if (job.infinite && !job.stopRequested && state === job.stateAtStart) {
+      const best = job.best || entry;
+      if (best) {
+        try {
+          nestApplyResult(job, best.placements, best.placedCount, best.unplacedCount, best.cancelled, true);
+        } catch (err) {
+          console.error('[nest] apply failed', err);
+          toast('Nesting gagal diterapkan: ' + err.message);
+        }
+      }
+      job.iteration++;
+      job.seed = job.best ? job.best.seed : (entry ? entry.seed : null);
+      nestSetStatus('∞ iter ' + job.iteration + ' · best blok ' +
+        Math.round(job.best.blockW) + '×' + Math.round(job.best.blockH) + ' mm · ' +
+        job.best.placedCount + '/' + (job.best.placedCount + job.best.unplacedCount) +
+        (job.best.unplacedCount ? ' · ' + job.best.unplacedCount + ' tidak muat' : ''));
+      nestRunIteration(job);
+      return;
+    }
+
+    const best = job.best || entry;
+    job.running = false;
+    nestJob = null;
+    nestUIIdle();
+    if (best) {
+      try {
+        nestApplyResult(job, best.placements, best.placedCount, best.unplacedCount, best.cancelled, false);
+      } catch (err) {
+        console.error('[nest] apply failed', err);
+        toast('Nesting gagal diterapkan: ' + err.message);
+      }
     }
   }
 
+  // Discard, not stop: the geometry changed under the job, so applying the best
+  // result would drop clones into a document they no longer match.
   function nestAbort() {
-    if (nestJob) { nestJob.cancelled = true; }
+    if (nestJob) {
+      nestJob.cancelled = true;
+      nestJob.stopRequested = true;
+    }
+    nestJob = null;
     nestUIIdle();
     nestSetStatus('Dibatalkan');
   }
@@ -12012,7 +12302,13 @@
     if (fill && nestJob.total > 0) {
       fill.style.width = Math.min(100, Math.round(100 * nestJob.done / nestJob.total)) + '%';
     }
-    nestSetStatus('Nesting… eval ' + nestJob.done + '/' + nestJob.total);
+    const evalNum = Math.floor(nestJob.done / Math.max(1, nestJob.partsPerEval || 1)) + 1;
+    const partNum = ((nestJob.done - 1) % Math.max(1, nestJob.partsPerEval || 1)) + 1;
+    const head = nestJob.infinite
+      ? '∞ iter ' + nestJob.iteration + (nestJob.best ? ' (best ' + Math.round(nestJob.best.blockW) + '×' + Math.round(nestJob.best.blockH) + ' mm)' : '') + ' · '
+      : 'Nesting… ';
+    nestSetStatus(head + 'eval ' + evalNum + '/' + nestJob.evals + ' · part ' +
+      partNum + '/' + (nestJob.partsPerEval || 1));
   }
 
   function nestSetStatus(text) {
@@ -12020,42 +12316,81 @@
     if (el) el.textContent = text;
   }
 
-  function nestApplyResult(job, placements, placedCount, unplacedCount, wasCancelled) {
+  function nestApplyResult(job, placements, placedCount, unplacedCount, wasCancelled, isIntermediate = false) {
     const GEOM = MiniSketchNest.GEOM_SCALE;
-    // results are placed to the right of the ORIGINAL green loop
+    // Engine space == world mm, Y-down (KaryaCNC screen convention): the
+    // engine packs from its y=0 downward; the finished block is anchored
+    // with its top at the TOP of the sheet frame, right of the sheet.
     const outX = job.sheetBounds.maxX + NEST_OUT_GAP;
-    const outY = job.sheetBounds.minY;
-    // total bounds of the placed block (engine units)
+    // total bounds of the placed parts (engine units; sheet frame excluded)
     const bounds = job.ga.calculateTotalBounds(placements);
     const blockW = bounds.width / GEOM;
     const blockH = bounds.height / GEOM;
+    const outY = job.sheetBounds.minY; // world y of the block's top
 
-    // master entity ids per originIndex (1-based; 0 = sheet)
+    // master entity ids per originIndex (1-based parts; 0 = sheet frame)
     const recsByOrigin = new Map();
     for (const e of job.entries) recsByOrigin.set(e.originIndex, e._rec);
 
-    pushHistory();
+    if (!job._hasPushedHistory) {
+      pushHistory();
+      job._hasPushedHistory = true;
+    }
+    // Idempotent re-runs: the previous run's clones are dropped in the SAME undo
+    // step as the new ones, so Start / Re-nest / infinite never stack layouts.
+    const stale = [];
+    for (const id in state.entities) {
+      const e = state.entities[id];
+      if (e && e.type === 'array' && e.kind === 'clone' && e.params && e.params.origin === 'nest') stale.push(id);
+    }
+    if (stale.length) {
+      removeEntities(stale);
+      const gone = new Set(stale.map(String));
+      ui.selection = (ui.selection || []).filter(s => !(s.kind === 'entity' && gone.has(String(s.id))));
+    }
     const newIds = [];
+    // 1. the sheet itself becomes the FRAME of the result: one green clone
+    //    translated to the right of the original sheet.
+    const sheetRec = recsByOrigin.get(0);
+    let frameId = null;
+    if (sheetRec) {
+      const frameM = [1, 0, 0, 1, outX - job.sheetBounds.minX, 0];
+      const frameMasters = sheetRec.outer.entityIds.filter(id => state.entities[id]);
+      if (frameMasters.length) {
+        const anchor = nestAnchorOf(frameMasters);
+        const inst = { m: frameM };
+        if (anchor) inst.a = anchor;
+        const id = newId();
+        state.entities[id] = {
+          id, type: 'array', kind: 'clone',
+          params: { origin: 'nest', role: 'frame' },
+          color: colorOf(state.entities[frameMasters[0]]),
+          layer: ui.activeLayer,
+          masters: frameMasters, instances: [inst]
+        };
+        delete state.entities[id].shapes;
+        newIds.push(id);
+        frameId = id;
+      }
+    }
+    // 2. placed parts: engine bbox -> world (no mirror). The engine placed
+    //    the GROWN shape (offset spacing/2 per side); the clone draws the
+    //    MASTER, whose bbox min corner sits spacing/2 inside the grown bbox.
+    //    Landing the master's own bbox min corner at the grown bbox's min
+    //    corner shifted the parts by spacing/2 — now the inset is explicit.
+    const inset = job.spacing / 2;
     for (const p of placements) {
-      if (p.lcolor === '#00ff00') continue; // sheet frame marker, not a part
+      if (p.lcolor === '#00ff00') continue; // sheet marker in the engine result
       const rec = recsByOrigin.get(p.originIndex);
       if (!rec) continue;
-      // masters must still exist (undo/new during the job is caught by the
-      // stateAtStart guard, but an explicit check is cheap)
       const masters = rec.outer.entityIds.concat(...(rec.holes || []).map(h => h.entityIds))
         .filter(id => state.entities[id]);
       if (!masters.length) continue;
-      // engine position: the placement is already aligned to its bbox; place
-      // the block to the right of the sheet, bottom-aligned to the sheet.
       const pb = p.getBounds();
-      const px = outX + (pb.x - bounds.x) / GEOM;
-      const py = outY + (pb.y - bounds.y) / GEOM;
+      const px = outX + (pb.x - bounds.x) / GEOM + inset;
+      const py = outY + (pb.y - bounds.y) / GEOM + inset;
       const variantIdx = p._variantIdx != null ? p._variantIdx : 0;
-      // The instance matrix: rebuild the same rigid chain from the variant
-      // index and land the result at (px, py).
       const M = nestPlacementMatrixAt(job, rec, variantIdx, px, py);
-      // anchor: first master's first point AT THIS MOMENT (clone stays put
-      // when the master moves later)
       const anchor = nestAnchorOf(masters);
       const inst = { m: M };
       if (anchor) inst.a = anchor;
@@ -12070,11 +12405,12 @@
       delete state.entities[id].shapes;
       newIds.push(id);
     }
-    // unplaced parts: stack to the right of the result block
+    // 3. unplaced parts: stack BELOW the framed block (outside the frame),
+    //    world order top -> bottom
     if (unplacedCount > 0) {
       const placedIdx = new Set(placements.filter(p => p.lcolor !== '#00ff00').map(p => p.originIndex));
-      let cursorY = outY;
-      const stackX = outX + blockW + NEST_OUT_GAP;
+      let cursorY = Math.max(outY + blockH, job.sheetBounds.maxY) + NEST_OUT_GAP; // world y of the stack top
+      const stackX = outX;
       for (const e of job.entries) {
         if (e.lcolor === '#00ff00' || placedIdx.has(e.originIndex)) continue;
         const rec = e._rec;
@@ -12086,6 +12422,8 @@
         for (const p of rec.outer.loop.poly) {
           minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
         }
+        const h = maxY - minY;
+        // bbox TOP (smallest Y-down world y) lands at cursorY; stack flows downward
         const M = [1, 0, 0, 1, stackX - minX, cursorY - minY];
         const anchor = nestAnchorOf(masters);
         const inst = { m: M };
@@ -12100,7 +12438,7 @@
         };
         delete state.entities[id].shapes;
         newIds.push(id);
-        cursorY += (maxY - minY) + Math.max(2, job.spacing);
+        cursorY += h + Math.max(2, job.spacing);
       }
     }
     if (newIds.length) {
@@ -12108,42 +12446,45 @@
     }
     invalidateLoops();
     commit();
-    const msg = 'Nesting selesai: ' + placedCount + ' diletakkan' +
-      (unplacedCount ? ', ' + unplacedCount + ' tidak muat (kanan hasil)' : '') +
-      (wasCancelled ? ' (dihentikan — best so far)' : '') +
-      ' — blok ' + Math.round(blockW) + '×' + Math.round(blockH) + ' mm';
-    toast(msg);
-    nestSetStatus('Placed ' + placedCount + '/' + (placedCount + unplacedCount) +
-      ' · blok ' + Math.round(blockW) + '×' + Math.round(blockH) + ' mm' +
-      (wasCancelled ? ' · stopped' : ''));
+    if (!isIntermediate) {
+      const msg = 'Nesting selesai: ' + placedCount + ' diletakkan' +
+        (unplacedCount ? ', ' + unplacedCount + ' tidak muat (di bawah hasil)' : '') +
+        (wasCancelled ? ' (dihentikan — best so far)' : '') +
+        ' — blok ' + Math.round(blockW) + '×' + Math.round(blockH) + ' mm';
+      toast(msg);
+      nestSetStatus('Placed ' + placedCount + '/' + (placedCount + unplacedCount) +
+        ' · blok ' + Math.round(blockW) + '×' + Math.round(blockH) + ' mm' +
+        (wasCancelled ? ' · stopped' : ''));
+    }
   }
 
-  // Rebuild the rigid chain for one variant and land its aligned bbox min
-  // corner at (px, py) in world mm. The chain must match nestBuildEntries
-  // exactly (align -> [flip] -> rotate/align), minus the spacing offset which
-  // only exists to reserve the packing gap. The engine's own transformMatrix
-  // is NOT trustworthy (translate() appends while bounds caches copy), so the
-  // similarity is solved from point correspondence: run the same chain on a
-  // copy of the master poly, then match the first master vertex to its image.
+  // Rebuild the placement matrix for one variant. Engine space == world mm
+  // (Y-up, no flips anywhere — see nestBuildEntries / nestApplyResult), so
+  // the chain is a pure rotation (align -> [flip] -> rotate/align, no
+  // mirror). The rotation is solved from one vertex pair of the 1:1
+  // correspondence (no offset ran on this chain); the translation puts the
+  // TRANSFORMED shape's bbox min corner exactly on the target. The engine's
+  // own transformMatrix is NOT trustworthy (translate() mutates cached state).
   function nestPlacementMatrixAt(job, rec, variantIdx, px, py) {
     const GEOM = MiniSketchNest.GEOM_SCALE;
-    const flip = document.getElementById('nest-flip').checked;
+    // job.flip, not the live checkbox: toggling Flip during a run (or on a
+    // Re-nest that kept the old setting) must not reinterpret the variant
+    // indices the engine actually placed.
+    const flip = job.flip != null ? job.flip : document.getElementById('nest-flip').checked;
     const nPerAngle = flip ? 2 : 1;
     const vIdx = variantIdx != null && variantIdx >= 0 ? variantIdx : 0;
     const angle = job.variantAngles[vIdx % job.variantAngles.length] || 0;
     const useFlip = flip && (vIdx % nPerAngle === 1);
 
     const srcPts = rec.outer.loop.poly.map(p => new MiniSketchNest.Point(p.x * GEOM, p.y * GEOM));
-    // fresh Point objects for the chain: Path ops mutate their points in place,
-    // and the similarity solve below reads srcPts as the WORLD reference
+    // fresh Point objects: Path ops mutate points; srcPts stays world mm
     const chain = new MiniSketchNest.Path([srcPts.map(p => p.clone())], 0, null, null);
     chain.align();
     if (useFlip) chain.flip();
     if (angle) chain.rotate(angle);
     else chain.align();
-    // chain.paths[0][k] corresponds 1:1 to srcPts[k] (no offset ran here)
+    // chain.paths[0][k] corresponds 1:1 to srcPts[k]
     const fin = chain.paths[0];
-    // solve the rotation from vertex pairs [0]->[1]
     const toMm = (p) => ({ x: p.x / GEOM, y: p.y / GEOM });
     const a1 = toMm(srcPts[0]), a2 = toMm(srcPts[1]);
     const b1 = toMm(fin[0]), b2 = toMm(fin[1]);
@@ -12153,10 +12494,8 @@
     if (det < 1e-12) return [1, 0, 0, 1, 0, 0]; // degenerate
     const c0 = (dvx * dwx + dvy * dwy) / det;
     const s0 = (dvx * dwy - dvy * dwx) / det;
-    // The chain ends with align(): its bbox min corner sits at (0,0). That
-    // corner is generally NOT a vertex image (a diamond's leftmost vertex is
-    // mid-y), so translate so that the ROTATED shape's bbox min corner lands
-    // on the target: M(p) = R0(p) + t with R0 = [c0,-s0; s0,c0].
+    // Translate so the TRANSFORMED shape's world bbox min corner lands on the
+    // target: M(p) = R0(p) + t with R0 = [c0,-s0; s0,c0].
     let rMinX = Infinity, rMinY = Infinity;
     for (const p of srcPts) {
       const a = toMm(p);
@@ -12195,6 +12534,8 @@
     if (startBtn) {
       startBtn.disabled = !(parts > 0 && sel.sheetLoops.length === 1);
     }
+    const againBtn = document.getElementById('nest-again');
+    if (againBtn) againBtn.disabled = !nestLastSpec;
   }
 
   // ---- Nesting (KaryaCNC nesting server) ------------------------------
@@ -12217,8 +12558,8 @@
   }
 
   function nestSvgString(entities) {
-    // mm coordinates, Y flipped to SVG space; colours ride along (the server
-    // reads stroke styles, green lines included).
+    // mm coordinates, Y-down world maps 1:1 into SVG space; colours ride
+    // along (the server reads stroke styles, green lines included).
     //
     // CURVES STAY CURVES: circles go as <circle>, arcs as A commands and
     // splines as cubic Béziers — the server polygonizes for its own placement
@@ -12226,7 +12567,7 @@
     // is the true geometry, not a display-density polyline. Only straight-line
     // chains are welded into one loop per shape (that IS their geometry).
     const parts = ['<svg xmlns="http://www.w3.org/2000/svg">'];
-    const fy = (y) => (-y).toFixed(4);
+    const fy = (y) => y.toFixed(4);
     const fx = (x) => x.toFixed(4);
     const straight = [];   // line chains: entity -> polylines for loop welding
     // owned guide lines (group/text frames) never go to the nesting server;
@@ -12244,8 +12585,8 @@
           const sx = (cd.c.x + cd.r).toFixed(4), sy = fy(cd.c.y);
           const ex = (cd.c.x - cd.r).toFixed(4);
           const d = 'M ' + sx + ' ' + sy +
-            ' A ' + cd.r.toFixed(4) + ' ' + cd.r.toFixed(4) + ' 0 1 0 ' + ex + ' ' + sy +
-            ' A ' + cd.r.toFixed(4) + ' ' + cd.r.toFixed(4) + ' 0 1 0 ' + sx + ' ' + sy + ' Z';
+            ' A ' + cd.r.toFixed(4) + ' ' + cd.r.toFixed(4) + ' 0 1 1 ' + ex + ' ' + sy +
+            ' A ' + cd.r.toFixed(4) + ' ' + cd.r.toFixed(4) + ' 0 1 1 ' + sx + ' ' + sy + ' Z';
           parts.push('<path d="' + d + '"' + stroke + '/>');
         }
         continue;
@@ -12639,7 +12980,7 @@
     const thH = clamp(isFinite(+o.height) && +o.height > 0 ? +o.height : loadTextHeight(), 0.5, 500);
     const p0 = privatePoint(+x, +y);
     const pwId = privatePoint(+x + Math.max(10, thH * 3), +y);
-    const phId = privatePoint(+x, +y - thH);
+    const phId = privatePoint(+x, +y + thH);
     const idW = newId();
     state.entities[idW] = { id: idW, type: 'line', a: p0, b: pwId, color: '#00ff00' };
     const idH = newId();
@@ -13448,10 +13789,10 @@
     const center = ui.lastWorld ? { x: ui.lastWorld.x, y: ui.lastWorld.y } : s2w(W / 2, H / 2);
     pushHistory();
     const left = center.x - w / 2;
-    const top = center.y + h / 2;
+    const top = center.y - h / 2;
     const p0 = privatePoint(left, top);
     const pwId = privatePoint(left + w, top);
-    const phId = privatePoint(left, top - h);      // height points down
+    const phId = privatePoint(left, top + h);      // height points down
     const idW = newId();
     state.entities[idW] = { id: idW, type: 'line', a: p0, b: pwId, color: '#00ff00' };
     const idH = newId();
@@ -13496,9 +13837,11 @@
       return null;
     }
     pushHistory();
+    // DXF is AutoCAD Y-up: mirror Y (and swap the arc endpoints, since the
+    // sketch arc runs the other way) so the drawing arrives upright.
     const addPoint = (x, y) => {
       const id = newId();
-      state.points[id] = { id, x, y };
+      state.points[id] = { id, x, y: -y };
       return id;
     };
     const made = [];
@@ -13515,8 +13858,8 @@
         state.entities[id] = {
           id, type: 'arc', color: ui.color,
           c: addPoint(pr.cx, pr.cy),
-          s: addPoint(pr.cx + pr.r * Math.cos(pr.a0), pr.cy + pr.r * Math.sin(pr.a0)),
-          e: addPoint(pr.cx + pr.r * Math.cos(pr.a1), pr.cy + pr.r * Math.sin(pr.a1))
+          s: addPoint(pr.cx + pr.r * Math.cos(pr.a1), pr.cy + pr.r * Math.sin(pr.a1)),
+          e: addPoint(pr.cx + pr.r * Math.cos(pr.a0), pr.cy + pr.r * Math.sin(pr.a0))
         };
       } else if (pr.type === 'spline') {
         const pts = pr.pts.map(p => addPoint(p[0], p[1]));
@@ -13547,9 +13890,12 @@
   // handles. The toast carries the measured size as a health check.
   function importPrimsIntoDocument(prims, scale, label, opts) {
     const o = opts || {};
+    // source formats (PDF/CDR) are Y-up; o.flipY mirrors them into the Y-down
+    // sketch so vector imports and editable text arrive upright
+    const sy = o.flipY ? -1 : 1;
     const addPoint = (p) => {
       const id = newId();
-      state.points[id] = { id, x: p[0] * scale, y: p[1] * scale };
+      state.points[id] = { id, x: p[0] * scale, y: p[1] * scale * sy };
       return id;
     };
     pushHistory();
@@ -13565,7 +13911,7 @@
           const pwId = newId();
           state.points[pwId] = { id: pwId, x: state.points[p0].x + w, y: state.points[p0].y };
           const phId = newId();
-          state.points[phId] = { id: phId, x: state.points[p0].x, y: state.points[p0].y - w / 3 };
+          state.points[phId] = { id: phId, x: state.points[p0].x, y: state.points[p0].y + w / 3 };
           const idW = newId();
           state.entities[idW] = { id: idW, type: 'line', a: p0, b: pwId, color: '#00ff00' };
           const idH = newId();
@@ -13582,7 +13928,7 @@
         // default: a comment at the anchor
         const id = newId();
         const pid = newId();
-        state.points[pid] = { id: pid, x: pr.x * scale, y: pr.y * scale };
+        state.points[pid] = { id: pid, x: pr.x * scale, y: pr.y * scale * sy };
         state.entities[id] = { id, type: 'note', p: pid, text };
         made++;
         continue;
@@ -13614,8 +13960,8 @@
         const ent = {
           id, type: 'spline', pts: ids, color,
           hs: {
-            o: pr.nodes.map(nd => (nd.o ? { x: nd.o[0] * scale, y: nd.o[1] * scale } : null)),
-            i: pr.nodes.map(nd => (nd.i ? { x: nd.i[0] * scale, y: nd.i[1] * scale } : null))
+            o: pr.nodes.map(nd => (nd.o ? { x: nd.o[0] * scale, y: nd.o[1] * scale * sy } : null)),
+            i: pr.nodes.map(nd => (nd.i ? { x: nd.i[0] * scale, y: nd.i[1] * scale * sy } : null))
           }
         };
         if (pr.closed && ids.length >= 2) ent.closed = true;
@@ -13769,7 +14115,8 @@
       return;
     }
     importPrimsIntoDocument(kept, 25.4 / 72, 'PDF', {
-      textMode: (document.getElementById('pdf-text-mode') || {}).value || 'text'
+      textMode: (document.getElementById('pdf-text-mode') || {}).value || 'text',
+      flipY: true
     });
     toast('PDF: ' + kept.length + ' of ' + prims.length + ' objects imported');
   }
@@ -16477,11 +16824,12 @@
         ctx.restore();
 
         // Draw arc from start angle to current angle
-        // In screen coordinates: Y is inverted, so screenAngle = -worldAngle
-        const screenStartAngle = -info.angStart;
-        const screenCurAngle = -info.angCur;
-        // anticlockwise in screen coordinates corresponds to positive CCW in world coordinates
-        const ccw = info.diff > 0;
+        // Screen space == world space now (Y-down): angles pass straight through
+        const screenStartAngle = info.angStart;
+        const screenCurAngle = info.angCur;
+        // a positive world sweep runs clockwise on screen, so canvas
+        // anticlockwise is needed when the sweep is negative
+        const ccw = info.diff < 0;
         ctx.beginPath();
         ctx.arc(sc.x, sc.y, rScreen, screenStartAngle, screenCurAngle, ccw);
         ctx.stroke();
@@ -16580,8 +16928,8 @@
     const m = 50 / view.zoom;
     const x0 = (0 - view.ox) / view.zoom - m;
     const x1 = (W - view.ox) / view.zoom + m;
-    const y1 = (view.oy - 0) / view.zoom + m;
-    const y0 = (view.oy - H) / view.zoom - m;
+    const y0 = (0 - view.oy) / view.zoom - m;
+    const y1 = (H - view.oy) / view.zoom + m;
     return !(b.maxX < x0 || b.minX > x1 || b.maxY < y0 || b.minY > y1);
   }
 
@@ -16675,7 +17023,7 @@
       // thousand markers per frame is what pushed the garbage collector into
       // the frame time (the draw time barely moved)
       const sx = p.x * view.zoom + view.ox;
-      const sy = -p.y * view.zoom + view.oy;
+      const sy = p.y * view.zoom + view.oy;
       if (sx < -12 || sy < -12 || sx > W + 12 || sy > H + 12) continue;
       // a point whose lines the zoom all skipped stays hidden too — even when
       // it is selected: the geometry is invisible, so its marker is as well
@@ -17491,7 +17839,7 @@
           const sweep = norm2pi(a1 - a0);
           const cs = w2s(c.x, c.y);
           ctx.beginPath();
-          ctx.arc(cs.x, cs.y, r * view.zoom, -a0, -(a0 + sweep), true);
+          ctx.arc(cs.x, cs.y, r * view.zoom, a0, a0 + sweep, false);
           ctx.stroke();
           const endPt = w2s(c.x + Math.cos(a0 + sweep) * r, c.y + Math.sin(a0 + sweep) * r);
           drawSnapMarker(endPt);
@@ -17551,7 +17899,7 @@
     const w = s2w(W / 2, H / 2);
     view.zoom = z;
     view.ox = W / 2 - w.x * z;
-    view.oy = H / 2 + w.y * z;
+    view.oy = H / 2 - w.y * z;
     scheduleRender();
     scheduleViewSave();
   }
@@ -19261,8 +19609,8 @@
     const m = 60 / view.zoom;
     const x0 = (0 - view.ox) / view.zoom - m;
     const x1 = (W - view.ox) / view.zoom + m;
-    const y1 = (view.oy - 0) / view.zoom + m;
-    const y0 = (view.oy - H) / view.zoom - m;
+    const y0 = (0 - view.oy) / view.zoom - m;
+    const y1 = (H - view.oy) / view.zoom + m;
     for (const key in state.points) {
       const p = state.points[key];
       const id = +key;
@@ -19869,7 +20217,7 @@
       const thH = loadTextHeight();
       const p0 = materializePoint(snap);
       const pwId = privatePoint(snap.x + 60, snap.y);
-      const phId = privatePoint(snap.x, snap.y - thH);
+      const phId = privatePoint(snap.x, snap.y + thH);
       // Two real guide lines: they carry the H/V/angle/tangent constraints and
       // are green, which KaryaCNC reads as "do not machine this path".
       const idW = newId();
@@ -22033,7 +22381,7 @@ function cmdSplitCurve() {
     }
     view.zoom = next;
     view.ox = pos.x - w.x * view.zoom;
-    view.oy = pos.y + w.y * view.zoom;
+    view.oy = pos.y - w.y * view.zoom;
     markZoomFast();
     scheduleRender();
     scheduleZoomSettle();
@@ -23041,7 +23389,7 @@ function cmdSplitCurve() {
     };
     view.zoom = zoom;
     view.ox = p.mx - anchor.x * zoom;
-    view.oy = p.my + anchor.y * zoom;
+    view.oy = p.my - anchor.y * zoom;
     ui.lastWorld = s2w(p.mx, p.my);
     scheduleRender();
     scheduleViewSave();
@@ -24102,7 +24450,7 @@ function cmdSplitCurve() {
       if (!it.pts || it.pts.length < 2) continue;
       lines.push('P:' + cncFillCode(it.fill) + ':' + cncColorStroke(it.color) + ':0');
       for (const p of it.pts) {
-        lines.push(num(p[0] - minX) + ',' + num(maxY - p[1]));
+        lines.push(num(p[0] - minX) + ',' + num(p[1] - minY));
         points++;
       }
       lines.push('');
@@ -24111,7 +24459,7 @@ function cmdSplitCurve() {
     for (const im of images) {
       const gg = im.gg;
       const src = String(im.e.src || '');
-      lines.push('I,' + num(gg.p0.x - minX) + ',' + num(maxY - gg.p0.y) + ',' +
+      lines.push('I,' + num(gg.p0.x - minX) + ',' + num(gg.p0.y - minY) + ',' +
         num(gg.w) + ',' + num(gg.h) + ',');
       lines.push(src.slice(src.indexOf('base64,') + 7));
       lines.push('');
@@ -24526,9 +24874,16 @@ function cmdSplitCurve() {
     const nestStartBtn = document.getElementById('nest-start');
     if (nestStartBtn) nestStartBtn.addEventListener('click', nestStart);
     const nestStopBtn = document.getElementById('nest-stop');
-    if (nestStopBtn) nestStopBtn.addEventListener('click', () => { if (nestJob) nestJob.cancelled = true; });
+    if (nestStopBtn) nestStopBtn.addEventListener('click', () => {
+      if (!nestJob) return;
+      nestJob.cancelled = true;
+      nestJob.stopRequested = true;
+      nestSetStatus(nestJob.infinite ? 'Stop — memakai hasil terbaik…' : 'Stop — memakai best so far…');
+    });
+    const nestAgainBtn = document.getElementById('nest-again');
+    if (nestAgainBtn) nestAgainBtn.addEventListener('click', nestAgain);
     const nestSetting = () => { nestPrefsSave(); updateNestPanel(); };
-    for (const id of ['nest-spacing', 'nest-rotation', 'nest-pop', 'nest-gen', 'nest-flip']) {
+    for (const id of ['nest-spacing', 'nest-grid', 'nest-rotation', 'nest-pop', 'nest-gen', 'nest-mut', 'nest-flip', 'nest-infinite']) {
       const el = document.getElementById(id);
       if (el) el.addEventListener('change', nestSetting);
     }
@@ -24613,7 +24968,8 @@ function cmdSplitCurve() {
         const keep = document.getElementById('cdr-keep-color');
         importPrimsIntoDocument(prims, 1, 'CDR', {
           textMode: sel ? sel.value : 'comment',
-          keepColors: keep ? keep.checked : true
+          keepColors: keep ? keep.checked : true,
+          flipY: true
         });
       }
     });
@@ -25451,6 +25807,45 @@ function cmdSplitCurve() {
     commit();
   }
 
+  function migrateYUpToYDown(s) {
+    const my = (p) => {
+      if (!p) return;
+      if (Array.isArray(p)) p[1] = -+p[1];
+      else p.y = -+p.y;
+    };
+    for (const key in s.points) my(s.points[key]);
+    for (const key in s.entities) {
+      const e = s.entities[key];
+      if (!e) continue;
+      if (e.type === 'part') {
+        for (const pl of e.polylines || []) for (const p of pl) if (Array.isArray(p)) p[1] = -+p[1];
+        if (e.pose) { e.pose.ty = -+e.pose.ty; e.pose.rot = -+e.pose.rot; }
+        if (e.groundAt) {
+          e.groundAt.v = -+e.groundAt.v;
+          if (e.groundAt.wy != null) e.groundAt.wy = -+e.groundAt.wy;
+        }
+      } else if (e.type === 'spline' && e.hs) {
+        for (const arr of [e.hs.o, e.hs.i]) (arr || []).forEach(my);
+      } else if (e.type === 'array') {
+        for (const sh of e.shapes || []) for (const p of sh.pts || []) if (Array.isArray(p)) p[1] = -+p[1];
+        for (const inst of e.instances || []) {
+          if (Array.isArray(inst.m) && inst.m.length === 6) {
+            inst.m = [inst.m[0], -inst.m[1], -inst.m[2], inst.m[3], inst.m[4], -inst.m[5]];
+          }
+          if (Array.isArray(inst.a)) inst.a = [inst.a[0], -inst.a[1]];
+        }
+        if (e.params) {
+          if (e.params.dy != null) e.params.dy = -+e.params.dy;
+          if (e.kind === 'polar' && e.params.angle != null) e.params.angle = -+e.params.angle;
+        }
+      }
+    }
+    for (const key in s.constraints) {
+      const c = s.constraints[key];
+      if (c && (c.type === 'pointDim' || c.type === 'tangent') && c.side != null) c.side = -+c.side;
+    }
+  }
+
   function loadDocument(data, noSave) {
     if (!data || typeof data !== 'object') throw new Error('Invalid document');
     ui.offsetJob = null;
@@ -25458,6 +25853,10 @@ function cmdSplitCurve() {
     if (!s || typeof s !== 'object' || !s.points || !s.entities || !s.constraints) {
       throw new Error('Invalid sketch');
     }
+    // v1/v2 documents are Y-up world data; mirror them into the Y-down
+    // standard. Screen rendering is preserved exactly: the points flip and
+    // the screen mapping loses its own flip in the same change.
+    if (+(data.version || 1) < 3) migrateYUpToYDown(s);
     const points = {};
     const entities = {};
     const constraints = {};
@@ -26120,19 +26519,19 @@ function cmdSplitCurve() {
     if (!ad || ad.sweep < 1e-6) return '';
     if (ad.sweep >= TAU - 1e-4) {
       const c = ad.c;
-      const start = { x: c.x + ad.r, y: -(c.y) };
+      const start = { x: c.x + ad.r, y: c.y };
       return 'M ' + start.x + ' ' + start.y +
-        ' A ' + ad.r + ' ' + ad.r + ' 0 1 0 ' + (c.x - ad.r) + ' ' + (-c.y) +
-        ' A ' + ad.r + ' ' + ad.r + ' 0 1 0 ' + start.x + ' ' + start.y;
+        ' A ' + ad.r + ' ' + ad.r + ' 0 1 1 ' + (c.x - ad.r) + ' ' + c.y +
+        ' A ' + ad.r + ' ' + ad.r + ' 0 1 1 ' + start.x + ' ' + start.y;
     }
     const p0 = ad.a0;
     const p1 = ad.a0 + ad.sweep;
     const sx = ad.c.x + Math.cos(p0) * ad.r;
-    const sy = -(ad.c.y + Math.sin(p0) * ad.r);
+    const sy = ad.c.y + Math.sin(p0) * ad.r;
     const ex = ad.c.x + Math.cos(p1) * ad.r;
-    const ey = -(ad.c.y + Math.sin(p1) * ad.r);
+    const ey = ad.c.y + Math.sin(p1) * ad.r;
     const large = ad.sweep > Math.PI ? 1 : 0;
-    return 'M ' + sx + ' ' + sy + ' A ' + ad.r + ' ' + ad.r + ' 0 ' + large + ' 0 ' + ex + ' ' + ey;
+    return 'M ' + sx + ' ' + sy + ' A ' + ad.r + ' ' + ad.r + ' 0 ' + large + ' 1 ' + ex + ' ' + ey;
   }
 
   function openSvgModal() {
@@ -26273,7 +26672,7 @@ function cmdSplitCurve() {
     }
     const pad = 36;
     const vx = b.minX - pad;
-    const vy = -b.maxY - pad;
+    const vy = b.minY - pad;
     const vw = (b.maxX - b.minX) + pad * 2;
     const vh = (b.maxY - b.minY) + pad * 2;
     const parts = [];
@@ -26301,8 +26700,8 @@ function cmdSplitCurve() {
       try { chains = chainPolylines(polys, 0.05); } catch (err) { chains = polys; }
       for (const ch of chains) {
         if (!ch.pts || ch.pts.length < 2) continue;
-        let d = 'M ' + fmt(ch.pts[0].x) + ' ' + fmt(-ch.pts[0].y);
-        for (let i = 1; i < ch.pts.length; i++) d += ' L ' + fmt(ch.pts[i].x) + ' ' + fmt(-ch.pts[i].y);
+        let d = 'M ' + fmt(ch.pts[0].x) + ' ' + fmt(ch.pts[0].y);
+        for (let i = 1; i < ch.pts.length; i++) d += ' L ' + fmt(ch.pts[i].x) + ' ' + fmt(ch.pts[i].y);
         if (ch.closed) d += ' Z';
         parts.push('<path d="' + d + '" stroke="' + color + '" stroke-width="1.6"/>');
       }
@@ -26315,7 +26714,7 @@ function cmdSplitCurve() {
       if (e.type === 'circle') {
         const c = P(e.c);
         if (!c) continue;
-        parts.push('<circle cx="' + c.x + '" cy="' + (-c.y) + '" r="' + e.r + '" stroke="' + color + '" stroke-width="1.6"/>');
+        parts.push('<circle cx="' + c.x + '" cy="' + (c.y) + '" r="' + e.r + '" stroke="' + color + '" stroke-width="1.6"/>');
       } else if (e.type === 'spline') {
         ensureSplineHandles(e);
         const cps = entityPointIds(e).map(pid => P(pid)).filter(Boolean);
@@ -26323,7 +26722,7 @@ function cmdSplitCurve() {
           const n = cps.length;
           const loop = !!e.closed && n >= 3;
           const nsegs = loop ? n : n - 1;
-          let d = 'M ' + cps[0].x + ' ' + (-cps[0].y);
+          let d = 'M ' + cps[0].x + ' ' + cps[0].y;
           for (let s = 0; s < nsegs; s++) {
             const j = loop ? (s + 1) % n : s + 1;
             const P1 = e.hs.o[s];
@@ -26331,10 +26730,10 @@ function cmdSplitCurve() {
             const P3 = cps[j];
             if (!P3) continue;
             if (!P1 || !P2) {
-              d += ' L ' + P3.x + ' ' + (-P3.y);
+              d += ' L ' + P3.x + ' ' + P3.y;
               continue;
             }
-            d += ' C ' + P1.x + ' ' + (-P1.y) + ' ' + P2.x + ' ' + (-P2.y) + ' ' + P3.x + ' ' + (-P3.y);
+            d += ' C ' + P1.x + ' ' + P1.y + ' ' + P2.x + ' ' + P2.y + ' ' + P3.x + ' ' + P3.y;
           }
           if (loop) d += ' Z';
           parts.push('<path d="' + d + '" stroke="' + color + '" stroke-width="1.6"/>');
@@ -26345,8 +26744,8 @@ function cmdSplitCurve() {
         for (const c of artContoursWorld(e)) {
           if (!c || !c.pts || c.pts.length < 2) continue;
           const cc = c.color || color;
-          let d = 'M ' + fmt(c.pts[0].x) + ' ' + fmt(-c.pts[0].y);
-          for (let i = 1; i < c.pts.length; i++) d += ' L ' + fmt(c.pts[i].x) + ' ' + fmt(-c.pts[i].y);
+          let d = 'M ' + fmt(c.pts[0].x) + ' ' + fmt(c.pts[0].y);
+          for (let i = 1; i < c.pts.length; i++) d += ' L ' + fmt(c.pts[i].x) + ' ' + fmt(c.pts[i].y);
           if (c.closed) d += ' Z';
           parts.push('<path d="' + d + '" stroke="' + cc + '" stroke-width="1.6"/>');
         }
@@ -26360,9 +26759,9 @@ function cmdSplitCurve() {
         const out = textOutlineWorld(e);
         for (const loop of out.loops) {
           if (!loop || loop.length < 2) continue;
-          let d = 'M ' + fmt(loop[0].x) + ' ' + fmt(-loop[0].y);
+          let d = 'M ' + fmt(loop[0].x) + ' ' + fmt(loop[0].y);
           for (let i = 1; i < loop.length; i++) {
-            d += ' L ' + fmt(loop[i].x) + ' ' + fmt(-loop[i].y);
+            d += ' L ' + fmt(loop[i].x) + ' ' + fmt(loop[i].y);
           }
           if (out.closed) d += ' Z';
           parts.push('<path d="' + d + '" stroke="' + color + '" stroke-width="1.6"/>');
@@ -26376,9 +26775,9 @@ function cmdSplitCurve() {
         for (const t of arrayInstanceOffsets(e)) {
           for (const pl of arrayInstancePolylines(e, t)) {
             if (!pl.pts || pl.pts.length < 2) continue;
-            let d = 'M ' + fmt(pl.pts[0].x) + ' ' + fmt(-pl.pts[0].y);
+            let d = 'M ' + fmt(pl.pts[0].x) + ' ' + fmt(pl.pts[0].y);
             for (let i = 1; i < pl.pts.length; i++) {
-              d += ' L ' + fmt(pl.pts[i].x) + ' ' + fmt(-pl.pts[i].y);
+              d += ' L ' + fmt(pl.pts[i].x) + ' ' + fmt(pl.pts[i].y);
             }
             if (pl.closed) d += ' Z';
             parts.push('<path d="' + d + '" stroke="' + (pl.color || color) +
