@@ -11792,7 +11792,7 @@
   // Build the engine part entries from the selection: one entry per object
   // (outer + holes as extra paths), variants per rotation/flip, plus the green
   // sheet entry. Everything is a copy — the engine never touches the document.
-  function nestBuildEntries(sel, spacingMm, rotation, flip) {
+  function nestBuildEntries(sheetLoops, objects, spacingMm, rotation, flip) {
     const GEOM = MiniSketchNest.GEOM_SCALE;
     const angles = nestRotationAngles(rotation);
     // variant list: for each angle one base variant, plus a flipped twin when
@@ -11807,8 +11807,8 @@
     // side, so offset(spacingMm) reserves spacingMm/2 per part — the packing
     // gap between two ORIGINAL outlines ends up exactly spacingMm (reference
     // behaviour: packing uses the grown shape, the result draws the original).
-    for (let oi = 0; oi < sel.objects.length; oi++) {
-      const obj = sel.objects[oi];
+    for (let oi = 0; oi < objects.length; oi++) {
+      const obj = objects[oi];
       // ClipperOffset only keeps a hole when its winding opposes the outer
       // path, so the hole poly is reversed when needed before building the
       // engine Path.
@@ -11842,8 +11842,8 @@
       });
     }
     // sheet: exactly one green loop
-    if (sel.sheetLoops.length === 1) {
-      const rec = sel.sheetLoops[0];
+    if (sheetLoops.length === 1) {
+      const rec = sheetLoops[0];
       const paths = [rec.loop.poly.map(p => new MiniSketchNest.Point(p.x * GEOM, p.y * GEOM))];
       const sheetPath = new MiniSketchNest.Path(paths, 0, null, '#00ff00');
       sheetPath.align();
@@ -11903,7 +11903,7 @@
     if (!prep) return;
 
     const stateAtStart = state;
-    const entries = nestBuildEntries(prep.sel, prep.spacing, prep.rotation, prep.flip);
+    const entries = nestBuildEntries(prep.sel.sheetLoops, prep.objects, prep.spacing, prep.rotation, prep.flip);
     const sheetLoop = prep.sel.sheetLoops[0].loop;
     let sxMin = Infinity, syMin = Infinity, sxMax = -Infinity, syMax = -Infinity;
     for (const p of sheetLoop.poly) {

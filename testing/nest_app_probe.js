@@ -251,7 +251,7 @@ console.log('\n== nestBuildEntries ==');
     ],
   };
   const objects = h.nestGroupParts(sel.partLoops);
-  const entries = h.nestBuildEntries({ ...sel, objects }, 2, '0,90,180,270', false);
+  const entries = h.nestBuildEntries(sel.sheetLoops, objects, 2, '0,90,180,270', false);
   check('2 part entries + 1 sheet entry', entries.length === 3);
   const sheetEntry = entries.find(e => e.lcolor === '#00ff00');
   check('sheet entry marked green', !!sheetEntry && sheetEntry.originIndex === 0);
@@ -263,7 +263,7 @@ console.log('\n== nestBuildEntries ==');
   const b = sheetEntry.variants[0].getBounds();
   check('sheet bbox in engine units', Math.round(b.width / GEOM) === 100 && Math.round(b.height / GEOM) === 100);
   // flip doubles the variants
-  const entriesFlip = h.nestBuildEntries({ ...sel, objects }, 2, '0,90', true);
+  const entriesFlip = h.nestBuildEntries(sel.sheetLoops, objects, 2, '0,90', true);
   check('flip doubles variant count', entriesFlip[0].variants.length === 4);
   // spacing offsets the parts (grown), never the sheet
   const grown = entries[0].variants[0].getBounds();
@@ -285,7 +285,7 @@ console.log('\n== end-to-end engine run through nestBuildEntries ==');
   };
   const objects = h.nestGroupParts(sel.partLoops);
   const spacing = 2;
-  const entries = h.nestBuildEntries({ ...sel, objects }, spacing, '0,90,180,270', false);
+  const entries = h.nestBuildEntries(sel.sheetLoops, objects, spacing, '0,90,180,270', false);
   const ga = new MiniSketchNest.NFPGA();
   ga.setSpacing(spacing);
   ga.setGAParams(4, 2, 0.1);
