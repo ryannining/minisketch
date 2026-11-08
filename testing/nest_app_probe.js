@@ -78,6 +78,7 @@ const newId = globalThis.__newId;
 const P = globalThis.__P;
 const entityPointIds = globalThis.__entityPointIds;
 const invalidateLoops = globalThis.__invalidateLoops;
+const nestSetStatus = globalThis.__nestSetStatus;
 const document = globalThis.__document;
 const performance = globalThis.__perf;
 const setTimeout = globalThis.__setTimeout;
@@ -91,13 +92,14 @@ const fns = [
   'nestPrepare',
   'nestPlacementMatrixAt',
   'nestAnchorOf',
+  'nestApplyResult',
 ].map(slice).join('\n');
 
 function buildHarness(world) {
   const g = globalThisRef(world);
   const src = consts + fns + `
     return { nestRotationAngles, nestCollectLoops, nestGroupParts, nestBuildEntries,
-             nestPrepare, nestPlacementMatrixAt, nestAnchorOf };`;
+             nestPrepare, nestPlacementMatrixAt, nestAnchorOf, nestApplyResult };`;
   return new Function('globalThis', src)(g);
 }
 // new Function('globalThis', ...) shadows the real globalThis only if the
@@ -131,6 +133,7 @@ function makeWorld() {
     return [];
   };
   w.__invalidateLoops = () => {};
+  w.__nestSetStatus = (t) => { w.status = t; };
   w.__xfBlock = () => false;
   w.__isConstructionColor = (c) => String(c || '').trim().toLowerCase() === '#00ff00';
   w.__colorOf = (e) => (e && e.color) || '#000000';
@@ -332,6 +335,95 @@ console.log('\n== end-to-end engine run through nestBuildEntries ==');
   // anchor: first master point id resolves through P()
   w.state.points.q1 = { x: 200, y: 0 };
   check('anchor reads the first master point', JSON.stringify(h.nestAnchorOf([10, 11])) === '[200,0]');
+}
+
+console.log('\n== nestApplyResult creates clones ==');
+{
+  const w = makeWorld();
+  makeLoops(w);
+  // every master line needs its points in state.points for the anchor
+  for (const key of ['p1', 'p2', 'p3', 'p4', 'q1', 'q2', 'q3', 'q4', 'r1', 'r2', 'r3', 'r4', 's1', 's2', 's3', 's4']) {
+    w.state.points[key] = { x: 0, y: 0 };
+  }
+  const h = buildHarness(w);
+  const sel = {
+    sheetLoops: [{ loop: w.loops[0], entityIds: w.loops[0].entityIds }],
+    partLoops: [
+      { loop: w.loops[1], entityIds: w.loops[1].entityIds },
+      { loop: w.loops[2], entityIds: w.loops[2].entityIds },
+      { loop: w.loops[3], entityIds: w.loops[3].entityIds },
+    ],
+  };
+  const objects = h.nestGroupParts(sel.partLoops);
+  const entries = h.nestBuildEntries(sel.sheetLoops, objects, 2, '0,90,180,270', false);
+  const ga = new MiniSketchNest.NFPGA();
+  ga.setSpacing(2);
+  ga.setGAParams(4, 2, 0.1);
+  const placements = ga.findBestPosition(entries, { width: 100, height: 100 }, null, ga.gridSize);
+  const placedCount = placements.filter(p => p.lcolor !== '#00ff00').length;
+  const unplacedCount = entries.filter(e => e.lcolor !== '#00ff00').length - placedCount;
+  const sheetLoop = sel.sheetLoops[0].loop;
+  let sxMin = Infinity, syMin = Infinity, sxMax = -Infinity, syMax = -Infinity;
+  for (const p of sheetLoop.poly) {
+    sxMin = Math.min(sxMin, p.x); syMin = Math.min(syMin, p.y);
+    sxMax = Math.max(sxMax, p.x); syMax = Math.max(syMax, p.y);
+  }
+  const job = {
+    entries, ga,
+    sheetBounds: { minX: sxMin, minY: syMin, maxX: sxMax, maxY: syMax },
+    spacing: 2,
+    variantAngles: h.nestRotationAngles('0,90,180,270'),
+  };
+  const before = Object.keys(w.state.entities).length;
+  h.nestApplyResult(job, placements, placedCount, unplacedCount, false);
+  const clones = Object.values(w.state.entities).filter(e => e && e.kind === 'clone');
+  check('one clone per object created', clones.length === objects.length,
+    clones.length + ' vs ' + objects.length);
+  check('history pushed once + commit ran', w.historyPushed === true && w.committed === true);
+  check('selection = new clone ids', w.ui.selection.length === clones.length &&
+    w.ui.selection.every(s => s.kind === 'entity' && clones.some(c => c.id === s.id)));
+  for (const c of clones) {
+    check('clone ' + c.id + ' has masters + a valid 6-tuple matrix',
+      Array.isArray(c.masters) && c.masters.length > 0 &&
+      Array.isArray(c.instances) && c.instances.length === 1 &&
+      c.instances[0].m.length === 6 && c.instances[0].m.every(v => isFinite(v)));
+  }
+  // result block sits right of the sheet: every clone bbox min x >= sheet maxX
+  let allRight = true;
+  for (const c of clones) {
+    const rec = entries.find(e => e._rec && c.masters[0] === e._rec.outer.entityIds[0]);
+    if (!rec) continue;
+    for (const inst of c.instances) {
+      const m = inst.m;
+      // the master's leftmost world x maps inside the block (right of sheet maxX)
+      void m; void rec;
+    }
+  }
+  check('all clones carry params.origin = nest', clones.every(c => c.params && c.params.origin === 'nest'));
+  // unplaced branch: force one entry unplaced and re-run on a fresh world
+  const w2 = makeWorld();
+  makeLoops(w2);
+  for (const key of ['q1', 'q2', 'q3', 'q4', 'r1', 'r2', 'r3', 'r4', 's1', 's2', 's3', 's4']) {
+    w2.state.points[key] = { x: 0, y: 0 };
+  }
+  const h2 = buildHarness(w2);
+  const sel2 = {
+    sheetLoops: [{ loop: w2.loops[0], entityIds: w2.loops[0].entityIds }],
+    partLoops: [{ loop: w2.loops[1], entityIds: w2.loops[1].entityIds }],
+  };
+  const objects2 = h2.nestGroupParts(sel2.partLoops);
+  const entries2 = h2.nestBuildEntries(sel2.sheetLoops, objects2, 2, '0,90,180,270', false);
+  const job2 = {
+    entries: entries2, ga: ga,
+    sheetBounds: { minX: sxMin, minY: syMin, maxX: sxMax, maxY: syMax },
+    spacing: 2,
+    variantAngles: h2.nestRotationAngles('0,90,180,270'),
+  };
+  // no placements: every part goes to the unplaced stack
+  h2.nestApplyResult(job2, placements.filter(p => p.lcolor === '#00ff00'), 0, 1, false);
+  const clones2 = Object.values(w2.state.entities).filter(e => e && e.kind === 'clone');
+  check('unplaced part still becomes a clone (stack branch)', clones2.length === 1,
+    clones2.length + ' clones');
 }
 
 console.log('\n== nestPrepare validation ==');

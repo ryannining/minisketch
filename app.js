@@ -12042,7 +12042,7 @@
       if (!rec) continue;
       // masters must still exist (undo/new during the job is caught by the
       // stateAtStart guard, but an explicit check is cheap)
-      const masters = rec.outer.entityIds.concat(...rec.holeRecs.map(h => h.entityIds))
+      const masters = rec.outer.entityIds.concat(...(rec.holes || []).map(h => h.entityIds))
         .filter(id => state.entities[id]);
       if (!masters.length) continue;
       // engine position: the placement is already aligned to its bbox; place
@@ -12078,7 +12078,7 @@
       for (const e of job.entries) {
         if (e.lcolor === '#00ff00' || placedIdx.has(e.originIndex)) continue;
         const rec = e._rec;
-        const masters = rec.outer.entityIds.concat(...rec.holeRecs.map(h => h.entityIds))
+        const masters = rec.outer.entityIds.concat(...(rec.holes || []).map(h => h.entityIds))
           .filter(id => state.entities[id]);
         if (!masters.length) continue;
         // master bbox in world mm
