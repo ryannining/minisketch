@@ -5218,30 +5218,12 @@
         if (state.entities[gid]) eids.add(+gid);
       }
     }
-    // An array points at LIVE master entities. The copy must carry its own
-    // masters, or the pasted array would keep redrawing the ORIGINAL master's
-    // shapes at the original's position (the paste only moves the array's own
-    // offset). Pull each master into the payload — unless it is an array
-    // itself (arrays cannot nest) — and remember the mapping so the paste can
-    // rewire `masters` to the copies.
-    const arrayMasters = [];
-    for (const ent of ents) {
-      if (ent.type !== 'array') continue;
-      for (const mid of (ent.masters || [])) {
-        const m = state.entities[mid];
-        if (!m || m.type === 'array' || eids.has(+mid)) continue;
-        eids.add(+mid);
-        arrayMasters.push(+mid);
-        // The master's own points must travel too. A clone owns NO points of
-        // its own, so `pids` was empty and the payload carried a master whose
-        // geometry referenced points that were never copied — the paste then
-        // dropped it (a line with a null endpoint is skipped), leaving a clone
-        // with no masters and therefore nothing to draw.
-        for (const pid of entityPointIds(m)) {
-          if (state.points[pid]) pids.add(+pid);
-        }
-      }
-    }
+    // NOTE: a clone/array's MASTERS are intentionally NOT pulled into the
+    // payload. The pasted clone links back to the ORIGINAL master when it still
+    // exists in this document (see pasteClipboard), so pasting a clone does not
+    // duplicate the master's geometry. Masters are only duplicated when they
+    // are selected and copied together with the array, or serialized as a
+    // snapshot when the original is gone (cross-document paste).
     const cons = [];
     for (const cid in state.constraints) {
       const c = state.constraints[cid];
@@ -5258,7 +5240,6 @@
         .filter(eid => state.entities[eid])
         .map(eid => JSON.parse(JSON.stringify(state.entities[eid]))),
       constraints: cons,
-      arrayMasters,
       crossLayer: layers.size > 1,
       count: ents.length,
       pointCount: pids.size
@@ -5409,9 +5390,18 @@
     for (const id of newEntityIds) {
       const e = state.entities[id];
       if (!e || e.type !== 'array' || !Array.isArray(e.masters)) continue;
-      const remapped = e.masters
-        .map(mid => eMap[+mid])
-        .filter(mid => mid != null);
+      // Prefer a remapped COPY when the master travelled with the payload
+      // (selected together); otherwise link back to the ORIGINAL master if it
+      // still exists in this document, so pasting a clone does not duplicate
+      // the master's geometry. Only when the original is gone (cross-document
+      // paste) fall back to a detached snapshot.
+      const remapped = [];
+      let hasLive = false;
+      for (const mid of e.masters) {
+        const mapped = eMap[+mid];
+        if (mapped != null) { remapped.push(mapped); hasLive = true; }
+        else if (state.entities[mid]) { remapped.push(+mid); hasLive = true; }
+      }
       // The anchor is a WORLD position captured when the clone was made. The
       // pasted masters moved by (offsetX, offsetY), so the anchor must move with
       // them — otherwise cloneInstanceOffsets reads a phantom master shift and
