@@ -11728,6 +11728,7 @@
   const NEST_DEBUG = true;
   function nestLog(...args) { if (NEST_DEBUG) console.log('[nest]', ...args); }
   let nestJob = null; // { stateAtStart, cancelled, done, total, running, infinite, best, seed }
+  let nestJobSeq = 0;
   let nestLastSpec = null; // last run's entity ids + params, for Re-nest / ∞
 
   function nestPrefsLoad() {
@@ -12172,8 +12173,11 @@
       evals: spec.popSize * (spec.generations + 1) + 1,
       infinite: !!spec.infinite, stopRequested: false,
       iteration: 1, best: null, seed: null,
+      popSize: spec.popSize, generations: spec.generations, mutation: spec.mutation,
+      localSearch: spec.localSearch != null ? spec.localSearch : 6,
       ga, gridSize: spec.gridMm * MiniSketchNest.GEOM_SCALE,
-      t0: performance.now(), steps: 0, stepMsTotal: 0, stepMsMax: 0
+      t0: performance.now(), steps: 0, stepMsTotal: 0, stepMsMax: 0,
+      id: ++nestJobSeq
     };
     nestLog('start: ' + nParts + ' parts (' +
       spec.objects.reduce((n, o) => n + o.holeRecs.length, 0) + ' holes), sheet ' +
@@ -12193,7 +12197,11 @@
     if (stopBtn) stopBtn.hidden = false;
     if (prog) prog.hidden = false;
     nestSetStatus('Nesting…');
-    nestRunIteration(nestJob);
+    if (spec.infinite || !nestCanUseWorkers()) {
+      nestRunIteration(nestJob);
+    } else {
+      nestStartWorkers(nestJob);
+    }
   }
 
   // One GA run over the job's entries. `job.seed` (the previous iteration's
@@ -12396,6 +12404,11 @@
     if (fill && nestJob.total > 0) {
       fill.style.width = Math.min(100, Math.round(100 * nestJob.done / nestJob.total)) + '%';
     }
+    if (nestJob.workers && nestJob.workers.length) {
+      const pct = nestJob.total > 0 ? Math.round(100 * nestJob.done / nestJob.total) : 0;
+      nestSetStatus('Nesting… ' + pct + '% · ' + nestJob.workerDone + '/' + nestJob.workers.length + ' worker');
+      return;
+    }
     const evalNum = Math.floor(nestJob.done / Math.max(1, nestJob.partsPerEval || 1)) + 1;
     const partNum = ((nestJob.done - 1) % Math.max(1, nestJob.partsPerEval || 1)) + 1;
     // Per-eval UI trace: log once each time the displayed eval number changes.
@@ -12559,6 +12572,105 @@
         ' · blok ' + Math.round(blockW) + '×' + Math.round(blockH) + ' mm' +
         (wasCancelled ? ' · stopped' : ''));
     }
+  }
+
+  // ---- Worker-based nesting (multi-core) -------------------------------
+  // The GA/NFP2 search is pure computation, so it runs in Web Workers off the
+  // main thread — the UI never freezes and several workers can trial different
+  // seeds simultaneously (the "multi-CPU try-more-positions" advantage). The
+  // old synchronous generator path (nestRunIteration) stays as the fallback
+  // for infinite mode and when Workers are unavailable.
+  const NEST_WORKERS_MAX = 4;
+  function nestCanUseWorkers() {
+    return typeof Worker !== 'undefined' && typeof NestIO !== 'undefined';
+  }
+
+  // Wrap a worker result placement into the shape nestApplyResult expects.
+  function nestWorkerPlacement(p) {
+    const o = { originIndex: p.originIndex, lcolor: p.lcolor, _variantIdx: p._variantIdx, bounds: p.bounds };
+    o.getBounds = function () { return this.bounds; };
+    return o;
+  }
+
+  function nestStartWorkers(job) {
+    const nw = Math.min(NEST_WORKERS_MAX, Math.max(1, navigator.hardwareConcurrency || 2));
+    const entriesData = NestIO.serializeEntries(job.entries);
+    const input = {
+      entriesData,
+      spacing: job.spacing,
+      flip: job.flip,
+      popSize: job.popSize,
+      generations: job.generations,
+      mutation: job.mutation,
+      ls: job.localSearch,
+      grid: job.gridSize, // GEOM units — same value the main-thread path passes
+      seed: null
+    };
+    job.workers = [];
+    job.workerResults = [];
+    job.workerDone = 0;
+    job._prog = {};
+    for (let i = 0; i < nw; i++) {
+      let w;
+      try { w = new Worker('tools/nest_worker.js'); } catch (err) { break; }
+      job.workers.push(w);
+      const wid = String(i);
+      w.postMessage({ jobId: wid, input });
+      w.onmessage = (e) => nestWorkerOnMessage(job, wid, e.data);
+      w.onerror = (e) => { console.error('[nest][worker] error', e); };
+    }
+    if (!job.workers.length) { nestRunIteration(job); return; }
+    job.running = true;
+    nestSetStatus('Nesting… ' + job.workers.length + ' worker');
+  }
+
+  function nestWorkerOnMessage(job, wid, msg) {
+    if (!nestJob || nestJob !== job) return;
+    if (msg.type === 'progress') {
+      job._prog[wid] = { done: msg.done, total: msg.total };
+      let d = 0, t = 0;
+      for (const k in job._prog) { d += job._prog[k].done; t += job._prog[k].total; }
+      job.done = d; job.total = t;
+      nestPaintProgress();
+    } else if (msg.type === 'result') {
+      if (msg.result) job.workerResults.push(msg.result);
+      job.workerDone++;
+      if (job.workerDone >= job.workers.length) nestFinishWorkers(job);
+    } else if (msg.type === 'error') {
+      console.error('[nest][worker]', msg.error);
+      job.workerDone++;
+      if (job.workerDone >= job.workers.length) nestFinishWorkers(job);
+    }
+  }
+
+  function nestBestWorkerResult(results) {
+    let best = null;
+    for (const r of results) {
+      if (!r) continue;
+      const pc = (r.placements || []).filter(p => p.lcolor !== '#00ff00').length;
+      const area = (r.blockW || 0) * (r.blockH || 0);
+      if (!best || pc > best.pc || (pc === best.pc && area < best.area)) best = { r, pc, area };
+    }
+    return best ? best.r : null;
+  }
+
+  function nestFinishWorkers(job) {
+    job.running = false;
+    for (const w of (job.workers || [])) { try { w.terminate(); } catch (e) {} }
+    job.workers = [];
+    const best = nestBestWorkerResult(job.workerResults);
+    const wasStop = job.cancelled;
+    nestJob = null;
+    nestUIIdle();
+    if (!best) {
+      nestSetStatus(wasStop ? 'Dihentikan — belum ada hasil worker' : 'Tidak ada hasil worker');
+      toast('Nesting: belum ada hasil selesai');
+      return;
+    }
+    const placements = (best.placements || []).map(nestWorkerPlacement);
+    job.ga = { calculateTotalBounds: function () { return best.blockBounds; } };
+    const placedCount = placements.filter(p => p.lcolor !== '#00ff00').length;
+    nestApplyResult(job, placements, placedCount, best.unplaced, best.cancelled, false);
   }
 
   // Rebuild the placement matrix for one variant. Engine space == world mm
@@ -25035,6 +25147,10 @@ function cmdSplitCurve() {
       if (!nestJob) return;
       nestJob.cancelled = true;
       nestJob.stopRequested = true;
+      if (nestJob.workers && nestJob.workers.length) {
+        nestFinishWorkers(nestJob);
+        return;
+      }
       nestSetStatus(nestJob.infinite ? 'Stop — memakai hasil terbaik…' : 'Stop — memakai best so far…');
     });
     const nestAgainBtn = document.getElementById('nest-again');
