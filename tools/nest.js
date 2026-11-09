@@ -889,9 +889,24 @@ class NFP2 {
     // per-run summary via getPerformanceStats() so the console stays readable.
     const tNow = performance.now();
     const tVert = (typeof tVertPhase !== 'undefined') ? tVertPhase : tNow;
-    this.performanceStats.scanMs += tVert - tScan;
-    this.performanceStats.vertMs += tNow - tVert;
-    this._lastPlaceMs = (this._lastPlaceMs || 0) + (tNow - t0);
+    const scanMs = tVert - tScan;
+    const vertMs = tNow - tVert;
+    this.performanceStats.scanMs += scanMs;
+    this.performanceStats.vertMs += vertMs;
+    const tTotal = tNow - t0;
+    if (tTotal > 400) {
+      const pi = (part.variants && part.variants[0] && part.variants[0].originIndex) != null
+        ? part.variants[0].originIndex : -1;
+      const pb = part.variants[0].getBounds();
+      console.log('[nest][slow] placement origin=' + pi + ' total=' + tTotal.toFixed(0) +
+        'ms scan=' + scanMs.toFixed(0) + 'ms vert=' + vertMs.toFixed(0) + 'ms' +
+        ' cand=' + candidates + ' coll=' +
+        (this.performanceStats.collisionChecks - (this._collBefore || 0)) +
+        ' sz=' + Math.round(pb.width / GEOM_SCALE) + 'x' + Math.round(pb.height / GEOM_SCALE) +
+        'mm placed=' + (this._lastPlaceCount || 0));
+    }
+    this._collBefore = this.performanceStats.collisionChecks;
+    this._lastPlaceMs = (this._lastPlaceMs || 0) + tTotal;
     this._lastPlaceCount = (this._lastPlaceCount || 0) + 1;
     return bestPlacement;
   }
