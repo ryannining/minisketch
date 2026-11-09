@@ -11740,6 +11740,7 @@
     set('nest-pop', saved.pop);
     set('nest-gen', saved.gen);
     set('nest-mut', saved.mut);
+    set('nest-ls', saved.ls);
     if (typeof saved.flip === 'boolean') {
       const el = document.getElementById('nest-flip');
       if (el) el.checked = saved.flip;
@@ -11759,6 +11760,7 @@
         spacing: val('nest-spacing'), grid: val('nest-grid'),
         rotation: val('nest-rotation'),
         pop: val('nest-pop'), gen: val('nest-gen'), mut: val('nest-mut'),
+        ls: val('nest-ls'),
         flip: flip ? flip.checked : false,
         infinite: inf ? inf.checked : false
       }));
@@ -12038,9 +12040,14 @@
     let mutation = mutEl ? parseFloat(mutEl.value) : 0.1;
     if (!isFinite(mutation)) mutation = 0.1;
     mutation = Math.min(1, Math.max(0, mutation));
+    const lsEl = document.getElementById('nest-ls');
+    let localSearch = lsEl ? parseInt(lsEl.value, 10) : 6;
+    if (!isFinite(localSearch)) localSearch = 6;
+    localSearch = Math.max(0, Math.min(60, localSearch));
     const infEl = document.getElementById('nest-infinite');
     return {
       spacing, gridMm, rotation, flip, popSize, generations, mutation,
+      localSearch,
       infinite: infEl ? infEl.checked : false
     };
   }
@@ -12131,6 +12138,7 @@
     spec.popSize = params.popSize;
     spec.generations = params.generations;
     spec.mutation = params.mutation;
+    spec.localSearch = params.localSearch;
     spec.infinite = params.infinite;
     nestRun(spec);
   }
@@ -12149,6 +12157,7 @@
     ga.setSpacing(spec.spacing);
     ga.setAllowFlip(spec.flip);
     ga.setGAParams(spec.popSize, spec.generations, spec.mutation);
+    if (spec.localSearch != null) ga.localSearchBudget = spec.localSearch;
 
     const nParts = entries.filter(e => e.lcolor !== '#00ff00').length;
     nestJob = {
@@ -12171,6 +12180,7 @@
       Math.round(sxMax - sxMin) + '×' + Math.round(syMax - syMin) + ' mm, Sp=' + spec.spacing +
       ' Grid=' + spec.gridMm + ' Rot=' + spec.rotation + (spec.flip ? ' +flip' : '') +
       ', GA ' + spec.popSize + 'x' + spec.generations + ' M=' + spec.mutation +
+      ' LS=' + (spec.localSearch != null ? spec.localSearch : ga.localSearchBudget) +
       (spec.infinite ? ' infinite' : ''));
 
     // UI: Start/Re-nest off, Stop on
@@ -25012,7 +25022,7 @@ function cmdSplitCurve() {
     const nestAgainBtn = document.getElementById('nest-again');
     if (nestAgainBtn) nestAgainBtn.addEventListener('click', nestAgain);
     const nestSetting = () => { nestPrefsSave(); updateNestPanel(); };
-    for (const id of ['nest-spacing', 'nest-grid', 'nest-rotation', 'nest-pop', 'nest-gen', 'nest-mut', 'nest-flip', 'nest-infinite']) {
+    for (const id of ['nest-spacing', 'nest-grid', 'nest-rotation', 'nest-pop', 'nest-gen', 'nest-mut', 'nest-ls', 'nest-flip', 'nest-infinite']) {
       const el = document.getElementById(id);
       if (el) el.addEventListener('change', nestSetting);
     }
