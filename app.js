@@ -3015,6 +3015,7 @@
     // a refused constraint (or nothing found) must not leave a dangling entry
     if (id == null) return;
     ui.selection = [{ kind, id }];
+    markLastPicked(kind, id);
     if (kind === 'entity' && ui.groupSelect) {
       for (const sib of groupSiblings(id)) { ui.selection.push({ kind: 'entity', id: sib }); touchSelection(); }
     }
@@ -3024,14 +3025,19 @@
   function selectOnlySingle(kind, id) {
     if (id == null) return;
     ui.selection = [{ kind, id }];
+    markLastPicked(kind, id);
   }
 
   function toggleSelect(kind, id, single) {
     const i = ui.selection.findIndex(s => s.kind === kind && s.id === id);
-    if (i >= 0) { ui.selection.splice(i, 1); touchSelection(); }
+    if (i >= 0) {
+      ui.selection.splice(i, 1); touchSelection();
+      if (kind === 'entity' && lastPickEntityId === +id) lastPickEntityId = null;
+    }
     else {
       ui.selection.push({ kind, id });
       touchSelection();
+      markLastPicked(kind, id);
       if (kind === 'entity' && !single && ui.groupSelect) {
         for (const sib of groupSiblings(id)) { ui.selection.push({ kind: 'entity', id: sib }); touchSelection(); }
       }
@@ -3040,6 +3046,7 @@
 
   function clearSelection() {
     ui.selection = [];
+    lastPickEntityId = null;
   }
 
   function selectedEntities() {
@@ -4694,6 +4701,13 @@
   // Applies to OBJECT entities only — a loop as a single closed shape (circle,
   // closed spline), a group (art), an array/clone, text or part. Points and
   // standalone line/arc edges are not arrangeable objects.
+  // The align anchor is the LAST entity the user explicitly clicked (key
+  // object). A marquee (or any bulk/undefined selection) has no key object, so
+  // align falls back to the selection's union bounds.
+  let lastPickEntityId = null;
+  function markLastPicked(kind, id) {
+    lastPickEntityId = kind === 'entity' && id != null ? +id : null;
+  }
   function arrangeableEntities() {
     const out = [];
     for (const s of ui.selection) {
@@ -4763,6 +4777,14 @@
       toast('Some selected objects have no bounds');
       return;
     }
+    // key object: the last entity the user explicitly clicked, if it is part
+    // of this arrangeable selection; marquee/undefined selections have none
+    let key = null;
+    if (lastPickEntityId != null) {
+      const ke = state.entities[lastPickEntityId];
+      if (ke && ents.indexOf(ke) >= 0) key = ke;
+    }
+    const keyB = key ? entityTightBounds(key) : null;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const { b } of bs) {
       if (b.minX < minX) minX = b.minX;
@@ -4779,12 +4801,16 @@
         translateEntity(e, getDx(b, i), getDy(b, i));
       }
     };
-    if (kind === 'left') moveAll(b => minX - b.minX, () => 0);
-    else if (kind === 'right') moveAll(b => maxX - b.maxX, () => 0);
-    else if (kind === 'top') moveAll(() => 0, b => minY - b.minY);
-    else if (kind === 'bottom') moveAll(() => 0, b => maxY - b.maxY);
-    else if (kind === 'center-h') moveAll(b => (minX + maxX) / 2 - (b.minX + b.maxX) / 2, () => 0);
-    else if (kind === 'center-v') moveAll(() => 0, b => (minY + maxY) / 2 - (b.minY + b.maxY) / 2);
+    // align targets: key-object bounds when available, otherwise union bounds
+    const ref = keyB || { minX, minY, maxX, maxY };
+    const refCx = (ref.minX + ref.maxX) / 2;
+    const refCy = (ref.minY + ref.maxY) / 2;
+    if (kind === 'left') moveAll(b => ref.minX - b.minX, () => 0);
+    else if (kind === 'right') moveAll(b => ref.maxX - b.maxX, () => 0);
+    else if (kind === 'top') moveAll(() => 0, b => ref.minY - b.minY);
+    else if (kind === 'bottom') moveAll(() => 0, b => ref.maxY - b.maxY);
+    else if (kind === 'center-h') moveAll(b => refCx - (b.minX + b.maxX) / 2, () => 0);
+    else if (kind === 'center-v') moveAll(() => 0, b => refCy - (b.minY + b.maxY) / 2);
     else if (kind === 'dist-h') {
       const order = cxs.map((cx, i) => i).sort((a, b2) => cxs[a] - cxs[b2]);
       const first = order[0], last = order[order.length - 1];
@@ -20331,6 +20357,7 @@
           ui.selection = allIn ? outside : outside.concat(pool.map(eid => ({ kind: 'entity', id: eid })));
         } else {
           ui.selection = pool.map(eid => ({ kind: 'entity', id: eid }));
+          markLastPicked('entity', pool[0]);
         }
       }
     }
@@ -22494,6 +22521,7 @@ function cmdSplitCurve() {
 
   function applyRubberSelection(d, pos) {
     ui.rubber = null;
+    lastPickEntityId = null;   // a marquee has no key object
     const sx0 = Math.min(d.start.x, pos.x), sy0 = Math.min(d.start.y, pos.y);
     const sx1 = Math.max(d.start.x, pos.x), sy1 = Math.max(d.start.y, pos.y);
     if (sx1 - sx0 < 4 && sy1 - sy0 < 4) {
