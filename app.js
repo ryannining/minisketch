@@ -23564,7 +23564,7 @@ function cmdSplitCurve() {
         // shown bottom left) instead of nudging points
         const s = scaleBarUnit();
         const dx = key === 'ArrowLeft' ? -s : key === 'ArrowRight' ? s : 0;
-        const dy = key === 'ArrowDown' ? -s : key === 'ArrowUp' ? s : 0;
+        const dy = key === 'ArrowUp' ? -s : key === 'ArrowDown' ? s : 0;
         view.ox -= dx * view.zoom;
         view.oy += dy * view.zoom;
         ev.preventDefault();
@@ -23574,7 +23574,7 @@ function cmdSplitCurve() {
       }
       const s = nudgeStepZoomed();
       const dx = key === 'ArrowLeft' ? -s : key === 'ArrowRight' ? s : 0;
-      const dy = key === 'ArrowDown' ? -s : key === 'ArrowUp' ? s : 0;
+      const dy = key === 'ArrowUp' ? -s : key === 'ArrowDown' ? s : 0;
       if (nudgeSelection(dx, dy)) ev.preventDefault();
       return;
     }
