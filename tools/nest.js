@@ -1341,6 +1341,34 @@ class NFPGA {
     return { ind: bestInd, result: bestR, trials };
   }
 
+  // Generator form of the local search: yields between trials so the caller
+  // (findBestPositionGen) can keep the UI responsive. Each trial is a full
+  // synchronous decode, so running all `budget` trials in one step previously
+  // froze the progress UI for several seconds.
+  *_localSearchGen(ind, ctx, budget, shouldCancel) {
+    let bestInd = ind;
+    let bestR = this._evaluate(ind, ctx);
+    const n = ind.order.length;
+    let trials = 0;
+    while (trials < budget) {
+      if (shouldCancel && shouldCancel()) break;
+      const a = (Math.random() * n) | 0;
+      let b = (Math.random() * n) | 0;
+      if (a === b) b = (b + 1) % n;
+      const order = ind.order.slice();
+      const t = order[a]; order[a] = order[b]; order[b] = t;
+      const candidate = { order, rots: ind.rots };
+      const r = this._evaluate(candidate, ctx);
+      trials++;
+      if (r.fitness < bestR.fitness) {
+        bestR = r;
+        bestInd = candidate;
+      }
+      yield { lsTrial: trials, lsBudget: budget };
+    }
+    return { ind: bestInd, result: bestR, trials };
+  }
+
   /**
    * Place one part trying only the rotation gene (a single variant index).
    */
@@ -1556,11 +1584,21 @@ class NFPGA {
         let r = null;
         if (this.localSearchBudget > 0 && n > 1) {
           console.log('[nest][ls] local search START (budget=' + this.localSearchBudget + ')');
-          const ls = this._localSearch(bestInd, ctx, this.localSearchBudget, shouldCancel);
-          target = ls.ind;
-          r = ls.result;
-          lsTrials = ls.trials;
-          console.log('[nest][ls] local search DONE (trials=' + ls.trials + ')');
+          const baseDone = evalsRef.v * placeables.length;
+          const remaining = totalSteps - baseDone;
+          const lsGen = this._localSearchGen(bestInd, ctx, this.localSearchBudget, shouldCancel);
+          let ls = null;
+          for (;;) {
+            if (shouldCancel && shouldCancel()) { cancelled = true; break; }
+            const y = lsGen.next();
+            if (y.done) { ls = y.value; break; }
+            const frac = y.value.lsTrial / Math.max(1, y.value.lsBudget);
+            yield { done: baseDone + Math.round(frac * remaining), total: totalSteps };
+          }
+          target = ls ? ls.ind : bestInd;
+          r = ls ? ls.result : null;
+          lsTrials = ls ? ls.trials : 0;
+          console.log('[nest][ls] local search DONE (trials=' + lsTrials + ')');
         }
         if (!r) {
           const rGen = runEval(this, target, ctx, evalsRef);
