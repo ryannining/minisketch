@@ -2429,20 +2429,23 @@
     clearTimeout(zoomSettleTimer);
     zoomSettleTimer = setTimeout(() => {
       zoomSettleTimer = 0;
-      if (ui.zoomBlast) {
+      const remain = zoomFastUntil - performance.now();
+      if (ui.zoomBlast && remain > 0) {
+        // still inside the fast window with an unconsumed blast: paint a
+        // degraded frame now (no loop fills/notes/annotations), then arm the
+        // follow-up that runs the FULL render once the window closes
         ui.zoomBlast = null;
-        const remain = zoomFastUntil - performance.now();
-        if (remain > 0) {
-          fastMode = true;
-          render();
-          fastMode = false;
-          // the frame just painted is degraded: render the full scene once
-          // the fast window closes
-          scheduleZoomSettle(remain + 20);
-          return;
-        }
+        fastMode = true;
         render();
+        fastMode = false;
+        scheduleZoomSettle(remain + 20);
+        return;
       }
+      // the blast was already consumed (or there is none): this is the final
+      // settle, so always render the full scene — loop fills, notes/comments
+      // and annotations must come back even when no further pointer event fires
+      ui.zoomBlast = null;
+      render();
     }, delay === undefined ? 120 : delay);
   }
 
@@ -11825,6 +11828,30 @@
     return simp.map(p => new MiniSketchNest.Point(p.x, p.y));
   }
 
+  // Read a "how many pieces" comment placed inside an object: any note entity
+  // whose anchor sits inside the object's outer polygon contributes a count from
+  // its text (leading integer). The largest such count wins; a part with no
+  // comment / no number is made once. Counts are clamped to a sane ceiling.
+  const NEST_MAX_COPIES = 500;
+  function nestCommentCount(rec) {
+    let count = 1;
+    if (!rec || !rec.loop || !rec.loop.poly || rec.loop.poly.length < 3) return count;
+    for (const id in state.entities) {
+      const e = state.entities[id];
+      if (!e || e.type !== 'note') continue;
+      if (e.p == null) continue;
+      const anchor = P(e.p);
+      if (!anchor || !isFinite(anchor.x) || !isFinite(anchor.y)) continue;
+      if (!pointInPoly(anchor, rec.loop.poly)) continue;
+      const m = String(e.text || '').match(/\d+/);
+      if (m) {
+        const n = parseInt(m[0], 10);
+        if (n >= 1 && n <= NEST_MAX_COPIES && n > count) count = n;
+      }
+    }
+    return count;
+  }
+
   function nestBuildEntries(sheetLoops, objects, spacingMm, rotation, flip) {
     const GEOM = MiniSketchNest.GEOM_SCALE;
     const angles = nestRotationAngles(rotation);
@@ -11836,6 +11863,7 @@
       if (flip) rotList.push({ a, f: true });
     }
     const entries = [];
+    let nextOrigin = 1; // unique originIndex per placed copy (0 is the sheet)
     // parts: poly (mm -> engine units); offset() grows by distance/2 on every
     // side, so offset(spacingMm) reserves spacingMm/2 per part — the packing
     // gap between two ORIGINAL outlines ends up exactly spacingMm (reference
@@ -11873,13 +11901,30 @@
         else v.align();
         variants.push(v);
       }
-      entries.push({
-        originIndex: oi + 1,
-        lcolor: null,
-        childIndex: [],
-        variants,
-        _rec: { outer: obj.outer, holes: obj.holeRecs, nPerAngle: flip ? 2 : 1 }
-      });
+      // One entry per requested copy: a comment inside the part sets how many
+      // pieces to cut; all copies share the same master geometry (_rec) so the
+      // finished layout holds that many clones of the same object.
+      const copies = nestCommentCount(obj.outer);
+      for (let c = 0; c < copies; c++) {
+        const idx = nextOrigin++;
+        // Every copy's variants must carry THIS entry's originIndex: the engine
+        // tags each placed part with its variant's originIndex. Sharing the
+        // object-level Path originIndex (oi+1) across all copies drift the
+        // numbering when an earlier object has multiple copies, so a later
+        // object's placements looked up the WRONG master -> e.g. F drew as A.
+        const cvariants = variants.map(v => {
+          const cl = v.clone();
+          cl.originIndex = idx;
+          return cl;
+        });
+        entries.push({
+          originIndex: idx,
+          lcolor: null,
+          childIndex: [],
+          variants: cvariants,
+          _rec: { outer: obj.outer, holes: obj.holeRecs, nPerAngle: flip ? 2 : 1 }
+        });
+      }
     }
     // sheet: exactly one green loop, same space as the parts (world mm)
     if (sheetLoops.length === 1) {
@@ -11963,6 +12008,23 @@
       return null;
     }
     const objects = nestGroupParts(sel.partLoops);
+    const params = nestReadParams();
+    // The spec shape nestRun() takes: sheetLoops/objects plus the params.
+    return {
+      sheetLoops: sel.sheetLoops, objects,
+      spacing: params.spacing, gridMm: params.gridMm,
+      rotation: params.rotation, flip: params.flip,
+      popSize: params.popSize, generations: params.generations,
+      mutation: params.mutation, infinite: params.infinite,
+      partLoops: sel.partLoops
+    };
+  }
+
+  // Read the nest control-panel parameters straight from the live inputs. Kept
+  // separate from nestPrepare() so Re-nest can pick up the CURRENT values (Sp/
+  // Grid/Rot/flip/GA/infinite) while still resolving the geometry from the last
+  // run's entity ids.
+  function nestReadParams() {
     const spacing = Math.max(0, parseFloat(document.getElementById('nest-spacing').value) || 0);
     // Grid snap: the NFP scanline step in mm (reference "Grid Snap", default
     // 4). Kept SEPARATE from spacing: spacing=0 must not shrink the scan step
@@ -11977,12 +12039,9 @@
     if (!isFinite(mutation)) mutation = 0.1;
     mutation = Math.min(1, Math.max(0, mutation));
     const infEl = document.getElementById('nest-infinite');
-    // The spec shape nestRun() takes: sheetLoops/objects plus the params.
     return {
-      sheetLoops: sel.sheetLoops, objects,
       spacing, gridMm, rotation, flip, popSize, generations, mutation,
-      infinite: infEl ? infEl.checked : false,
-      partLoops: sel.partLoops
+      infinite: infEl ? infEl.checked : false
     };
   }
 
@@ -12060,6 +12119,19 @@
       toast('Re-nest: geometri dari hasil sebelumnya sudah berubah — pilih loop lagi');
       return;
     }
+    // Re-nest honors the CURRENT panel parameters (spacing/grid/rotation/flip/
+    // GA sizes, infinite) while still resolving the geometry from the last
+    // run's entity ids — so editing Sp/Grid/… now takes effect without having
+    // to re-select the loops.
+    const params = nestReadParams();
+    spec.spacing = params.spacing;
+    spec.gridMm = params.gridMm;
+    spec.rotation = params.rotation;
+    spec.flip = params.flip;
+    spec.popSize = params.popSize;
+    spec.generations = params.generations;
+    spec.mutation = params.mutation;
+    spec.infinite = params.infinite;
     nestRun(spec);
   }
 
@@ -12078,6 +12150,7 @@
     ga.setAllowFlip(spec.flip);
     ga.setGAParams(spec.popSize, spec.generations, spec.mutation);
 
+    const nParts = entries.filter(e => e.lcolor !== '#00ff00').length;
     nestJob = {
       stateAtStart, entries, sheetLoop,
       sheetBounds: { minX: sxMin, minY: syMin, maxX: sxMax, maxY: syMax },
@@ -12086,14 +12159,14 @@
       variantAngles: nestRotationAngles(spec.rotation),
       flip: spec.flip,
       cancelled: false, running: true, done: 0, total: 1,
-      partsPerEval: spec.objects.length,
+      partsPerEval: nParts,
       evals: spec.popSize * (spec.generations + 1) + 1,
       infinite: !!spec.infinite, stopRequested: false,
       iteration: 1, best: null, seed: null,
       ga, gridSize: spec.gridMm * MiniSketchNest.GEOM_SCALE,
       t0: performance.now(), steps: 0, stepMsTotal: 0, stepMsMax: 0
     };
-    nestLog('start: ' + spec.objects.length + ' parts (' +
+    nestLog('start: ' + nParts + ' parts (' +
       spec.objects.reduce((n, o) => n + o.holeRecs.length, 0) + ' holes), sheet ' +
       Math.round(sxMax - sxMin) + '×' + Math.round(syMax - syMin) + ' mm, Sp=' + spec.spacing +
       ' Grid=' + spec.gridMm + ' Rot=' + spec.rotation + (spec.flip ? ' +flip' : '') +
@@ -12155,6 +12228,14 @@
               Math.round(job.stepMsTotal / Math.max(1, job.steps)) + ' ms, max ' +
               Math.round(job.stepMsMax) + ' ms' +
               (s ? ', ' + s.collisionChecks + ' collision checks, ' + s.evaluations + ' evals' : '') + ')');
+            // Paint 100% before finishing: the generator's final yield is
+            // consumed as `done` and handled below, so without this the bar
+            // freezes below full and (in infinite mode) resets to 0 before
+            // you ever see it complete.
+            if (job.total > 0) {
+              job.done = job.total;
+              nestPaintProgress();
+            }
             nestFinishGen(gen, n.value);
             return;
           }
@@ -12304,6 +12385,15 @@
     }
     const evalNum = Math.floor(nestJob.done / Math.max(1, nestJob.partsPerEval || 1)) + 1;
     const partNum = ((nestJob.done - 1) % Math.max(1, nestJob.partsPerEval || 1)) + 1;
+    // Per-eval UI trace: log once each time the displayed eval number changes.
+    if (NEST_DEBUG) {
+      if (nestJob._lastLogEval !== evalNum) {
+        nestJob._lastLogEval = evalNum;
+        console.log('[nest][ui] eval ' + evalNum + '/' + nestJob.evals + ' · part ' +
+          partNum + '/' + (nestJob.partsPerEval || 1) + ' · bar ' +
+          Math.round(100 * nestJob.done / Math.max(1, nestJob.total)) + '%');
+      }
+    }
     const head = nestJob.infinite
       ? '∞ iter ' + nestJob.iteration + (nestJob.best ? ' (best ' + Math.round(nestJob.best.blockW) + '×' + Math.round(nestJob.best.blockH) + ' mm)' : '') + ' · '
       : 'Nesting… ';
@@ -13743,12 +13833,25 @@
     const out = [];
     const srcTol = isFinite(+tol) ? +tol : 0.6;          // in source units
     const area = isFinite(+minArea) ? +minArea : 2;
+    // The tracer emits every hole boundary twice (once as the parent ring's
+    // hole subpath, once as a standalone path); stroking both draws double
+    // lines. Collapse those co-located duplicates here so the import and the
+    // preview agree. Guarded: tracing is optional, the rest must still work
+    // without the tracer loaded.
+    const T = window.MiniSketchTrace;
+    const dedup = T && typeof T.dedupeContours === 'function' ? T : null;
+    const seen = [];
     for (const raw of paths || []) {
       if (!raw || raw.length < 3) continue;
       let simp = rdpSimplify(raw.concat([raw[0]]), srcTol);
       if (simp.length > 3) simp.pop();
       if (simp.length < 3) continue;
       if (artArea(simp) < area) continue;                 // speckle
+      if (dedup) {
+        const sig = dedup.contourSignature(simp);
+        if (seen.some(s => dedup.similarContour(sig, s))) continue;
+        seen.push(sig);
+      }
       out.push(simp);
     }
     return out;
@@ -24697,6 +24800,29 @@ function cmdSplitCurve() {
         apply(collapsed);
         try { localStorage.setItem(KEY, collapsed ? '1' : '0'); } catch (err) { /* ignore */ }
         resize();
+      });
+    })();
+
+    // Collapse / expand the right-hand sidebar panels one-by-one, the same way
+    // the Settings groups do (details/summary). Each panel remembers its own
+    // open/closed state across reloads.
+    (function bindSidebarPanels() {
+      const host = document.getElementById('sidebar');
+      if (!host) return;
+      const KEY = 'minisketch.sidebar.open';
+      let state = null;
+      try { state = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (err) { state = null; }
+      const save = () => {
+        try {
+          localStorage.setItem(KEY, JSON.stringify(
+            [...host.querySelectorAll('details.panel')].map(d => ({ id: d.id || '_', open: d.open }))));
+        } catch (err) { /* private mode: just do not persist */ }
+      };
+      host.querySelectorAll('details.panel').forEach(det => {
+        const id = det.id || ('panel-' + Math.random().toString(36).slice(2, 8));
+        const hit = state && state.find(s => s.id === id);
+        if (hit) det.open = !!hit.open;
+        det.addEventListener('toggle', save);
       });
     })();
 

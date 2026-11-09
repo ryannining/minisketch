@@ -1931,8 +1931,42 @@ textarea:focus-visible {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 11px 12px;
   box-shadow: var(--shadow);
+  overflow: hidden;
+  /* As a flex item in the sidebar column, never shrink below the content:
+     overflow:hidden would otherwise drop min-height to 0 and clip the bottom
+     (e.g. the chat input row) instead of letting the sidebar scroll. */
+  flex-shrink: 0;
+}
+
+/* Collapsible panel (details/summary, like the Settings groups). The title is
+   the whole clickable header; the body holds the panel's content. */
+.panel-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-2);
+  padding: 11px 12px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;              /* hide the default disclosure triangle */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.panel-title::-webkit-details-marker { display: none; }
+.panel-title::before {
+  content: '\25B8';            /* collapsed marker */
+  font-size: 9px;
+  color: var(--faint);
+  order: -1;
+  flex: 0 0 auto;
+}
+details[open] > .panel-title::before { content: '\25BE'; }
+.panel-title:hover { color: var(--ink); }
+.panel-body {
+  padding: 0 12px 11px;
 }
 
 /* Nesting panel: one 6px progress bar under the controls */
@@ -1962,19 +1996,6 @@ textarea:focus-visible {
 #nest-panel input[type="number"],
 #nest-panel select {
   width: 52px;
-}
-
-.panel h3 {
-  margin: 0 0 9px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-2);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
 }
 
 .count {

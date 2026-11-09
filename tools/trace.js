@@ -199,6 +199,63 @@
     return trace(imgd, opts);
   }
 
+  // ---- duplicate-contour removal -----------------------------------------
+
+  // ImageTracerJS emits every interior (hole) boundary of an annular region
+  // TWICE: once as the hole subpath inside the parent ring's composite path,
+  // and once again as a standalone path. Because the two copies are sampled
+  // at different vertices, stroking both draws two near-parallel lines — the
+  // "double outline" seen on nested shapes. These helpers fingerprint a
+  // contour and identify that extra copy so it can be dropped.
+  //
+  // A contour is collapsed onto a few size/location invariants (centroid,
+  // bounding box, area). Two contours are the "same boundary" when those
+  // match within a small relative tolerance. Genuinely different boundaries
+  // (e.g. a ring's outer edge vs its hole) always differ in area enough to
+  // stay distinct, so a thin wall is never merged away.
+  function contourSignature(loop) {
+    let sx = 0, sy = 0, x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const p of loop || []) {
+      sx += p[0]; sy += p[1];
+      if (p[0] < x0) x0 = p[0];
+      if (p[0] > x1) x1 = p[0];
+      if (p[1] < y0) y0 = p[1];
+      if (p[1] > y1) y1 = p[1];
+    }
+    const n = (loop && loop.length) || 0;
+    let a = 0;
+    for (let i = 0; i < n; i++) {
+      const p = loop[i], q = loop[(i + 1) % n];
+      a += p[0] * q[1] - q[0] * p[1];
+    }
+    return { cx: n ? sx / n : 0, cy: n ? sy / n : 0, w: x1 - x0, h: y1 - y0, area: Math.abs(a) / 2 };
+  }
+
+  function similarContour(A, B) {
+    const size = Math.max(A.w, A.h, B.w, B.h, 1e-9);
+    if (size <= 0) return true;
+    if (Math.hypot(A.cx - B.cx, A.cy - B.cy) > 0.06 * size) return false;
+    if (Math.abs(A.w - B.w) > 0.06 * size) return false;
+    if (Math.abs(A.h - B.h) > 0.06 * size) return false;
+    const am = Math.max(A.area, B.area, 1e-9);
+    if (Math.abs(A.area - B.area) / am > 0.06) return false;
+    return true;
+  }
+
+  // Keep the first of any co-located cluster of contours; drop the rest.
+  function dedupeContours(loops) {
+    const seen = [];
+    const out = [];
+    for (const loop of loops || []) {
+      if (!loop || loop.length < 3) continue;
+      const sig = contourSignature(loop);
+      if (seen.some(s => similarContour(sig, s))) continue;
+      seen.push(sig);
+      out.push(loop);
+    }
+    return out;
+  }
+
   NS.OPTION_DEFAULTS = OPTION_DEFAULTS;
   NS.OPTION_LIMITS = OPTION_LIMITS;
   NS.normalizeOptions = normalizeOptions;
@@ -208,4 +265,7 @@
   NS.toImageData = toImageData;
   NS.trace = trace;
   NS.traceBlob = traceBlob;
+  NS.contourSignature = contourSignature;
+  NS.similarContour = similarContour;
+  NS.dedupeContours = dedupeContours;
 })();

@@ -54,6 +54,11 @@ class Path {
     this._cachedBounds = null;
     this.transformMatrix = [1, 0, 0, 1, 0, 0];
     this.childIndex = [];
+    // Cached x-sorted edge list for the collision sweep; rebuilt on any
+    // transform via _edgesDirty. Separate from bounds: edges are per-ring and
+    // consumed only by GeometryUtil.polygonsIntersectAt().
+    this._edges = null;
+    this._edgesDirty = false;
   }
 
   getBounds() {
@@ -99,6 +104,33 @@ class Path {
 
   invalidateBounds() {
     this._cachedBounds = null;
+    this._edgesDirty = true;
+  }
+
+  // X-sorted edge list of the first ring (closed). The collision test sweeps
+  // two of these so the O(n*m) edge-pair scan becomes ~O(n+m+hit) on average —
+  // the single biggest speedup for high-vertex traced parts.
+  getSortedEdges() {
+    if (this._edges && !this._edgesDirty) return this._edges;
+    const pts = this.paths[0];
+    const n = pts ? pts.length : 0;
+    const edges = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const p1 = pts[i];
+      const p2 = pts[(i + 1) % n];
+      const x1 = p1.x, y1 = p1.y, x2 = p2.x, y2 = p2.y;
+      edges[i] = {
+        x1, y1, x2, y2,
+        minX: x1 < x2 ? x1 : x2,
+        maxX: x1 > x2 ? x1 : x2,
+        minY: y1 < y2 ? y1 : y2,
+        maxY: y1 > y2 ? y1 : y2
+      };
+    }
+    edges.sort((a, b) => a.minX - b.minX);
+    this._edges = edges;
+    this._edgesDirty = false;
+    return edges;
   }
 
   translate(dx, dy) {
@@ -114,6 +146,7 @@ class Path {
       this._cachedBounds.x += dx;
       this._cachedBounds.y += dy;
     } else this.invalidateBounds();
+    this._edgesDirty = true;
     return this;
   }
 
@@ -387,28 +420,29 @@ const GeometryUtil = {
       if (pointInPolygonOffset(pt.x, pt.y, path1, dx, dy)) return true;
     }
 
+    // Edge-sweep intersection. Both rings' edges are kept x-sorted (cached on
+    // the Path), so we slide over poly2's edges as poly1's min-x advances and
+    // test only pairs whose x- and y-ranges overlap. poly1 is conceptually
+    // offset by (dx, dy) — applied on the fly, no translated copy is built.
+    // This is the same pair set the old doubly-nested loop tested, but it
+    // turns O(n*m) into ~O(n+m+hit) on average for many-vertex parts.
+    const edges1 = poly1.getSortedEdges();
+    const edges2 = poly2.getSortedEdges();
+    const m = edges2.length;
+    let j = 0;
     for (let i = 0; i < len1; i++) {
-      const p1 = path1[i];
-      const p1x = p1.x + dx;
-      const p1y = p1.y + dy;
-      const p2 = path1[i === last1 ? 0 : i + 1];
-      const p2x = p2.x + dx;
-      const p2y = p2.y + dy;
-      const s1minX = p1x < p2x ? p1x : p2x;
-      const s1maxX = p1x > p2x ? p1x : p2x;
-      const s1minY = p1y < p2y ? p1y : p2y;
-      const s1maxY = p1y > p2y ? p1y : p2y;
-      for (let j = 0; j < len2; j++) {
-        const p3 = path2[j];
-        const p4 = path2[j === last2 ? 0 : j + 1];
-        const p3x = p3.x, p3y = p3.y, p4x = p4.x, p4y = p4.y;
-        const s2minX = p3x < p4x ? p3x : p4x;
-        const s2maxX = p3x > p4x ? p3x : p4x;
-        const s2minY = p3y < p4y ? p3y : p4y;
-        const s2maxY = p3y > p4y ? p3y : p4y;
-        if (s1maxX < s2minX || s2maxX < s1minX) continue;
-        if (s1maxY < s2minY || s2maxY < s1minY) continue;
-        if (lineSegmentsIntersectXY(p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y)) {
+      const e1 = edges1[i];
+      const e1minX = e1.minX + dx;
+      const e1maxX = e1.maxX + dx;
+      const e1minY = e1.minY + dy;
+      const e1maxY = e1.maxY + dy;
+      while (j < m && edges2[j].maxX < e1minX) j++;
+      for (let k = j; k < m; k++) {
+        const e2 = edges2[k];
+        if (e2.minX > e1maxX) break;
+        if (e1minY > e2.maxY || e2.minY > e1maxY) continue;
+        if (lineSegmentsIntersectXY(e1.x1 + dx, e1.y1 + dy, e1.x2 + dx, e1.y2 + dy,
+          e2.x1, e2.y1, e2.x2, e2.y2)) {
           return true;
         }
       }
@@ -595,6 +629,19 @@ class NFP2 {
   }
   setAllowFlip(allowFlip) { this.allowFlip = allowFlip; }
 
+  // Gravity-centered placement objective (lowest-gravity-center policy): among
+  // valid non-colliding candidate offsets, prefer the one whose centroid sits
+  // as low and as left as possible. Centers the ordering on the part's actual
+  // middle instead of its top edge, giving tighter vertical stacking for
+  // irregular shapes. Score grows with positive y/x, so *lower* is better;
+  // hole-bearing variants carry a penalty to keep them out of the plain field
+  // (they are allowed back only via insideBonus).
+  _gravityScore(b, dx, dy, holePenalty) {
+    const cx = b.x + b.width / 2;
+    const cy = b.y + b.height / 2;
+    return (cy + dy) * 2 + (cx + dx) * 0.1 + holePenalty;
+  }
+
   findBestPosition(parts, sheet, progressHandler, gridSize, initialPlacements = []) {
     const startTime = performance.now();
     const scaledGridSize = gridSize;
@@ -765,7 +812,7 @@ class NFP2 {
 
           if (x < 0 || y < 0 || x + b.width > sheet.width || y + b.height > sheet.height) continue;
 
-          const score = (y + b.height * 2) * 2 + (x * 0.1) + (variant.paths.length > 1 ? 1000 * GEOM_SCALE : 0);
+          const score = this._gravityScore(b, dx, dy, variant.paths.length > 1 ? 1000 * GEOM_SCALE : 0);
           // Deviation from the reference: when the sheet has placed parts with
           // holes, a candidate that fits fully inside a hole earns insideBonus
           // (10000 * GEOM_SCALE) which crushes any plain score — but the
@@ -809,14 +856,14 @@ class NFP2 {
       if (edgeCandidates.length > K) {
         const vb = part.variants[0].getBounds();
         for (const pos of edgeCandidates) {
-          pos._score = ((pos.y + vb.y) + vb.height * 2) * 2 + ((pos.x + vb.x) * 0.1);
+          pos._score = this._gravityScore(vb, pos.x, pos.y, 0);
         }
         edgeCandidates.sort((p, q) => p._score - q._score);
         edgeCandidates.length = K;
       }
       for (let pos of edgeCandidates) {
         const b = part.variants[0].getBounds();
-        const score = ((pos.y + b.y) + b.height * 2) * 2 + ((pos.x + b.x) * 0.1);
+        const score = this._gravityScore(b, pos.x, pos.y, 0);
         if (score < bestScore) {
           if (!this.checkCollisions(part.variants[0], pos.x, pos.y, sheetParts)) {
             bestPlacement = part.variants[0].clone(pos.x, pos.y);
@@ -874,12 +921,28 @@ class NFP2 {
       vSamples.push({ x: pb.x + pW / 2, y: pb.y + pH / 2 });
     }
 
+    // Budget-bound candidate generation. Naively every placed vertex x the
+    // sample offsets would yield tens of thousands of candidates for traced
+    // parts — only to be sorted and truncated to K=200 in
+    // findBestNFPPlacement. Adapt the sampling stride so the generated set
+    // stays near a fixed budget while still spread across all placed contours.
+    const MAX_VERT_CANDIDATES = 4000;
+    const samplesPerVertex = vSamples.length || 1;
+    const maxVerts = Math.max(1, Math.floor(MAX_VERT_CANDIDATES / samplesPerVertex));
+    let totalVerts = 0;
+    for (const placed of placedParts) {
+      if (placed.lcolor === '#00ff00') continue;
+      for (const path of placed.paths) totalVerts += path.length;
+    }
+    const baseVSkip = Math.max(1, Math.floor(gridSize / (2 * GEOM_SCALE)));
+    const budgetStride = totalVerts > maxVerts ? Math.ceil(totalVerts / maxVerts) : 1;
+    const vSkip = Math.max(baseVSkip, budgetStride);
+
     for (const placed of placedParts) {
       if (placed.lcolor === '#00ff00') continue;
       for (const path of placed.paths) {
         const len = path.length;
         if (len < 2) continue;
-        const vSkip = Math.max(1, Math.floor(gridSize / (2 * GEOM_SCALE)));
         for (let i = 0; i < len; i += vSkip) {
           const pt = path[i];
           for (const v of vSamples) {
@@ -995,6 +1058,12 @@ class NFPGA {
     this.popSize = 6;
     this.generations = 5;
     this.mutationRate = 0.1;
+    // #7 — fitness objective: 'area' (bounding-box area, default) or 'strip'
+    // (fixed-width strip stock: minimize used height, width only breaks ties).
+    this.fitnessMode = 'area';
+    // #6 — hill-climb local-search budget (pairwise order swaps) applied to the
+    // best chromosome after the GA converges. 0 disables it.
+    this.localSearchBudget = 24;
   }
 
   setSpacing(spacing) {
@@ -1008,6 +1077,14 @@ class NFPGA {
     if (popSize > 1) this.popSize = Math.floor(popSize);
     if (generations > 0) this.generations = Math.floor(generations);
     if (mutationRate >= 0 && mutationRate <= 1) this.mutationRate = mutationRate;
+  }
+
+  setFitnessMode(mode) {
+    if (mode === 'strip' || mode === 'area') this.fitnessMode = mode;
+  }
+
+  setLocalSearchBudget(budget) {
+    if (budget >= 0) this.localSearchBudget = Math.floor(budget);
   }
 
   // ---- pure permutation helpers (no geometry here) ----
@@ -1185,13 +1262,18 @@ class NFPGA {
       yield { done: partStep, total: placeableCount, evalsDone };
     }
 
-    let area = 0;
+    let fit = 0;
     if (placed.length > 0) {
       const b = dec.calculateTotalBounds(placed);
-      area = b.width * b.height;
+      if (this.fitnessMode === 'strip') {
+        // Fixed-width strip objective: minimize used height; width breaks ties.
+        fit = b.height * 1000000 + b.width;
+      } else {
+        fit = b.width * b.height;
+      }
     }
     ctx.stats.collisionChecks += dec.performanceStats.collisionChecks || 0;
-    return { placements: placed, fitness: area + unplacedArea, unplaced: unplaced, unplacedArea: unplacedArea };
+    return { placements: placed, fitness: fit + unplacedArea, unplaced: unplaced, unplacedArea: unplacedArea };
   }
 
   _evaluate(ind, ctx) {
@@ -1199,6 +1281,33 @@ class NFPGA {
     let n;
     do { n = gen.next(); } while (!n.done);
     return n.value;
+  }
+
+  // #6 — bounded hill-climb local search around `ind`. Neighborhood: pairwise
+  // order swaps (with occasional rotation flips). Each trial is one full
+  // decode; the best-improving move is kept. Returns the best individual and
+  // its evaluation. Bounded by `budget` trials and the optional shouldCancel.
+  _localSearch(ind, ctx, budget, shouldCancel) {
+    let bestInd = ind;
+    let bestR = this._evaluate(ind, ctx);
+    const n = ind.order.length;
+    let trials = 0;
+    while (trials < budget) {
+      if (shouldCancel && shouldCancel()) break;
+      const a = (Math.random() * n) | 0;
+      let b = (Math.random() * n) | 0;
+      if (a === b) b = (b + 1) % n;
+      const order = ind.order.slice();
+      const t = order[a]; order[a] = order[b]; order[b] = t;
+      const candidate = { order, rots: ind.rots };
+      const r = this._evaluate(candidate, ctx);
+      trials++;
+      if (r.fitness < bestR.fitness) {
+        bestR = r;
+        bestInd = candidate;
+      }
+    }
+    return { ind: bestInd, result: bestR, trials };
   }
 
   /**
@@ -1312,18 +1421,22 @@ class NFPGA {
     // evalsDone here counts COMPLETED evaluations (bumped when the sub-gen
     // returns); the caller's progress fraction uses evalsDone + partStep/total.
     function* runEval(nfpga, ind, ctx2, evalsDoneRef) {
-      const gen = nfpga._evaluateGen(ind, ctx2, evalsDoneRef.v);
+      const evIdx = evalsDoneRef.v;
+      console.log('[nest][eval] eval ' + evIdx + ' START (' + (totalEvals - evIdx) + ' remaining)');
+      const gen = nfpga._evaluateGen(ind, ctx2, evIdx);
       let sub;
       for (;;) {
         if (shouldCancel && shouldCancel()) return null;
         sub = gen.next();
         if (sub.done) break;
         yield {
-          eval: evalsDoneRef.v, part: sub.value.done, parts: sub.value.total,
-          done: evalsDoneRef.v * placeables.length + sub.value.done, total: totalSteps
+          eval: evIdx, part: sub.value.done, parts: sub.value.total,
+          done: evIdx * placeables.length + sub.value.done, total: totalSteps
         };
       }
       evalsDoneRef.v++;
+      console.log('[nest][eval] eval ' + evIdx + ' DONE' +
+        (sub.value ? ' fit=' + Number(sub.value.fitness).toFixed(3) : ' (null)'));
       return sub.value;
     }
     const evalsRef = { v: 0 };
@@ -1353,6 +1466,7 @@ class NFPGA {
       const ELITES = Math.min(2, pop.length);
       let gen;
       for (gen = 0; gen < this.generations; gen++) {
+        console.log('[nest][gen] generation ' + gen + ' start (pop=' + pop.length + ')');
         const ranked = pop.map((o, i) => i).sort((a, b) => fits[a] - fits[b]);
         const next = [];
         for (let e = 0; e < ELITES; e++) next.push(pop[ranked[e]]);
@@ -1387,11 +1501,13 @@ class NFPGA {
         evalsDone = evalsRef.v;
         stats.evaluations = evalsDone;
         fits = newFits;
+        console.log('[nest][gen] generation ' + gen + ' done (evals=' + evalsDone + ')');
       }
       stats.generations = gen;
     }
 
     let result;
+    let lsTrials = 0;
     if (cancelled) {
       result = bestResult; // best-so-far (baseline completed first unless cancelled before it)
       if (!result) return { placements: [], fitness: Infinity, unplaced: placeables.length, stats, cancelled: true };
@@ -1402,25 +1518,39 @@ class NFPGA {
         result = bestResult;
         cancelled = true;
       } else {
-        const rGen = runEval(this, bestInd, ctx, evalsRef);
-        let r;
-        for (;;) {
-          if (shouldCancel && shouldCancel()) { cancelled = true; break; }
-          const y = rGen.next();
-          if (y.done) { r = y.value; break; }
-          yield { done: y.value.done, total: y.value.total };
+        // #6 — bounded hill-climb local search on the best chromosome before the
+        // final decode, so the returned packing is at least as good as the GA's
+        // winner and usually tighter.
+        let target = bestInd;
+        let r = null;
+        if (this.localSearchBudget > 0 && n > 1) {
+          console.log('[nest][ls] local search START (budget=' + this.localSearchBudget + ')');
+          const ls = this._localSearch(bestInd, ctx, this.localSearchBudget, shouldCancel);
+          target = ls.ind;
+          r = ls.result;
+          lsTrials = ls.trials;
+          console.log('[nest][ls] local search DONE (trials=' + ls.trials + ')');
+        }
+        if (!r) {
+          const rGen = runEval(this, target, ctx, evalsRef);
+          for (;;) {
+            if (shouldCancel && shouldCancel()) { cancelled = true; break; }
+            const y = rGen.next();
+            if (y.done) { r = y.value; break; }
+            yield { done: y.value.done, total: y.value.total };
+          }
         }
         if (cancelled || !r) {
           result = bestResult;
           cancelled = true;
         } else {
           result = r;
-          bestIndRef = bestInd;
+          bestIndRef = target;
         }
       }
     }
     evalsDone = evalsRef.v;
-    stats.evaluations = evalsDone;
+    stats.evaluations = evalsDone + lsTrials;
 
     stats.collisionChecks = ctx.stats.collisionChecks;
     stats.bestFitness = result ? result.fitness : Infinity;

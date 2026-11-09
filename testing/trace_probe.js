@@ -272,6 +272,75 @@ console.log('\n== the panel has no wasted space ==');
     /const s = Math\.min\(cw \/ pw, ch \/ ph\)/.test(appSrc));
 }
 
+// ---- duplicate contours (double outlines) are collapsed ------------------
+console.log('\n== duplicate contours (the alternating double outlines) are collapsed ==');
+{
+  // Mimic ImageTracerJS output for a concentric target: every interior (hole)
+  // boundary arrives twice — once as the parent ring's hole subpath and once
+  // as a standalone path — sampled at different vertices. The old behaviour
+  // stroked both copies, producing a double line on alternating nesting levels.
+  const circle = (cx, cy, r, n, phase) => {
+    const pts = [];
+    for (let k = 0; k < n; k++) {
+      const t = (k / n) * Math.PI * 2 + (phase || 0);
+      pts.push([Math.round((cx + r * Math.cos(t)) * 10) / 10,
+        Math.round((cy + r * Math.sin(t)) * 10) / 10]);
+    }
+    return pts;
+  };
+  const cx = 64, cy = 64;
+  const loops = [
+    circle(cx, cy, 57, 40),        // outer boundary of ring A
+    circle(cx, cy, 48, 32),        // hole of ring A
+    circle(cx, cy, 48, 36, 0.13), // SAME hole, resampled (duplicate)
+    circle(cx, cy, 38, 28),        // outer boundary of ring B
+    circle(cx, cy, 28, 24),        // hole of ring B
+    circle(cx, cy, 28, 20, 0.41), // SAME hole, resampled (duplicate)
+    circle(cx, cy, 18, 16)         // centre disk
+  ];
+
+  check('contourSignature reports the centroid',
+    (() => {
+      const s = T.contourSignature(circle(cx, cy, 48, 32));
+      return Math.abs(s.cx - cx) < 0.5 && Math.abs(s.cy - cy) < 0.5;
+    })());
+  check('contourSignature reports the area',
+    (() => {
+      const s = T.contourSignature(circle(cx, cy, 48, 32));
+      return Math.abs(s.area - Math.PI * 48 * 48) / (Math.PI * 48 * 48) < 0.02;
+    })());
+  check('two samplings of the same hole are treated as one contour',
+    (() => {
+      const a = T.contourSignature(circle(cx, cy, 48, 32));
+      const b = T.contourSignature(circle(cx, cy, 48, 36, 0.13));
+      return T.similarContour(a, b);
+    })());
+  check('the outer edge and its hole stay distinct',
+    (() => {
+      const a = T.contourSignature(circle(cx, cy, 57, 40));
+      const b = T.contourSignature(circle(cx, cy, 48, 32));
+      return !T.similarContour(a, b);
+    })());
+  check('a thin wall is not merged away',
+    (() => {
+      const a = T.contourSignature(circle(cx, cy, 50, 40)); // outer of a thin ring
+      const b = T.contourSignature(circle(cx, cy, 47, 40)); // its hole
+      return !T.similarContour(a, b);
+    })());
+
+  const deduped = T.dedupeContours(loops);
+  check('dedupeContours drops the repeated hole copies',
+    deduped.length === 5, 'got ' + deduped.length + ' contours');
+  check('the five distinct boundaries all survive',
+    (() => {
+      const radii = deduped.map(l => {
+        const s = T.contourSignature(l);
+        return Math.round(Math.sqrt(s.area / Math.PI));
+      }).sort((a, b) => a - b);
+      return JSON.stringify(radii) === JSON.stringify([18, 28, 38, 48, 57]);
+    })());
+}
+
 function finish() {
   console.log('\n' + (fail ? fail + ' FAILED, ' + pass + ' checks passed' : 'all ' + pass + ' checks passed'));
   process.exit(fail ? 1 : 0);
