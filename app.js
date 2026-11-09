@@ -9382,6 +9382,11 @@
     return { x: 0, y: 0 };
   }
   function loopDragMatrix(loop) {
+    // Circle loops draw their path from LIVE center/radius (circleData), so
+    // the fill already follows a dragged circle — applying a translation on
+    // top would double-move it. Only loops whose path comes from the frozen
+    // polygon cache (lines/splines) need the drag translation.
+    if (loop.circle) return null;
     const del = loopDragDelta(loop);
     if (!del.x && !del.y) return null;
     return new DOMMatrix([1, 0, 0, 1, del.x * view.zoom, del.y * view.zoom]);
