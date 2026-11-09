@@ -15767,7 +15767,20 @@
     // 1. objects copied in another MiniSketch window
     if (text.indexOf(CLIP_MARK) === 0) {
       ev.preventDefault();
-      if (importClipboardText(text)) {
+      // The OS clipboard may hold a STALE MiniSketch payload: this tab's copy
+      // write is async and can be blocked, so right after Ctrl+C the OS
+      // clipboard can still contain an older copy. If we copied something here
+      // very recently (and the OS payload is not strictly newer — e.g. from
+      // another tab), trust the fresh in-memory copy instead.
+      const hasMemFresh = !!(clipboard && clipboard.t && Date.now() - clipboard.t < 1500);
+      let osNewer = false;
+      try {
+        const parsed = JSON.parse(text.slice(CLIP_MARK.length));
+        osNewer = !!(parsed && parsed.t != null && clipboard && clipboard.t != null && parsed.t > clipboard.t);
+      } catch (err) { /* not parseable: treat as unknown age */ }
+      if (hasMemFresh && !osNewer && clipboard && (clipboard.entities.length || clipboard.points.length)) {
+        pasteClipboard();
+      } else if (importClipboardText(text)) {
         pasteClipboard();
       } else {
         toast('That clipboard payload could not be read');
