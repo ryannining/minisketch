@@ -145,7 +145,8 @@ measure-only.
 3. **Loop polygons hold coordinate copies**, never live `state.points`
    references — a live reference makes one vertex follow a later drag and the
    fill tears into a needle.
-4. **World is Y-up, canvas is Y-down** — convert only through `w2s`/`s2w`.
+4. **World is Y-down, like the canvas, SVG and KaryaCNC** — `w2s`/`s2w` are a
+   plain zoom+offset, no negation; +Y is down on screen.
 5. **`invalidateLoops()` is the single "geometry changed" hook.** It drops the
    loop cache and the point-use index. Any code that adds/removes entities,
    rewires points **or moves spline handles** (they change the sampled curve)

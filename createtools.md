@@ -143,7 +143,7 @@ examples: `tools/hinge.js:317-331`, `tools/wall.js:453-468`, `tools/slot.js:172-
       const color = api.ui.color;
       const madeIds = [];
       // emit(...): api.addPanelEntity(closedRing, color) / api.addPolylineEntity(twoPts, color)
-      // ...your geometry here, in world millimetres, Y up...
+      // ...your geometry here, in world millimetres, Y down...
       api.commit();
       if (!madeIds.length) { toast('My tool: nothing was built'); return; }
 
@@ -534,10 +534,13 @@ computed.
 
 ## 5. Geometry conventions that are not optional
 
-* **World millimetres, Y up.** Screen Y is flipped; convert with `api.s2w`.
+* **World millimetres, Y down** (screen/SVG/KaryaCNC convention): +X right, +Y
+  down, `w2s`/`s2w` are a plain zoom+offset with no negation.
 * **Colour is the machining operation**, not decoration — `app.js:48-57`:
   `#000000` cut, `#0000ff` engrave, `#00ffff` v-carve, `#800080` pocket,
-  `#ff0000` drill, `#00ff00` mark/construction (`CONSTRUCTION_COLOR`,
+  `#ff0000` marking line (low power, does not cut through; there is no drill
+  colour — a drilled hole is a black cut circle), `#00ff00` mark/construction
+  (`CONSTRUCTION_COLOR`,
   `:10271`), `#800000` cut tab, `#008080` start point. Use `api.ui.color` for
   real geometry (the user's current pick) and never green for anything that
   should be cut.

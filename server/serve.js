@@ -9,7 +9,8 @@
 // so an edit to app.js/styles.css shows up on the next pull-to-refresh.
 //
 // From another PC or phone: http://<ip-desktop-ini>:8090/
-// In MiniSketch settings, AI bridge URL: http://<host>:8090 (or http://localhost:8090 locally).
+// In MiniSketch settings, AI bridge URL may stay EMPTY: the app then uses its
+// own origin (http://<host>:8090). Fill it in only for a bridge elsewhere.
 
 const http = require('http');
 const fs = require('fs');
@@ -113,5 +114,5 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('minisketch server (statis + AI bridge) on:');
   console.log('  http://localhost:' + PORT + '/');
   for (const a of addrs) console.log('  http://' + a + ':' + PORT + '/');
-  console.log('  AI bridge URL: http://<host>:' + PORT + '  (endpoint /api/chat)');
+  console.log('  AI bridge: endpoint /api/chat di port yang sama — "AI bridge URL" di Settings boleh kosong');
 });

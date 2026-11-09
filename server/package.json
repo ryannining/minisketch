@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "description": "Optional local proxy between the MiniSketch AI chat tab and an OpenAI-compatible LLM. Holds the API key server-side.",
-  "main": "ai-bridge.js",
+  "main": "serve.js",
   "scripts": {
-    "start": "node ai-bridge.js"
+    "start": "node serve.js",
+    "bridge": "node ai-bridge.js"
   },
   "engines": {
     "node": ">=18"

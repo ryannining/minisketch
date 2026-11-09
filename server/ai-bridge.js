@@ -4,7 +4,10 @@
 //
 // Run:  node server/ai-bridge.js   (defaults below are used when env is empty;
 //   OPENAI_BASE_URL / OPENAI_API_KEY / MODEL env vars still override them)
-// Then open MiniSketch settings and set AI bridge URL to http://localhost:8787.
+// This standalone bridge listens on the SAME port as server/serve.js (8090),
+// so run one or the other, not both. Prefer serve.js: it serves the app too.
+// MiniSketch settings need no "AI bridge URL" then — empty means "the server
+// that served the app" (e.g. http://127.0.0.1:8090).
 
 'use strict';
 const http = require('http');
@@ -26,7 +29,9 @@ try {
   }
 } catch (err) { /* no .env: run on the built-in defaults */ }
 
-const PORT = +(process.env.AI_BRIDGE_PORT || 8787);
+// Same port as serve.js, whichever way the server is started: PORT (serve.js
+// also honours it) first, then the bridge-specific AI_BRIDGE_PORT.
+const PORT = +(process.env.PORT || process.env.AI_BRIDGE_PORT || 8090);
 
 // The API key belongs to whoever RUNS MiniSketch — it is not this project's
 // to ship. It arrives three ways, in this order:
@@ -147,8 +152,16 @@ function serializeUpstream(run) {
   return next;
 }
 
+// Users paste the base URL in whatever shape the provider's docs show it,
+// including a trailing slash or the full ".../v1/chat/completions". Both are
+// accepted here: appending the endpoint to an already-complete URL gave a 404
+// that looked like a dead provider.
+function normalizeBase(base) {
+  return String(base || '').trim().replace(/\/+$/, '').replace(/\/chat\/completions$/i, '');
+}
+
 function postUpstreamOnce(payload, register, cfg) {
-  const base = (cfg && cfg.base) || BASE;
+  const base = normalizeBase((cfg && cfg.base) || BASE);
   const key = (cfg && cfg.key) || KEY;
   return new Promise((resolve, reject) => {
     if (!base || !key) return reject(new Error('missing API key or base URL'));
@@ -350,7 +363,7 @@ function bridgeHandler(req, res) {
         if (stateSummary) console.log('  document   : ' + (stateSummary.entities || 0) + ' entities, ' +
           (stateSummary.loops || []).length + ' loops, selection ' + (stateSummary.selection || []).length);
         let sys = SYSTEM + (stateSummary
-          ? '\n\nCURRENT DOCUMENT (world mm, Y-up):\n' + JSON.stringify(stateSummary).slice(0, 4000)
+          ? '\n\nCURRENT DOCUMENT (world mm, Y-down: +X right, +Y down):\n' + JSON.stringify(stateSummary).slice(0, 4000)
           : '');
         const active = skillsFor(messages, input.requestedSkills);
         if (active.length) {
@@ -362,7 +375,7 @@ function bridgeHandler(req, res) {
         // then the settings pushed to the bridge, then the environment.
         const rs = (input && input.settings) || {};
         const cfg = {
-          base: String(rs.baseUrl || userSettings.baseUrl || BASE || '').replace(/\/+$/, ''),
+          base: normalizeBase(rs.baseUrl || userSettings.baseUrl || BASE),
           key: String(rs.apiKey || userSettings.apiKey || KEY || '').trim(),
           model: String(rs.model || userSettings.model || MODEL || '').trim()
         };
@@ -420,18 +433,30 @@ function bridgeHandler(req, res) {
         basePayload.onDelta = (d) => send({ delta: d });   // stripped before JSON (see postUpstreamOnce)
         let upstream;
         try {
-          upstream = await postUpstream({
-            ...basePayload,
-            thinking: { type: 'enabled' }
-          }, (r) => { upstreamReq = r; }, cfg);
-        } catch (err) {
-          if (clientGone) {
-            console.log('  upstream aborted (client gone) — nothing to answer');
-            return;
+          try {
+            upstream = await postUpstream({
+              ...basePayload,
+              thinking: { type: 'enabled' }
+            }, (r) => { upstreamReq = r; }, cfg);
+          } catch (err) {
+            if (clientGone) {
+              console.log('  upstream aborted (client gone) — nothing to answer');
+              return;
+            }
+            if (!/^upstream 400/.test(String(err && err.message))) throw err;
+            console.log('  upstream rejected the thinking flag — retrying without it');
+            upstream = await postUpstream(basePayload, (r) => { upstreamReq = r; }, cfg);
           }
-          if (!/^upstream 400/.test(String(err && err.message))) throw err;
-          console.log('  upstream rejected the thinking flag — retrying without it');
-          upstream = await postUpstream(basePayload, (r) => { upstreamReq = r; }, cfg);
+        } catch (err) {
+          if (clientGone) return;
+          const text = String(err && err.message || err);
+          console.log('  ERROR      : ' + text.slice(0, 300));
+          // The SSE status line (200) is already on the wire, so an HTTP error
+          // body would never be read by chat.js: the failure travels as an
+          // event on the same stream, otherwise the chat just hangs on "…".
+          send({ error: text });
+          res.end();
+          return;
         }
         const msg = (upstream.choices && upstream.choices[0] && upstream.choices[0].message) || {};
         // reasoning models (deepseek-r1 style) return their chain of thought in
@@ -465,8 +490,14 @@ function bridgeHandler(req, res) {
         // a disconnected client can no longer receive anything: do not attempt
         // to write headers on a dead socket (would throw ERR_HTTP_HEADERS_SENT)
         if (res.writableEnded || res.headersSent) {
-          console.log('  (response already closed: ' + String(err && err.message || err).slice(0, 120) + ')');
-          try { res.end(); } catch (e2) { /* socket already gone */ }
+          const text = String(err && err.message || err);
+          console.log('  (SSE already open, reporting as stream event: ' + text.slice(0, 120) + ')');
+          try {
+            if (!res.writableEnded) {
+              res.write('data: ' + JSON.stringify({ error: text }) + '\n\n');
+              res.end();
+            }
+          } catch (e2) { /* socket already gone */ }
           return;
         }
         console.log('  ERROR      : ' + String(err && err.message || err).slice(0, 300));
@@ -491,16 +522,16 @@ const server = http.createServer(bridgeHandler);
 server.on('error', (err) => {
   if (err && err.code === 'EADDRINUSE') {
     console.error('');
-    console.error('Port ' + PORT + ' sudah dipakai — kemungkinan ada ai-bridge lain yang masih jalan.');
+    console.error('Port ' + PORT + ' sudah dipakai — kemungkinan server/serve.js atau ai-bridge lain masih jalan.');
     console.error('Cari dan matikan proses lama, lalu jalankan lagi:');
     console.error('  ss -ltnp | grep ' + PORT + '          # lihat PID pemegang port');
-    console.error('  pkill -f "node server/ai-bridge.js"   # atau: kill <PID>');
-    console.error('Kalau yang jalan memang instance ini di terminal lain, gunakan itu saja.');
+    console.error('  pkill -f "node server/serve.js"       # atau: kill <PID>');
+    console.error('Kalau yang jalan memang server ini di terminal lain, gunakan itu saja.');
     process.exit(1);
   }
   throw err;
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log('minisketch ai-bridge on http://localhost:' + PORT + ' model=' + MODEL + ' tools=' + KNOWN.size);
 });

@@ -1,13 +1,13 @@
 {
   "name": "minisketch-ai-tools",
   "version": 1,
-  "description": "MiniSketch CAD tool manifest. Single source of truth for the AI chat tab, the ai-bridge server, and future MCP wrappers. Names use snake_case; the chat executor maps each to the camelCase toolApi() function in app.js. Units are world millimetres, Y-up. Coordinates are clamped to +/-10000.",
+  "description": "MiniSketch CAD tool manifest. Single source of truth for the AI chat tab, the ai-bridge server, and future MCP wrappers. Names use snake_case; the chat executor maps each to the camelCase toolApi() function in app.js. Units are world millimetres, Y-DOWN (screen/SVG/CNC convention: +X right, +Y down, so 'above' is a smaller/negative Y). Coordinates are clamped to +/-10000.",
   "colorLegend": {
-    "#000000": "Cut through (black) — the ONLY color for shapes the part keeps as separate pieces; drilled holes are black circles too",
-    "#0000ff": "Engrave (blue)",
+    "#000000": "Cut through (black) — the ONLY color for shapes the part keeps as separate pieces; drilled holes are black circles too. Follows the path, so open paths are allowed",
+    "#0000ff": "Engrave (blue) — AREA operation: the geometry MUST be a closed loop (an open blue path cannot be engraved)",
     "#00ffff": "V-carve (cyan)",
-    "#800080": "Pocket (purple)",
-    "#ff0000": "Marking line (red) — LOW POWER: scores the surface, does NOT cut through; never for outlines or holes",
+    "#800080": "Pocket (purple) — AREA operation: the boundary MUST be closed",
+    "#ff0000": "Marking line (red) — LOW POWER: scores the surface, does NOT cut through; never for outlines or holes. Follows the path, so open paths are allowed",
     "#00ff00": "Mark/construction (green, never machined, never grouped)",
     "#800000": "Cut tab (maroon)",
     "#008080": "Start point (teal)"
@@ -696,7 +696,7 @@
       "type": "function",
       "function": {
         "name": "get_svg",
-        "description": "Query: return the drawing as SVG markup. Prefer this over get_entities when you need to understand shape, position, size or nesting: you read SVG natively. Coordinates are Y-up world millimetres and every path carries the CNC operation colour as its stroke (see colorLegend). Use scope='selection' to get only what is currently selected and 'all' (default) for the whole document. Large drawings are capped at 60k characters and flagged with truncated=true.",
+        "description": "Query: return the drawing as SVG markup. Prefer this over get_entities when you need to understand shape, position, size or nesting: you read SVG natively. Coordinates are Y-down world millimetres, 1:1 with the world frame (nothing mirrored), and every path carries the CNC operation colour as its stroke (see colorLegend). Use scope='selection' to get only what is currently selected and 'all' (default) for the whole document. Large drawings are capped at 60k characters and flagged with truncated=true.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -720,7 +720,7 @@
       "type": "function",
       "function": {
         "name": "import_svg",
-        "description": "Create: insert a complete SVG drawing into the workspace as real vector entities (lines, splines, circles). This is the PREFERRED way to build anything with more than ~4 paths: write one SVG document (paths, circles, rects, lines) instead of many add_line/add_circle calls — far fewer tokens and one undo step. Coordinates: world millimetres, Y-up. Place with viewBox='0 0 W H' so 1 user unit = 1 mm; a plain width/height in mm also works. Stroke colours become the entity colours — use the colorLegend hex codes so the result is machinable. Fill attributes are decoration; outlines are what get imported.",
+        "description": "Create: insert a complete SVG drawing into the workspace as real vector entities (lines, splines, circles). This is the PREFERRED way to build anything with more than ~4 paths: write one SVG document (paths, circles, rects, lines) instead of many add_line/add_circle calls — far fewer tokens and one undo step. Coordinates: world millimetres, Y-down — an SVG is already in that frame, so write it normally and it lands unmirrored. Place with viewBox='0 0 W H' so 1 user unit = 1 mm; a plain width/height in mm also works. Stroke colours become the entity colours — use the colorLegend hex codes so the result is machinable. Fill attributes are decoration; outlines are what get imported.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -742,7 +742,7 @@
             },
             "yUp": {
               "type": "boolean",
-              "description": "true (default): read the SVG coordinates as Y-up world millimetres — write them the way you think, bottom-left origin, up is +Y; do NOT flip anything yourself. Set false ONLY when pasting back an SVG you got from get_svg (that export is Y-down)."
+              "description": "false (default): the SVG is Y-down, the same frame as the world, and is imported 1:1 — never flip coordinates yourself. Set true ONLY when the source was authored Y-up (origin bottom-left, +Y up — some CAD/plotter exports); the importer then mirrors it into the Y-down world. An SVG you got from get_svg is Y-down, so leave this false."
             },
             "keepGroups": {
               "type": "boolean",

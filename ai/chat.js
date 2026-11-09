@@ -3,7 +3,8 @@
 // Design notes (ARCHITECTURE.md):
 // - No build step, no modules: this file registers window.MiniSketchAI and the
 //   app.js hook `mountAiChat(api)` wires the panel created in index.html.
-// - Coordinates are world mm, Y-up. The bridge clamps to +/-10000 too.
+// - Coordinates are world mm, Y-down (+Y is down, the SVG/CNC convention). The
+//   bridge clamps to +/-10000 too.
 // - One chat turn = ONE undo step: the executor calls pushHistory() once,
 //   runs every op, then commit() (which does updateUI + render).
 // - Destructive ops (remove_entity, delete_selection) ask confirm() first.
@@ -386,7 +387,7 @@
           // useful about this answer lives in it.
           result: {
             scope, viewBox, bytes, truncated,
-            note: 'Y-up world millimetres; stroke colours are the CNC operations (see colorLegend). Paths are open polylines unless the shape closes.',
+            note: 'Y-down world millimetres, 1:1 with the world frame; stroke colours are the CNC operations (see colorLegend). Paths are open polylines unless the shape closes.',
             svg: truncated ? svg.slice(0, MAX) : svg
           }
         };
@@ -433,10 +434,11 @@
         try {
           ir = api.svgImportParse(text, {
             prefix: 'ai' + Date.now().toString(36) + '-',
-            // yUp (default true): the model writes coordinates as it thinks —
-            // bottom-left origin, +Y up — so import them that way, no flip.
-            // Only a verbatim get_svg export (Y-down) needs yUp:false.
-            flipY: a.yUp === false,
+            // The world is Y-down and so is SVG, so the default (yUp omitted or
+            // false) imports 1:1 — no mirror. yUp:true is only for a source
+            // authored bottom-left/+Y-up, which svgImportParse mirrors when it
+            // is handed flipY === false (its flag means "flip into Y-down").
+            flipY: a.yUp !== true,
             ...(isFinite(+a.scale) && +a.scale > 0 ? { scale: +a.scale } : {})
           });
         } catch (err) {
@@ -621,8 +623,16 @@
 
   // ---- chat flow -----------------------------------------------------------
   function bridgeUrl() {
-    try { return (api.settings.aiBridgeUrl || '').trim().replace(/\/+$/, ''); }
-    catch (err) { return ''; }
+    let set = '';
+    try { set = (api.settings.aiBridgeUrl || '').trim(); } catch (err) { set = ''; }
+    if (set) return set.replace(/\/+$/, '');
+    // No bridge URL set: the bridge lives on the SAME server that served the
+    // app (server/serve.js), so its origin is the default. file:// pages have
+    // no server behind them and stay in offline mode.
+    try {
+      if (/^https?:$/.test(location.protocol)) return location.origin.replace(/\/+$/, '');
+    } catch (err) { /* no location: offline */ }
+    return '';
   }
 
   async function send(text) {
@@ -642,7 +652,7 @@
       } else if (parsed) {
         pushLog('ai', parsed.reply);
       } else {
-        pushLog('ai', 'Isi AI bridge URL di Settings untuk jawaban AI, atau coba: "kotak 100x60", "lingkaran d50", "pindah 10,0", "hapus".');
+        pushLog('ai', 'Tidak ada bridge: jalankan "node server/serve.js" lalu buka http://127.0.0.1:8090 (atau isi AI bridge URL di Settings). Offline, command sederhana tetap jalan: "kotak 100x60", "lingkaran d50", "pindah 10,0", "hapus".');
       }
       renderLog();
       return;
@@ -742,7 +752,8 @@
           throw new Error((j && j.error) || ('bridge ' + res.status));
         }
         // The bridge streams SSE: {delta:{thinking|content}} events live while
-        // the model works, then one final {done, reply, thinking, tool_calls}.
+        // the model works, then one final {done, reply, thinking, tool_calls}
+        // — or {error} when the upstream call itself failed.
         let data = null;
         const reader = res.body.getReader();
         const dec = new TextDecoder();
@@ -759,6 +770,7 @@
             if (!line.startsWith('data:')) continue;
             let ev;
             try { ev = JSON.parse(line.slice(5)); } catch (err) { continue; }
+            if (ev.error) throw new Error(ev.error);
             if (ev.delta && ev.delta.thinking) {
               liveThink[round] = (liveThink[round] || '') + ev.delta.thinking;
               think[round] = liveThink[round];
