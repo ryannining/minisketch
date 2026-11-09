@@ -9226,24 +9226,17 @@
   let debugLoopsLogged = false;
 
   // Containment depth of a loop: how many other loops (strictly) contain it.
-  // This is a TOPOLOGY property, so it is cached by a structural key (loop
-  // count + per-loop flags/vertex/step counts) rather than by geometryEpoch —
-  // a drag only moves vertices, it does not change who contains whom, so the
-  // O(loops²) containment pass must not rerun every drag frame.
+  // This is a TOPOLOGY property, so it is cached per the EXACT loops array
+  // from getLoops() — a drag only moves vertices, it does not change who
+  // contains whom, so the O(loops²) containment pass must not rerun every
+  // drag frame. Keying by the array reference (instead of a structural string)
+  // guarantees the cache always matches the loops currently being drawn.
   let loopDepthCache = null;
-  let loopDepthKey = null;
-  function loopStructuralKey(loops) {
-    let k = loops.length;
-    for (const L of loops) {
-      k += '|' + (L.circle ? 1 : 0) + ':' + (L.steps ? L.steps.length : 0) + ':' + (L.poly ? L.poly.length : 0);
-    }
-    return k;
-  }
+  let loopDepthFor = null;
   function loopDepthOf(loop) {
     const loops = getLoops();
-    const sk = loopStructuralKey(loops);
-    if (loopDepthKey !== sk || !loopDepthCache) {
-      loopDepthKey = sk;
+    if (loopDepthFor !== loops || !loopDepthCache) {
+      loopDepthFor = loops;
       const map = new Map();
       for (const L of loops) {
         let d = 0;
