@@ -758,10 +758,20 @@ class NFP2 {
   findBestNFPPlacement(part, placedPartsAll, sheet, gridSize) {
     const sheetParts = placedPartsAll.filter(p => p.lcolor === '#00ff00');
     let bestPlacement = null;
+    // Phase timing (diagnostics): split scanline vs vertex-refine vs collision.
+    this.performanceStats = this.performanceStats || { scanMs: 0, vertMs: 0, collMs: 0 };
+    const tScan = performance.now();
     let bestScore = Infinity;
     // timing instrumentation: where does a part's placement search spend its
     // time? Logged from _evaluateGen when NEST_TIMING is on.
     const t0 = performance.now();
+    // Hard budget per placement: once a valid placement exists, stop refining
+    // further when we exceed this wall-clock budget. Dense packing (many
+    // placed parts + holes) can make a single placement search take many
+    // seconds synchronously — which freezes the progress UI. The budget caps
+    // the worst case to ~1s while still returning a valid (if not perfectly
+    // lowest) placement for every part.
+    const PLACE_BUDGET_MS = 1200;
     let candidates = 0, collisions = 0;
 
     // 1. Scanline-based search (top-first, then left).
@@ -836,9 +846,10 @@ class NFP2 {
         }
       }
       // Stop evaluation if we have a very solid result at the top.
-      if (bestPlacement && y > sheet.height / 3) break;
+      if (bestPlacement && (y > sheet.height / 3 || performance.now() - t0 > PLACE_BUDGET_MS)) break;
     }
 
+    const tVertPhase = performance.now();
     // 2. Vertex refinement pass.
     // DOMINANT COST: with text-traced parts (hundreds of points each), the
     // raw candidate list is every placed vertex x 6-9 samples = tens of
@@ -862,6 +873,7 @@ class NFP2 {
         edgeCandidates.length = K;
       }
       for (let pos of edgeCandidates) {
+        if (bestPlacement && performance.now() - t0 > PLACE_BUDGET_MS) break;
         const b = part.variants[0].getBounds();
         const score = this._gravityScore(b, pos.x, pos.y, 0);
         if (score < bestScore) {
@@ -875,7 +887,11 @@ class NFP2 {
 
     // timing: accumulate instead of spamming — the GA constructor exposes a
     // per-run summary via getPerformanceStats() so the console stays readable.
-    this._lastPlaceMs = (this._lastPlaceMs || 0) + (performance.now() - t0);
+    const tNow = performance.now();
+    const tVert = (typeof tVertPhase !== 'undefined') ? tVertPhase : tNow;
+    this.performanceStats.scanMs += tVert - tScan;
+    this.performanceStats.vertMs += tNow - tVert;
+    this._lastPlaceMs = (this._lastPlaceMs || 0) + (tNow - t0);
     this._lastPlaceCount = (this._lastPlaceCount || 0) + 1;
     return bestPlacement;
   }
