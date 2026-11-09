@@ -156,7 +156,8 @@
     CANVAS_DARK[key.toLowerCase().replace(/\s+/g, '')] = CANVAS_DARK_RAW[key];
   }
   let themeName = 'dark';
-  let renderBackendName = 'canvas';      // 'canvas' | 'webgl' (settings → Renderer)
+  let loopFillVisible = true;            // settings → Renderer → Loop fills
+  let loopFillScale = 0.5;              // settings → Renderer → Loop fill resolution
 
   function themedCanvasColor(v) {
     if (themeName !== 'dark') return v;
@@ -1189,9 +1190,12 @@
       help: 'Base colour for the explicit Yellow loop fill (CNC).' },
     { group: 'Renderer', key: 'loopTintGray', label: 'Loop fill · gray', unit: '', text: true, def: '#8a94a3',
       help: 'Base colour for the explicit Gray loop fill (CNC).' },
-    { group: 'Renderer', key: 'renderBackend', label: 'Render backend', unit: '',
-      def: 'canvas', choices: [['canvas', 'Canvas 2D'], ['webgl', 'WebGL']],
-      help: 'Which renderer drives the drawing canvas. Canvas 2D is the default and stable. WebGL is experimental: it offloads the large area passes (background, loop fills, loop tint) to the GPU; strokes/markers still draw on the 2D overlay. Switch here to A/B the drag frame time.' },
+    { group: 'Renderer', key: 'loopFillVisible', label: 'Loop fills', unit: '',
+      def: 'on', choices: [['on', 'On'], ['off', 'Off']],
+      help: 'Draw the interior tint / gray-yellow fill of loops. Turning this off removes the largest area pass for a quick A/B of drag frame time — with it off you see what the rest of the scene alone costs.' },
+    { group: 'Renderer', key: 'loopFillScale', label: 'Loop fill resolution', unit: '%',
+      def: '50', choices: [['100', '100'], ['75', '75'], ['50', '50'], ['33', '33']],
+      help: 'Resolution of the offscreen loop-fill layer relative to the canvas. Fills are flat solid areas, so 50% renders a quarter of the fill pixels and is visually indistinguishable — this is the cheapest dial for drag speed (the loop fill is the biggest pass). Strokes/markers are unaffected.' },
     { group: 'Geometry', key: 'bakeJoinTol', label: 'Chain tolerance', unit: 'mm',
       def: 0.1, min: 0.001, max: 5, step: 0.01,
       help: 'Ends closer than this become one node when grouping (Ctrl+G) or offsetting (Ctrl+O).' },
@@ -1412,7 +1416,8 @@
     setTint('sel', 'loopTintSel', '#2563eb');
     setTint('yellow', 'loopTintYellow', '#eab308');
     setTint('gray', 'loopTintGray', '#8a94a3');
-    renderBackendName = settings.renderBackend === 'webgl' ? 'webgl' : 'canvas';
+    loopFillVisible = settings.loopFillVisible !== 'off';
+    loopFillScale = clamp(Number(settings.loopFillScale) || 50, 10, 100) / 100;
     SPLINE_SEG = settings.splineSeg;
     ARC_SEG = settings.arcSeg;
     CIRCLE_CHORD = settings.circleChord;
@@ -9204,167 +9209,6 @@
     return 'rgb(' + m(r) + ',' + m(g) + ',' + m(b) + ')';
   }
 
-  // ---- WebGL backend (fills only) ---------------------------------------
-  // The 2D rasterizer spends ~85% of its time on the loop-fill pass (big
-  // filled areas written to an offscreen layer every frame). WebGL offloads
-  // just that pass: a dedicated GL canvas sits BELOW the main 2D canvas, is
-  // cleared to the page background, and receives the fill triangles; the 2D
-  // canvas paints strokes / markers / text on top with a transparent
-  // background. Selected via Settings → Renderer → renderBackend.
-  let glB = null;
-  function triangulatePoly(pts) {
-    // Ear-clipping for a simple polygon (pts: {x,y}[], no repeated closing
-    // vertex). Returns flat index triples.
-    const n = pts.length;
-    if (n < 3) return [];
-    let sum = 0;
-    for (let i = 0; i < n; i++) {
-      const a = pts[i], b = pts[(i + 1) % n];
-      sum += (b.x - a.x) * (b.y + a.y);
-    }
-    const ccw = sum > 0;
-    const idx = [];
-    for (let i = 0; i < n; i++) idx.push(i);
-    const out = [];
-    const area = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
-    const convex = (a, b, c) => ccw ? area(a, b, c) > 1e-12 : area(a, b, c) < -1e-12;
-    const inTri = (p, a, b, c) => {
-      const d1 = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
-      const d2 = (c.x - b.x) * (p.y - b.y) - (c.y - b.y) * (p.x - b.x);
-      const d3 = (a.x - c.x) * (p.y - c.y) - (a.y - c.y) * (p.x - c.x);
-      const neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
-      const pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
-      return !(neg && pos);
-    };
-    let guard = n * n + 16;
-    while (idx.length > 3 && guard-- > 0) {
-      let clipped = false;
-      for (let i = 0; i < idx.length && !clipped; i++) {
-        const i0 = (i + idx.length - 1) % idx.length, i1 = i, i2 = (i + 1) % idx.length;
-        const a = pts[idx[i0]], b = pts[idx[i1]], c = pts[idx[i2]];
-        if (!convex(a, b, c)) continue;
-        let ok = true;
-        for (let j = 0; j < idx.length; j++) {
-          if (j === i0 || j === i1 || j === i2) continue;
-          if (inTri(pts[idx[j]], a, b, c)) { ok = false; break; }
-        }
-        if (!ok) continue;
-        out.push(idx[i0], idx[i1], idx[i2]);
-        idx.splice(i, 1);
-        clipped = true;
-      }
-      if (!clipped) {
-        for (let i = 1; i < idx.length - 1; i++) out.push(idx[0], idx[i], idx[i + 1]);
-        break;
-      }
-    }
-    if (idx.length === 3) out.push(idx[0], idx[1], idx[2]);
-    return out;
-  }
-  function glColor4(css) {
-    // 'rgb(r,g,b)' -> [r,g,b], 1] ; 'rgba(r,g,b,a)' -> [..., a]
-    const m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)$/.exec(css || '');
-    if (!m) return [0.5, 0.5, 0.5, 1];
-    return [+m[1] / 255, +m[2] / 255, +m[3] / 255, m[4] == null ? 1 : +m[4]];
-  }
-  function hexToRgb01(hex) {
-    if (!/^#[0-9a-fA-F]{6}$/.test(hex || '')) return [1, 1, 1];
-    return [parseInt(hex.slice(1, 3), 16) / 255,
-      parseInt(hex.slice(3, 5), 16) / 255,
-      parseInt(hex.slice(5, 7), 16) / 255];
-  }
-  function cssToRgba(css, a) {
-    const m = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(css || '');
-    if (m) return 'rgba(' + m[1] + ',' + m[2] + ',' + m[3] + ',' + a + ')';
-    return css;
-  }
-  function ensureGL() {
-    if (glB) return glB;
-    const main = document.getElementById('canvas');
-    if (!main || !main.parentNode) { glB = { ok: false }; return glB; }
-    const c = document.createElement('canvas');
-    c.id = 'canvas-gl';
-    c.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:2;';
-    main.parentNode.insertBefore(c, main);
-    // keep the 2D canvas above the GL fill layer (both absolute inset:0;
-    // #canvas already sets position through CSS, so only lift its z-index)
-    try { main.style.zIndex = '5'; } catch (err) { /* ignore */ }
-    const gl = c.getContext('webgl2') || c.getContext('webgl');
-    if (!gl) { glB = { ok: false }; return glB; }
-    const vs = 'attribute vec2 aPos;uniform vec2 uRes;void main(){gl_Position=vec4(aPos.x*2.0/uRes.x-1.0, 1.0-aPos.y*2.0/uRes.y, 0.0, 1.0);}';
-    const fs = 'precision mediump float;uniform vec4 uColor;void main(){gl_FragColor=uColor;}';
-    const mk = (type, src) => {
-      const s = gl.createShader(type);
-      gl.shaderSource(s, src); gl.compileShader(s);
-      return s;
-    };
-    const prog = gl.createProgram();
-    gl.attachShader(prog, mk(gl.VERTEX_SHADER, vs));
-    gl.attachShader(prog, mk(gl.FRAGMENT_SHADER, fs));
-    gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-      glB = { ok: false };
-      return glB;
-    }
-    gl.useProgram(prog);
-    const aPos = gl.getAttribLocation(prog, 'aPos');
-    const uRes = gl.getUniformLocation(prog, 'uRes');
-    const uColor = gl.getUniformLocation(prog, 'uColor');
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.enableVertexAttribArray(aPos);
-    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    glB = { ok: true, gl, canvas: c, aPos, uRes, uColor, buf, prog };
-    return glB;
-  }
-  function glBeginFrame() {
-    const b = ensureGL();
-    if (!b.ok) return;
-    const gw = Math.max(1, Math.round(W * DPR)), gh = Math.max(1, Math.round(H * DPR));
-    if (b.canvas.width !== gw || b.canvas.height !== gh) {
-      b.canvas.width = gw;
-      b.canvas.height = gh;
-    }
-    b.gl.viewport(0, 0, gw, gh);
-    b.gl.uniform2f(b.uRes, gw, gh);
-    const bg = hexToRgb01(themedCanvasColor('#ffffff'));
-    b.gl.clearColor(bg[0], bg[1], bg[2], 1);
-    b.gl.clear(b.gl.COLOR_BUFFER_BIT);
-  }
-  function glFillGroups(groups) {
-    const b = ensureGL();
-    if (!b.ok) return;
-    const gl = b.gl;
-    const gw = b.canvas.width, gh = b.canvas.height;
-    const kx = gw / W, ky = gh / H;
-    gl.useProgram(glB.prog || gl.getParameter(gl.CURRENT_PROGRAM));
-    gl.bindBuffer(gl.ARRAY_BUFFER, b.buf);
-    gl.enableVertexAttribArray(b.aPos);
-    gl.vertexAttribPointer(b.aPos, 2, gl.FLOAT, false, 0, 0);
-    for (const [, g] of groups) {
-      if (!g.verts || !g.verts.length) continue;
-      const tris = [];
-      for (const poly of g.verts) {
-        const idx = triangulatePoly(poly);
-        for (let t = 0; t < idx.length; t += 3) {
-          const a = poly[idx[t]], b = poly[idx[t + 1]], c = poly[idx[t + 2]];
-          tris.push(a.x * kx, a.y * ky, b.x * kx, b.y * ky, c.x * kx, c.y * ky);
-        }
-      }
-      if (!tris.length) continue;
-      gl.uniform4fv(b.uColor, new Float32Array(glColor4(g.fill)));
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tris), gl.DYNAMIC_DRAW);
-      gl.drawArrays(gl.TRIANGLES, 0, tris.length / 2);
-    }
-  }
-  function glSetVisible(vis) {
-    const b = ensureGL();
-    if (b.canvas) b.canvas.style.display = vis ? '' : 'none';
-  }
-
-
   // ALL loop fills render into one offscreen layer, cached per
   // (geometry, camera, dim, active layer, canvas size): fills only change when
   // the geometry or the camera changes — hover / selection / marker drags do
@@ -9404,22 +9248,18 @@
   }
 
   function drawLoopFills() {
-    if (renderBackendName === 'webgl' && ensureGL().ok) {
-      drawLoopFillsGL();
-      return;
-    }
     if (!debugFillsInvoked) {
       debugFillsInvoked = true;
       console.log('[fill] drawLoopFills invoked (not fast-mode)');
     }
     const key = geometryEpoch + '|' + themeName + '|' + view.zoom + '|' + view.ox + '|' + view.oy + '|' +
-      DPR + '|' + (ui.dimOthers ? 1 : 0) + '|' + ui.activeLayer + '|' + W + 'x' + H;
+      DPR + '|' + loopFillScale + '|' + (ui.dimOthers ? 1 : 0) + '|' + ui.activeLayer + '|' + W + 'x' + H;
     if (!loopFillLayer) {
       loopFillLayer = document.createElement('canvas');
       loopFillLayerCtx = loopFillLayer.getContext('2d');
     }
-    const pw = Math.max(1, Math.round(W * DPR));
-    const ph = Math.max(1, Math.round(H * DPR));
+    const pw = Math.max(1, Math.round(W * DPR * loopFillScale));
+    const ph = Math.max(1, Math.round(H * DPR * loopFillScale));
     if (loopFillLayer.width !== pw || loopFillLayer.height !== ph) {
       loopFillLayer.width = pw;
       loopFillLayer.height = ph;
@@ -9427,7 +9267,7 @@
     }
     if (loopFillLayerKey !== key) {
       const lc = loopFillLayerCtx;
-      lc.setTransform(DPR, 0, 0, DPR, 0, 0);
+      lc.setTransform(DPR * loopFillScale, 0, 0, DPR * loopFillScale, 0, 0);
       lc.clearRect(0, 0, W, H);
       const allLoops = getLoops();
       // DEBUG: always report the build (once per geometry epoch) so we can see
@@ -9484,33 +9324,6 @@
     ctx.drawImage(loopFillLayer, 0, 0, W, H);
   }
 
-  // WebGL flavour of the fill pass: same group semantics, but geometry is
-  // triangulated and drawn on the GPU instead of an offscreen 2D layer.
-  function drawLoopFillsGL() {
-    const groups = new Map();
-    for (const loop of getLoops()) {
-      const d = loopFrameData(loop);
-      if (d.fill === 'none' || !d.visible || !d.path) continue;
-      const fade = ui.dimOthers && loopLayerId(loop) !== ui.activeLayer;
-      const depth = loopDepthOf(loop);
-      const style = d.fill + '|' + depth + (fade ? '|dim' : '');
-      let g = groups.get(style);
-      if (!g) {
-        const color = brightenAdd(loopTintBase(d.fill), depth * LOOP_FILL_DEPTH_ADD);
-        g = { fill: fade ? cssToRgba(color, 0.5) : color, fade, verts: [] };
-        groups.set(style, g);
-      }
-      const poly = loop.poly || [];
-      const sp = [];
-      for (const p of poly) { const s = w2s(p.x, p.y); sp.push({ x: s.x, y: s.y }); }
-      if (sp.length >= 3) g.verts.push(sp);
-    }
-    const ordered = Array.from(groups.entries()).sort((a, b) =>
-      +a[0].split('|')[1] - +b[0].split('|')[1]
-    );
-    glFillGroups(ordered);
-  }
-
   // The layer a loop lives on: the first entity that makes it up.
   function loopLayerId(loop) {
     if (!loop) return null;
@@ -9531,10 +9344,6 @@
 
   function drawLoops() {
     if (!ui.showLoops) return;
-    if (renderBackendName === 'webgl' && ensureGL().ok) {
-      drawLoopsGL();
-      return;
-    }
     const groups = new Map();
     const loops = getLoops();
     for (let i = 0; i < loops.length; i++) {
@@ -9565,30 +9374,6 @@
       ctx.fillStyle = g.fill;
       ctx.fill(g.path);
     }
-  }
-
-  function drawLoopsGL() {
-    const groups = new Map();
-    for (const loop of getLoops()) {
-      const d = loopFrameData(loop);
-      if (!d.visible || !d.path || d.fill !== 'none') continue;
-      const depth = loopDepthOf(loop);
-      const key = (d.sel ? 'sel' : 'plain') + '|' + depth;
-      let g = groups.get(key);
-      if (!g) {
-        const base = loopTintBase(d.sel ? 'sel' : 'plain');
-        g = { fill: brightenAdd(base, depth * LOOP_FILL_DEPTH_ADD), verts: [] };
-        groups.set(key, g);
-      }
-      const poly = loop.poly || [];
-      const sp = [];
-      for (const p of poly) { const s = w2s(p.x, p.y); sp.push({ x: s.x, y: s.y }); }
-      if (sp.length >= 3) g.verts.push(sp);
-    }
-    const ordered = Array.from(groups.entries()).sort((a, b) =>
-      +a[0].split('|')[1] - +b[0].split('|')[1]
-    );
-    glFillGroups(ordered);
   }
 
   // Clone arrays: one cached Path2D per colour in world coordinates, stamped
@@ -18820,17 +18605,8 @@
       return;
     }
     ctx.save();
-    const useGL = renderBackendName === 'webgl' && ensureGL().ok;
-    glSetVisible(useGL);
-    if (useGL) {
-      // transparent 2D base; the GL canvas behind provides the white page and
-      // the fill/tint layers
-      ctx.clearRect(0, 0, W, H);
-      glBeginFrame();
-    } else {
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, W, H);
-    }
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
     drawGrid();
     drawAxes();
     // A reference picture is a backdrop: its bitmap goes under the fills and the
@@ -18841,7 +18617,7 @@
     // paints large numbers of low-information pixels — loop fills/tints,
     // notes, dimension/badge annotations — the full scene follows right after
     // the window closes (see scheduleZoomSettle)
-    if (!fastMode) {
+    if (!fastMode && loopFillVisible) {
       prof('loopfills', () => { drawLoopFills(); drawLoops(); });
     }
     prof('entities', () => drawEntities());
