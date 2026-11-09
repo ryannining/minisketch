@@ -17592,8 +17592,9 @@
   }
 
   function drawLabel(text, sx, sy, id, selected) {
-    // Follow the point-marker zoom rule (same min/max clamp as markers).
-    const s = clamp(view.zoom, POINT_ZOOM_MIN, POINT_ZOOM_MAX);
+    // Follow the point-marker zoom rule, scaled down by 0.5 so annotations
+    // stay compact.
+    const s = clamp(view.zoom, POINT_ZOOM_MIN, POINT_ZOOM_MAX) * 0.5;
     const padX = 6 * s;
     const h = 18 * s;
     ctx.font = '600 ' + Math.max(6, 12 * s) + 'px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
@@ -17651,10 +17652,9 @@
   // selects. A conflicting badge (P1-9) draws red; deleting one side of the
   // fight resolves it.
   function drawBadge(text, sx, sy, id, conflict) {
-    // Follow the point-marker zoom rule: scale with zoom but clamp to the
-    // same min/max so badges never vanish when zoomed out nor balloon when
-    // zoomed in.
-    const s = clamp(view.zoom, POINT_ZOOM_MIN, POINT_ZOOM_MAX);
+    // Follow the point-marker zoom rule, scaled down by 0.5 so badges stay
+    // compact (clamped so they never vanish when zoomed out nor balloon).
+    const s = clamp(view.zoom, POINT_ZOOM_MIN, POINT_ZOOM_MAX) * 0.5;
     const fs = Math.max(5, 9 * s);
     ctx.font = '700 ' + fs + 'px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
     const tw = ctx.measureText(text).width;
@@ -17754,8 +17754,8 @@
   }
 
   function drawArrow(sx, sy, angle, size) {
-    // Scale with zoom like the markers/labels (same min/max clamp).
-    const s = size * clamp(view.zoom, POINT_ZOOM_MIN, POINT_ZOOM_MAX);
+    // Scale with zoom like markers/labels, scaled down by 0.5 (same clamp).
+    const s = size * clamp(view.zoom, POINT_ZOOM_MIN, POINT_ZOOM_MAX) * 0.5;
     ctx.beginPath();
     ctx.moveTo(sx, sy);
     ctx.lineTo(sx - Math.cos(angle - 0.38) * s, sy - Math.sin(angle - 0.38) * s);
