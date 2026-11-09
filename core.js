@@ -62,8 +62,13 @@ function matMul(m, n) {
   ];
 }
 
-function matApply(m, pt) {
-  return { x: m[0] * pt.x + m[2] * pt.y + m[4], y: m[1] * pt.x + m[3] * pt.y + m[5] };
+// `out` is an optional buffer to write into (partMarkerWorld/solveAssembly reuse
+// a scratch object to avoid per-call allocation in the hot residue loop).
+function matApply(m, pt, out) {
+  const o = out || {};
+  o.x = m[0] * pt.x + m[2] * pt.y + m[4];
+  o.y = m[1] * pt.x + m[3] * pt.y + m[5];
+  return o;
 }
 
 function matDet(m) { return m[0] * m[3] - m[1] * m[2]; }
@@ -1214,6 +1219,25 @@ function sampleArc(c, r, a0, sweep, reverse) {
 }
 
 // --- solver (Levenberg-Marquardt) --------------------------------------------
+// Reusable scratch buffers for lmSolve. During an interactive drag lmSolve runs
+// dozens of times per second; allocating J/A/g/M fresh on every LM iteration and
+// every attempt allocated hundreds of small typed arrays per frame (GC jank).
+// These grow only when a solve needs more rows/columns than an earlier one.
+// lmSolve is single-threaded and not reentrant within this app, so module-scope
+// reuse is safe.
+let _lms_J = null, _lms_A = null, _lms_g = null, _lms_M = null;
+
+// Return an array of m Float64Array(n) rows, reusing `rows` when it already has
+// enough rows and columns (extra capacity is ignored). The returned rows are
+// NOT zeroed on purpose: J/M/xn are fully rewritten before every read, and A/g
+// are zeroed explicitly once per iteration.
+function _lmsRows(rows, m, n) {
+  if (rows && rows.length >= m && rows[0] && rows[0].length >= n) return rows;
+  const out = new Array(m);
+  for (let i = 0; i < m; i++) out[i] = new Float64Array(n);
+  return out;
+}
+
 function lmSolve(x0, fn, maxIter, stepCap) {
   let x = x0.slice();
   let r = fn(x);
@@ -1230,10 +1254,20 @@ function lmSolve(x0, fn, maxIter, stepCap) {
   let iterations = 0;
   let lastDx = 0;
 
+  // Scratch J (reused across iterations; fully overwritten each iteration, so
+  // no zeroing needed). A and g are accumulated, so they are zeroed once per
+  // iteration. M is reconstructed every attempt. xn and dx must stay fresh per
+  // attempt: after an accept xn becomes `x` (a reused buffer would let a later
+  // rejected attempt destroy the current iterate), and dx is read immediately
+  // after each solveLinear call.
+  const J = _lmsRows(_lms_J, m, n); _lms_J = J;
+  const A = _lmsRows(_lms_A, n, n); _lms_A = A;
+  if (!_lms_g || _lms_g.length < n) _lms_g = new Float64Array(n);
+  const g = _lms_g;
+  const M = _lmsRows(_lms_M, n, n + 1); _lms_M = M;
+
   for (let iter = 0; iter < maxIter; iter++) {
     iterations = iter + 1;
-    const J = new Array(m);
-    for (let i = 0; i < m; i++) J[i] = new Float64Array(n);
     for (let j = 0; j < n; j++) {
       const old = x[j];
       const h = 1e-7 * Math.max(1, Math.abs(old));
@@ -1243,9 +1277,8 @@ function lmSolve(x0, fn, maxIter, stepCap) {
       for (let i = 0; i < m; i++) J[i][j] = (rp[i] - r[i]) / h;
     }
 
-    const A = new Array(n);
-    for (let i = 0; i < n; i++) A[i] = new Float64Array(n);
-    const g = new Float64Array(n);
+    for (let i = 0; i < n; i++) A[i].fill(0);
+    g.fill(0);
     for (let i = 0; i < m; i++) {
       const Ji = J[i];
       for (let a = 0; a < n; a++) {
@@ -1262,12 +1295,11 @@ function lmSolve(x0, fn, maxIter, stepCap) {
     let accepted = false;
 
     for (let attempt = 0; attempt < 10; attempt++) {
-      const M = new Array(n);
       for (let a = 0; a < n; a++) {
-        M[a] = new Float64Array(n + 1);
-        for (let b = 0; b < n; b++) M[a][b] = A[a][b];
-        M[a][a] += lambda * (A[a][a] + 1e-6) + 1e-12;
-        M[a][n] = -g[a];
+        const Ma = M[a];
+        for (let b = 0; b < n; b++) Ma[b] = A[a][b];
+        Ma[a] += lambda * (A[a][a] + 1e-6) + 1e-12;
+        Ma[n] = -g[a];
       }
       const dx = solveLinear(M, n);
       if (!dx) {
@@ -1317,7 +1349,10 @@ function lmSolve(x0, fn, maxIter, stepCap) {
   return { x, cost, iterations, converged: lastDx < 1e-9 || cost < 1e-16 };
 }
 
-function solveLinear(M, n) {
+// Solve M·x = b (last column of M is b) in place. `out` is an optional buffer
+// to write the solution into (reused by lmSolve to avoid per-call allocation);
+// when omitted a fresh array is allocated. Returns null on a singular system.
+function solveLinear(M, n, out) {
   for (let col = 0; col < n; col++) {
     let pivot = col;
     let best = Math.abs(M[col][col]);
@@ -1343,9 +1378,9 @@ function solveLinear(M, n) {
       for (let j = col; j <= n; j++) M[row][j] -= f * M[col][j];
     }
   }
-  const out = new Array(n);
-  for (let i = 0; i < n; i++) out[i] = M[i][n];
-  return out;
+  const dst = out || new Array(n);
+  for (let i = 0; i < n; i++) dst[i] = M[i][n];
+  return dst;
 }
 
 // --- assembly solver (rigid parts + joints) ----------------------------------
@@ -1364,9 +1399,18 @@ function partTransform(pose) {
   return [c, s, -s, c, pose.tx || 0, pose.ty || 0];
 }
 
-// A marker ref { u, v } is local to its part; this is its world position.
-function partMarkerWorld(pose, ref) {
-  return matApply(partTransform(pose), { x: ref.u, y: ref.v });
+// A marker ref { u, v } is local to its part; this is its world position. Inline
+// the transform (same cos/sin/affine math as partTransform+matApply) and write
+// into an optional `out` scratch so solveAssembly's hot residual loop does not
+// allocate a matrix or a boxed point per marker per Jacobian evaluation.
+function partMarkerWorld(pose, ref, out) {
+  const a = (pose.rot || 0) * Math.PI / 180;
+  const c = Math.cos(a), s = Math.sin(a);
+  const tx = pose.tx || 0, ty = pose.ty || 0;
+  const o = out || {};
+  o.x = c * ref.u - s * ref.v + tx;
+  o.y = s * ref.u + c * ref.v + ty;
+  return o;
 }
 
 // parts:   [{ id, tx, ty, rot, grounded? }]
@@ -1419,6 +1463,11 @@ function solveAssembly(parts, mates, targets, opts) {
     return out;
   };
 
+  // Scratch points reused across residual evaluations (each marker's result is
+  // pushed into r before the scratch is reused, so no cross-contamination).
+  const sA = {}, sB = {}, sP = {}, sQ1 = {}, sQ2 = {}, sT = {};
+  const ZERO_REF = { u: 0, v: 0 };
+
   const fn = (x) => {
     const poses = poseOf(x);
     const r = [];
@@ -1427,13 +1476,13 @@ function solveAssembly(parts, mates, targets, opts) {
       const pb = m.b && poses.get(m.b.part);
       if (!pa || !pb || pa === pb) continue;
       if (m.type === 'pin') {
-        const A = partMarkerWorld(pa, m.a);
-        const B = partMarkerWorld(pb, m.b);
+        const A = partMarkerWorld(pa, m.a, sA);
+        const B = partMarkerWorld(pb, m.b, sB);
         r.push((A.x - B.x) * jw, (A.y - B.y) * jw);
       } else if (m.type === 'slider') {
-        const P = partMarkerWorld(pa, m.a);
-        const q1 = partMarkerWorld(pb, { u: m.b.u1, v: m.b.v1 });
-        const q2 = partMarkerWorld(pb, { u: m.b.u2, v: m.b.v2 });
+        const P = partMarkerWorld(pa, m.a, sP);
+        const q1 = partMarkerWorld(pb, { u: m.b.u1, v: m.b.v1 }, sQ1);
+        const q2 = partMarkerWorld(pb, { u: m.b.u2, v: m.b.v2 }, sQ2);
         const dx = q2.x - q1.x, dy = q2.y - q1.y;
         const len = Math.hypot(dx, dy);
         if (len < 1e-12) continue;
@@ -1445,7 +1494,7 @@ function solveAssembly(parts, mates, targets, opts) {
       const pose = poses.get(t.part);
       if (!pose) continue;
       const w = (t.weight == null ? tw : t.weight);
-      const p = t.origin ? pose : partMarkerWorld(pose, t.ref || { u: 0, v: 0 });
+      const p = t.origin ? pose : partMarkerWorld(pose, t.ref || ZERO_REF, sT);
       r.push((p.x - t.to.x) * w, (p.y - t.to.y) * w);
     }
     return r;
@@ -1467,13 +1516,13 @@ function solveAssembly(parts, mates, targets, opts) {
       const pb = m.b && poses.get(m.b.part);
       if (!pa || !pb || pa === pb) continue;
       if (m.type === 'pin') {
-        const A = partMarkerWorld(pa, m.a);
-        const B = partMarkerWorld(pb, m.b);
+        const A = partMarkerWorld(pa, m.a, sA);
+        const B = partMarkerWorld(pb, m.b, sB);
         r.push(A.x - B.x, A.y - B.y);
       } else if (m.type === 'slider') {
-        const P = partMarkerWorld(pa, m.a);
-        const q1 = partMarkerWorld(pb, { u: m.b.u1, v: m.b.v1 });
-        const q2 = partMarkerWorld(pb, { u: m.b.u2, v: m.b.v2 });
+        const P = partMarkerWorld(pa, m.a, sP);
+        const q1 = partMarkerWorld(pb, { u: m.b.u1, v: m.b.v1 }, sQ1);
+        const q2 = partMarkerWorld(pb, { u: m.b.u2, v: m.b.v2 }, sQ2);
         const dx = q2.x - q1.x, dy = q2.y - q1.y;
         const len = Math.hypot(dx, dy);
         if (len < 1e-12) continue;

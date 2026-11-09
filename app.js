@@ -7603,6 +7603,12 @@
     return hitGridCache;
   }
 
+  // Reusable dedupe state for hitCandidates (an id can sit in several bucket
+  // cells the cursor box overlaps). Avoids allocating a fresh Set per hover/click
+  // query, which ran at the mouse-poll rate.
+  const hitSeen = [];
+  const hitMark = [];
+  let hitEpoch = 0;
   function hitCandidates(sx, sy, slop) {
     const g = hitGrid();
     // the cursor box in world coordinates (screen Y is flipped)
@@ -7612,16 +7618,25 @@
     const x1 = Math.floor((Math.max(a.x, b.x) - g.minX) / g.cell);
     const y0 = Math.floor((Math.min(a.y, b.y) - g.minY) / g.cell);
     const y1 = Math.floor((Math.max(a.y, b.y) - g.minY) / g.cell);
-    const out = new Set(g.loose);
+    const epoch = ++hitEpoch;
+    const out = hitSeen;
+    out.length = 0;
+    const add = (id) => {
+      const k = id | 0;
+      if (hitMark[k] === epoch) return;
+      hitMark[k] = epoch;
+      out.push(+id);
+    };
+    for (const id of g.loose) add(id);
     if ((x1 - x0 + 1) * (y1 - y0 + 1) > 256) {
       // zoomed far out: the query covers most of the grid, scan the boxes map
-      for (const id of g.boxes.keys()) out.add(id);
+      for (const id of g.boxes.keys()) add(id);
       return out;
     }
     for (let x = x0; x <= x1; x++) {
       for (let y = y0; y <= y1; y++) {
         const arr = g.buckets.get(x + ':' + y);
-        if (arr) for (const id of arr) out.add(id);
+        if (arr) for (const id of arr) add(id);
       }
     }
     return out;
