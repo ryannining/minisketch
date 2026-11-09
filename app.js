@@ -12748,18 +12748,34 @@
       // as its own path, in the master's own colours. Without this branch the
       // array fell into the straight-line pool, where entityWorldPolylines knows
       // nothing about instances, so the clones never reached the server.
+      //
+      // IMPORTANT: the per-instance polylines must be CHAINED into loops — the
+      // same weld the straight-line pool applies — otherwise every segment of a
+      // multi-line part ships as its own <path> (a 7x5 array of 4-line
+      // rectangles became 140 loose paths and KaryaCNC reported ~2000 parts).
       if (e.type === 'array') {
         for (const t of arrayInstanceOffsets(e)) {
+          const byColor = new Map();
           for (const pl of arrayInstancePolylines(e, t)) {
             if (!pl.pts || pl.pts.length < 2) continue;
             const c = pl.color || color;
-            const st = ' fill="none" stroke="' + c + '" stroke-width="0.25" style="fill:none;stroke:' + c + ';stroke-width:0.25"';
-            let d = 'M ' + fx(pl.pts[0].x) + ' ' + fy(pl.pts[0].y);
-            for (let i = 1; i < pl.pts.length; i++) {
-              d += ' L ' + fx(pl.pts[i].x) + ' ' + fy(pl.pts[i].y);
+            if (!byColor.has(c)) byColor.set(c, []);
+            byColor.get(c).push({ pts: pl.pts.map(p => ({ x: p.x, y: p.y })), closed: !!pl.closed });
+          }
+          for (const [c, polys] of byColor) {
+            let loops;
+            try { loops = chainPolylines(polys, 0.05); } catch (err) { loops = polys; }
+            for (const loop of loops) {
+              const pts = loop.pts;
+              if (!pts || pts.length < 2) continue;
+              const st = ' fill="none" stroke="' + c + '" stroke-width="0.25" style="fill:none;stroke:' + c + ';stroke-width:0.25"';
+              let d = 'M ' + fx(pts[0].x) + ' ' + fy(pts[0].y);
+              for (let i = 1; i < pts.length; i++) {
+                d += ' L ' + fx(pts[i].x) + ' ' + fy(pts[i].y);
+              }
+              if (loop.closed) d += ' Z';
+              parts.push('<path d="' + d + '"' + st + '/>');
             }
-            if (pl.closed) d += ' Z';
-            parts.push('<path d="' + d + '"' + st + '/>');
           }
         }
         continue;
