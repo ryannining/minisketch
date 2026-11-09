@@ -9315,7 +9315,7 @@
           };
           groups.set(style, g);
         }
-        g.path.addPath(d.path);
+        g.path.addPath(d.path, loopDragMatrix(loop) || undefined);
       }
       if (debugRows.length) console.log('[fill] filled (' + debugRows.length + ') ::', debugRows);
       else console.log('[fill] 0 loops filled — nothing to draw');
@@ -9352,6 +9352,37 @@
     return null;
   }
 
+  // World-space translation to apply to a loop's cached polygon while a body
+  // drag is in flight. Loop detection is deferred during a drag (loopsDeferred)
+  // so the cached polygons are frozen at the press pose — but the geometry is
+  // actually moving. When EVERY point of a loop is part of the drag, the loop
+  // translates rigidly by the current press->now delta, and we can reuse the
+  // cached polygon shifted by that delta instead of rebuilding all loops.
+  function loopDragDelta(loop) {
+    const d = ui.drag;
+    if (!d || d.kind !== 'entity' || !d.ids || !d.ids.length || !d.moved) return { x: 0, y: 0 };
+    const ids = new Set();
+    const collect = (ent) => { if (ent) for (const pid of entityPointIds(ent)) ids.add(+pid); };
+    if (loop.circle) collect(state.entities[loop.entity]);
+    if (loop.splineEntity != null) collect(state.entities[loop.splineEntity]);
+    for (const st of (loop.steps || [])) collect(state.entities[st.edge.entity]);
+    if (!ids.size) return { x: 0, y: 0 };
+    const dragSet = new Set(d.ids.map(Number));
+    for (const pid of ids) if (!dragSet.has(pid)) return { x: 0, y: 0 };
+    // all of the loop's points are dragged: use the first one's press->now delta
+    for (const pid of ids) {
+      const base = d.base && d.base[pid];
+      const p = P(pid);
+      if (base && p) return { x: p.x - base.x, y: p.y - base.y };
+    }
+    return { x: 0, y: 0 };
+  }
+  function loopDragMatrix(loop) {
+    const del = loopDragDelta(loop);
+    if (!del.x && !del.y) return null;
+    return new DOMMatrix([1, 0, 0, 1, del.x * view.zoom, del.y * view.zoom]);
+  }
+
   function drawLoops() {
     if (!ui.showLoops) return;
     const groups = new Map();
@@ -9371,7 +9402,7 @@
         };
         groups.set(key, g);
       }
-      g.path.addPath(d.path);
+      g.path.addPath(d.path, loopDragMatrix(loop) || undefined);
     }
     const ordered = Array.from(groups.entries()).sort((a, b) =>
       +a[0].split('|')[1] - +b[0].split('|')[1]
