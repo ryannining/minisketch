@@ -12219,6 +12219,9 @@
           job.steps++;
           job.stepMsTotal += stepMs;
           job.stepMsMax = Math.max(job.stepMsMax, stepMs);
+          if (stepMs > 400 && NEST_DEBUG) {
+            console.log('[nest][slowstep] part ' + job.done + '/' + job.total + ' · ' + stepMs.toFixed(0) + ' ms');
+          }
           if (n.done) {
             // ONE human-readable line per run: compare Sp/grid/Mut here
             const s = n.value && n.value.stats;
