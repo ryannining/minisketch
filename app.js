@@ -1180,6 +1180,14 @@
     { group: 'Renderer', key: 'renderScale', label: 'Canvas resolution', unit: '%',
       def: '100', choices: [['100', '100'], ['75', '75'], ['50', '50']],
       help: 'Resolution of the drawing canvas. 50% fills a quarter of the pixels — the cheapest speed dial there is.' },
+    { group: 'Renderer', key: 'loopTintPlain', label: 'Loop fill · plain', unit: '', text: true, def: '#16a34a',
+      help: 'Base colour of an unfilled closed loop (depth 0). Deeper nested loops get brighter automatically. In dark theme this is dimmed automatically; set it to something that does not blend into your line colour.' },
+    { group: 'Renderer', key: 'loopTintSel', label: 'Loop fill · selected', unit: '', text: true, def: '#2563eb',
+      help: 'Base colour of a selected closed loop (depth 0).' },
+    { group: 'Renderer', key: 'loopTintYellow', label: 'Loop fill · yellow', unit: '', text: true, def: '#eab308',
+      help: 'Base colour for the explicit Yellow loop fill (CNC).' },
+    { group: 'Renderer', key: 'loopTintGray', label: 'Loop fill · gray', unit: '', text: true, def: '#8a94a3',
+      help: 'Base colour for the explicit Gray loop fill (CNC).' },
     { group: 'Geometry', key: 'bakeJoinTol', label: 'Chain tolerance', unit: 'mm',
       def: 0.1, min: 0.001, max: 5, step: 0.01,
       help: 'Ends closer than this become one node when grouping (Ctrl+G) or offsetting (Ctrl+O).' },
@@ -1252,7 +1260,7 @@
       def: 0.05, min: 0.005, max: 1, step: 0.005,
       help: 'One number, shown in both this window and the KaryaCNC window: circles and arcs are flattened so they never deviate more than this. Smaller = smoother and more points; 0.05 mm is a good laser default, 0.02 mm for fine detail.' },
     { group: 'AI chat', key: 'aiBridgeUrl', label: 'AI bridge URL', unit: '', text: true, def: '',
-      help: 'Local AI bridge server (server/ai-bridge.js), e.g. http://localhost:8787. Empty = offline mode: the chat tab parses simple Indonesian/English commands directly, no LLM needed.' },
+      help: 'AI bridge server (server/serve.js), e.g. http://127.0.0.1:8090. Empty = the same server that served MiniSketch (needs the app served over http, not opened as a file). With no server at all the chat tab falls back to offline mode: it parses simple Indonesian/English commands directly, no LLM needed.' },
     { group: 'AI chat', key: 'aiApiUrl', label: 'AI API base URL', unit: '', text: true, def: '',
       help: 'The OpenAI-compatible endpoint YOUR key belongs to, without /chat/completions. Empty = the bridge uses its own server/.env value. Fill this in together with the API key below.' },
     { group: 'AI chat', key: 'aiApiKey', label: 'AI API key', unit: '', password: true, def: '',
@@ -1392,6 +1400,14 @@
     NOTE_SIZE = settings.noteSize;
     NOTE_MIN_PX = Math.max(0, +settings.noteMinPx || 0);
     NOTE_COLOR = /^#[0-9a-fA-F]{3,8}$/.test(String(settings.noteColor)) ? settings.noteColor : '#ffcc00';
+    const setTint = (kind, key, fallback) => {
+      const v = settings[key];
+      LOOP_TINT_BASE[kind] = /^#[0-9a-fA-F]{3,8}$/.test(String(v)) ? String(v) : fallback;
+    };
+    setTint('plain', 'loopTintPlain', '#16a34a');
+    setTint('sel', 'loopTintSel', '#2563eb');
+    setTint('yellow', 'loopTintYellow', '#eab308');
+    setTint('gray', 'loopTintGray', '#8a94a3');
     SPLINE_SEG = settings.splineSeg;
     ARC_SEG = settings.arcSeg;
     CIRCLE_CHORD = settings.circleChord;
@@ -9138,23 +9154,95 @@
 
   // Loop fill (KaryaCNC offset flip) stays visible even when the loop overlay
   // is switched off: yellow / gray tint under the geometry.
-  const LOOP_FILL_TINT = {
-    yellow: 'rgba(234, 179, 8, 0.16)',
-    gray: 'rgba(120, 130, 145, 0.20)'
+  // Opaque base colours: compound loops are told apart by nesting DEPTH, which
+  // raises brightness (see brightenAdd below), not by transparency — opaque fills
+  // skip the read-modify-write blend cost that transparent ones carry over
+  // overlapping pixels.
+  const LOOP_FILL_TINT = {   // still used by array / art contour fills
+    yellow: 'rgba(234, 179, 8, 0.22)',
+    gray: 'rgba(120, 130, 145, 0.26)'
   };
+  // base colours for the loop tints, keyed by kind. These are light-theme
+  // literals; the dark theme translates them through CANVAS_DARK (via
+  // themedCanvasColor) and then scales them down (loopTintBase) because the
+  // dark canvas makes saturated colours look glaring. The values are user
+  // adjustable from Settings → Renderer (loopTintPlain / Sel / Yellow / Gray).
+  const LOOP_TINT_BASE = {
+    plain: '#16a34a',
+    sel: '#2563eb',
+    yellow: '#eab308',
+    gray: '#8a94a3'
+  };
+  const LOOP_FILL_DEPTH_ADD = 15;   // R,G,B added per nesting level (cap 255)
+  const LOOP_TINT_DARK_SCALE = 0.1;     // dark-theme dimming factor
+  function hexScale(hex, f) {
+    if (!/^#[0-9a-fA-F]{6}$/.test(hex || '')) return hex;
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    const h = (n) => Math.min(255, Math.round(n * f)).toString(16).padStart(2, '0');
+    return '#' + h(r) + h(g) + h(b);
+  }
+  function loopTintBase(kind) {
+    const hex = themedCanvasColor(LOOP_TINT_BASE[kind] || '#888888');
+    return themeName === 'dark' ? hexScale(hex, LOOP_TINT_DARK_SCALE) : hex;
+  }
+  // Nesting depth brightens by ADDING a fixed amount to every channel (R,G,B
+  // + step per level, capped at 255), rather than blending toward white. This
+  // keeps the hue of the base colour and is easy to reason about: level 1 is
+  // always base + 15 on each channel.
+  function brightenAdd(hex, add) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    const m = (v) => Math.min(255, Math.round(v + add));
+    return 'rgb(' + m(r) + ',' + m(g) + ',' + m(b) + ')';
+  }
 
   // ALL loop fills render into one offscreen layer, cached per
   // (geometry, camera, dim, active layer, canvas size): fills only change when
   // the geometry or the camera changes — hover / selection / marker drags do
-  // not touch them. Per frame the layer is one drawImage instead of 1.4k
-  // transparent fills, each a read-modify-write pass over overlapping pixels.
-  // Inside the layer the fills are still batched per style (yellow / gray /
-  // dimmed) so the build itself is ~3 fill calls, not one per loop.
+  // not touch them. Per frame the layer is one drawImage instead of thousands of
+  // transparent fills.
+  // Inside the layer fills are OPAQUE and batched per (style, nesting depth).
+  // Nesting depth (0 = outermost, rising inward) drives brightness, so a
+  // compound keeps every contour visible without alpha compositing. Because the
+  // fills are opaque, deeper loops are painted after their container and simply
+  // cover it — no blending, no read-modify-write over overlapping pixels.
   let loopFillLayer = null;
   let loopFillLayerCtx = null;
   let loopFillLayerKey = null;
+  let debugFillsInvoked = false;
+  let debugLoopsLogged = false;
+
+  // Containment depth of a loop: how many other loops (strictly) contain it.
+  // Computed once per geometry epoch; the cost is bounded by the bbox quick
+  // reject inside loopContainedIn.
+  let loopDepthCache = null;
+  let loopDepthCacheEpoch = -1;
+  function loopDepthOf(loop) {
+    const loops = getLoops();
+    if (loopDepthCacheEpoch !== geometryEpoch || !loopDepthCache) {
+      loopDepthCacheEpoch = geometryEpoch;
+      const map = new Map();
+      for (const L of loops) {
+        let d = 0;
+        for (const O of loops) {
+          if (O !== L && loopContainedIn(L, O)) d++;
+        }
+        map.set(L, d);
+      }
+      loopDepthCache = map;
+    }
+    return loopDepthCache.get(loop) || 0;
+  }
+
   function drawLoopFills() {
-    const key = geometryEpoch + '|' + view.zoom + '|' + view.ox + '|' + view.oy + '|' +
+    if (!debugFillsInvoked) {
+      debugFillsInvoked = true;
+      console.log('[fill] drawLoopFills invoked (not fast-mode)');
+    }
+    const key = geometryEpoch + '|' + themeName + '|' + view.zoom + '|' + view.ox + '|' + view.oy + '|' +
       DPR + '|' + (ui.dimOthers ? 1 : 0) + '|' + ui.activeLayer + '|' + W + 'x' + H;
     if (!loopFillLayer) {
       loopFillLayer = document.createElement('canvas');
@@ -9171,23 +9259,54 @@
       const lc = loopFillLayerCtx;
       lc.setTransform(DPR, 0, 0, DPR, 0, 0);
       lc.clearRect(0, 0, W, H);
+      const allLoops = getLoops();
+      // DEBUG: always report the build (once per geometry epoch) so we can see
+      // how many loops exist and how many are filled, even when zero are.
+      console.log('[fill] build epoch=' + geometryEpoch + ' totalLoops=' + allLoops.length);
+      // Batch by (style, depth). Same-depth loops never contain each other, so
+      // merging them into one path is safe (they share edges, not interiors); a
+      // single opaque fill per group colours them all. Deep (brighter) groups
+      // are painted after shallow ones so the inner contour covers its parent.
       const groups = new Map();
+      const debugRows = [];   // filled loops in this build
       for (const loop of getLoops()) {
         const d = loopFrameData(loop);
         if (d.fill === 'none' || !d.visible || !d.path) continue;
         const fade = ui.dimOthers && loopLayerId(loop) !== ui.activeLayer;
-        const style = d.fill + (fade ? '|dim' : '');
-        let p = groups.get(style);
-        if (!p) { p = new Path2D(); groups.set(style, p); }
-        p.addPath(d.path);
+        const depth = loopDepthOf(loop);
+        // DEBUG: list every loop being filled with its nesting level. Colors
+        // are the same only while depth is identical, so this shows whether the
+        // containment hierarchy is being computed. Remove when no longer needed.
+        {
+          const poly = loop.poly || [];
+          const cx = poly.length ? poly.reduce((a, p) => a + p.x, 0) / poly.length : 0;
+          const cy = poly.length ? poly.reduce((a, p) => a + p.y, 0) / poly.length : 0;
+          const color = brightenAdd(loopTintBase(d.fill), depth * LOOP_FILL_DEPTH_ADD);
+          debugRows.push({ style: d.fill, depth, color, kinds: poly.length,
+            cx: +cx.toFixed(2), cy: +cy.toFixed(2), area: +(loop.area || 0).toFixed(2) });
+        }
+        const style = d.fill + '|' + depth + (fade ? '|dim' : '');
+        let g = groups.get(style);
+        if (!g) {
+          g = {
+            path: new Path2D(),
+            fill: brightenAdd(loopTintBase(d.fill), depth * LOOP_FILL_DEPTH_ADD),
+            fade
+          };
+          groups.set(style, g);
+        }
+        g.path.addPath(d.path);
       }
-      for (const [style, p] of groups) {
-        const bar = style.indexOf('|');
-        const fillName = bar < 0 ? style : style.slice(0, bar);
+      if (debugRows.length) console.log('[fill] filled (' + debugRows.length + ') ::', debugRows);
+      else console.log('[fill] 0 loops filled — nothing to draw');
+      const ordered = Array.from(groups.entries()).sort((a, b) =>
+        +a[0].split('|')[1] - +b[0].split('|')[1]
+      );
+      for (const [, g] of ordered) {
         lc.save();
-        if (bar >= 0) lc.globalAlpha = 0.5;
-        lc.fillStyle = LOOP_FILL_TINT[fillName];
-        lc.fill(p);
+        if (g.fade) lc.globalAlpha = 0.5;
+        lc.fillStyle = g.fill;
+        lc.fill(g.path);
         lc.restore();
       }
       loopFillLayerKey = key;
@@ -9215,35 +9334,35 @@
 
   function drawLoops() {
     if (!ui.showLoops) return;
-    // batched: two tint groups (selected / plain) built from the cached per-
-    // loop paths — 2 fill calls per frame instead of one per loop. The tints
-    // are alpha 0.045 / 0.10: each individual fill was near-invisible but
-    // still a full read-modify-write pass over the loop's pixels.
-    const selPath = new Path2D();
-    let hasSel = false;
-    const plainPath = new Path2D();
-    let hasPlain = false;
+    const groups = new Map();
     const loops = getLoops();
     for (let i = 0; i < loops.length; i++) {
       const loop = loops[i];
-      // the bright tint / dashed outline marks a SELECTED loop — the same rule
-      // as the Selection count and the list highlight. Click-focus only targets
-      // the Fill chips and must never paint, or a deselected loop keeps looking
-      // selected.
       const d = loopFrameData(loop);
-      if (!d.visible || !d.path) continue;
-      // fills only — the outline stroke (and its dashes) just cost frame time
-      if (d.fill !== 'none') continue;
-      if (d.sel) { selPath.addPath(d.path); hasSel = true; }
-      else { plainPath.addPath(d.path); hasPlain = true; }
+      if (!d.visible || !d.path || d.fill !== 'none') continue;
+      const depth = loopDepthOf(loop);
+      const key = (d.sel ? 'sel' : 'plain') + '|' + depth;
+      let g = groups.get(key);
+      if (!g) {
+        const base = loopTintBase(d.sel ? 'sel' : 'plain');
+        g = {
+          path: new Path2D(),
+          fill: brightenAdd(base, depth * LOOP_FILL_DEPTH_ADD)
+        };
+        groups.set(key, g);
+      }
+      g.path.addPath(d.path);
     }
-    if (hasSel) {
-      ctx.fillStyle = 'rgba(37, 99, 235, 0.10)';
-      ctx.fill(selPath);
+    const ordered = Array.from(groups.entries()).sort((a, b) =>
+      +a[0].split('|')[1] - +b[0].split('|')[1]
+    );
+    if (!debugLoopsLogged && groups.size) {
+      debugLoopsLogged = true;
+      console.log('[loops] auto-tint groups ::', Array.from(groups.keys()), '->', Array.from(groups.values(), g => g.fill));
     }
-    if (hasPlain) {
-      ctx.fillStyle = 'rgba(22, 163, 74, 0.045)';
-      ctx.fill(plainPath);
+    for (const [, g] of ordered) {
+      ctx.fillStyle = g.fill;
+      ctx.fill(g.path);
     }
   }
 
@@ -16345,6 +16464,10 @@
     if (isSel && !isHover && selectionIndex().entity.size <= 200) {
       if (e.type === 'line' && lineDrawnAsSegment(+e.id)) return;
       if (e.type === 'spline') return;
+      // Selected arcs and circles get the same amber band as lines/splines (see
+      // drawSegmentHighlight), so skip the generic brightened stroke here too —
+      // painting both would double the stroke and leave a white rim under amber.
+      if (e.type === 'circle' || e.type === 'arc') return;
     }
     // Selected shapes batch too, into their own map keyed by the brightened
     // colour, and are stroked once at selLw. Drawing each one separately was the
@@ -16523,11 +16646,14 @@
   let segSelCache = null;
   let segSelCacheFor = null;
   function drawSegmentHighlight() {
-    // A "segment" is an adjacent pair of selected points. That covers three
-    // shapes with one rule, and all three get the same amber band:
+    // A "segment" is an adjacent pair of selected points, or a whole selected
+    // entity. That covers five shapes with one rule, and all five get the same
+    // amber band:
     //   * a spline span (cubic),
     //   * a chord of a polyline stored as one spline with no handles,
-    //   * a LINE entity of a polyline drawn as separate lines.
+    //   * a LINE entity of a polyline drawn as separate lines,
+    //   * a CIRCLE entity selected as a whole,
+    //   * an ARC entity selected as a whole.
     // The old version bailed out unless EXACTLY two points were selected, and it
     // returned after the first hit — so only one segment was ever highlighted.
     // NOTE: no early return when no POINT is selected. A polyline drawn from
@@ -16565,17 +16691,33 @@
     if (entityHighlight) {
       for (const eid of selEnts) {
         const e = state.entities[eid];
-        if (!e || e.type !== 'line') continue;
-        // A line counts as a selected segment when its two ends are selected (the
-        // point-level selection a curve segment produces) OR when the line itself
-        // is selected — that is the polyline case: a polyline drawn from separate
-        // lines is selected one line at a time, and it must read the same amber a
-        // selected curve segment reads.
-        const a = P(e.a), b = P(e.b);
-        if (!a || !b) continue;
-        const sa = w2s(a.x, a.y), sb = w2s(b.x, b.y);
-        segMoveTo(sa.x, sa.y);
-        segLineTo(sb.x, sb.y);
+        if (!e) continue;
+        if (e.type === 'line') {
+          // A line counts as a selected segment when its two ends are selected (the
+          // point-level selection a curve segment produces) OR when the line itself
+          // is selected — that is the polyline case: a polyline drawn from separate
+          // lines is selected one line at a time, and it must read the same amber a
+          // selected curve segment reads.
+          const a = P(e.a), b = P(e.b);
+          if (!a || !b) continue;
+          const sa = w2s(a.x, a.y), sb = w2s(b.x, b.y);
+          segMoveTo(sa.x, sa.y);
+          segLineTo(sb.x, sb.y);
+        } else if (e.type === 'circle') {
+          const c = P(e.c);
+          if (!c) continue;
+          const cs = w2s(c.x, c.y);
+          const r = Math.max(0.01, e.r) * view.zoom;
+          segMoveTo(cs.x + r, cs.y);
+          segPath.arc(cs.x, cs.y, r, 0, TAU);
+        } else if (e.type === 'arc') {
+          const ad = arcData(e);
+          if (!ad || ad.sweep < 1e-6) continue;
+          const cs = w2s(ad.c.x, ad.c.y);
+          const r = ad.r * view.zoom;
+          segMoveTo(cs.x + Math.cos(ad.a0) * r, cs.y + Math.sin(ad.a0) * r);
+          segPath.arc(cs.x, cs.y, r, ad.a0, ad.a0 + ad.sweep, false);
+        }
       }
     }
     // a line selected by its POINTS (the curve-style selection) is highlighted
@@ -23793,12 +23935,66 @@ function cmdSplitCurve() {
     return CNC_FILL[fill] || CNC_FILL.none;
   }
 
-  // Per-loop fill (drives the offset flip inside KaryaCNC).
-  function loopFill(loop) {
-    if (!loop) return 'none';
+  // A loop's own fill: the first entity that declares gray / yellow. Used both
+  // by loopFill and by the containment search below (which must read raw fills
+  // without recursing back into loopFill).
+  function filledFillOf(loop) {
+    if (!loop) return null;
     for (const id of loopEntities(loop)) {
       const e = state.entities[id];
       if (e && (e.fill === 'gray' || e.fill === 'yellow')) return e.fill;
+    }
+    return null;
+  }
+
+  // True when every vertex of `inner` lies strictly inside `outer` (bbox quick
+  // reject, then a ray-cast point-in-polygon per vertex). A nested loop that is
+  // wholly inside another loop is part of the same filled body.
+  function loopContainedIn(inner, outer) {
+    if (!inner || !outer || inner === outer) return false;
+    const ip = inner.poly, op = outer.poly;
+    if (!ip || ip.length < 3 || !op || op.length < 3) return false;
+    let ix0 = Infinity, iy0 = Infinity, ix1 = -Infinity, iy1 = -Infinity;
+    for (const p of ip) { if (p.x < ix0) ix0 = p.x; if (p.y < iy0) iy0 = p.y; if (p.x > ix1) ix1 = p.x; if (p.y > iy1) iy1 = p.y; }
+    let ox0 = Infinity, oy0 = Infinity, ox1 = -Infinity, oy1 = -Infinity;
+    for (const p of op) { if (p.x < ox0) ox0 = p.x; if (p.y < oy0) oy0 = p.y; if (p.x > ox1) ox1 = p.x; if (p.y > oy1) oy1 = p.y; }
+    if (ix0 < ox0 || iy0 < oy0 || ix1 > ox1 || iy1 > oy1) return false;
+    // Column vertices are nudged a hair toward their centroid before the
+    // point-in-polygon test, so a loop whose edge sits exactly ON the
+    // container's boundary is still read as contained (raw boundary points are
+    // ambiguous to the ray cast).
+    let ccx = 0, ccy = 0;
+    for (const p of ip) { ccx += p.x; ccy += p.y; }
+    ccx /= ip.length; ccy /= ip.length;
+    const eps = Math.max(ix1 - ix0, iy1 - iy0) * 1e-4 + 1e-9;
+    for (const p of ip) {
+      const dx = ccx - p.x, dy = ccy - p.y;
+      const L = Math.hypot(dx, dy);
+      if (!L) { if (!pointInPoly(p, op)) return false; continue; }
+      const q = { x: p.x + dx / L * eps, y: p.y + dy / L * eps };
+      if (!pointInPoly(q, op)) return false;
+    }
+    return true;
+  }
+
+  // Per-loop fill (drives the offset flip inside KaryaCNC). A loop with no
+  // fill of its own inherits the fill of the smallest filled loop that fully
+  // contains it — so a nested loop inside a filled body reads as filled too
+  // instead of staying blank.
+  function loopFill(loop) {
+    if (!loop) return 'none';
+    const own = filledFillOf(loop);
+    if (own) return own;
+    if (loop.poly && loop.poly.length >= 3) {
+      let best = null, bestArea = Infinity;
+      for (const other of getLoops()) {
+        if (other === loop || !(other.area > loop.area) || other.area >= bestArea) continue;
+        const f = filledFillOf(other);
+        if (!f || !loopContainedIn(loop, other)) continue;
+        bestArea = other.area;
+        best = f;
+      }
+      if (best) return best;
     }
     return 'none';
   }
