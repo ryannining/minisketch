@@ -2440,14 +2440,15 @@
   // the real render once the wheel stops spinning.
   //
   // A full settle render on a huge document rasterises everything (10k
-  // entities, 24k markers, 1.4k loops), so every micro-pause of the wheel
-  // landed as a visible hiccup. While the fast window is open (open for a
-  // short time after the last wheel tick) the settle renders a DEGRADED
-  // frame instead — no loop fills/tints, no plain markers, no annotations —
-  // and the full scene is drawn once, after the window closes.
+  // entities, 24k markers, 1.4k loops), so the settle is deferred until the
+  // fast window closes. Crucially we never paint a DEGRADED frame (one without
+  // loop fills / annotations): that intermediate frame was what made the view
+  // flicker (fills, badges and notes vanish for one frame and then come back).
+  // Instead, while the window is still open the scaled snapshot stays on screen
+  // and the full render happens exactly once when it closes.
   let zoomSettleTimer = 0;
   let zoomFastUntil = 0;
-  let fastMode = false;          // true while the current render is degraded
+  let fastMode = false;          // kept false: degraded frames are no longer painted
   function markZoomFast() {
     zoomFastUntil = performance.now() + 150;
   }
@@ -2457,19 +2458,14 @@
       zoomSettleTimer = 0;
       const remain = zoomFastUntil - performance.now();
       if (ui.zoomBlast && remain > 0) {
-        // still inside the fast window with an unconsumed blast: paint a
-        // degraded frame now (no loop fills/notes/annotations), then arm the
-        // follow-up that runs the FULL render once the window closes
-        ui.zoomBlast = null;
-        fastMode = true;
-        render();
-        fastMode = false;
+        // still inside the fast window with an unconsumed blast: keep the
+        // scaled snapshot on screen and defer the full render until the window
+        // closes (no degraded frame, so no flicker).
         scheduleZoomSettle(remain + 20);
         return;
       }
-      // the blast was already consumed (or there is none): this is the final
-      // settle, so always render the full scene — loop fills, notes/comments
-      // and annotations must come back even when no further pointer event fires
+      // the blast was consumed (or there is none): final settle — render the
+      // full scene once so loop fills, notes and annotations all come back.
       ui.zoomBlast = null;
       render();
     }, delay === undefined ? 120 : delay);
