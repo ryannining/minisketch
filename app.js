@@ -22530,6 +22530,7 @@ function cmdSplitCurve() {
     for (const key in state.points) {
       const p = state.points[key];
       if (!hits(p.x, p.y)) continue;
+      if (!pickFilter.point) continue;   // pick filter 1: points locked
       if (!d.crossLayer && !pointEditable(+key)) continue;
       if (d.crossLayer) {
         const uses = pointUses(+key) || [];
@@ -22568,6 +22569,7 @@ function cmdSplitCurve() {
       if (!e || picked.has('entity:' + +key)) continue;
       if (e.type === 'note' || e.type === 'array' || e.type === 'part' ||
         e.type === 'image' || e.type === 'art' || e.type === 'text') continue;
+      if (!pickFilter.line) continue;   // pick filter 2: lines/curves locked
       if (!d.crossLayer && !entityEditable(e)) continue;
       const ids = entityPointIds(e);
       if (!ids.length) continue;
