@@ -1678,5 +1678,6 @@ class NFPGA {
 
 const MiniSketchNest = { GEOM_SCALE, Point, Path, GeometryUtil, NFP2SpatialHash, NFP2, NFPGA };
 
+if (typeof globalThis !== 'undefined') globalThis.MiniSketchNest = MiniSketchNest;
 if (typeof window !== 'undefined') window.MiniSketchNest = MiniSketchNest;
 if (typeof module !== 'undefined' && module.exports) module.exports = MiniSketchNest;
