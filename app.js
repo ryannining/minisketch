@@ -23910,7 +23910,7 @@ function cmdSplitCurve() {
     const zoom = clamp(pinch.zoom * scale, 0.03, 100);
     const anchor = {
       x: (pinch.mx - pinch.ox) / pinch.zoom,
-      y: -(pinch.my - pinch.oy) / pinch.zoom
+      y: (pinch.my - pinch.oy) / pinch.zoom
     };
     view.zoom = zoom;
     view.ox = p.mx - anchor.x * zoom;
