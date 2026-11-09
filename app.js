@@ -13267,8 +13267,10 @@
       if (el) el.value = v;
     };
     let defaultDx = p ? (p.dx != null ? p.dx : round2(spanX + 10)) : round2(spanX + 10);
-    // Y runs up in world space: clone downward by default
-    let defaultDy = p ? (p.dy != null ? p.dy : round2(-(spanY + 10))) : round2(-(spanY + 10));
+    // Y runs DOWN in world space (KaryaCNC/SVG/Canvas): clone downward by
+    // default, so dy is positive. (The old default was negative, which made
+    // the array climb upward.)
+    let defaultDy = p ? (p.dy != null ? p.dy : round2(spanY + 10)) : round2(spanY + 10);
     if (ex && ex.p0 != null && ex.pw != null && ex.ph != null) {
       const p0 = P(ex.p0), pw = P(ex.pw), ph = P(ex.ph);
       if (p0 && pw) defaultDx = round2(Math.hypot(pw.x - p0.x, pw.y - p0.y));
