@@ -9116,28 +9116,40 @@
     });
   }
 
-  // Screen-space Path2D per loop, cached per (geometry, camera) frame key:
-  // fills/outlines repaint on every render, but the world->screen mapping only
-  // changes with the geometry or the camera. Hovering / selection changes now
-  // reuse the cached paths instead of re-walking every polygon vertex.
-  let loopPathFrameCache = null;
+  // Screen-space Path2D per loop. The cache survives across frames keyed by
+  // (loops-array identity, camera, selection) rather than a per-frame
+  // geometry epoch: during a drag the loop polygons are frozen (deferred), so
+  // the paths do not change — rebuilding them every drag frame was pure waste.
+  // Circle loops are excluded: their path is drawn from live center/radius and
+  // must refresh every frame.
+  let loopPathFrameLoops = null;
+  let loopPathFrameKey = null;
+  let loopPathFrameSel = null;
+  let loopPathFrameSelLen = -1;
+  let loopPathMeta = null;
   function loopFrameData(loop) {
-    const key = geometryEpoch + '|' + view.zoom + '|' + view.ox + '|' + view.oy;
+    const loops = getLoops();
+    const key = view.zoom + '|' + view.ox + '|' + view.oy;
     const selIdx = selectionIndex();
-    if (!loopPathFrameCache || loopPathFrameCache.key !== key ||
-      loopPathFrameCache.selIdx !== selIdx ||
-      loopPathFrameCache.selLen !== ui.selection.length) {
-      loopPathFrameCache = { key, selIdx, selLen: ui.selection.length, meta: new Map() };
+    if (loopPathFrameLoops !== loops || loopPathFrameKey !== key ||
+      loopPathFrameSel !== selIdx || loopPathFrameSelLen !== ui.selection.length) {
+      loopPathFrameLoops = loops;
+      loopPathFrameKey = key;
+      loopPathFrameSel = selIdx;
+      loopPathFrameSelLen = ui.selection.length;
+      loopPathMeta = new Map();
     }
-    const hit = loopPathFrameCache.meta.get(loop);
-    if (hit !== undefined) return hit;
+    if (!loop.circle) {
+      const hit = loopPathMeta.get(loop);
+      if (hit !== undefined) return hit;
+    }
     const d = {
       path: buildLoopPath(loop),
       sel: loopShapeSelected(loop),
       fill: loopFill(loop),
       visible: loopVisibleOnCanvas(loop)
     };
-    loopPathFrameCache.meta.set(loop, d);
+    if (!loop.circle) loopPathMeta.set(loop, d);
     return d;
   }
 
@@ -17580,21 +17592,23 @@
   }
 
   function drawLabel(text, sx, sy, id, selected) {
-    const padX = 6;
-    const h = 18;
-    ctx.font = '600 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+    // Follow the point-marker zoom rule (same min/max clamp as markers).
+    const s = clamp(view.zoom, POINT_ZOOM_MIN, POINT_ZOOM_MAX);
+    const padX = 6 * s;
+    const h = 18 * s;
+    ctx.font = '600 ' + Math.max(6, 12 * s) + 'px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
     const tw = ctx.measureText(text).width;
     const w = tw + padX * 2;
-    roundRectPath(sx - w / 2, sy - h / 2, w, h, 4);
+    roundRectPath(sx - w / 2, sy - h / 2, w, h, 4 * s);
     ctx.fillStyle = '#ffffff';
     ctx.fill();
     ctx.strokeStyle = selected ? '#2563eb' : '#d5dbe3';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 1 * s;
     ctx.stroke();
     ctx.fillStyle = selected ? '#1d4ed8' : '#3f4856';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, sx, sy + 0.5);
+    ctx.fillText(text, sx, sy + 0.5 * s);
     if (id != null) ui.dimHits.push({ id, x: sx - w / 2, y: sy - h / 2, w, h });
   }
 
@@ -17637,26 +17651,31 @@
   // selects. A conflicting badge (P1-9) draws red; deleting one side of the
   // fight resolves it.
   function drawBadge(text, sx, sy, id, conflict) {
-    ctx.font = '700 9px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+    // Follow the point-marker zoom rule: scale with zoom but clamp to the
+    // same min/max so badges never vanish when zoomed out nor balloon when
+    // zoomed in.
+    const s = clamp(view.zoom, POINT_ZOOM_MIN, POINT_ZOOM_MAX);
+    const fs = Math.max(5, 9 * s);
+    ctx.font = '700 ' + fs + 'px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
     const tw = ctx.measureText(text).width;
-    const w = tw + 8;
-    const h = 14;
+    const w = tw + 8 * s;
+    const h = 14 * s;
     const slot = badgeSlot(sx, sy, w, h);
     sx = slot.x;
     sy = slot.y;
     const hot = id != null && ui.hoverBadge === +id;
     const bad = !!conflict;
-    roundRectPath(sx - w / 2, sy - h / 2, w, h, 3);
+    roundRectPath(sx - w / 2, sy - h / 2, w, h, 3 * s);
     ctx.fillStyle = bad ? 'rgba(220,38,38,0.12)' : hot ? 'rgba(37,99,235,0.14)' : 'rgba(255,255,255,0.92)';
     ctx.fill();
     ctx.strokeStyle = bad ? '#dc2626' : id != null && selected('constraint', id) ? '#2563eb'
       : hot ? '#2563eb' : '#cbd5e1';
-    ctx.lineWidth = bad || (id != null && (selected('constraint', id) || hot)) ? 1.5 : 1;
+    ctx.lineWidth = (bad || (id != null && (selected('constraint', id) || hot)) ? 1.5 : 1) * s;
     ctx.stroke();
     ctx.fillStyle = bad ? '#b91c1c' : id != null && (selected('constraint', id) || hot) ? '#1d4ed8' : '#64748b';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, sx, sy + 0.5);
+    ctx.fillText(text, sx, sy + 0.5 * s);
     ui.badgeZones.push({ x: sx - w / 2, y: sy - h / 2, w, h });
     if (id != null) ui.badgeHits.push({ id, x: sx - w / 2, y: sy - h / 2, w, h });
   }
@@ -17735,10 +17754,12 @@
   }
 
   function drawArrow(sx, sy, angle, size) {
+    // Scale with zoom like the markers/labels (same min/max clamp).
+    const s = size * clamp(view.zoom, POINT_ZOOM_MIN, POINT_ZOOM_MAX);
     ctx.beginPath();
     ctx.moveTo(sx, sy);
-    ctx.lineTo(sx - Math.cos(angle - 0.38) * size, sy - Math.sin(angle - 0.38) * size);
-    ctx.lineTo(sx - Math.cos(angle + 0.38) * size, sy - Math.sin(angle + 0.38) * size);
+    ctx.lineTo(sx - Math.cos(angle - 0.38) * s, sy - Math.sin(angle - 0.38) * s);
+    ctx.lineTo(sx - Math.cos(angle + 0.38) * s, sy - Math.sin(angle + 0.38) * s);
     ctx.closePath();
     ctx.fill();
   }
