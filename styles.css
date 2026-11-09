@@ -2021,7 +2021,8 @@ details[open] > .panel-title::before { content: '\25BE'; }
   width: 100%;
   box-sizing: border-box;
 }
-#nest-panel .ngrid-wide { grid-column: 1 / -1; }
+#nest-panel .ngrid-half { grid-column: span 2; }
+#nest-panel .ngrid-wide { grid-column: span 3; }
 #nest-panel .field.check {
   display: flex;
   align-items: center;
