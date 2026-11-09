@@ -4690,6 +4690,128 @@
     }
   }
 
+  // ---- Arrange (align / distribute) ------------------------------------
+  // Applies to OBJECT entities only — a loop as a single closed shape (circle,
+  // closed spline), a group (art), an array/clone, text or part. Points and
+  // standalone line/arc edges are not arrangeable objects.
+  function arrangeableEntities() {
+    const out = [];
+    for (const s of ui.selection) {
+      if (s.kind !== 'entity') continue;
+      const e = state.entities[s.id];
+      if (!e) continue;
+      if (e.type === 'line' || e.type === 'arc' || e.type === 'note') continue;
+      if (e.type === 'spline' && !e.closed) continue;
+      out.push(e);
+    }
+    return out;
+  }
+
+  // Translate one entity (its points, spline handles, clone instance matrices,
+  // part pose) by (dx, dy). Mirrors the per-a logic in moveSelection.
+  function translateEntity(e, dx, dy) {
+    if (!dx && !dy) return;
+    const ids = new Set();
+    for (const pid of entityPointIds(e)) ids.add(+pid);
+    if ((e.type === 'art' || e.type === 'text') && Array.isArray(e.guide)) {
+      for (const gid of e.guide) {
+        const g = state.entities[gid];
+        if (g) for (const pid of entityPointIds(g)) ids.add(+pid);
+      }
+    }
+    for (const pid of ids) {
+      const p = state.points[pid];
+      if (p) { p.x += dx; p.y += dy; }
+    }
+    if (e.type === 'spline' && e.hs) {
+      for (const arr of [e.hs.o, e.hs.i]) {
+        for (const h of (arr || [])) if (h) { h.x += dx; h.y += dy; }
+      }
+    }
+    if (e.type === 'array') {
+      const inst = e.instances;
+      if (Array.isArray(inst)) {
+        for (let i = 0; i < inst.length; i++) {
+          const m = inst[i] && inst[i].m;
+          if (!m) continue;
+          inst[i] = { ...inst[i], m: [m[0], m[1], m[2], m[3], m[4] + dx, m[5] + dy] };
+        }
+        delete e.shapes;
+      }
+    }
+    if (e.type === 'part' && !e.fixed) {
+      e.pose.tx += dx;
+      e.pose.ty += dy;
+      if (e.grounded && e.groundAt && isFinite(+e.groundAt.wx)) {
+        e.groundAt.wx += dx;
+        e.groundAt.wy += dy;
+      }
+    }
+  }
+
+  // Align / distribute the arrangeable selection. kind in:
+  //   left | center-h | right | top | center-v | bottom | dist-h | dist-v
+  function arrangeSelection(kind) {
+    const ents = arrangeableEntities();
+    const need = kind === 'dist-h' || kind === 'dist-v' ? 3 : 2;
+    if (ents.length < need) {
+      toast(need === 3 ? 'Select at least 3 objects to distribute' : 'Select at least 2 objects to align');
+      return;
+    }
+    const bs = ents.map(e => ({ e, b: entityTightBounds(e) }));
+    if (bs.some(x => !x.b)) {
+      toast('Some selected objects have no bounds');
+      return;
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const { b } of bs) {
+      if (b.minX < minX) minX = b.minX;
+      if (b.minY < minY) minY = b.minY;
+      if (b.maxX > maxX) maxX = b.maxX;
+      if (b.maxY > maxY) maxY = b.maxY;
+    }
+    const cxs = bs.map(x => (x.b.minX + x.b.maxX) / 2);
+    const cys = bs.map(x => (x.b.minY + x.b.maxY) / 2);
+    pushHistory();
+    const moveAll = (getDx, getDy) => {
+      for (let i = 0; i < bs.length; i++) {
+        const { e, b } = bs[i];
+        translateEntity(e, getDx(b, i), getDy(b, i));
+      }
+    };
+    if (kind === 'left') moveAll(b => minX - b.minX, () => 0);
+    else if (kind === 'right') moveAll(b => maxX - b.maxX, () => 0);
+    else if (kind === 'top') moveAll(() => 0, b => minY - b.minY);
+    else if (kind === 'bottom') moveAll(() => 0, b => maxY - b.maxY);
+    else if (kind === 'center-h') moveAll(b => (minX + maxX) / 2 - (b.minX + b.maxX) / 2, () => 0);
+    else if (kind === 'center-v') moveAll(() => 0, b => (minY + maxY) / 2 - (b.minY + b.maxY) / 2);
+    else if (kind === 'dist-h') {
+      const order = cxs.map((cx, i) => i).sort((a, b2) => cxs[a] - cxs[b2]);
+      const first = order[0], last = order[order.length - 1];
+      const span = cxs[last] - cxs[first];
+      const gap = span / (order.length - 1);
+      for (let k = 0; k < order.length; k++) {
+        const i = order[k];
+        const b = bs[i].b;
+        const target = cxs[first] + gap * k;
+        translateEntity(bs[i].e, target - (b.minX + b.maxX) / 2, 0);
+      }
+    } else if (kind === 'dist-v') {
+      const order = cys.map((cy, i) => i).sort((a, b2) => cys[a] - cys[b2]);
+      const first = order[0], last = order[order.length - 1];
+      const span = cys[last] - cys[first];
+      const gap = span / (order.length - 1);
+      for (let k = 0; k < order.length; k++) {
+        const i = order[k];
+        const b = bs[i].b;
+        const target = cys[first] + gap * k;
+        translateEntity(bs[i].e, 0, target - (b.minY + b.maxY) / 2);
+      }
+    }
+    invalidateLoops();
+    commit();
+  }
+
   function refreshSelectionDimensions(pids, eids, sx, sy) {
     for (const cid in state.constraints) {
       const c = state.constraints[cid];
@@ -18905,6 +19027,12 @@
     const qbHas = !!selectionBounds();
     document.querySelectorAll('[data-quick]').forEach(b => { b.disabled = !qbHas; });
     document.querySelectorAll('.qb-act').forEach(b => { b.disabled = !qbHas; });
+    // arrange tab: align needs >=2 objects, distribute needs >=3
+    const nArr = arrangeableEntities().length;
+    document.querySelectorAll('[data-arrange]').forEach(b => {
+      const dist = b.dataset.arrange === 'dist-h' || b.dataset.arrange === 'dist-v';
+      b.disabled = dist ? nArr < 3 : nArr < 2;
+    });
     // dimension follows the sidebar button's own validity logic
     const dimBtn = document.getElementById('btn-dimension');
     const qbDim = document.getElementById('qb-dimension');
@@ -25628,6 +25756,12 @@ function cmdSplitCurve() {
       };
       btn.addEventListener('click', act);
       // tablets: a held touch must not double-fire with the click
+      btn.addEventListener('pointerdown', ev => { if (ev.pointerType !== 'mouse') ev.preventDefault(); });
+    });
+
+    // arrange buttons (Align / Distribute on the Arrange tab)
+    document.querySelectorAll('[data-arrange]').forEach(btn => {
+      btn.addEventListener('click', () => arrangeSelection(btn.dataset.arrange));
       btn.addEventListener('pointerdown', ev => { if (ev.pointerType !== 'mouse') ev.preventDefault(); });
     });
 
