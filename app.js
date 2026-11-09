@@ -9369,11 +9369,15 @@
     if (!ids.size) return { x: 0, y: 0 };
     const dragSet = new Set(d.ids.map(Number));
     for (const pid of ids) if (!dragSet.has(pid)) return { x: 0, y: 0 };
-    // all of the loop's points are dragged: use the first one's press->now delta
+    // all of the loop's points are dragged: use the first one's start->now delta
     for (const pid of ids) {
-      const base = d.base && d.base[pid];
       const p = P(pid);
-      if (base && p) return { x: p.x - base.x, y: p.y - base.y };
+      if (!p) continue;
+      if (d.startPos && d.startPos[pid]) {
+        return { x: p.x - d.startPos[pid].x, y: p.y - d.startPos[pid].y };
+      }
+      const base = d.base && d.base[pid];
+      if (base) return { x: p.x - base.x, y: p.y - base.y };
     }
     return { x: 0, y: 0 };
   }
@@ -22072,6 +22076,14 @@ function cmdSplitCurve() {
         return;
       }
       if (d.kind === 'entity') {
+        // Snapshot the press pose of every dragged point once, before any move
+        // or solve touches it. loopDragDelta uses this to translate cached
+        // loop polygons by a SINGLE consistent vector, so nested loops move
+        // exactly with their container.
+        if (!d.startPos) {
+          d.startPos = {};
+          for (const id of d.ids) { const p = P(id); if (p) d.startPos[id] = { x: p.x, y: p.y }; }
+        }
         let dx = world.x - d.startWorld.x;
         let dy = world.y - d.startWorld.y;
         // Single point: the classic 1:1 snap (the point itself chases the
