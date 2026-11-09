@@ -7491,6 +7491,7 @@
     }
     if (ents.length) {
       ui.selection = [{ kind: 'entity', id: pick(ents, 'entity') }];
+      markLastPicked('entity', ui.selection[0].id);
       updateUI();
       render();
       return;
@@ -7510,6 +7511,7 @@
     const own = loopEntities(loop).filter(eid => state.entities[eid] && entityEditable(state.entities[eid]));
     if (own.length) {
       ui.selection = own.map(eid => ({ kind: 'entity', id: eid }));
+      markLastPicked('entity', own[0]);
       updateUI();
       render();
     }
