@@ -12405,8 +12405,7 @@
       fill.style.width = Math.min(100, Math.round(100 * nestJob.done / nestJob.total)) + '%';
     }
     if (nestJob.workers && nestJob.workers.length) {
-      const pct = nestJob.total > 0 ? Math.round(100 * nestJob.done / nestJob.total) : 0;
-      nestSetStatus('Nesting… ' + pct + '% (' + nestJob.workers.length + ' worker)');
+      nestSetStatus('Nesting… ' + nestJob.workers.length + ' worker');
       return;
     }
     const evalNum = Math.floor(nestJob.done / Math.max(1, nestJob.partsPerEval || 1)) + 1;
