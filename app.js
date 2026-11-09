@@ -4723,19 +4723,44 @@
   }
   function arrangeableUnits() {
     const selEnts = new Set();
-    for (const s of ui.selection) if (s.kind === 'entity') selEnts.add(+s.id);
+    const selPts = new Set();
+    for (const s of ui.selection) {
+      if (s.kind === 'entity') selEnts.add(+s.id);
+      else if (s.kind === 'point') selPts.add(+s.id);
+    }
     const units = [];
-    // 1) complete loops made of selected entities
+    const seenEnt = new Set();
+    // 1) complete loops: all of the loop's ENTITIES selected, or all of its
+    //    POINTS selected (a marquee leaves point selections, which the entity
+    //    cascade may not fill in when pick filters are off)
     for (const loop of getLoops()) {
       const ids = loopEntities(loop);
       if (!ids.length) continue;
-      if (!ids.every(id => selEnts.has(+id))) continue;
+      const fullEnt = ids.every(id => selEnts.has(+id));
+      let fullPt = false;
+      if (!fullEnt) {
+        let n = 0, all = true;
+        for (const id of ids) {
+          for (const pid of entityPointIds(state.entities[id])) {
+            n++;
+            if (!selPts.has(+pid)) { all = false; break; }
+          }
+          if (!all) break;
+        }
+        fullPt = n > 0 && all;
+      }
+      if (!fullEnt && !fullPt) continue;
       let b = null;
-      for (const id of ids) b = mergeBounds(b, entityTightBounds(state.entities[id]));
+      for (const id of ids) {
+        b = mergeBounds(b, entityTightBounds(state.entities[id]));
+        seenEnt.add(+id);
+      }
       if (b) units.push({ ids, b });
     }
-    // 2) container objects (group / clone-array / part)
+    // 2) container objects (group / clone-array / part), skipping any already
+    //    consumed as part of a loop unit
     for (const id of selEnts) {
+      if (seenEnt.has(id)) continue;
       const e = state.entities[id];
       if (!e) continue;
       if (e.type !== 'art' && e.type !== 'array' && e.type !== 'part') continue;
