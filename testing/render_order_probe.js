@@ -83,7 +83,7 @@ console.log('\n== the fill tint is painted per loop, under the geometry ==');
   const fills = slice('drawLoopFills');
   check('fills use a theme-aware per-style fill colour', /brightenAdd\(loopTintBase\(d\.fill\)/.test(fills));
   check('an unfilled loop is skipped', /fill === 'none'/.test(fills));
-  check('a hidden layer is skipped', /!d\.visible/.test(fills) && /loopVisibleOnCanvas\(loop\)/.test(slice('loopFrameData')));
+  check('a hidden layer is skipped', /!d\.visible/.test(fills) && /loopVisibleOnCanvas\(loop\)/.test(slice('loopStaticData')));
 }
 
 console.log('\n' + (fail ? fail + ' FAILED, ' : 'all ') + pass + ' checks passed');

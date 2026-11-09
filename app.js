@@ -9124,33 +9124,54 @@
   // must refresh every frame.
   let loopPathFrameLoops = null;
   let loopPathFrameKey = null;
-  let loopPathFrameSel = null;
-  let loopPathFrameSelLen = -1;
   let loopPathMeta = null;
   function loopFrameData(loop) {
     const loops = getLoops();
     const key = view.zoom + '|' + view.ox + '|' + view.oy;
-    const selIdx = selectionIndex();
-    if (loopPathFrameLoops !== loops || loopPathFrameKey !== key ||
-      loopPathFrameSel !== selIdx || loopPathFrameSelLen !== ui.selection.length) {
+    if (loopPathFrameLoops !== loops || loopPathFrameKey !== key) {
       loopPathFrameLoops = loops;
       loopPathFrameKey = key;
-      loopPathFrameSel = selIdx;
-      loopPathFrameSelLen = ui.selection.length;
       loopPathMeta = new Map();
     }
     if (!loop.circle) {
       const hit = loopPathMeta.get(loop);
       if (hit !== undefined) return hit;
     }
+    const st = loopStaticData(loop);
     const d = {
       path: buildLoopPath(loop),
-      sel: loopShapeSelected(loop),
-      fill: loopFill(loop),
-      visible: loopVisibleOnCanvas(loop)
+      sel: st.sel,
+      fill: st.fill,
+      visible: st.visible
     };
     if (!loop.circle) loopPathMeta.set(loop, d);
     return d;
+  }
+
+  // fill/sel/visible do not depend on the camera, only on the loop set and
+  // the selection. Cache them per loops-array identity so a pan (which only
+  // changes the view) does not recompute the O(loops²) fill inheritance on
+  // every frame.
+  let loopFillCacheLoops = null;
+  let loopFillCacheSel = null;
+  let loopFillCacheSelLen = -1;
+  let loopFillCache = null;
+  function loopStaticData(loop) {
+    const loops = getLoops();
+    const selIdx = selectionIndex();
+    if (loopFillCacheLoops !== loops || loopFillCacheSel !== selIdx ||
+      loopFillCacheSelLen !== ui.selection.length) {
+      loopFillCacheLoops = loops;
+      loopFillCacheSel = selIdx;
+      loopFillCacheSelLen = ui.selection.length;
+      loopFillCache = new Map();
+    }
+    let s = loopFillCache.get(loop);
+    if (!s) {
+      s = { fill: loopFill(loop), sel: loopShapeSelected(loop), visible: loopVisibleOnCanvas(loop) };
+      loopFillCache.set(loop, s);
+    }
+    return s;
   }
 
   function buildLoopPath(loop) {
@@ -24083,6 +24104,21 @@ function cmdSplitCurve() {
     return true;
   }
 
+  // The loops that carry an explicit gray/yellow fill, cached per loops-array
+  // identity. loopFill's inheritance pass only needs to consider these (they
+  // are few), instead of scanning every loop — the O(loops²) cost on large
+  // files.
+  let filledLoopsCacheLoops = null;
+  let filledLoopsCache = [];
+  function filledLoopsList() {
+    const loops = getLoops();
+    if (filledLoopsCacheLoops !== loops) {
+      filledLoopsCacheLoops = loops;
+      filledLoopsCache = loops.filter(l => filledFillOf(l));
+    }
+    return filledLoopsCache;
+  }
+
   // Per-loop fill (drives the offset flip inside KaryaCNC). A loop with no
   // fill of its own inherits the fill of the smallest filled loop that fully
   // contains it — so a nested loop inside a filled body reads as filled too
@@ -24093,12 +24129,11 @@ function cmdSplitCurve() {
     if (own) return own;
     if (loop.poly && loop.poly.length >= 3) {
       let best = null, bestArea = Infinity;
-      for (const other of getLoops()) {
+      for (const other of filledLoopsList()) {
         if (other === loop || !(other.area > loop.area) || other.area >= bestArea) continue;
-        const f = filledFillOf(other);
-        if (!f || !loopContainedIn(loop, other)) continue;
+        if (!loopContainedIn(loop, other)) continue;
         bestArea = other.area;
-        best = f;
+        best = filledFillOf(other);
       }
       if (best) return best;
     }
