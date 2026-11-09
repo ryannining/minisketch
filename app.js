@@ -14486,19 +14486,20 @@
   // intersection use the first selected loop as the tool against the second
   // (target). The originals are replaced by the result.
   function pickedLoops() {
-    const selIds = ui.selection.filter(s => s.kind === 'entity').map(s => +s.id);
-    if (!selIds.length) return [];
+    const sel = new Set(ui.selection.filter(s => s.kind === 'entity').map(s => +s.id));
+    if (!sel.size) return [];
     const loops = getLoops();
     const picked = [];
-    const seen = new Set();
-    for (const id of selIds) {
-      for (let i = 0; i < loops.length; i++) {
-        if (seen.has(i)) continue;
-        if (loopEntities(loops[i]).some(eid => +eid === id)) {
-          seen.add(i);
-          picked.push(loops[i]);
-          break;
-        }
+    // The old loop was O(selection × loops × entities-per-loop): select-all
+    // selects every entity, so this ran quadratically on large files (a
+    // 24000-point drawing froze on Ctrl+A). Walk the loops once instead and
+    // test membership against the selection set — O(loops × entities-per-loop),
+    // independent of selection size, and yields the same set in the same
+    // (ascending loop-index) order.
+    for (let i = 0; i < loops.length; i++) {
+      const own = loopEntities(loops[i]);
+      for (let k = 0; k < own.length; k++) {
+        if (sel.has(+own[k])) { picked.push(loops[i]); break; }
       }
     }
     return picked;
