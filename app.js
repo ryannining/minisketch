@@ -4833,6 +4833,19 @@
     if (lastPickEntityId != null) {
       keyUnit = bs.find(u => u.ids.indexOf(lastPickEntityId) >= 0) || null;
     }
+    // Fallback: the unit whose entity appears LAST in ui.selection — for click
+    // selections that is the most recently selected object (a loop's key can be
+    // ambiguous because its entities carry no “last clicked” order).
+    if (!keyUnit) {
+      let bestIdx = -1;
+      for (const u of bs) {
+        for (const id of u.ids) {
+          const idx = ui.selection.findIndex(s => s.kind === 'entity' && +s.id === +id);
+          if (idx > bestIdx) { bestIdx = idx; keyUnit = u; }
+        }
+      }
+      if (bestIdx < 0) keyUnit = null;
+    }
     const keyB = keyUnit ? keyUnit.b : null;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const { b } of bs) {
