@@ -1998,6 +1998,40 @@ details[open] > .panel-title::before { content: '\25BE'; }
   width: 52px;
 }
 
+/* Nesting panel: tidy aligned grid (label above input, uniform columns) */
+#nest-panel .ngrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px 10px;
+  margin: 2px 0 10px;
+}
+#nest-panel .field {
+  display: block;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-2);
+}
+#nest-panel .field > span {
+  display: block;
+  margin-bottom: 3px;
+  letter-spacing: 0.02em;
+}
+#nest-panel .field input[type="number"],
+#nest-panel .field input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+}
+#nest-panel .ngrid-wide { grid-column: 1 / -1; }
+#nest-panel .field.check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  align-self: end;
+  margin-bottom: 3px;
+}
+#nest-panel .field.check input[type="checkbox"] { width: auto; margin: 0; }
+#nest-panel .nest-buttons { margin-top: 2px; }
+
 .count {
   font-size: 10px;
   font-weight: 700;

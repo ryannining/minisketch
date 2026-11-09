@@ -348,21 +348,17 @@
       <details class="panel" id="nest-panel">
         <summary class="panel-title">Nesting <span class="count" id="nest-count">0</span></summary>
         <div class="panel-body">
-          <div class="row">
-            <label>Sp <input type="number" id="nest-spacing" value="2" min="0" step="0.5" title="Spacing between parts in mm (offsets each part by half the value on every side before packing)"></label>
-            <label>Grid <input type="number" id="nest-grid" value="4" min="1" max="100" step="1" title="Grid snap: NFP scan step in mm. Smaller = tighter packing but much slower"></label>
-            <label class="check"><input type="checkbox" id="nest-flip">Flip</label>
+          <div class="ngrid">
+            <label class="field"><span>Sp</span><input type="number" id="nest-spacing" value="2" min="0" step="0.5" title="Spacing between parts in mm (offsets each part by half the value on every side before packing)"></label>
+            <label class="field"><span>Grid</span><input type="number" id="nest-grid" value="4" min="1" max="100" step="1" title="Grid snap: NFP scan step in mm. Smaller = tighter packing but much slower"></label>
+            <label class="field check"><input type="checkbox" id="nest-flip"><span>Flip</span></label>
+            <label class="field ngrid-wide"><span>Rot</span><input type="text" id="nest-rotation" value="0,90,180,270" spellcheck="false" title="Allowed rotations: angles list (0,90), a preset (1,2,3,4,8), or a range 0-360:90. Same syntax as nestjs2"></label>
+            <label class="field"><span>Pop</span><input type="number" id="nest-pop" value="6" min="2" max="40" step="1" title="GA population size"></label>
+            <label class="field"><span>Gen</span><input type="number" id="nest-gen" value="5" min="1" max="60" step="1" title="GA generations"></label>
+            <label class="field"><span>Mut</span><input type="number" id="nest-mut" value="0.1" min="0" max="1" step="0.05" title="GA mutation rate (0 = keep the parents' order, 1 = always reshuffle)"></label>
+            <label class="field"><span>LS</span><input type="number" id="nest-ls" value="6" min="0" max="60" step="1" title="Local-search hill-climb trials after the GA (0 = off; fewer = faster but slightly looser packing)"></label>
           </div>
-          <div class="row">
-            <label>Rot <input type="text" id="nest-rotation" value="0,90,180,270" spellcheck="false" title="Allowed rotations: angles list (0,90), a preset (1,2,3,4,8), or a range 0-360:90. Same syntax as nestjs2"></label>
-          </div>
-          <div class="row">
-            <label>Pop <input type="number" id="nest-pop" value="6" min="2" max="40" step="1" title="GA population size"></label>
-            <label>Gen <input type="number" id="nest-gen" value="5" min="1" max="60" step="1" title="GA generations"></label>
-            <label>Mut <input type="number" id="nest-mut" value="0.1" min="0" max="1" step="0.05" title="GA mutation rate (0 = keep the parents' order, 1 = always reshuffle)"></label>
-            <label>LS <input type="number" id="nest-ls" value="6" min="0" max="60" step="1" title="Local-search hill-climb trials after the GA (0 = off; fewer = faster but slightly looser packing)"></label>
-          </div>
-          <div class="row">
+          <div class="row nest-buttons">
             <button class="btn small primary" id="nest-start" title="Nest the selected loops to the right of the green sheet loop">Start</button>
             <button class="btn small" id="nest-again" disabled title="Nest the same parts again without re-selecting (replaces the previous result)">Re-nest</button>
             <button class="btn small" id="nest-stop" hidden title="Stop and keep the best result so far">Stop</button>
