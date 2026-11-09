@@ -5232,6 +5232,15 @@
     const layers = new Set(Array.from(eids)
       .filter(eid => state.entities[eid])
       .map(eid => layerOf(state.entities[eid])));
+    // Live bounds of the copied objects: clones own no points, so the generic
+    // clipboardBounds would return null for them and the paste would not center
+    // under the cursor. Compute here from the live entities/points.
+    let bounds = null;
+    for (const ent of ents) bounds = mergeBounds(bounds, entityTightBounds(ent));
+    for (const pid of pids) {
+      const p = state.points[pid];
+      if (p) bounds = mergeBounds(bounds, { minX: p.x, minY: p.y, maxX: p.x, maxY: p.y });
+    }
     return {
       points: Array.from(pids)
         .filter(id => state.points[id])
@@ -5242,7 +5251,8 @@
       constraints: cons,
       crossLayer: layers.size > 1,
       count: ents.length,
-      pointCount: pids.size
+      pointCount: pids.size,
+      bounds
     };
   }
 
@@ -5309,7 +5319,7 @@
       offsetY = 0;
     } else {
       // Drop the copy under the mouse (center of its bounds at the cursor).
-      const b = clipboardBounds(src);
+      const b = src.bounds || clipboardBounds(src);
       const fallback = s2w(W / 2, H / 2);
       let tx = ui.raw ? ui.raw.x : (ui.lastWorld ? ui.lastWorld.x : fallback.x);
       let ty = ui.raw ? ui.raw.y : (ui.lastWorld ? ui.lastWorld.y : fallback.y);
