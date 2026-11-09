@@ -4675,6 +4675,19 @@
         }
       }
     }
+    // Clone arrays move by instance matrix, not by points (they own none), so
+    // a nudge shifts every instance's translation like a drag does.
+    for (const e of selectedEntities()) {
+      if (e.type !== 'array') continue;
+      const inst = e.instances;
+      if (!Array.isArray(inst)) continue;
+      for (let i = 0; i < inst.length; i++) {
+        const m = inst[i] && inst[i].m;
+        if (!m) continue;
+        inst[i] = { ...inst[i], m: [m[0], m[1], m[2], m[3], m[4] + dx, m[5] + dy] };
+      }
+      delete e.shapes;   // instances changed: force a re-render of the clones
+    }
   }
 
   function refreshSelectionDimensions(pids, eids, sx, sy) {
@@ -4851,7 +4864,9 @@
     const pinned = selectionPointIds();
     // a parts-only selection owns no points but still nudges by pose
     const hasMovablePart = selectedEntities().some(e => e.type === 'part' && !e.fixed);
-    if (!pinned.size && !hasMovablePart) return false;
+    // clone/array selections own no points either but nudge by instance matrix
+    const hasArray = selectedEntities().some(e => e.type === 'array');
+    if (!pinned.size && !hasMovablePart && !hasArray) return false;
     pushHistory();
     moveSelection(dx, dy);
     invalidateLoops();
