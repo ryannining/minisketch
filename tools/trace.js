@@ -199,6 +199,55 @@
     return trace(imgd, opts);
   }
 
+  // ---- worker offload ------------------------------------------------------
+  // The full-resolution trace is the one heavy, synchronous stretch in the
+  // import path. Run it in a Worker (tools/trace_worker.js) so a big image does
+  // not freeze the UI. The worker receives the binarised RGBA pixels plus the
+  // ready ImageTracer `iopts` and returns the same { svg, paths, width, height }
+  // the synchronous trace() produces. Returns null when Workers are unavailable
+  // (e.g. some file:// setups / the Node probes) or the worker failed to load,
+  // so the caller can fall back to the synchronous tracer.
+  function runTraceInWorker(imageData, iopts) {
+    if (typeof Worker === 'undefined') return Promise.resolve(null);
+    return new Promise((resolve) => {
+      let w;
+      try { w = new Worker('tools/trace_worker.js'); }
+      catch (e) { return resolve(null); }
+      const done = (val) => {
+        try { w.terminate(); } catch (e) { /* ignore */ }
+        resolve(val);
+      };
+      w.onerror = () => done(null);
+      w.onmessage = (e) => {
+        const d = e.data || {};
+        if (d.error) return done(null);
+        done({ svg: d.svg, paths: d.paths, width: d.width, height: d.height });
+      };
+      try {
+        w.postMessage({
+          data: imageData.data,
+          width: imageData.width,
+          height: imageData.height,
+          iopts: iopts
+        }, [imageData.data.buffer]);
+      } catch (e) { done(null); }
+    });
+  }
+
+  // Full-resolution trace, worker-first, falling back to the synchronous tracer.
+  async function traceBlobInWorker(blob, opts) {
+    const o = normalizeOptions(opts);
+    const iopts = traceOptions(o);
+    const imgd = await toImageData(blob, o);
+    const wr = await runTraceInWorker(imgd, iopts);
+    if (wr) return wr;
+    // Worker unavailable/failed: the buffer may have been transferred away, so
+    // re-decode and trace synchronously (decode is cheap; only the tracer is
+    // expensive).
+    const imgd2 = await toImageData(blob, o);
+    return trace(imgd2, o);
+  }
+
   // ---- duplicate-contour removal -----------------------------------------
 
   // ImageTracerJS emits every interior (hole) boundary of an annular region
@@ -265,6 +314,8 @@
   NS.toImageData = toImageData;
   NS.trace = trace;
   NS.traceBlob = traceBlob;
+  NS.runTraceInWorker = runTraceInWorker;
+  NS.traceBlobInWorker = traceBlobInWorker;
   NS.contourSignature = contourSignature;
   NS.similarContour = similarContour;
   NS.dedupeContours = dedupeContours;

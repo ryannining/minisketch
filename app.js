@@ -10612,10 +10612,17 @@
   // Everything stays local: no network.
   function traceBlobToSvg(blob, opts) {
     const T = window.MiniSketchTrace;
-    if (!T || typeof T.traceBlob !== 'function') {
-      return Promise.resolve(null);
+    if (!T) return Promise.resolve(null);
+    // Prefer the worker offload for the full-resolution trace (keeps the heavy
+    // ImageTracerJS run off the main thread). traceBlobInWorker falls back to
+    // the synchronous tracer when Workers are unavailable.
+    if (typeof T.traceBlobInWorker === 'function') {
+      return T.traceBlobInWorker(blob, opts).then((r) => (r && r.svg) || null).catch(() => null);
     }
-    return T.traceBlob(blob, opts).then((r) => (r && r.svg) || null).catch(() => null);
+    if (typeof T.traceBlob === 'function') {
+      return T.traceBlob(blob, opts).then((r) => (r && r.svg) || null).catch(() => null);
+    }
+    return Promise.resolve(null);
   }
 
   function artLocalOf(gg, world) {
