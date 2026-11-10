@@ -2638,6 +2638,14 @@
     // never during a plain coordinate drag — exactly the boundary the
     // entity→points index cares about.
     pointUseCache = null;
+    // The entity→points index must be dropped BEFORE cleanupPoints(): a
+    // structural edit that rewired an existing entity's points (double-click
+    // insert on a spline) leaves the cached list stale, and a stale list hides
+    // the brand-new point from the used-set — the sweep deleted the point that
+    // was just inserted, pts/hs lengths mismatched, and the renderer silently
+    // fell back to autoHandles (the "sharp triangle became rounded" bug).
+    // invalidateLoops() below clears it too, but only AFTER the sweep ran.
+    epiCache.clear();
     for (const eid in state.entities) {
       const e = state.entities[eid];
       if (e.layer == null || !getLayer(e.layer)) e.layer = ui.activeLayer;
@@ -9478,8 +9486,6 @@
   let loopFillLayer = null;
   let loopFillLayerCtx = null;
   let loopFillLayerKey = null;
-  let debugFillsInvoked = false;
-  let debugLoopsLogged = false;
 
   // Containment depth of a loop: how many other loops (strictly) contain it.
   // This is a TOPOLOGY property, so it is cached per the EXACT loops array
@@ -9507,10 +9513,6 @@
   }
 
   function drawLoopFills() {
-    if (!debugFillsInvoked) {
-      debugFillsInvoked = true;
-      console.log('[fill] drawLoopFills invoked (not fast-mode)');
-    }
     const key = geometryEpoch + '|' + themeName + '|' + view.zoom + '|' + view.ox + '|' + view.oy + '|' +
       DPR + '|' + loopFillScale + '|' + (ui.dimOthers ? 1 : 0) + '|' + ui.activeLayer + '|' + W + 'x' + H;
     if (!loopFillLayer) {
@@ -9528,32 +9530,16 @@
       const lc = loopFillLayerCtx;
       lc.setTransform(DPR * loopFillScale, 0, 0, DPR * loopFillScale, 0, 0);
       lc.clearRect(0, 0, W, H);
-      const allLoops = getLoops();
-      // DEBUG: always report the build (once per geometry epoch) so we can see
-      // how many loops exist and how many are filled, even when zero are.
-      console.log('[fill] build epoch=' + geometryEpoch + ' totalLoops=' + allLoops.length);
       // Batch by (style, depth). Same-depth loops never contain each other, so
       // merging them into one path is safe (they share edges, not interiors); a
       // single opaque fill per group colours them all. Deep (brighter) groups
       // are painted after shallow ones so the inner contour covers its parent.
       const groups = new Map();
-      const debugRows = [];   // filled loops in this build
       for (const loop of getLoops()) {
         const d = loopFrameData(loop);
         if (d.fill === 'none' || !d.visible || !d.path) continue;
         const fade = ui.dimOthers && loopLayerId(loop) !== ui.activeLayer;
         const depth = loopDepthOf(loop);
-        // DEBUG: list every loop being filled with its nesting level. Colors
-        // are the same only while depth is identical, so this shows whether the
-        // containment hierarchy is being computed. Remove when no longer needed.
-        {
-          const poly = loop.poly || [];
-          const cx = poly.length ? poly.reduce((a, p) => a + p.x, 0) / poly.length : 0;
-          const cy = poly.length ? poly.reduce((a, p) => a + p.y, 0) / poly.length : 0;
-          const color = brightenAdd(loopTintBase(d.fill), depth * LOOP_FILL_DEPTH_ADD);
-          debugRows.push({ style: d.fill, depth, color, kinds: poly.length,
-            cx: +cx.toFixed(2), cy: +cy.toFixed(2), area: +(loop.area || 0).toFixed(2) });
-        }
         const style = d.fill + '|' + depth + (fade ? '|dim' : '');
         let g = groups.get(style);
         if (!g) {
@@ -9566,8 +9552,6 @@
         }
         g.path.addPath(d.path, loopDragMatrix(loop) || undefined);
       }
-      if (debugRows.length) console.log('[fill] filled (' + debugRows.length + ') ::', debugRows);
-      else console.log('[fill] 0 loops filled — nothing to draw');
       const ordered = Array.from(groups.entries()).sort((a, b) =>
         +a[0].split('|')[1] - +b[0].split('|')[1]
       );
@@ -9665,10 +9649,6 @@
     const ordered = Array.from(groups.entries()).sort((a, b) =>
       +a[0].split('|')[1] - +b[0].split('|')[1]
     );
-    if (!debugLoopsLogged && groups.size) {
-      debugLoopsLogged = true;
-      console.log('[loops] auto-tint groups ::', Array.from(groups.keys()), '->', Array.from(groups.values(), g => g.fill));
-    }
     for (const [, g] of ordered) {
       ctx.fillStyle = g.fill;
       ctx.fill(g.path);
@@ -23255,6 +23235,14 @@ function cmdSplitCurve() {
       const frame = splineFrame(cps, e.hs, closed);
       if (!frame) return;
       const t = frame.paramOf(world);
+      // Shift is ignored for splines: there is no point-on-spline solver
+      // relation, so a "riding" point would be disconnected (and swept by
+      // cleanupPoints). Shift+double-click therefore inserts a real node on
+      // the curve, exactly like a plain double click.
+      if (t <= 0.02 || t >= 0.98) {
+        toast('Too close to a node — click in the middle of a segment');
+        return;
+      }
       const n = cps.length;
       const nsegs = closed ? n : n - 1;
       const g = clamp(t, 0, 1) * nsegs;
@@ -23288,6 +23276,7 @@ function cmdSplitCurve() {
       e.pts = ids;
       e.hs = { o, i: ih };
       commit();
+      toast('Point inserted on curve');
       return;
     }
     if (e.type === 'arc') {
@@ -23299,7 +23288,10 @@ function cmdSplitCurve() {
       const mid = pointAtWorld(pt.x, pt.y, color);
       if (addOnly) {
         // The solver has no point-on-arc relation (an arc has no radius
-        // variable), so this point is free, like the one added on a circle.
+        // variable). A pointOn constraint still anchors the point to the arc
+        // so cleanupPoints does not sweep it away.
+        const cid = newId();
+        state.constraints[cid] = { id: cid, type: 'pointOn', p: mid, entity: +e.id };
         ui.selection = [{ kind: 'point', id: mid }];
         commit();
         toast('Point added on arc');
@@ -23320,6 +23312,8 @@ function cmdSplitCurve() {
       const ang = Math.atan2(world.y - c.y, world.x - c.x);
       pushHistory();
       const pid = pointAtWorld(c.x + Math.cos(ang) * e.r, c.y + Math.sin(ang) * e.r, colorOf(e));
+      const cid = newId();
+      state.constraints[cid] = { id: cid, type: 'pointOn', p: pid, entity: +e.id };
       ui.selection = [{ kind: 'point', id: pid }];
       commit();
       toast('Point added on circle');
@@ -23345,9 +23339,21 @@ function cmdSplitCurve() {
       return;
     }
     if (ui.draft && ui.draft.type === 'curve') {
-      finishCurve(false);
-      render();
-      return;
+      // The two presses that make up a double click both act as draft nodes
+      // (the curve pen adds a node per pointerdown). If they landed on the
+      // same spot, the draft is just the double click itself — finishing it
+      // would spawn a tiny stray curve instead of inserting a point into the
+      // curve underneath. Detect that and fall through to the normal insert.
+      const nd = ui.draft.nodes;
+      const slop = Math.max(0.02, DOUBLE_TAP_SLOP / view.zoom);
+      const degenerateDraft = !nd.length || nd.every(n => Math.hypot(n.x - nd[0].x, n.y - nd[0].y) < slop);
+      if (nd.length >= 2 && !degenerateDraft) {
+        finishCurve(false);
+        render();
+        return;
+      }
+      cancelDraft();
+      // continue to the hit test / insert below
     }
     const eh = hitEntity(pos.x, pos.y);
     if (eh != null) {

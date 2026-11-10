@@ -5,9 +5,13 @@ never seen the repository. It is written for an agent that needs to produce
 working code, not for a human who wants a reference manual: every section is
 something you either copy, or get wrong.
 
-[`TOOLS.md`](TOOLS.md) is the formal reference (rules, api list, checklist) and
+> **Note:** `TOOLS.md` does not exist in the repo (referenced by older docs,
+> never written). Treat **this file** as the canonical reference for writing
+> tools; `ARCHITECTURE.md` is the data model. If a file:line below has moved,
+> grep the symbol name, not the number.
+
 [`ARCHITECTURE.md`](ARCHITECTURE.md) is the data model. This file does not
-repeat them. It adds what neither contains: **how a grouped object is actually
+repeat it. It adds what neither contains: **how a grouped object is actually
 built inside**, **how to change its constraints from a tool**, the numbers that
 have hurt people, and a probe you can run without a browser. Every claim here
 carries a `file:line` that was checked against the code as this file was
@@ -18,9 +22,9 @@ Two notes up front:
 * `TOOLS.md` §2 walks through `tools/cornerholes.js`. That file no longer
   exists. Use `tools/flex.js` or `tools/paneliklan.js` as the small live
   examples instead.
-* `app.js` is one ~24.5k-line IIFE. You never need to read most of it. The only
-  region you need is `toolApi()` at `app.js:11565-11607` — that object literal
-  *is* the entire surface a tool may touch.
+* `app.js` is one ~28.3k-line IIFE. You never need to read most of it. The only
+  region you need is `toolApi()` — grep `function toolApi` (it moves) — that
+  object literal *is* the entire surface a tool may touch.
 
 ---
 
@@ -31,7 +35,7 @@ Four files, always the same four:
 | File | Change |
 | --- | --- |
 | `tools/mytool.js` | new. One IIFE that calls `MiniSketchTools.register({...})` |
-| `index.html` | one `<script src="tools/mytool.js"></script>` — after `tools/registry.js` (`index.html:637`), before `src="app.js"` |
+| `index.html` | one `<script src="tools/mytool.js"></script>` — after `tools/registry.js` (near the end of `<body>`, before `src="app.js"`) |
 | `help.js` | one bullet in the `en` list (`help.js:206`) and the matching one in the `id` list (`help.js:208`) |
 | `testing/mytool_probe.js` | new. Pure geometry, no DOM (§9) |
 
@@ -665,10 +669,10 @@ dimension survives the swap.
   tolerance that matches what the machine needs, not the screen.
 * **`addNote` only travels if it is selected.** A note created and not pushed
   into `ui.selection` is left behind when the group moves
-  (`TOOLS.md` §5.5; the mechanism is `app.js:10624-10630`).
+  (see the `addNote` note in §8; the mechanism is `app.js:10624-10630`).
 * **Clipper only knows inside from outside by nesting depth** (`:10572`
   `normalizeWinding`, and `wall.js`'s `signOf(loop)` = `-1` at even depth).
-  Compare *signed* areas; `Math.abs` hides holes, which is already in `TOOLS.md` §8.
+  Compare *signed* areas; `Math.abs` hides holes, which is already in §8.
 * **Grouping a flat object gives a 1 mm frame** (`app.js:10379-10380`) — never
   dimension an axis that has no extent.
 * **Resizing the frame rescales the pattern** (`:10392`) — say so in the dialog
@@ -689,8 +693,9 @@ dimension survives the swap.
 
 ## 9. Testing without a browser
 
-`TOOLS.md` §6 is the rule: probes cover the contract and the maths, and the
-owner checks anything that needs eyes. Do not script a browser.
+§9 is the rule (the section you are reading): probes cover the contract and
+the maths, and the owner checks anything that needs eyes. Do not script a
+browser.
 
 **a) Pure geometry.** Write the plan as free functions and slice them out with
 brace matching — the harness is `testing/flex_probe.js:15-42` (identical in
@@ -740,7 +745,7 @@ finds it, and make it exit non-zero on failure (`process.exit(fail ? 1 : 0)`).
 
 ## 10. Release checklist
 
-Beyond `TOOLS.md` §7, the parts that are easy to miss:
+Beyond the checklist above, the parts that are easy to miss:
 
 - [ ] `node --check tools/<file>.js` and `node testing/<tool>_probe.js` run, and
       their output is reported verbatim; the repo-wide regression suites

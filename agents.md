@@ -45,7 +45,7 @@ probes. So:
 | --- | --- |
 | `agents.md` (this file) | every agent, all work |
 | `createtools.md` §8 | tool authoring |
-| `TOOLS.md` §6 / §7 | tool testing checklist |
+| `createtools.md` §9 / §10 | tool testing checklist |
 | `ARCHITECTURE.md` §Testing | repo-wide browser test policy |
 | `ai/system-prompt.txt` §VERIFY-THEN-STOP | in-app AI chat loop |
 | `ai/chat.js` feedback string | in-app AI chat loop implementation |

@@ -10,10 +10,14 @@ Plain static files, no build step, opened straight from disk
 (`file://…/index.html`). That is a hard constraint:
 
 - **No ES modules** (`import`/`export` is blocked over `file://` in Chrome).
-  Files are classic `<script>` tags loaded in order: `tools/imagetracer.js`,
-  `tools/clipper.js`, `tools/nest.js`, `tools/registry.js`, the tool files
-  (`tools/box.js`, `tools/slot.js`, `tools/gear.js`, `tools/wall.js`),
-  `core.js`, `app.js`.
+  Files are classic `<script>` tags loaded in order: `fonts/fonts.js`,
+  `fonts/hershey-data.js`, `fonts/hershey.js`, `help.js`,
+  `tools/imagetracer.js`, `tools/clipper.js`, `tools/nest.js`,
+  `tools/nest_io.js`, `tools/path-bool.js`, `tools/registry.js`,
+  `tools/trace.js`, then the generator files (`tools/box.js`, `slot.js`,
+  `gear.js`, `wall.js`, `hinge.js`, `slidetop.js`, `pulltop.js`,
+  `paintrack.js`, `paneliklan.js`, `flex.js`, `finger.js`, `spiral.js`),
+  `ai/chat.js`, `core.js`, `app.js`.
 - `core.js` is pure (no DOM, no app state) and doubles as a Node module so
   `tests/smoke.js` can run it.
 
@@ -25,12 +29,13 @@ Plain static files, no build step, opened straight from disk
 | `app.js` | The whole application in one IIFE: document state, rendering, hit-testing, tools/commands, solver wiring, import/export, CNC, UI. |
 | `index.html` | Layout, menus, modals, the bilingual Help text. |
 | `styles.css` | All styling. |
-| `tools/` | `registry.js` + one file per generator (`box.js`, `slot.js`, `gear.js`, `wall.js`, `hinge.js`, …), the tracer (`trace.js`, our wrapper), the local nesting engine (`nest.js`, a trimmed port of KaryaCNC nestjs2's GA + NFP2 — pure, DOM-free, exports `window.MiniSketchNest`) and the vendored libraries (`imagetracer.js`, `clipper.js`). Do not edit the vendored ones. |
+| `tools/` | `registry.js` + one file per generator (`box.js`, `slot.js`, `gear.js`, `wall.js`, `hinge.js`, `slidetop.js`, `pulltop.js`, `paintrack.js`, `paneliklan.js`, `flex.js`, `finger.js`, `spiral.js`), the tracer (`trace.js`, our wrapper), the local nesting engine (`nest.js`, a trimmed port of KaryaCNC nestjs2's GA + NFP2 — pure, DOM-free, exports `window.MiniSketchNest`), `nest_io.js` (worker serialization), and the vendored libraries (`imagetracer.js`, `clipper.js`, `path-bool.js`). Do not edit the vendored ones. `path-bool.esm.js` is an ESM duplicate used only by Node probes, never loaded by the browser. |
 | `fonts/` | The Text dialog's font catalogue. `fonts.js` is the registry (lazy loader, IndexedDB for imported fonts, `FONT_EPOCH`); `build.js` turns `fonts/src/*.ttf` into one generated `fonts/<slug>.js` per face (base64 bytes, registered through `FontFace` — the only route that works from `file://`); `hershey-data.js` + `hershey.js` are the public-domain single-line (stroke) fonts. Do not hand-edit the generated files or `hershey-data.js`. |
-| `TOOLS.md` | How to write a tool/plugin: the registration contract, the whole `api` surface, conventions, and testing. |
+| `createtools.md` | The working handbook for writing a tool/plugin: the registration contract, the whole `api` surface, conventions, and testing. (`TOOLS.md` is referenced by earlier docs but does not exist yet — treat `createtools.md` as the canonical reference.) |
 | `testing/` | Standalone probes (`node testing/<name>_probe.js`). They slice functions out of the sources and run them without a DOM. `tools_probe.js` checks every registered tool against the contract. |
 | `tests/smoke.js` | `node tests/smoke.js` — regression tests for `core.js`. |
 | `server/` | The AI bridge (`ai-bridge.js`) and a dev static server. The bridge is the ONLY place a paid LLM call happens. |
+| `ai/chat.js` | The in-browser AI chat panel wiring (uses the bridge in `server/`). |
 
 ## The AI endpoint is BYOK
 
@@ -245,7 +250,7 @@ measure-only.
 
 ## Tools-panel generators
 
-**Full guide: [`TOOLS.md`](TOOLS.md)** — the complete `api` reference (basic
+**Full guide: [`createtools.md`](createtools.md)** — the complete `api` reference (basic
 shapes, curves, constraints, offsets, document operations), a working example,
 the conventions, and how to test a tool.
 
