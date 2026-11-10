@@ -25925,12 +25925,15 @@ function cmdSplitCurve() {
       try {
         const text = await file.text();
         const data = JSON.parse(text);
+        const mergeEl = document.getElementById('chk-merge');
+        const merge = !!(mergeEl && mergeEl.checked);
         pushHistory();
-        loadDocument(data);
+        if (merge) mergeDocument(data);
+        else loadDocument(data);
         fitView();
         updateUI();
         render();
-        toast('Imported ' + file.name);
+        toast((merge ? 'Merged ' : 'Imported ') + file.name);
       } catch (err) {
         toast('That file could not be imported');
       }
@@ -27236,6 +27239,118 @@ function cmdSplitCurve() {
     requestSolve();
     persistViewNow();
     if (!noSave) scheduleSave();
+  }
+
+  // Merge an imported .sketch/.json document into the CURRENT sketch instead of
+  // replacing it. The incoming file is normalized by the standard loader (so
+  // validation, migrations and per-entity sanitization stay identical), then
+  // every id is remapped to a fresh one and the two documents are joined.
+  function mergeDocument(data) {
+    const s = data.state || data;
+    if (!s || typeof s !== 'object' || !s.points || !s.entities || !s.constraints) {
+      throw new Error('Invalid sketch');
+    }
+    const prev = {
+      points: state.points, entities: state.entities, constraints: state.constraints,
+      mates: state.mates, layers: state.layers, nextLayerId: state.nextLayerId,
+      nextId: state.nextId, activeLayer: ui.activeLayer, selection: ui.selection,
+      focusLoop: ui.focusLoop, draft: ui.draft, hover: ui.hover,
+      view, fitted: ui.fitted
+    };
+    // normalize the incoming document through the standard loader (it swaps the
+    // module `state` temporarily), then detach its watchers before we merge.
+    loadDocument(data, true);
+    const inc = state;
+    genWatchClear();
+    const ptMap = new Map(), entMap = new Map();
+    let nid = prev.nextId;
+    for (const key in inc.points) ptMap.set(+key, nid++);
+    for (const key in inc.entities) entMap.set(+key, nid++);
+    const rp = v => (v == null ? v : (ptMap.has(+v) ? ptMap.get(+v) : v));
+    const re = v => (v == null ? v : (entMap.has(+v) ? entMap.get(+v) : v));
+    const newPts = {};
+    for (const key in inc.points) newPts[ptMap.get(+key)] = inc.points[key];
+    // layers: reuse a same-id layer, allocate a fresh one otherwise
+    const layerMap = new Map();
+    const layersOut = prev.layers.slice();
+    let layerN = prev.nextLayerId;
+    for (const lay of inc.layers) {
+      if (layersOut.some(l => l.id === lay.id)) { layerMap.set(lay.id, lay.id); continue; }
+      const nl = layerN++;
+      layerMap.set(lay.id, nl);
+      layersOut.push({ id: nl, name: lay.name || ('Layer ' + nl), visible: lay.visible !== false, locked: !!lay.locked });
+    }
+    const newEnts = {};
+    for (const key in inc.entities) {
+      const old = inc.entities[key];
+      const e = Object.assign({}, old, { id: entMap.get(+key) });
+      e.layer = layerMap.get(e.layer) ?? e.layer;
+      if (e.type === 'spline' && Array.isArray(e.pts)) e.pts = e.pts.map(rp);
+      else if (e.type === 'line') { e.a = rp(e.a); e.b = rp(e.b); }
+      else if (e.type === 'arc') { e.c = rp(e.c); e.s = rp(e.s); e.e = rp(e.e); }
+      else if (e.type === 'circle') e.c = rp(e.c);
+      else if (e.type === 'note') e.p = rp(e.p);
+      else if (e.type === 'text' || e.type === 'art' || e.type === 'image' || e.type === 'array') {
+        if (e.p0 != null) e.p0 = rp(e.p0);
+        if (e.pw != null) e.pw = rp(e.pw);
+        if (e.ph != null) e.ph = rp(e.ph);
+      }
+      if (Array.isArray(e.guide)) e.guide = e.guide.map(re);
+      if (Array.isArray(e.masters)) e.masters = e.masters.map(re);
+      if (e.guideId != null) e.guideId = re(e.guideId);
+      newEnts[e.id] = e;
+    }
+    const newCons = {};
+    for (const key in inc.constraints) {
+      const c = inc.constraints[key];
+      const nc = { ...c, id: nid++ };
+      if (nc.p1 != null) nc.p1 = rp(nc.p1);
+      if (nc.p2 != null) nc.p2 = rp(nc.p2);
+      if (nc.p != null) nc.p = rp(nc.p);
+      if (nc.p0 != null) nc.p0 = rp(nc.p0);
+      if (nc.pw != null) nc.pw = rp(nc.pw);
+      if (nc.ph != null) nc.ph = rp(nc.ph);
+      if (nc.entity != null) nc.entity = re(nc.entity);
+      if (nc.line != null) nc.line = re(nc.line);
+      if (nc.line1 != null) nc.line1 = re(nc.line1);
+      if (nc.line2 != null) nc.line2 = re(nc.line2);
+      newCons[nc.id] = nc;
+    }
+    const newMates = {};
+    for (const key in inc.mates) {
+      const m = inc.mates[key];
+      const nm = { ...m, id: nid++, a: entMap.get(+m.a) ?? m.a, b: entMap.get(+m.b) ?? m.b };
+      newMates[nm.id] = nm;
+    }
+    state = {
+      points: Object.assign({}, prev.points, newPts),
+      entities: Object.assign({}, prev.entities, newEnts),
+      constraints: Object.assign({}, prev.constraints, newCons),
+      mates: Object.assign({}, prev.mates, newMates),
+      layers: layersOut,
+      nextLayerId: layerN,
+      nextId: nid
+    };
+    ui.activeLayer = prev.activeLayer;
+    ui.selection = prev.selection;
+    touchSelection();
+    ui.focusLoop = prev.focusLoop;
+    ui.draft = prev.draft;
+    ui.hover = prev.hover;
+    view = prev.view;
+    ui.fitted = prev.fitted;
+    genWatchRestore();
+    for (const eid in state.entities) {
+      const ent = state.entities[eid];
+      if (ent.type === 'spline') ensureSplineHandles(ent);
+    }
+    for (const eid in state.entities) {
+      const ent = state.entities[eid];
+      if (ent.type === 'text' || ent.type === 'art') ensureTextAspect(ent, true);
+    }
+    invalidateLoops();
+    requestSolve();
+    scheduleSave();
   }
 
   // When the app is framed by KaryaCNC it is served from the host's own port
