@@ -1209,7 +1209,7 @@
       help: 'Resolution of the offscreen loop-fill layer relative to the canvas. Fills are flat solid areas, so 50% renders a quarter of the fill pixels and is visually indistinguishable — this is the cheapest dial for drag speed (the loop fill is the biggest pass). Strokes/markers are unaffected.' },
     { group: 'Geometry', key: 'bakeJoinTol', label: 'Chain tolerance', unit: 'mm',
       def: 0.1, min: 0.001, max: 5, step: 0.01,
-      help: 'Ends closer than this become one node when grouping (Ctrl+G) or offsetting (Ctrl+O).' },
+      help: 'Ends closer than this become one node when grouping (Ctrl+G) or offsetting (Ctrl+J).' },
     { group: 'Geometry', key: 'joinTol', label: 'Join tolerance', unit: 'mm',
       def: 0.1, min: 0.001, max: 5, step: 0.01,
       help: 'The CNC tolerance: points closer than this count as one joint. Used when selecting connected geometry (N), when deciding whether an imported path is closed, and when building loops. Keep it below half your SHORTEST segment: a value larger than a segment welds its ends to the neighbours and the shape stops being a loop.' },
@@ -1804,7 +1804,7 @@
     solverCost: null,
     solveMode: 'release',      // 'live' | 'release' | 'manual'
     solveDirty: false,         // geometry has been edited since the last solve
-    offsetJob: null,           // live offset drafting (Ctrl+O)
+    offsetJob: null,           // live offset drafting (Ctrl+J)
     fitted: false,
     polySides: 6,
     polyInner: 50
@@ -16317,7 +16317,7 @@
       { title: { en: 'Tools', id: 'Alat' }, keys: ['L', 'K', 'Y', 'A', 'C', 'B', 'W', 'I', 'E', 'R'] },
       { title: { en: 'Dimensions', id: 'Dimensi' }, keys: ['D', 'Shift+D', 'Shift+E'] },
       { title: { en: 'Constraints', id: 'Constraint' }, keys: ['T', 'O', 'H', 'V', 'P', '[', 'Q', '.', 'M', 'F', 'J', 'Alt+T'] },
-      { title: { en: 'Edit', id: 'Edit' }, keys: ['Z', 'N', 'Ctrl+O', 'Ctrl+M', 'Ctrl+G', 'Ctrl+U', 'Ctrl+L'] },
+      { title: { en: 'Edit', id: 'Edit' }, keys: ['Z', 'N', 'Ctrl+J', 'Ctrl+M', 'Ctrl+G', 'Ctrl+U', 'Ctrl+L'] },
       { title: { en: 'Boolean', id: 'Boolean' }, keys: ['Ctrl++', 'Ctrl+-', 'Ctrl+0'] },
       { title: { en: 'View & solve', id: 'Tampilan' }, keys: ['G', 'S', 'Shift+F', 'F9', '?', 'Shift+Z'] },
       { title: { en: 'Machine', id: 'Mesin' }, keys: ['Alt+Q', 'Alt+C'] },
@@ -23808,7 +23808,7 @@ function cmdSplitCurve() {
     { key: 'Shift+Z', label: 'Shortcuts', match: '', kind: 'cmd' },
     // Ctrl chords: chip text shortened to Ct+ so wide chords fit the button.
     // Full form stays in title/tooltip/help.
-    { key: 'Ctrl+O', chip: 'Ct+O', label: 'Offset', match: 'qb-offset', kind: 'cmd' },
+    { key: 'Ctrl+J', chip: 'Ct+J', label: 'Offset', match: 'qb-offset', kind: 'cmd' },
     { key: 'Ctrl+M', chip: 'Ct+M', label: 'Move', match: 'qb-move', kind: 'cmd' },
     { key: 'Ctrl+G', chip: 'Ct+G', label: 'Group', match: 'rb-group', kind: 'cmd' },
     { key: 'Ctrl+U', chip: 'Ct+U', label: 'Ungroup', match: 'rb-ungroup', kind: 'cmd' },
@@ -23852,7 +23852,7 @@ function cmdSplitCurve() {
         !!(ev.target.closest && ev.target.closest('.modal'));
       if (!(clipCombo && !editingText)) return;
     }
-    if (ui.offsetJob && !((ev.ctrlKey || ev.metaKey) && lower === 'o')) {
+    if (ui.offsetJob && !((ev.ctrlKey || ev.metaKey) && lower === 'j')) {
       if (key === 'Escape') {
         ev.preventDefault();
         cancelOffset();
@@ -23888,7 +23888,7 @@ function cmdSplitCurve() {
       ev.preventDefault();
       return;
     }
-    if ((ev.ctrlKey || ev.metaKey) && lower === 'o') {
+    if ((ev.ctrlKey || ev.metaKey) && lower === 'j') {
       ev.preventDefault();
       startOffset();
       return;
@@ -24056,9 +24056,16 @@ function cmdSplitCurve() {
       downloadSketch(false);
       return;
     }
+    if ((ev.ctrlKey || ev.metaKey) && lower === 'o') {
+      ev.preventDefault();
+      importFileMode = 'replace';
+      pickSketchFile();
+      return;
+    }
     if ((ev.ctrlKey || ev.metaKey) && lower === 'i') {
       ev.preventDefault();
-      fileInput.click();
+      importFileMode = 'merge';
+      pickSketchFile();
       return;
     }
     if ((ev.ctrlKey || ev.metaKey) && lower === 'e') {
