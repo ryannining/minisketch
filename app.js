@@ -14467,6 +14467,9 @@
       return null;
     }
     pushHistory();
+    // only frame the view when the sketch was empty — an import into existing
+    // work must not move the camera
+    const wasEmpty = !Object.keys(state.entities).length;
     // DXF is AutoCAD Y-up: mirror Y (and swap the arc endpoints, since the
     // sketch arc runs the other way) so the drawing arrives upright.
     const addPoint = (x, y) => {
@@ -14509,7 +14512,7 @@
     // connect same-colour open segments (DXF arrives as loose LINE entities;
     // Settings > Geometry > Join imported points)
     if (settings.joinImportAuto !== 'off' && made.length >= 2) joinImportedSegments(made, settings.joinImportTol);
-    fitView();
+    if (wasEmpty) fitView();
     // commit (not just render): without scheduleSave the import vanishes on a
     // refresh before the next edit triggers an autosave
     commit();
@@ -14523,6 +14526,9 @@
   // handles. The toast carries the measured size as a health check.
   function importPrimsIntoDocument(prims, scale, label, opts) {
     const o = opts || {};
+    // only frame the view when the sketch was empty — an import into existing
+    // work must not move the camera
+    const wasEmpty = !Object.keys(state.entities).length;
     // source formats (PDF/CDR) are Y-up; o.flipY mirrors them into the Y-down
     // sketch so vector imports and editable text arrive upright
     const sy = o.flipY ? -1 : 1;
@@ -14609,7 +14615,7 @@
     // Join imported points)
     if (settings.joinImportAuto !== 'off' && lineIds.length >= 2) joinImportedSegments(lineIds, settings.joinImportTol);
     if (!made) return 0;
-    fitView();
+    if (wasEmpty) fitView();
     commit();
     // measure the points that really exist in the document (ground truth, not
     // a running tally): the size in the toast is the health check. Comments
@@ -27314,6 +27320,34 @@ function cmdSplitCurve() {
       const dx = prev.view.ox - (ix0 + ix1) / 2;
       const dy = prev.view.oy - (iy0 + iy1) / 2;
       for (const p of Object.values(newPts)) { p.x += dx; p.y += dy; }
+      // Curve geometry that lives in ENTITY data (not in points) must follow
+      // the translation too: spline handles, art contours / source curves and
+      // array snapshot shapes. Without this a merged spline keeps its handles
+      // at the old coordinates and renders as long diagonal lines.
+      const sh = pt => { if (pt) { pt.x += dx; pt.y += dy; } return pt; };
+      const shXY = a => { if (Array.isArray(a) && a.length >= 2) { a[0] += dx; a[1] += dy; } return a; };
+      for (const e of Object.values(newEnts)) {
+        if (!e) continue;
+        if (e.type === 'spline' && e.hs) {
+          if (Array.isArray(e.hs.o)) e.hs.o.forEach(sh);
+          if (Array.isArray(e.hs.i)) e.hs.i.forEach(sh);
+        } else if (e.type === 'art') {
+          if (Array.isArray(e.contours)) for (const c of e.contours) c.forEach(shXY);
+          if (Array.isArray(e.curveSrc)) {
+            for (const sub of e.curveSrc) {
+              if (!sub || !Array.isArray(sub.n)) continue;
+              for (const nd of sub.n) {
+                if (!nd) continue;
+                shXY(nd.p);
+                shXY(nd.o);
+                shXY(nd.i);
+              }
+            }
+          }
+        } else if (e.type === 'array' && Array.isArray(e.shapes)) {
+          for (const s of e.shapes) if (s && Array.isArray(s.pts)) s.pts.forEach(shXY);
+        }
+      }
     }
     // layers: reuse a same-id layer, allocate a fresh one otherwise
     const layerMap = new Map();
