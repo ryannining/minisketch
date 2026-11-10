@@ -84,7 +84,10 @@ function makeWorld() {
   world.clipperLib = () => ClipperLib;
   // same engine selection the browser makes: the exact engine runs unless a
   // test explicitly disables it via world.pathBoolLib
-  world.pathBoolLib = () => require(path.join(__dirname, '..', 'tools', 'path-bool.esm.js'));
+  world.pathBoolLib = () => {
+    require(path.join(__dirname, '..', 'tools', 'path-bool.js'));
+    return global.PathBool;
+  };
   world.offsetScale = 1000;
   world.offsetPrecision = 0.001;
   world.signedAreaPts = C.signedAreaPts;

@@ -15,7 +15,10 @@ const path = require('path');
 
 const appSrc = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
 const C = require(path.join(__dirname, '..', 'core.js'));
-const PB = require(path.join(__dirname, '..', 'tools', 'path-bool.esm.js'));
+// The classic vendored build assigns global.PathBool (window.PathBool in the
+// browser). Load it the same way the browser does — no ESM duplicate.
+require(path.join(__dirname, '..', 'tools', 'path-bool.js'));
+const PB = global.PathBool;
 let pass = 0, fail = 0;
 const check = (name, cond, extra) => {
   if (cond) { pass++; console.log('  PASS  ' + name); }

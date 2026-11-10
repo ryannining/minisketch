@@ -105,7 +105,10 @@ const api = new Function(
   0.1,
   () => ClipperLib,
   // the SVG clip runs on the exact engine: hand the probe the real library
-  () => require(path.join(__dirname, '..', 'tools', 'path-bool.esm.js')),
+  () => {
+    require(path.join(__dirname, '..', 'tools', 'path-bool.js'));
+    return global.PathBool;
+  },
   () => {},
   () => {}
 );

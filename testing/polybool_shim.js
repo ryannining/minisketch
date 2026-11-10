@@ -3,7 +3,8 @@
 // cannot reach into app.js's IIFE, so the stubbed api gets this instead.
 'use strict';
 const path = require('path');
-const PB = require(path.join(__dirname, '..', 'tools', 'path-bool.esm.js'));
+require(path.join(__dirname, '..', 'tools', 'path-bool.js'));
+const PB = global.PathBool;
 const { signedAreaPts, pointInPoly } = require(path.join(__dirname, '..', 'core.js'));
 
 function polyBoolOp(op, subjectRings, clipRings) {
