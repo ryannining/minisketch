@@ -22788,27 +22788,77 @@ function cmdSplitCurve() {
       if (entityPointIds(e).some(pid => selPts.has(+pid))) affected.add(+eid);
     }
     pushHistory();
-    let ids = pts.slice();
+    let ids = pts.map(Number);
     let merged = 0;
-    let changed = true;
-    while (changed) {
-      changed = false;
-      outer:
-      for (let i = 0; i < ids.length; i++) {
-        if (!state.points[ids[i]]) continue;
-        for (let j = i + 1; j < ids.length; j++) {
-          if (!state.points[ids[j]]) continue;
-          if (pointsTouching(ids[i], ids[j])) {
-            mergePoints(ids[j], ids[i]);
-            ids.splice(j, 1);
-            merged++;
-            changed = true;
-            break outer;
-          }
+    // Index the selected points by rounded position (cell 1e-6 mm — the same
+    // scale as pointsTouching) and, walking ids in the old ascending order,
+    // merge every later point j that touches the current point i. This is the
+    // EXACT decision sequence of the previous O(n²) rescan (it never merged
+    // through an already-merged away point), only with O(1) candidate lookups
+    // instead of an all-pairs scan.
+    const CELL = 1e-6;
+    const alive = new Set(ids);
+    const byKey = new Map();
+    for (const id of ids) {
+      const p = state.points[id];
+      if (!p) continue;
+      const cx = Math.round(p.x / CELL), cy = Math.round(p.y / CELL);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const k = (cx + dx) + ',' + (cy + dy);
+          let arr = byKey.get(k);
+          if (!arr) { arr = []; byKey.set(k, arr); }
+          arr.push(id);
         }
       }
     }
-    ids = ids.filter(id => state.points[id]);
+    // Coincident constraints can bind points that are far apart: the grid
+    // never pairs them, so add them as explicit candidates (the old scan's
+    // pointsTouching saw them because it tested every pair).
+    const partners = new Map();
+    for (const cid in state.constraints) {
+      const c = state.constraints[cid];
+      if (c.type !== 'coincident') continue;
+      const a = +c.p1, b = +c.p2;
+      if (!alive.has(a) || !alive.has(b)) continue;
+      let la = partners.get(a); if (!la) { la = []; partners.set(a, la); } la.push(b);
+      let lb = partners.get(b); if (!lb) { lb = []; partners.set(b, lb); } lb.push(a);
+    }
+    const cands = [];
+    for (let ii = 0; ii < ids.length; ii++) {
+      const i = ids[ii];
+      if (!alive.has(i)) continue;
+      const p = state.points[i];
+      if (!p) continue;
+      const cx = Math.round(p.x / CELL), cy = Math.round(p.y / CELL);
+      cands.length = 0;
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const arr = byKey.get((cx + dx) + ',' + (cy + dy));
+          if (arr) {
+            for (const id of arr) {
+              if (id > i && alive.has(id)) cands.push(id);
+            }
+          }
+        }
+      }
+      const pl = partners.get(i);
+      if (pl) {
+        for (const pid of pl) {
+          if (pid > i && alive.has(pid)) cands.push(pid);
+        }
+      }
+      for (let c = 0; c < cands.length; c++) {
+        const j = cands[c];
+        if (!alive.has(j)) continue;
+        if (pointsTouching(i, j)) {
+          mergePoints(j, i);
+          alive.delete(j);
+          merged++;
+        }
+      }
+    }
+    ids = ids.filter(id => alive.has(id));
     let target = ids[0];
     if (merged === 0 && ids.length >= 2) {
       let sx = 0;
@@ -25653,6 +25703,8 @@ function cmdSplitCurve() {
     if (btnSplitCurve) btnSplitCurve.addEventListener('click', cmdSplitCurve);
     const btnCleanLoops = document.getElementById('btn-clean-loops');
     if (btnCleanLoops) btnCleanLoops.addEventListener('click', cleanUpLoops);
+    const btnJoinPoints = document.getElementById('btn-join-points');
+    if (btnJoinPoints) btnJoinPoints.addEventListener('click', cmdJoinPoints);
     const btnArray = document.getElementById('btn-array');
     if (btnArray) btnArray.addEventListener('click', cmdCreateArray);
     const btnNest = document.getElementById('btn-nest');
