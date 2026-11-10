@@ -25860,7 +25860,10 @@ function cmdSplitCurve() {
       commit();
       toast('New sketch');
     });
-    document.getElementById('btn-open').addEventListener('click', async () => {
+    // File menu: Open always replaces the current sketch; Import always merges
+    // it into the current one (and re-centres it into the active viewport).
+    let importFileMode = 'replace';
+    async function pickSketchFile() {
       // With a file picker we keep the handle, so the next Ctrl+S writes back
       // into the SAME file instead of dropping another copy in Downloads.
       if (!isEmbedded() && typeof window.showOpenFilePicker === 'function' &&
@@ -25885,6 +25888,14 @@ function cmdSplitCurve() {
         }
       }
       fileInput.click();
+    }
+    document.getElementById('btn-open').addEventListener('click', () => {
+      importFileMode = 'replace';
+      pickSketchFile();
+    });
+    document.getElementById('btn-import').addEventListener('click', () => {
+      importFileMode = 'merge';
+      pickSketchFile();
     });
     // Everything an import can be, in one place: the picker path and the
     // <input type=file> path must behave identically.
@@ -25925,15 +25936,17 @@ function cmdSplitCurve() {
       try {
         const text = await file.text();
         const data = JSON.parse(text);
-        const mergeEl = document.getElementById('chk-merge');
-        const merge = !!(mergeEl && mergeEl.checked);
+        const merge = importFileMode === 'merge';
         pushHistory();
-        if (merge) mergeDocument(data);
-        else loadDocument(data);
-        fitView();
+        if (merge) {
+          mergeDocument(data);
+        } else {
+          loadDocument(data);
+          fitView();
+        }
         updateUI();
         render();
-        toast((merge ? 'Merged ' : 'Imported ') + file.name);
+        toast((merge ? 'Merged ' : 'Opened ') + file.name);
       } catch (err) {
         toast('That file could not be imported');
       }
@@ -27270,6 +27283,20 @@ function cmdSplitCurve() {
     const re = v => (v == null ? v : (entMap.has(+v) ? entMap.get(+v) : v));
     const newPts = {};
     for (const key in inc.points) newPts[ptMap.get(+key)] = inc.points[key];
+    // The merged import is special: translate it so its bbox centres on the
+    // ACTIVE viewport, leaving the existing sketch where it is.
+    let ix0 = Infinity, iy0 = Infinity, ix1 = -Infinity, iy1 = -Infinity;
+    for (const p of Object.values(newPts)) {
+      if (p.x < ix0) ix0 = p.x;
+      if (p.y < iy0) iy0 = p.y;
+      if (p.x > ix1) ix1 = p.x;
+      if (p.y > iy1) iy1 = p.y;
+    }
+    if (isFinite(ix0) && isFinite(ix1)) {
+      const dx = prev.view.ox - (ix0 + ix1) / 2;
+      const dy = prev.view.oy - (iy0 + iy1) / 2;
+      for (const p of Object.values(newPts)) { p.x += dx; p.y += dy; }
+    }
     // layers: reuse a same-id layer, allocate a fresh one otherwise
     const layerMap = new Map();
     const layersOut = prev.layers.slice();
