@@ -22567,6 +22567,75 @@ function cmdSplitCurve() {
     cleanupPoints();
   }
 
+  // Position-only touching test (1e-6 mm) for grid-near candidates. Unlike
+  // pointsTouching it does NOT scan every constraint — coincident-constrained
+  // pairs are fed in separately as explicit candidates, so the hot loops stay
+  // O(1) per candidate instead of O(constraints).
+  function pointsCoincident(a, b) {
+    if (+a === +b) return true;
+    const pa = P(a), pb = P(b);
+    return !!pa && !!pb && Math.hypot(pa.x - pb.x, pa.y - pb.y) <= 1e-6;
+  }
+
+  // Batch-weld point pairs in ONE pass over entities/constraints. The old
+  // per-pair mergePoints rewrote every entity and every constraint per weld,
+  // so joining a big drawing was O(welds × (entities+constraints)); this is
+  // O(pairs + entities + constraints). Semantics are unchanged: pairs resolve
+  // through a redirect chain and each pair is still distance-gated unless
+  // opts.checkDist is false (caller already validated the pairs).
+  function weldPoints(pairs, opts) {
+    const o = opts || {};
+    const redirect = new Map();
+    const rep = (id) => {
+      let cur = +id;
+      while (redirect.has(cur)) cur = redirect.get(cur);
+      return cur;
+    };
+    let welded = 0;
+    for (const [from, to] of pairs) {
+      const a = rep(to), b = rep(from);
+      if (a === b) continue;
+      const q1 = P(a), q2 = P(b);
+      if (!q1 || !q2) continue;
+      if (o.checkDist !== false && Math.hypot(q1.x - q2.x, q1.y - q2.y) >= JOIN_TOL) continue;
+      redirect.set(b, a);
+      welded++;
+    }
+    const killed = new Set();
+    if (!welded) return { welded, killed };
+    const f = (id) => {
+      const n = +id;
+      let cur = n;
+      const seen = [];
+      while (redirect.has(cur)) { seen.push(cur); cur = redirect.get(cur); }
+      if (cur === n) return id;
+      for (const s of seen) redirect.set(s, cur);
+      return cur;
+    };
+    for (const eid in state.entities) {
+      const e = state.entities[eid];
+      if (e.type === 'line') { e.a = f(e.a); e.b = f(e.b); }
+      else if (e.type === 'arc') { e.c = f(e.c); e.s = f(e.s); e.e = f(e.e); }
+      else if (e.type === 'circle') { e.c = f(e.c); }
+      else if (e.type === 'spline') { e.pts = e.pts.map(pid => f(pid)); }
+    }
+    for (const cid in state.constraints) {
+      const c = state.constraints[cid];
+      for (const pk of ['p', 'p1', 'p2']) {
+        if (c[pk] != null) c[pk] = f(c[pk]);
+      }
+    }
+    for (const cid in state.constraints) {
+      const c = state.constraints[cid];
+      if (c.type === 'coincident' && +c.p1 === +c.p2) delete state.constraints[cid];
+    }
+    for (const pid in state.points) {
+      if (f(+pid) !== +pid) killed.add(+pid);
+    }
+    for (const pid of killed) delete state.points[pid];
+    return { welded, killed };
+  }
+
   // [Clean up loop] — per-loop weld of doubled points. At every loop junction
   // the two meeting edges usually each carry their own endpoint (a typical DXF
   // arrives as loose segments): when the two sit within JOIN_TOL they become
@@ -22604,26 +22673,7 @@ function cmdSplitCurve() {
   }
 
   function applyWeldPairs(pairs) {
-    // merge through a redirect map: mergePoints deletes the source id and a
-    // later pair may still name it, which has to resolve to the survivor
-    const redirect = new Map();
-    const rep = (id) => {
-      let cur = +id;
-      while (redirect.has(cur)) cur = redirect.get(cur);
-      return cur;
-    };
-    let welded = 0;
-    for (const [from, to] of pairs) {
-      const a = rep(to), b = rep(from);
-      if (a === b) continue;
-      const q1 = P(a), q2 = P(b);
-      if (!q1 || !q2) continue;
-      if (Math.hypot(q1.x - q2.x, q1.y - q2.y) >= JOIN_TOL) continue;
-      mergePoints(b, a);
-      redirect.set(b, a);
-      welded++;
-    }
-    return welded;
+    return weldPoints(pairs).welded;
   }
 
   function cleanUpLoops() {
@@ -22825,6 +22875,7 @@ function cmdSplitCurve() {
       let lb = partners.get(b); if (!lb) { lb = []; partners.set(b, lb); } lb.push(a);
     }
     const cands = [];
+    const pairs = [];
     for (let ii = 0; ii < ids.length; ii++) {
       const i = ids[ii];
       if (!alive.has(i)) continue;
@@ -22842,23 +22893,28 @@ function cmdSplitCurve() {
           }
         }
       }
-      const pl = partners.get(i);
-      if (pl) {
-        for (const pid of pl) {
-          if (pid > i && alive.has(pid)) cands.push(pid);
-        }
-      }
       for (let c = 0; c < cands.length; c++) {
         const j = cands[c];
         if (!alive.has(j)) continue;
-        if (pointsTouching(i, j)) {
-          mergePoints(j, i);
+        if (pointsCoincident(i, j)) {
+          pairs.push([j, i]);
           alive.delete(j);
-          merged++;
+        }
+      }
+      const pl = partners.get(i);
+      if (pl) {
+        for (const pid of pl) {
+          if (pid > i && alive.has(pid)) {
+            pairs.push([pid, i]);
+            alive.delete(pid);
+          }
         }
       }
     }
-    ids = ids.filter(id => alive.has(id));
+    // Apply every merge in one pass — per-pair mergePoints was O(E+C) each.
+    const res = pairs.length ? weldPoints(pairs, { checkDist: false }) : { welded: 0, killed: new Set() };
+    merged = res.welded;
+    ids = ids.filter(id => !res.killed.has(+id) && state.points[id]);
     let target = ids[0];
     if (merged === 0 && ids.length >= 2) {
       let sx = 0;
