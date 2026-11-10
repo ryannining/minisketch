@@ -25972,7 +25972,8 @@ function cmdSplitCurve() {
           toast('Opened ' + file.name);
         }
       } catch (err) {
-        toast('That file could not be imported');
+        console.error('[import]', err);
+        toast('That file could not be imported' + (err && err.message ? ': ' + String(err.message).slice(0, 140) : ''));
       }
     }
     fileInput.addEventListener('change', async () => {
@@ -27294,6 +27295,7 @@ function cmdSplitCurve() {
       focusLoop: ui.focusLoop, draft: ui.draft, hover: ui.hover,
       view, fitted: ui.fitted
     };
+    try {
     // normalize the incoming document through the standard loader (it swaps the
     // module `state` temporarily), then detach its watchers before we merge.
     loadDocument(data, true);
@@ -27420,6 +27422,27 @@ function cmdSplitCurve() {
     requestSolve();
     scheduleSave();
     return Object.keys(newEnts).length;
+    } catch (err) {
+      // a failed merge must leave the pre-import document fully intact — the
+      // loader already swapped `state`, so restore every piece we saved.
+      state = {
+        points: prev.points, entities: prev.entities, constraints: prev.constraints,
+        mates: prev.mates, layers: prev.layers,
+        nextLayerId: prev.nextLayerId, nextId: prev.nextId
+      };
+      ui.activeLayer = prev.activeLayer;
+      ui.selection = prev.selection;
+      touchSelection();
+      ui.focusLoop = prev.focusLoop;
+      ui.draft = prev.draft;
+      ui.hover = prev.hover;
+      view = prev.view;
+      ui.fitted = prev.fitted;
+      genWatchClear();
+      genWatchRestore();
+      invalidateLoops();
+      throw err;
+    }
   }
 
   // When the app is framed by KaryaCNC it is served from the host's own port
