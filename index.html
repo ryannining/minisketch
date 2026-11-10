@@ -494,6 +494,13 @@
         <input type="checkbox" id="cnc-chain" checked><span>Chain</span>
       </label>
     </div>
+    <div class="cnc-row">
+      <span class="cnc-label">Protocol</span>
+      <select id="cnc-route" title="Wire format used to reach KaryaCNC: Classic is the Inkscape text protocol, Express is the JSON job frame (v1)">
+        <option value="classic">Classic (text)</option>
+        <option value="json">Express (JSON)</option>
+      </select>
+    </div>
     <div class="cnc-legend" id="cnc-legend"></div>
     <div class="cnc-status" id="cnc-status">Ready</div>
     <div class="modal-actions">

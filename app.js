@@ -24166,6 +24166,7 @@ function cmdSplitCurve() {
     scope: 'selected',
     tol: 0.05,
     chain: true,
+    route: 'classic',
     ws: null,
     busy: false
   };
@@ -24290,6 +24291,7 @@ function cmdSplitCurve() {
       if (isFinite(saved.port)) cnc.port = clamp(Math.round(+saved.port), 1, 65535);
       if (saved.scope === 'visible' || saved.scope === 'selected' || saved.scope === 'active') cnc.scope = saved.scope;
       if (typeof saved.chain === 'boolean') cnc.chain = saved.chain;
+      if (saved.route === 'classic' || saved.route === 'json') cnc.route = saved.route;
       // One-time migration: move the old private copy into the shared setting,
       // then rewrite the record without it so this cannot happen again.
       if (isFinite(saved.tol)) {
@@ -24319,7 +24321,7 @@ function cmdSplitCurve() {
     }
     try {
       localStorage.setItem(CNC_KEY, JSON.stringify({
-        host: cnc.host, port: cnc.port, scope: cnc.scope, chain: cnc.chain
+        host: cnc.host, port: cnc.port, scope: cnc.scope, chain: cnc.chain, route: cnc.route
       }));
     } catch (err) { /* ignore */ }
   }
@@ -25187,6 +25189,50 @@ function cmdSplitCurve() {
     };
   }
 
+  // Build the wire-contract JSON job frame (v1). One frame per job; mm,
+  // Y-up, origin free (KaryaCNC normalises to the bbox). skipJoin=true
+  // because MiniSketch data is already cleaned/joined — that is what makes
+  // this route fast. Sends the SAME item shapes as cncBuildPayload, so the
+  // legacy path stays untouched.
+  function cncBuildJsonPayload(items) {
+    const images = cnc.images || [];
+    const paths = [];
+    let points = 0;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const it of items) {
+      if (!it.pts || it.pts.length < 2) continue;
+      const p = { color: it.color, pts: it.pts, closed: !!it.closed, skipJoin: true };
+      if (it.fill === 'gray') p.fill = '#808000';
+      else if (it.fill === 'yellow') p.fill = '#ffff00';
+      paths.push(p);
+      points += it.pts.length;
+      for (const q of it.pts) {
+        if (q[0] < minX) minX = q[0];
+        if (q[0] > maxX) maxX = q[0];
+        if (q[1] < minY) minY = q[1];
+        if (q[1] > maxY) maxY = q[1];
+      }
+    }
+    const imgs = [];
+    for (const im of images) {
+      const g = im.gg;
+      if (!g) continue;
+      imgs.push({ src: String(im.e.src || ''), x: g.p0.x, y: g.p0.y, w: g.w, h: g.h });
+      const x2 = g.p0.x + g.w, y2 = g.p0.y + g.h;
+      if (g.p0.x < minX) minX = g.p0.x;
+      if (x2 > maxX) maxX = x2;
+      if (g.p0.y < minY) minY = g.p0.y;
+      if (y2 > maxY) maxY = y2;
+    }
+    if (!paths.length && !imgs.length) return null;
+    return {
+      type: 'job', version: 1, units: 'mm', source: 'minisketch',
+      paths, images: imgs, points,
+      width: isFinite(minX) ? maxX - minX : 0,
+      height: isFinite(minY) ? maxY - minY : 0
+    };
+  }
+
   function cncSetStatus(text, kind) {
     const el = document.getElementById('cnc-status');
     if (!el) return;
@@ -25259,11 +25305,13 @@ function cmdSplitCurve() {
     const scopeEl = document.getElementById('cnc-scope');
     const tolEl = document.getElementById('cnc-tol');
     const chainEl = document.getElementById('cnc-chain');
+    const routeEl = document.getElementById('cnc-route');
     if (hostEl) hostEl.value = cnc.host;
     cncSetPortValue(cnc.port);
     if (scopeEl) scopeEl.value = cnc.scope;
     if (tolEl) tolEl.value = String(cnc.tol);
     if (chainEl) chainEl.checked = !!cnc.chain;
+    if (routeEl) routeEl.value = cnc.route;
     cncRenderLegend();
     cncSetStatus('Ready', '');
     modal.classList.remove('hidden');
@@ -25282,6 +25330,7 @@ function cmdSplitCurve() {
     const scopeEl = document.getElementById('cnc-scope');
     const tolEl = document.getElementById('cnc-tol');
     const chainEl = document.getElementById('cnc-chain');
+    const routeEl = document.getElementById('cnc-route');
     if (hostEl) cnc.host = hostEl.value.trim() || '127.0.0.1';
     if (portEl) {
       const p = parseFloat(portEl.value);
@@ -25296,6 +25345,7 @@ function cmdSplitCurve() {
       tolEl.value = String(cnc.tol);
     }
     if (chainEl) cnc.chain = !!chainEl.checked;
+    if (routeEl && (routeEl.value === 'classic' || routeEl.value === 'json')) cnc.route = routeEl.value;
     cncSaveSettings();
   }
 
@@ -25320,7 +25370,9 @@ function cmdSplitCurve() {
       say('Select objects first (or change Scope)', 'error');
       return;
     }
-    const payload = cncBuildPayload(cncCollectItems());
+    const items = cncCollectItems();
+    const jsonRoute = cnc.route === 'json';
+    const payload = jsonRoute ? cncBuildJsonPayload(items) : cncBuildPayload(items);
     if (!payload) {
       say('Nothing to send', 'error');
       return;
@@ -25356,10 +25408,17 @@ function cmdSplitCurve() {
     ws.onopen = () => {
       cncSetStatus('Sending ' + payload.paths + ' paths / ' + payload.points + ' points …', 'busy');
       try {
-        for (let i = 0; i < payload.text.length; i += CNC_CHUNK) {
-          ws.send(payload.text.slice(i, i + CNC_CHUNK));
+        if (jsonRoute) {
+          // One JSON frame per job (wire contract v1); the meta fields
+          // (points/width/height) are for the status line, not the wire.
+          const { width, height, points, ...frame } = payload;
+          ws.send(JSON.stringify(frame));
+        } else {
+          for (let i = 0; i < payload.text.length; i += CNC_CHUNK) {
+            ws.send(payload.text.slice(i, i + CNC_CHUNK));
+          }
+          ws.send('>REVECTOR2');
         }
-        ws.send('>REVECTOR2');
       } catch (err) {
         finish('Send failed: ' + err.message, 'error', false);
       }
