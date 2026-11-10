@@ -998,8 +998,9 @@
     }
 
     // connect same-colour segments that meet within the join tolerance (SVG
-    // often arrives as many tiny open paths)
-    if (made.lines >= 2) joinImportedSegments(made.entities);
+    // often arrives as many tiny open paths; Settings > Geometry > Join
+    // imported points)
+    if (settings.joinImportAuto !== 'off' && made.lines >= 2) joinImportedSegments(made.entities);
 
     return made;
   }
@@ -1212,6 +1213,9 @@
     { group: 'Geometry', key: 'joinTol', label: 'Join tolerance', unit: 'mm',
       def: 0.1, min: 0.001, max: 5, step: 0.01,
       help: 'The CNC tolerance: points closer than this count as one joint. Used when selecting connected geometry (N), when deciding whether an imported path is closed, and when building loops. Keep it below half your SHORTEST segment: a value larger than a segment welds its ends to the neighbours and the shape stops being a loop.' },
+    { group: 'Geometry', key: 'joinImportAuto', label: 'Join imported points', unit: '',
+      def: 'on', choices: [['on', 'On — weld same-colour ends when importing'], ['off', 'Off — import segments exactly as-is']],
+      help: 'When On, PDF / SVG / DXF / CDR imports weld endpoints of same-colour segments that meet within the join tolerance, so contours arrive connected and machine-ready. Off keeps every imported segment exactly as the file describes it — useful for reference imports you do not want touched.' },
     { group: 'Geometry', key: 'nudgeStep', label: 'Arrow key nudge', unit: 'mm',
       def: 1, min: 0.001, max: 50, step: 0.5,
       help: 'How far the arrow keys move the selected objects or points AT 100% ZOOM. The step follows the view: zoomed out every press covers more world (fast), zoomed in it shrinks for precision. The live value is shown under the scale bar, bottom left.' },
@@ -14469,8 +14473,9 @@
       toast('No supported geometry in that DXF');
       return null;
     }
-    // connect same-colour open segments (DXF arrives as loose LINE entities)
-    if (made.length >= 2) joinImportedSegments(made);
+    // connect same-colour open segments (DXF arrives as loose LINE entities;
+    // Settings > Geometry > Join imported points)
+    if (settings.joinImportAuto !== 'off' && made.length >= 2) joinImportedSegments(made);
     fitView();
     // commit (not just render): without scheduleSave the import vanishes on a
     // refresh before the next edit triggers an autosave
@@ -14567,8 +14572,9 @@
       }
     }
     // connect same-colour segments that meet within the join tolerance, so the
-    // imported contours arrive chained and machine-ready
-    if (lineIds.length >= 2) joinImportedSegments(lineIds);
+    // imported contours arrive chained and machine-ready (Settings > Geometry >
+    // Join imported points)
+    if (settings.joinImportAuto !== 'off' && lineIds.length >= 2) joinImportedSegments(lineIds);
     if (!made) return 0;
     fitView();
     commit();
