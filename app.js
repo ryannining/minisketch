@@ -24643,7 +24643,7 @@ function cmdSplitCurve() {
     const scope = (cnc.scope === 'selected' && !selectedEntitiesForExport().length)
       ? 'visible'
       : cnc.scope;
-    const items = cncChains(cncCollectItems(scope));
+    const items = cncChains(cncCollectItems(scope, { dedupe: true }));
     const p = cost.presets[cost.presetIdx] || null;
     const cutSpeed = p && p.speed > 0 ? p.speed : 10;
     let cut = 0;          // mm at the cut speed
@@ -25320,10 +25320,10 @@ function cmdSplitCurve() {
       }
       const color = cncColorStroke(colorOf(e));
       const fill = (e.fill === 'gray' || e.fill === 'yellow') ? e.fill : 'none';
-      // The Express route sends skipJoin=true (data is claimed clean), so it
-      // must actually BE clean: drop duplicate segments (same undirected
-      // endpoint pair, same colour/fill) — the legacy text route relied on
-      // KaryaCNC's own join to absorb these, JSON does not.
+      // Both routes must send clean data: drop duplicate segments (same
+      // undirected endpoint pair, same colour/fill). The text route once
+      // relied on KaryaCNC's own join to absorb these, but that leaves
+      // artefacts (missing/overdrawn lines) — send clean from here.
       if (segSeen && pts.length === 2) {
         const ka = (+pts[0][0].toFixed(4)) + ',' + (+pts[0][1].toFixed(4));
         const kb = (+pts[1][0].toFixed(4)) + ',' + (+pts[1][1].toFixed(4));
@@ -25574,7 +25574,7 @@ function cmdSplitCurve() {
       return;
     }
     const jsonRoute = cnc.route === 'json';
-    const items = cncCollectItems(undefined, { dedupe: jsonRoute });
+    const items = cncCollectItems(undefined, { dedupe: true });
     const payload = jsonRoute ? cncBuildJsonPayload(items) : cncBuildPayload(items);
     // Classic counts paths as a number; the JSON frame carries them as an
     // array — derive a count either way for the status/toast lines.
