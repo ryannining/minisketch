@@ -9495,10 +9495,21 @@
     if (loopDepthFor !== loops || !loopDepthCache) {
       loopDepthFor = loops;
       const map = new Map();
+      const boxes = new Map();
+      for (const L of loops) boxes.set(L, loopBox(L));
       for (const L of loops) {
+        const lb = boxes.get(L);
+        if (!lb) { map.set(L, 0); continue; }
         let d = 0;
         for (const O of loops) {
-          if (O !== L && loopContainedIn(L, O)) d++;
+          if (O === L) continue;
+          const ob = boxes.get(O);
+          if (!ob) continue;
+          // bbox quick-reject: if the outer box does not fully contain the
+          // inner box, the outer loop cannot contain the inner one — four
+          // number compares beat a polygon scan.
+          if (ob.x0 > lb.x0 || ob.y0 > lb.y0 || ob.x1 < lb.x1 || ob.y1 < lb.y1) continue;
+          if (loopContainedIn(L, O, lb, ob)) d++;
         }
         map.set(L, d);
       }
@@ -24412,17 +24423,39 @@ function cmdSplitCurve() {
     return null;
   }
 
+  // One bbox per loop, computed once per loops-array identity — loopDepthOf
+  // and loopContainedIn then reject far-apart pairs with four number
+  // compares instead of re-scanning both polygons every time.
+  function loopBox(loop) {
+    const poly = loop.poly;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const p of poly) {
+      if (p.x < x0) x0 = p.x;
+      if (p.y < y0) y0 = p.y;
+      if (p.x > x1) x1 = p.x;
+      if (p.y > y1) y1 = p.y;
+    }
+    return { x0, y0, x1, y1 };
+  }
+
   // True when every vertex of `inner` lies strictly inside `outer` (bbox quick
   // reject, then a ray-cast point-in-polygon per vertex). A nested loop that is
-  // wholly inside another loop is part of the same filled body.
-  function loopContainedIn(inner, outer) {
+  // wholly inside another loop is part of the same filled body. Precomputed
+  // boxes (ib/ob) skip the per-call polygon scans.
+  function loopContainedIn(inner, outer, ib, ob) {
     if (!inner || !outer || inner === outer) return false;
     const ip = inner.poly, op = outer.poly;
     if (!ip || ip.length < 3 || !op || op.length < 3) return false;
-    let ix0 = Infinity, iy0 = Infinity, ix1 = -Infinity, iy1 = -Infinity;
-    for (const p of ip) { if (p.x < ix0) ix0 = p.x; if (p.y < iy0) iy0 = p.y; if (p.x > ix1) ix1 = p.x; if (p.y > iy1) iy1 = p.y; }
-    let ox0 = Infinity, oy0 = Infinity, ox1 = -Infinity, oy1 = -Infinity;
-    for (const p of op) { if (p.x < ox0) ox0 = p.x; if (p.y < oy0) oy0 = p.y; if (p.x > ox1) ox1 = p.x; if (p.y > oy1) oy1 = p.y; }
+    let ix0, iy0, ix1, iy1, ox0, oy0, ox1, oy1;
+    if (ib && ob) {
+      ix0 = ib.x0; iy0 = ib.y0; ix1 = ib.x1; iy1 = ib.y1;
+      ox0 = ob.x0; oy0 = ob.y0; ox1 = ob.x1; oy1 = ob.y1;
+    } else {
+      ix0 = Infinity; iy0 = Infinity; ix1 = -Infinity; iy1 = -Infinity;
+      for (const p of ip) { if (p.x < ix0) ix0 = p.x; if (p.y < iy0) iy0 = p.y; if (p.x > ix1) ix1 = p.x; if (p.y > iy1) iy1 = p.y; }
+      ox0 = Infinity; oy0 = Infinity; ox1 = -Infinity; oy1 = -Infinity;
+      for (const p of op) { if (p.x < ox0) ox0 = p.x; if (p.y < oy0) oy0 = p.y; if (p.x > ox1) ox1 = p.x; if (p.y > oy1) oy1 = p.y; }
+    }
     if (ix0 < ox0 || iy0 < oy0 || ix1 > ox1 || iy1 > oy1) return false;
     // Column vertices are nudged a hair toward their centroid before the
     // point-in-polygon test, so a loop whose edge sits exactly ON the
