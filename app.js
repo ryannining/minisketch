@@ -27321,9 +27321,11 @@ function cmdSplitCurve() {
       const dy = prev.view.oy - (iy0 + iy1) / 2;
       for (const p of Object.values(newPts)) { p.x += dx; p.y += dy; }
       // Curve geometry that lives in ENTITY data (not in points) must follow
-      // the translation too: spline handles, art contours / source curves and
-      // array snapshot shapes. Without this a merged spline keeps its handles
-      // at the old coordinates and renders as long diagonal lines.
+      // the translation too: spline handles (absolute world coords) and array
+      // snapshot shapes (world coords). Art contours/curveSrc are stored in
+      // the frame's LOCAL coordinates — they follow the p0/pw/ph anchors and
+      // must NOT be shifted here (shifting them turns curves into long
+      // diagonal lines).
       const sh = pt => { if (pt) { pt.x += dx; pt.y += dy; } return pt; };
       const shXY = a => { if (Array.isArray(a) && a.length >= 2) { a[0] += dx; a[1] += dy; } return a; };
       for (const e of Object.values(newEnts)) {
@@ -27331,19 +27333,6 @@ function cmdSplitCurve() {
         if (e.type === 'spline' && e.hs) {
           if (Array.isArray(e.hs.o)) e.hs.o.forEach(sh);
           if (Array.isArray(e.hs.i)) e.hs.i.forEach(sh);
-        } else if (e.type === 'art') {
-          if (Array.isArray(e.contours)) for (const c of e.contours) c.forEach(shXY);
-          if (Array.isArray(e.curveSrc)) {
-            for (const sub of e.curveSrc) {
-              if (!sub || !Array.isArray(sub.n)) continue;
-              for (const nd of sub.n) {
-                if (!nd) continue;
-                shXY(nd.p);
-                shXY(nd.o);
-                shXY(nd.i);
-              }
-            }
-          }
         } else if (e.type === 'array' && Array.isArray(e.shapes)) {
           for (const s of e.shapes) if (s && Array.isArray(s.pts)) s.pts.forEach(shXY);
         }
