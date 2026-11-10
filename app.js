@@ -25864,8 +25864,11 @@ function cmdSplitCurve() {
     // it into the current one (and re-centres it into the active viewport).
     let importFileMode = 'replace';
     async function pickSketchFile() {
+      const wasMerge = importFileMode === 'merge';
       // With a file picker we keep the handle, so the next Ctrl+S writes back
-      // into the SAME file instead of dropping another copy in Downloads.
+      // into the SAME file instead of dropping another copy in Downloads. Only
+      // in Open mode though — after an Import the save target must stay the
+      // CURRENT file, not the just-merged one.
       if (!isEmbedded() && typeof window.showOpenFilePicker === 'function' &&
         window.isSecureContext && !isWailsRuntime()) {
         try {
@@ -25879,8 +25882,10 @@ function cmdSplitCurve() {
           if (!handle) return;
           const file = await handle.getFile();
           await openDocumentFile(file);
-          save.handle = handle;
-          saveRememberName(handle.name || 'sketch.sketch');
+          if (!wasMerge) {
+            save.handle = handle;
+            saveRememberName(handle.name || 'sketch.sketch');
+          }
           return;
         } catch (err) {
           if (err && err.name === 'AbortError') return;
@@ -25939,14 +25944,17 @@ function cmdSplitCurve() {
         const merge = importFileMode === 'merge';
         pushHistory();
         if (merge) {
-          mergeDocument(data);
+          const added = mergeDocument(data);
+          updateUI();
+          render();
+          toast('Merged ' + file.name + ' · ' + added + ' entity' + (added === 1 ? '' : 's'));
         } else {
           loadDocument(data);
           fitView();
+          updateUI();
+          render();
+          toast('Opened ' + file.name);
         }
-        updateUI();
-        render();
-        toast((merge ? 'Merged ' : 'Opened ') + file.name);
       } catch (err) {
         toast('That file could not be imported');
       }
@@ -27378,6 +27386,7 @@ function cmdSplitCurve() {
     invalidateLoops();
     requestSolve();
     scheduleSave();
+    return Object.keys(newEnts).length;
   }
 
   // When the app is framed by KaryaCNC it is served from the host's own port
