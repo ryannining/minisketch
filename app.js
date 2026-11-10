@@ -27318,28 +27318,6 @@ function cmdSplitCurve() {
       if (p.x > ix1) ix1 = p.x;
       if (p.y > iy1) iy1 = p.y;
     }
-    if (isFinite(ix0) && isFinite(ix1)) {
-      const dx = prev.view.ox - (ix0 + ix1) / 2;
-      const dy = prev.view.oy - (iy0 + iy1) / 2;
-      for (const p of Object.values(newPts)) { p.x += dx; p.y += dy; }
-      // Curve geometry that lives in ENTITY data (not in points) must follow
-      // the translation too: spline handles (absolute world coords) and array
-      // snapshot shapes (world coords). Art contours/curveSrc are stored in
-      // the frame's LOCAL coordinates — they follow the p0/pw/ph anchors and
-      // must NOT be shifted here (shifting them turns curves into long
-      // diagonal lines).
-      const sh = pt => { if (pt) { pt.x += dx; pt.y += dy; } return pt; };
-      const shXY = a => { if (Array.isArray(a) && a.length >= 2) { a[0] += dx; a[1] += dy; } return a; };
-      for (const e of Object.values(newEnts)) {
-        if (!e) continue;
-        if (e.type === 'spline' && e.hs) {
-          if (Array.isArray(e.hs.o)) e.hs.o.forEach(sh);
-          if (Array.isArray(e.hs.i)) e.hs.i.forEach(sh);
-        } else if (e.type === 'array' && Array.isArray(e.shapes)) {
-          for (const s of e.shapes) if (s && Array.isArray(s.pts)) s.pts.forEach(shXY);
-        }
-      }
-    }
     // layers: reuse a same-id layer, allocate a fresh one otherwise
     const layerMap = new Map();
     const layersOut = prev.layers.slice();
@@ -27369,6 +27347,29 @@ function cmdSplitCurve() {
       if (Array.isArray(e.masters)) e.masters = e.masters.map(re);
       if (e.guideId != null) e.guideId = re(e.guideId);
       newEnts[e.id] = e;
+    }
+    // Translate the merged import so its bbox centres on the ACTIVE viewport,
+    // leaving the existing sketch where it is. Points get shifted above; here
+    // the curve geometry that lives in ENTITY data (not in points) follows too:
+    // spline handles (absolute world coords) and array snapshot shapes (world
+    // coords). Art contours/curveSrc are stored in the frame's LOCAL
+    // coordinates — they follow the p0/pw/ph anchors and must NOT be shifted
+    // (shifting them turns curves into long diagonal lines).
+    if (isFinite(ix0) && isFinite(ix1)) {
+      const dx = prev.view.ox - (ix0 + ix1) / 2;
+      const dy = prev.view.oy - (iy0 + iy1) / 2;
+      for (const p of Object.values(newPts)) { p.x += dx; p.y += dy; }
+      const sh = pt => { if (pt) { pt.x += dx; pt.y += dy; } return pt; };
+      const shXY = a => { if (Array.isArray(a) && a.length >= 2) { a[0] += dx; a[1] += dy; } return a; };
+      for (const e of Object.values(newEnts)) {
+        if (!e) continue;
+        if (e.type === 'spline' && e.hs) {
+          if (Array.isArray(e.hs.o)) e.hs.o.forEach(sh);
+          if (Array.isArray(e.hs.i)) e.hs.i.forEach(sh);
+        } else if (e.type === 'array' && Array.isArray(e.shapes)) {
+          for (const s of e.shapes) if (s && Array.isArray(s.pts)) s.pts.forEach(shXY);
+        }
+      }
     }
     const newCons = {};
     for (const key in inc.constraints) {
