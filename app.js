@@ -23837,6 +23837,8 @@ function cmdSplitCurve() {
     }
   }
 
+  let pendingImportMode = 'replace';
+
   function onKeyDown(ev) {
     const key = ev.key;
     const lower = key.toLowerCase();
@@ -24058,14 +24060,14 @@ function cmdSplitCurve() {
     }
     if ((ev.ctrlKey || ev.metaKey) && lower === 'o') {
       ev.preventDefault();
-      importFileMode = 'replace';
-      pickSketchFile();
+      pendingImportMode = 'replace';
+      fileInput.click();
       return;
     }
     if ((ev.ctrlKey || ev.metaKey) && lower === 'i') {
       ev.preventDefault();
-      importFileMode = 'merge';
-      pickSketchFile();
+      pendingImportMode = 'merge';
+      fileInput.click();
       return;
     }
     if ((ev.ctrlKey || ev.metaKey) && lower === 'e') {
@@ -25869,9 +25871,10 @@ function cmdSplitCurve() {
     });
     // File menu: Open always replaces the current sketch; Import always merges
     // it into the current one (and re-centres it into the active viewport).
-    let importFileMode = 'replace';
+    // NOTE: the keyboard shortcuts (Ctrl+O / Ctrl+I) set pendingImportMode and
+    // trigger the file input directly; this helper is the menu-path picker.
     async function pickSketchFile() {
-      const wasMerge = importFileMode === 'merge';
+      const wasMerge = pendingImportMode === 'merge';
       // With a file picker we keep the handle, so the next Ctrl+S writes back
       // into the SAME file instead of dropping another copy in Downloads. Only
       // in Open mode though — after an Import the save target must stay the
@@ -25902,11 +25905,11 @@ function cmdSplitCurve() {
       fileInput.click();
     }
     document.getElementById('btn-open').addEventListener('click', () => {
-      importFileMode = 'replace';
+      pendingImportMode = 'replace';
       pickSketchFile();
     });
     document.getElementById('btn-import').addEventListener('click', () => {
-      importFileMode = 'merge';
+      pendingImportMode = 'merge';
       pickSketchFile();
     });
     // Everything an import can be, in one place: the picker path and the
@@ -25948,7 +25951,7 @@ function cmdSplitCurve() {
       try {
         const text = await file.text();
         const data = JSON.parse(text);
-        const merge = importFileMode === 'merge';
+        const merge = pendingImportMode === 'merge';
         pushHistory();
         if (merge) {
           const added = mergeDocument(data);
