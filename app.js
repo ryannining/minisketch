@@ -25373,6 +25373,9 @@ function cmdSplitCurve() {
     const items = cncCollectItems();
     const jsonRoute = cnc.route === 'json';
     const payload = jsonRoute ? cncBuildJsonPayload(items) : cncBuildPayload(items);
+    // Classic counts paths as a number; the JSON frame carries them as an
+    // array — derive a count either way for the status/toast lines.
+    const pathCount = jsonRoute ? payload.paths.length : payload.paths;
     if (!payload) {
       say('Nothing to send', 'error');
       return;
@@ -25406,7 +25409,7 @@ function cmdSplitCurve() {
     }, 8000);
 
     ws.onopen = () => {
-      cncSetStatus('Sending ' + payload.paths + ' paths / ' + payload.points + ' points …', 'busy');
+      cncSetStatus('Sending ' + pathCount + ' paths / ' + payload.points + ' points …', 'busy');
       try {
         if (jsonRoute) {
           // One JSON frame per job (wire contract v1); the meta fields
@@ -25429,7 +25432,7 @@ function cmdSplitCurve() {
         const skipped = cnc.skippedText
           ? ' \u00b7 ' + cnc.skippedText + ' text object(s) could not be traced'
           : '';
-        finish('Sent ' + payload.paths + ' paths · ' + fmt(payload.width) + ' × ' + fmt(payload.height) + ' mm' + skipped, 'ok', true);
+        finish('Sent ' + pathCount + ' paths · ' + fmt(payload.width) + ' × ' + fmt(payload.height) + ' mm' + skipped, 'ok', true);
       }
     };
     ws.onerror = () => {
