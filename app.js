@@ -1161,6 +1161,12 @@
     { group: 'Renderer', key: 'pointZoomMax', label: 'Point max at zoom', unit: '%',
       def: 125, min: 50, max: 500, step: 5,
       help: 'Marker size never grows beyond this percentage of the base size.' },
+    { group: 'Renderer', key: 'badgeZoomMin', label: 'Badge min at zoom', unit: '%',
+      def: 25, min: 5, max: 200, step: 5,
+      help: 'Constraint badges and dimension labels (dim, H/V, on/M/T/=) never shrink below this percentage of their base size. Independent of the point-marker min.' },
+    { group: 'Renderer', key: 'badgeZoomMax', label: 'Badge max at zoom', unit: '%',
+      def: 200, min: 25, max: 500, step: 5,
+      help: 'Constraint badges and dimension labels never grow beyond this percentage of their base size. Independent of the point-marker max.' },
     { group: 'Renderer', key: 'lineWidth', label: 'Line width', unit: 'px',
       def: 2, min: 0.5, max: 10, step: 0.25,
       help: 'Stroke width of the geometry at 100% zoom.' },
@@ -1335,9 +1341,8 @@
   // Annotation badges/labels (dim, H/V, on/M/T/=, dimension arrows) scale with
   // their OWN zoom window, decoupled from the point-marker min/max above, so
   // changing the point-zoom settings never balloons or shrinks annotations.
-  // Effective values match the old point-clamp × 0.5 defaults.
-  const BADGE_ZOOM_MIN = 0.25;
-  const BADGE_ZOOM_MAX = 0.625;
+  let BADGE_ZOOM_MIN = 0.25;
+  let BADGE_ZOOM_MAX = 2;
   // Extra screen-px of pull that lets a control knob win a click even though it
   // sits exactly on its node (auto handles put them on top of each other).
   let HANDLE_GRAB = 6;
@@ -1434,6 +1439,8 @@
     POINT_SIZE = settings.pointSize;
     POINT_ZOOM_MIN = settings.pointZoomMin / 100;
     POINT_ZOOM_MAX = Math.max(settings.pointZoomMin, settings.pointZoomMax) / 100;
+    BADGE_ZOOM_MIN = settings.badgeZoomMin / 100;
+    BADGE_ZOOM_MAX = Math.max(settings.badgeZoomMin, settings.badgeZoomMax) / 100;
     HANDLE_GRAB = isFinite(+settings.handleGrab) ? Math.max(0, +settings.handleGrab) : 6;
     LINE_WIDTH = settings.lineWidth;
     SEL_WIDTH = settings.selWidth;
