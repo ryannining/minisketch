@@ -22663,6 +22663,10 @@ function cmdSplitCurve() {
   // never different colours (different operations), never curves/circles.
   function joinImportedSegments(entityIds, tol) {
     const t = isFinite(+tol) && +tol > 0 ? +tol : JOIN_TOL;
+    // Drop exact duplicate segments first (same undirected endpoints, same
+    // colour) — two copies of the same edge would otherwise weld into a
+    // zero-area A→B→A sliver. Clean doubles, THEN join.
+    const segSeen = new Set();
     const lines = [];
     for (const eid of entityIds) {
       const e = state.entities[eid];
@@ -22670,6 +22674,15 @@ function cmdSplitCurve() {
       if (+e.a === +e.b) continue;
       const pa = P(e.a), pb = P(e.b);
       if (!pa || !pb) continue;
+      const ka = (+pa.x.toFixed(4)) + ',' + (+pa.y.toFixed(4));
+      const kb = (+pb.x.toFixed(4)) + ',' + (+pb.y.toFixed(4));
+      const key = (ka < kb ? ka + '|' + kb : kb + '|' + ka) + '#' + e.color;
+      if (segSeen.has(key)) {
+        // keep only one copy of an exactly duplicated segment
+        delete state.entities[eid];
+        continue;
+      }
+      segSeen.add(key);
       lines.push(e);
     }
     if (lines.length < 2) return 0;
