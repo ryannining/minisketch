@@ -1000,7 +1000,7 @@
     // connect same-colour segments that meet within the join tolerance (SVG
     // often arrives as many tiny open paths; Settings > Geometry > Join
     // imported points)
-    if (settings.joinImportAuto !== 'off' && made.lines >= 2) joinImportedSegments(made.entities);
+    if (settings.joinImportAuto !== 'off' && made.lines >= 2) joinImportedSegments(made.entities, settings.joinImportTol);
 
     return made;
   }
@@ -1216,6 +1216,9 @@
     { group: 'Geometry', key: 'joinImportAuto', label: 'Join imported points', unit: '',
       def: 'on', choices: [['on', 'On — weld same-colour ends when importing'], ['off', 'Off — import segments exactly as-is']],
       help: 'When On, PDF / SVG / DXF / CDR imports weld endpoints of same-colour segments that meet within the join tolerance, so contours arrive connected and machine-ready. Off keeps every imported segment exactly as the file describes it — useful for reference imports you do not want touched.' },
+    { group: 'Geometry', key: 'joinImportTol', label: 'Join imported distance', unit: 'mm',
+      def: 0.1, min: 0.001, max: 5, step: 0.01,
+      help: 'How close two same-colour segment ends must be before an import welds them into one point. Use at least your file’s gap size, but keep it below half your shortest segment — otherwise a short segment welds its own ends and a small shape collapses.' },
     { group: 'Geometry', key: 'nudgeStep', label: 'Arrow key nudge', unit: 'mm',
       def: 1, min: 0.001, max: 50, step: 0.5,
       help: 'How far the arrow keys move the selected objects or points AT 100% ZOOM. The step follows the view: zoomed out every press covers more world (fast), zoomed in it shrinks for precision. The live value is shown under the scale bar, bottom left.' },
@@ -14475,7 +14478,7 @@
     }
     // connect same-colour open segments (DXF arrives as loose LINE entities;
     // Settings > Geometry > Join imported points)
-    if (settings.joinImportAuto !== 'off' && made.length >= 2) joinImportedSegments(made);
+    if (settings.joinImportAuto !== 'off' && made.length >= 2) joinImportedSegments(made, settings.joinImportTol);
     fitView();
     // commit (not just render): without scheduleSave the import vanishes on a
     // refresh before the next edit triggers an autosave
@@ -14574,7 +14577,7 @@
     // connect same-colour segments that meet within the join tolerance, so the
     // imported contours arrive chained and machine-ready (Settings > Geometry >
     // Join imported points)
-    if (settings.joinImportAuto !== 'off' && lineIds.length >= 2) joinImportedSegments(lineIds);
+    if (settings.joinImportAuto !== 'off' && lineIds.length >= 2) joinImportedSegments(lineIds, settings.joinImportTol);
     if (!made) return 0;
     fitView();
     commit();
@@ -22658,7 +22661,8 @@ function cmdSplitCurve() {
   // contours arrive connected and machine-ready. Only same-colour line ends
   // weld — never ends of the SAME entity (a tiny segment must not collapse),
   // never different colours (different operations), never curves/circles.
-  function joinImportedSegments(entityIds) {
+  function joinImportedSegments(entityIds, tol) {
+    const t = isFinite(+tol) && +tol > 0 ? +tol : JOIN_TOL;
     const lines = [];
     for (const eid of entityIds) {
       const e = state.entities[eid];
@@ -22669,7 +22673,7 @@ function cmdSplitCurve() {
       lines.push(e);
     }
     if (lines.length < 2) return 0;
-    const cell = Math.max(JOIN_TOL, 1e-4);
+    const cell = Math.max(t, 1e-4);
     const grid = new Map();
     const put = (pid, pt, color) => {
       const k = Math.floor(pt.x / cell) + ':' + Math.floor(pt.y / cell);
@@ -22699,7 +22703,7 @@ function cmdSplitCurve() {
               if (ent.color !== e.color) continue;
               const q = P(cid);
               if (!q) continue;
-              if (Math.hypot(pt.x - q.x, pt.y - q.y) > JOIN_TOL) continue;
+              if (Math.hypot(pt.x - q.x, pt.y - q.y) > t) continue;
               // the same entity's own ends must never weld (short-segment guard)
               const sameEnt = (+e.a === cid && +e.b === pid) || (+e.a === pid && +e.b === cid);
               if (sameEnt) continue;
