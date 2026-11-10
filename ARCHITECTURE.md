@@ -73,7 +73,6 @@ state = {
   points:      { id: { x, y } },              // world mm, Y goes up
   entities:    { id: entity },                // see below
   constraints: { id: constraint },
-  namedSel:    { name: [{ kind, id }, …] },
   layers:      [{ id, name, visible, locked }],
   nextLayerId, nextId
 }

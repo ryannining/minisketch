@@ -1815,7 +1815,6 @@
       entities: {},
       constraints: {},
       mates: {},
-      namedSel: {},
       layers: [{ id: 1, name: 'Layer 1', visible: true, locked: false }],
       nextLayerId: 2,
       nextId: 1
@@ -2573,7 +2572,6 @@
       entities,
       constraints,
       mates,
-      namedSel: state.namedSel,
       layers: state.layers,
       nextLayerId: state.nextLayerId,
       nextId: state.nextId
@@ -19005,7 +19003,6 @@
     updateArrayList();
     updatePartsList();
     updateNestPanel();
-    updateNamedSelections();
     updateLayers();
     const hintEl = document.getElementById('status-hint');
     if (hintEl) {
@@ -19072,9 +19069,7 @@
       : '';
     const groupIds = new Set(ents.filter(e => e.group).map(e => e.group));
     if (groupIds.size === 1) {
-      const gname = Array.from(groupIds)[0];
-      const isNamed = !!(state.namedSel && state.namedSel[gname]);
-      parts.push(isNamed ? 'group "' + gname + '"' : 'one group');
+      parts.push('one group');
     }
     const selLayers = new Set(ents.map(e => layerOf(e)));
     if (selLayers.size > 1) {
@@ -25875,15 +25870,6 @@ function cmdSplitCurve() {
       render();
     });
 
-    const nselSave = document.getElementById('nsel-save');
-    if (nselSave) nselSave.addEventListener('click', saveNamedSelection);
-    const nselName = document.getElementById('nsel-name');
-    if (nselName) nselName.addEventListener('keydown', ev => {
-      if (ev.key === 'Enter') {
-        ev.stopPropagation();
-        saveNamedSelection();
-      }
-    });
     const arrayList = document.getElementById('array-list');
     if (arrayList) arrayList.addEventListener('click', ev => {
       const li = ev.target.closest('[data-array]');
@@ -25895,22 +25881,6 @@ function cmdSplitCurve() {
       render();
       openArrayDialog(ent.id, ent.masters);
     });
-    const nselList = document.getElementById('nsel-list');
-    if (nselList) nselList.addEventListener('click', ev => {
-      const del = ev.target.closest('[data-nsel-del]');
-      if (del) {
-        deleteNamedSelection(del.dataset.nselDel);
-        return;
-      }
-      const li = ev.target.closest('[data-nsel]');
-      if (li) applyNamedSelection(li.dataset.nsel);
-    });
-    if (nselList) nselList.addEventListener('dblclick', ev => {
-      if (ev.target.closest('[data-nsel-del]')) return;
-      const li = ev.target.closest('[data-nsel]');
-      if (li) beginNamedSelectionRename(li, li.dataset.nsel);
-    });
-
     document.querySelectorAll('[data-cmd]').forEach(btn => {
       btn.addEventListener('click', () => {
         const cmd = btn.dataset.cmd;
@@ -26192,140 +26162,6 @@ function cmdSplitCurve() {
 
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
-  }
-
-  function namedSelValid(sel) {
-    return (sel || []).filter(s => {
-      if (s.kind === 'point') return !!state.points[s.id];
-      if (s.kind === 'entity') return !!state.entities[s.id];
-      return !!state.constraints[s.id];
-    });
-  }
-
-  function saveNamedSelection() {
-    const input = document.getElementById('nsel-name');
-    if (!input) return;                     // the named-selections panel is gone
-    const name = (input.value || '').trim();
-    if (!name) {
-      toast('Type a name for the selection');
-      return;
-    }
-    if (!ui.selection.length) {
-      toast('Nothing selected to save');
-      return;
-    }
-    state.namedSel = state.namedSel || {};
-    state.namedSel[name] = ui.selection.map(s => ({ ...s }));
-    // The name doubles as the group tag: clicking any member selects the whole set,
-    // which is what makes a letter in an imported drawing easy to grab again.
-    for (const s of ui.selection) {
-      if (s.kind !== 'entity') continue;
-      const e = state.entities[s.id];
-      if (e) e.group = name;
-    }
-    input.value = '';
-    updateUI();
-    scheduleSave();
-    toast('Selection "' + name + '" saved');
-  }
-
-  function renameNamedSelection(oldName, newName) {
-    newName = (newName || '').trim().slice(0, 60);
-    if (!newName || newName === oldName) return false;
-    if (state.namedSel && state.namedSel[newName]) {
-      toast('There is already a selection called "' + newName + '"');
-      return false;
-    }
-    state.namedSel = state.namedSel || {};
-    const sel = state.namedSel[oldName] || [];
-    state.namedSel[newName] = sel;
-    delete state.namedSel[oldName];
-    for (const s of sel) {
-      if (s.kind !== 'entity') continue;
-      const e = state.entities[s.id];
-      if (e && e.group === oldName) e.group = newName;
-    }
-    updateUI();
-    scheduleSave();
-    return true;
-  }
-
-  function beginNamedSelectionRename(li, name) {
-    const nameEl = li.querySelector('.name');
-    if (!nameEl || li.querySelector('input')) return;
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'nsel-rename';
-    input.value = name;
-    nameEl.replaceWith(input);
-    input.focus();
-    input.select();
-    let done = false;
-    const finish = (commit) => {
-      if (done) return;
-      done = true;
-      const next = input.value;
-      const ok = commit && renameNamedSelection(name, next);
-      updateUI();
-      render();
-      if (!ok) toast('Name unchanged');
-    };
-    input.addEventListener('keydown', (ev) => {
-      ev.stopPropagation();
-      if (ev.key === 'Enter') finish(true);
-      else if (ev.key === 'Escape') finish(false);
-    });
-    input.addEventListener('blur', () => finish(true));
-  }
-
-  function applyNamedSelection(name) {
-    const sel = namedSelValid((state.namedSel || {})[name]);
-    if (!sel || !sel.length) {
-      toast('That selection has no valid members anymore');
-      return;
-    }
-    ui.selection = sel.filter(s => {
-      if (s.kind === 'point') return pointEditable(s.id);
-      if (s.kind === 'entity') return entityEditable(state.entities[s.id]);
-      return constraintAnnotationActive(state.constraints[s.id]);
-    }).map(s => ({ ...s }));
-    updateUI();
-    render();
-  }
-
-  function deleteNamedSelection(name) {
-    delete state.namedSel[name];
-    updateUI();
-    scheduleSave();
-  }
-
-  function updateNamedSelections() {
-    const list = document.getElementById('nsel-list');
-    if (!list) return;
-    const names = Object.keys(state.namedSel || {}).sort();
-    list.innerHTML = '';
-    for (const name of names) {
-      const li = document.createElement('li');
-      li.className = 'clickable';
-      li.dataset.nsel = name;
-      const nameEl = document.createElement('span');
-      nameEl.className = 'name';
-      nameEl.textContent = name;
-      const count = namedSelValid(state.namedSel[name]).length;
-      const meta = document.createElement('span');
-      meta.className = 'meta';
-      meta.textContent = String(count);
-      const del = document.createElement('button');
-      del.className = 'mini-del';
-      del.dataset.nselDel = name;
-      del.title = 'Delete selection';
-      del.textContent = '\u00d7';
-      li.appendChild(nameEl);
-      li.appendChild(meta);
-      li.appendChild(del);
-      list.appendChild(li);
-    }
-    list.dataset.empty = 'No named selections yet';
   }
 
   function updateLayers() {
@@ -26952,7 +26788,6 @@ function cmdSplitCurve() {
       entities,
       constraints,
       mates,
-      namedSel: (s.namedSel && typeof s.namedSel === 'object') ? s.namedSel : {},
       layers,
       nextLayerId,
       nextId: Math.max(maxId + 1, (s.nextId || 1))

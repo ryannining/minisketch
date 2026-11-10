@@ -44,7 +44,7 @@ const CNC_TOL = 0.05;         // Settings > CNC > Flatten tolerance
 function makeWorld() {
   const w = {
     state: {
-      points: {}, entities: {}, constraints: {}, namedSel: {},
+      points: {}, entities: {}, constraints: {}, 
       layers: [{ id: 1, name: 'Layer 1', visible: true, locked: false }],
       nextId: 100
     },

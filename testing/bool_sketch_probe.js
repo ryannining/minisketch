@@ -31,7 +31,7 @@ const shoelace = (q) => {
 
 // ---- world ---------------------------------------------------------------
 const w = {
-  state: { points: {}, entities: {}, constraints: {}, namedSel: {}, layers: S.layers, nextId: 900 },
+  state: { points: {}, entities: {}, constraints: {}, layers: S.layers, nextId: 900 },
   ui: { selection: [], activeLayer: 1, color: '#000000' },
   settings: { booleanFit: 'exact' },
   toasts: []

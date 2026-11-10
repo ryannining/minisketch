@@ -79,7 +79,7 @@ console.log('\n== -> Curve fits the real curves ==');
 function makeWorld() {
   const world = {
     state: {
-      points: {}, entities: {}, constraints: {}, namedSel: {},
+      points: {}, entities: {}, constraints: {}, 
       layers: [{ id: 1, name: 'Layer 1', visible: true, locked: false }],
       nextId: 9000
     },

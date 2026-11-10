@@ -32,7 +32,7 @@ const doc = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'tocurvefail.s
 const s = doc.state;
 
 const state = {
-  points: {}, entities: {}, constraints: {}, namedSel: {},
+  points: {}, entities: {}, constraints: {}, 
   layers: s.layers || [{ id: 1, name: 'L1', visible: true, locked: false }],
   nextId: s.nextId || 1
 };

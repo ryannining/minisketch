@@ -47,7 +47,7 @@ const slice = (name) => {
 function makeWorld() {
   const world = {
     state: {
-      points: {}, entities: {}, constraints: {}, namedSel: {},
+      points: {}, entities: {}, constraints: {}, 
       layers: [{ id: 1, name: 'Layer 1', visible: true, locked: false }],
       nextId: 200
     },

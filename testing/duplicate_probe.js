@@ -43,7 +43,7 @@ const slice = (name) => {
 // ---- a minimal document the pasted code can run against ----------------
 function makeWorld() {
   const world = {
-    state: { points: {}, entities: {}, constraints: {}, namedSel: {}, layers: [{ id: 1, name: 'Layer 1', visible: true, locked: false }], nextId: 1000 },
+    state: { points: {}, entities: {}, constraints: {}, layers: [{ id: 1, name: 'Layer 1', visible: true, locked: false }], nextId: 1000 },
     ui: { selection: [], activeLayer: 1, raw: null, lastWorld: null, focusLoop: null },
     W: 800, H: 600, view: { ox: 400, oy: 300, zoom: 1 },
     clipboard: null,
