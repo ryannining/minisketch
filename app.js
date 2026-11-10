@@ -2919,27 +2919,40 @@
   // `virtual: true` means materializePoint() must only create a point here, not
   // invent a Midpoint constraint: a loop centre has no single entity to attach
   // one to.
+  let loopCentroidLoops = null;
+  let loopCentroidMap = null;
+  function loopCentroids() {
+    const loops = getLoops();
+    if (loopCentroidLoops !== loops) {
+      loopCentroidLoops = loops;
+      const m = new Map();
+      for (const loop of loops) {
+        if (!loop.poly || loop.poly.length < 3) continue;
+        let a2 = 0, cx = 0, cy = 0;
+        const poly = loop.poly;
+        for (let i = 0; i < poly.length; i++) {
+          const a = poly[i];
+          const b = poly[(i + 1) % poly.length];
+          const cross = a.x * b.y - b.x * a.y;
+          a2 += cross;
+          cx += (a.x + b.x) * cross;
+          cy += (a.y + b.y) * cross;
+        }
+        if (Math.abs(a2) < 1e-9) continue;
+        m.set(loop, { mx: cx / (3 * a2), my: cy / (3 * a2) });
+      }
+      loopCentroidMap = m;
+    }
+    return loopCentroidMap;
+  }
   function snapLoopCentroid(world, tol) {
     let best = null;
     let bestD = tol;
-    for (const loop of getLoops()) {
-      if (!loop.poly || loop.poly.length < 3) continue;
-      let a2 = 0, cx = 0, cy = 0;
-      for (let i = 0; i < loop.poly.length; i++) {
-        const a = loop.poly[i];
-        const b = loop.poly[(i + 1) % loop.poly.length];
-        const cross = a.x * b.y - b.x * a.y;
-        a2 += cross;
-        cx += (a.x + b.x) * cross;
-        cy += (a.y + b.y) * cross;
-      }
-      if (Math.abs(a2) < 1e-9) continue;
-      const mx = cx / (3 * a2);
-      const my = cy / (3 * a2);
-      const d = Math.hypot(mx - world.x, my - world.y);
+    for (const [, c] of loopCentroids()) {
+      const d = Math.hypot(c.mx - world.x, c.my - world.y);
       if (d < bestD) {
         bestD = d;
-        best = { x: mx, y: my, virtual: true, loop: true };
+        best = { x: c.mx, y: c.my, virtual: true, loop: true };
       }
     }
     return best;
@@ -2963,6 +2976,12 @@
       if (skipEntities && skipEntities.has(+key)) continue;
       const a = P(e.a), b = P(e.b);
       if (!a || !b) continue;
+      // cheap AABB reject before any distance math: if the cursor is outside
+      // the segment's box by more than tol, no point on the segment can be
+      // within tol of it — four compares beat a hypot per line.
+      const minx = Math.min(a.x, b.x), maxx = Math.max(a.x, b.x);
+      const miny = Math.min(a.y, b.y), maxy = Math.max(a.y, b.y);
+      if (world.x < minx - tol || world.x > maxx + tol || world.y < miny - tol || world.y > maxy + tol) continue;
       const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
       const dm = Math.hypot(mx - world.x, my - world.y);
       if (dm < bestMidD) {
