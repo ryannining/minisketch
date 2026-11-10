@@ -160,24 +160,6 @@
     return { x: u * u * a.x + 2 * u * t * b.x + t * t * c.x, y: u * u * a.y + 2 * u * t * b.y + t * t * c.y };
   }
 
-  // Half the largest sag between the quadratic (a,b,c) and the cubic below it.
-  function quadCubicSag(a, b, c) {
-    let worst = 0;
-    for (let k = 1; k < 8; k++) {
-      const t = k / 8;
-      const q = qInterp(a, b, c, t);
-      const u = 1 - t;
-      // the standard "midpoint" cubic of a quadratic's elevation
-      const cx = u * u * u * a.x + 3 * u * u * t * (a.x + (2 / 3) * (b.x - a.x)) +
-        3 * u * t * t * (c.x + (2 / 3) * (b.x - c.x)) + t * t * t * c.x;
-      const cy = u * u * u * a.y + 3 * u * u * t * (a.y + (2 / 3) * (b.y - a.y)) +
-        3 * u * t * t * (c.y + (2 / 3) * (b.y - c.y)) + t * t * t * c.y;
-      const d = Math.hypot(cx - q.x, cy - q.y);
-      if (d > worst) worst = d;
-    }
-    return worst / 2;
-  }
-
   // One closed contour of on-curve nodes with handles (font units, y up).
   function finishContour(segs, start) {
     // segs: [{kind:'line'|'quad', a, ctrl?, b}] in order, first seg starts at `start`

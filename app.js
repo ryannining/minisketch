@@ -2335,9 +2335,9 @@
   }
 
   function updateHistoryButtons() {
-    const undoBtn = document.getElementById('btn-undo');
+    const undoBtn = document.getElementById('qb-undo-side');
     if (undoBtn) undoBtn.disabled = history.length === 0;
-    const redoBtn = document.getElementById('btn-redo');
+    const redoBtn = document.getElementById('qb-redo-side');
     if (redoBtn) redoBtn.disabled = future.length === 0;
   }
 
@@ -3156,12 +3156,6 @@
 
   function lineEnds(e) {
     return { a: P(e.a), b: P(e.b) };
-  }
-
-  function lineLength(e) {
-    const { a, b } = lineEnds(e);
-    if (!a || !b) return 0;
-    return dist(a, b);
   }
 
   function dirOf(e) {
@@ -4434,17 +4428,6 @@
     const a1 = Math.atan2(d1.y, d1.x);
     const a2 = Math.atan2(d2.y, d2.x);
     return wrapPi(a2 - a1) * 180 / Math.PI;
-  }
-
-  function dimensionConstraintCount() {
-    let n = 0;
-    for (const id in state.constraints) {
-      const c = state.constraints[id];
-      if (c.reference) continue;
-      const t = c.type;
-      if (t === 'distance' || t === 'radius' || t === 'angle' || t === 'pointDim') n++;
-    }
-    return n;
   }
 
   function isDimensionConstraint(c) {
@@ -7455,10 +7438,6 @@
     return out;
   }
 
-  function hitLoopPick(world) {
-    return hitLoopPicks(world)[0] || null;
-  }
-
   // Alt+click cycles downward through the stacked loops at the point; a plain
   // click resets the cycle to the smallest (top) one.
   function pickLoopAt(world, useAlt) {
@@ -8080,20 +8059,6 @@
   // every node and every segment midpoint of the master; dragging one solves
   // the whole assembly through its mates (core.solveAssembly, LM).
   // ---------------------------------------------------------------------------
-  function partLocalBounds(e) {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const pl of (e.polylines || [])) {
-      for (const pt of pl) {
-        if (pt[0] < minX) minX = pt[0];
-        if (pt[0] > maxX) maxX = pt[0];
-        if (pt[1] < minY) minY = pt[1];
-        if (pt[1] > maxY) maxY = pt[1];
-      }
-    }
-    if (!isFinite(minX)) return null;
-    return { minX, minY, maxX, maxY };
-  }
-
   function partPose(e) {
     const p = e.pose || {};
     return {
@@ -10026,21 +9991,6 @@
     return !!e && (e.type === 'text' || e.type === 'art' || e.type === 'image');
   }
 
-  function framedDimCount(framedId) {
-    const e = state.entities[framedId];
-    if (!isFramedEntity(e)) return 0;
-    let n = 0;
-    for (const cid in state.constraints) {
-      const c = state.constraints[cid];
-      if (c.type !== 'distance' || c.reference) continue;
-      const a = +c.p1, b = +c.p2;
-      const isW = (a === +e.p0 && b === +e.pw) || (a === +e.pw && b === +e.p0);
-      const isH = (a === +e.p0 && b === +e.ph) || (a === +e.ph && b === +e.p0);
-      if (isW || isH) n++;
-    }
-    return n;
-  }
-  // the old name, kept because a lot of code (and the probes) reads it
   function textDimCount(textId) {
     const e = state.entities[textId];
     if (!e || (e.type !== 'text' && e.type !== 'art' && e.type !== 'image')) return 0;
@@ -11850,25 +11800,9 @@
     return out;
   }
 
-  function identityMatrix() {
-    return [1, 0, 0, 1, 0, 0];
-  }
-
   // Compose two affine matrices: apply `b` first, then `a`.
   // matMul comes from core.js (identical implementation); the old local copy was
   // a redundant duplicate — app.js's references resolve to core's global.
-
-  // The matrix that maps a master-local point into the clone's frame, given the
-  // clone's pivot-relative placement (rotate about pivot, scale, translate).
-  function matFromPlacement(pivot, px, py, angle, sx, sy, dx, dy) {
-    const phi = angle;
-    const c = Math.cos(phi), s = Math.sin(phi);
-    const a = c * sx, b = s * sx, cc = -s * sy, d = c * sy;
-    // translate so the pivot lands where the user put it
-    const tx = px + (dx || 0) - (a * pivot.x + cc * pivot.y);
-    const ty = py + (dy || 0) - (b * pivot.x + d * pivot.y);
-    return [a, b, cc, d, tx, ty];
-  }
 
   // Clone: keep the selection as a live master and add one more copy placed by a
   // matrix. Editing the master reshapes every clone; the matrix holds each clone
@@ -13935,37 +13869,6 @@
     return { p0, pw, ph, guide: [idArc] };
   }
 
-  function updateOrCreatePolarGuides(e, params) {
-    if (e.p0 == null || e.pw == null || e.ph == null || !state.points[e.p0] || !state.points[e.pw] || !state.points[e.ph]) {
-      const g = createPolarGuides(e.masters, params);
-      e.p0 = g.p0; e.pw = g.pw; e.ph = g.ph; e.guide = g.guide;
-      return;
-    }
-    const p0 = state.points[e.p0];
-    const pw = state.points[e.pw];
-    const ph = state.points[e.ph];
-    const cx = isFinite(+params.cx) ? +params.cx : p0.x;
-    const cy = isFinite(+params.cy) ? +params.cy : p0.y;
-    const totalAngle = isFinite(+params.angle) ? +params.angle : 360;
-    const radius = Math.hypot(pw.x - p0.x, pw.y - p0.y) || 10;
-    const startAngle = Math.atan2(pw.y - p0.y, pw.x - p0.x);
-
-    p0.x = cx; p0.y = cy;
-    pw.x = cx + radius * Math.cos(startAngle);
-    pw.y = cy + radius * Math.sin(startAngle);
-    const rad = startAngle + totalAngle * Math.PI / 180;
-    ph.x = cx + radius * Math.cos(rad);
-    ph.y = cy + radius * Math.sin(rad);
-
-    for (const cid in state.constraints) {
-      const c = state.constraints[cid];
-      if (c.type === 'distance' &&
-        ((c.p1 === e.p0 && c.p2 === e.pw) || (c.p1 === e.pw && c.p2 === e.p0))) {
-        c.value = round2(radius);
-      }
-    }
-  }
-
   function updateOrCreateArrayGuides(e, params) {
     if (e.p0 == null || e.pw == null || e.ph == null || !state.points[e.p0] || !state.points[e.pw] || !state.points[e.ph]) {
       const g = createArrayGuides(e.masters, params);
@@ -15646,26 +15549,6 @@
       (fittedN
         ? ' \u00b7 ' + nodes + ' node' + (nodes === 1 ? '' : 's') + ' \u00b7 ' + fmt(fitTol) + ' mm'
         : ' \u00b7 polyline kept'));
-  }
-
-  function cmdSelectSameColor() {
-    const sel = selectedEntities();
-    if (!sel.length) {
-      toast('Pick an object first, then press Ctrl+Shift+A');
-      return;
-    }
-    const color = colorOf(sel[0]);
-    const target = [];
-    for (const id in state.entities) {
-      const e = state.entities[id];
-      if (!e || e.type === 'note') continue;
-      if (!layerVisible(e) || !entityEditable(e)) continue;
-      if (colorOf(e) === color) target.push({ kind: 'entity', id: +id });
-    }
-    ui.selection = target;
-    updateUI();
-    render();
-    toast(target.length + ' object' + (target.length === 1 ? '' : 's') + ' in colour ' + color);
   }
 
   // CDR vector import: parse first, then the options dialog decides how text
@@ -18571,21 +18454,6 @@
   }
 
 
-  function draftSizeLabel(d, start, end) {
-    if (!start || !end) return '';
-    if (d.type === 'line') {
-      return fmt(dist(start, end)) + ' mm';
-    }
-    if (d.type === 'box') {
-      const w = Math.abs(end.x - start.x);
-      const h = Math.abs(end.y - start.y);
-      let out = fmt(w) + ' \u00d7 ' + fmt(h) + ' mm';
-      if ((ui.boxFillet || 0) > 1e-4) out += ' \u00b7 R ' + fmt(Math.min(ui.boxFillet, Math.min(w, h) / 2));
-      return out;
-    }
-    return fmt(dist(start, end)) + ' mm';
-  }
-
   // The nice round number shown on the scale bar (bottom left), in mm.
   function scaleBarUnit() {
     const raw = 100 / view.zoom;
@@ -19116,10 +18984,6 @@
       const dist = b.dataset.arrange === 'dist-h' || b.dataset.arrange === 'dist-v';
       b.disabled = dist ? nArr < 3 : nArr < 2;
     });
-    // dimension follows the sidebar button's own validity logic
-    const dimBtn = document.getElementById('btn-dimension');
-    const qbDim = document.getElementById('qb-dimension');
-    if (dimBtn && qbDim) qbDim.disabled = dimBtn.disabled;
     document.querySelectorAll('.tool-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.tool === ui.tool);
     });
@@ -19138,7 +19002,6 @@
     updateConstraintButtons();
     bindConstraintTools();
     updateConstraintList();
-    updateLoopList();
     updateArrayList();
     updatePartsList();
     updateNestPanel();
@@ -19232,13 +19095,6 @@
     const lines = selectedEntities().filter(e => e.type === 'line').length;
     const ents = selectedEntities();
     const onables = ents.filter(e => e.type === 'line' || e.type === 'arc' || e.type === 'circle').length;
-    const dimOk = (lines === 2) ||
-      (pts === 2) ||
-      (lines === 1 && pts === 0) ||
-      (ents.length === 1 && pts === 1 && (ents[0].type === 'line' || ents[0].type === 'arc')) ||
-      (ents.length === 1 && pts === 0 && (ents[0].type === 'circle' || ents[0].type === 'arc'));
-    const dimBtnId = document.getElementById('btn-dimension');
-    if (dimBtnId) dimBtnId.disabled = !dimOk;
     document.querySelectorAll('[data-cmd]').forEach(btn => {
       const cmd = btn.dataset.cmd;
       let enabled = true;
@@ -19557,42 +19413,6 @@
       list.appendChild(li);
     }
     list.dataset.empty = 'No constraints on this selection — click geometry, then press a constraint key (H/V/P/Q/…)';
-  }
-
-  function updateLoopList() {
-    const list = document.getElementById('loop-list');
-    if (!list) return;                      // the loop panel is gone: no read-out
-    const loops = getLoops();
-    const countEl = document.getElementById('loop-count');
-    if (countEl) countEl.textContent = loops.length;
-    // loopShapeSelected per loop is the only per-row state; skip the rebuild
-    // when the topology (geometryEpoch) and the flags are unchanged
-    const loopSig = geometryEpoch + '|' + loops.length + '|' +
-      loops.map(l => loopShapeSelected(l) ? 1 : 0).join('');
-    if (ui.focusLoop != null && ui.focusLoop >= loops.length) ui.focusLoop = null;
-    if (listUnchanged(list, loopSig)) return;
-    list.innerHTML = '';
-    for (let i = 0; i < loops.length; i++) {
-      const li = document.createElement('li');
-      li.className = 'clickable' + (loopShapeSelected(loops[i]) ? ' active' : '');
-      li.dataset.loop = i;
-      const dot = document.createElement('span');
-      dot.className = 'loop-dot';
-      const fill = loopFill(loops[i]);
-      if (fill === 'yellow') dot.classList.add('fill-yellow');
-      else if (fill === 'gray') dot.classList.add('fill-gray');
-      const name = document.createElement('span');
-      name.className = 'name';
-      name.textContent = 'Loop ' + (i + 1);
-      const meta = document.createElement('span');
-      meta.className = 'meta';
-      meta.textContent = fmtArea(loops[i].area) + ' u\u00b2';
-      li.appendChild(dot);
-      li.appendChild(name);
-      li.appendChild(meta);
-      list.appendChild(li);
-    }
-    list.dataset.empty = 'No closed loops yet';
   }
 
   // Parts panel: one row per part with select + delete, and the open mate-job
@@ -25435,11 +25255,6 @@ function cmdSplitCurve() {
     cncSaveSettings();
   }
 
-  function cncModalOpen() {
-    const modal = document.getElementById('cnc-modal');
-    return !!modal && !modal.classList.contains('hidden');
-  }
-
   function cncQuickSend() {
     if (cnc.busy) {
       toast('Still sending…');
@@ -25601,8 +25416,6 @@ function cmdSplitCurve() {
       sw.appendChild(wrap);
     }
 
-    document.getElementById('btn-undo') && document.getElementById('btn-undo').addEventListener('click', undo);
-    document.getElementById('btn-redo') && document.getElementById('btn-redo').addEventListener('click', redo);
     const themeBtn = document.getElementById('btn-theme');
     const sidebarBtn = document.getElementById('btn-sidebar');
     if (sidebarBtn) sidebarBtn.addEventListener('click', () => {
@@ -25620,7 +25433,6 @@ function cmdSplitCurve() {
       }, true);
     })();
     if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
-    document.getElementById('btn-fit') && document.getElementById('btn-fit').addEventListener('click', fitView);
     document.getElementById('btn-save').addEventListener('click', () => {
       // Same contract as Ctrl+S: always a real file.
       downloadSketch(false);
@@ -25638,7 +25450,6 @@ function cmdSplitCurve() {
       commit();
       toast('New sketch');
     });
-    document.getElementById('btn-demo') && document.getElementById('btn-demo').addEventListener('click', loadDemoSketch);
     document.getElementById('btn-open').addEventListener('click', async () => {
       // With a file picker we keep the handle, so the next Ctrl+S writes back
       // into the SAME file instead of dropping another copy in Downloads.
@@ -25722,8 +25533,6 @@ function cmdSplitCurve() {
     });
     document.getElementById('btn-download').addEventListener('click', () => downloadSketch());
 
-    const btnDimension = document.getElementById('btn-dimension');
-    if (btnDimension) btnDimension.addEventListener('click', createDimension);
     const btnName = document.getElementById('btn-name');
     if (btnName) btnName.addEventListener('click', cmdNameSelection);
     const btnToCurve = document.getElementById('btn-to-curve');
@@ -25764,10 +25573,6 @@ function cmdSplitCurve() {
       if (el) el.addEventListener('change', nestSetting);
     }
     nestPrefsLoad();
-    const btnMakePart = document.getElementById('btn-make-part');
-    if (btnMakePart) btnMakePart.addEventListener('click', cmdMakePart);
-    const btnMate = document.getElementById('btn-mate');
-    if (btnMate) btnMate.addEventListener('click', startMateJob);
     const mateOk = document.getElementById('mate-ok');
     if (mateOk) mateOk.addEventListener('click', applyMateModal);
     const mateCancel = document.getElementById('mate-cancel');
@@ -26269,10 +26074,6 @@ function cmdSplitCurve() {
       b.addEventListener('click', () => setHelpLang(b.getAttribute('data-help-lang')));
     }
 
-    const btnGroup = document.getElementById('btn-group');
-    if (btnGroup) btnGroup.addEventListener('click', () => cmdGroupSelection());
-    const btnUngroup = document.getElementById('btn-ungroup');
-    if (btnUngroup) btnUngroup.addEventListener('click', () => cmdUngroupSelection());
     const btnConnected = document.getElementById('btn-connected');
     if (btnConnected) btnConnected.addEventListener('click', () => cmdSelectConnected());
 
@@ -27775,10 +27576,6 @@ function cmdSplitCurve() {
     updateUI();
     render();
     toast('Selected all editable object & points');
-  }
-
-  function hasGeometry() {
-    return Object.keys(state.entities).length > 0;
   }
 
   // Modal behaviour shared by every popup: the backdrop swallows clicks,

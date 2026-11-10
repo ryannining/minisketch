@@ -342,8 +342,7 @@ The solver's residual types (what you can actually constrain) are enumerated at
   same way (`delete api.state.constraints[cid]`).
 
 **Driving versus reference.** `reference: true` makes a dimension an annotation:
-it is not counted as a driver anywhere. `textDimCount` (`:8976-8989`, and the
-newer `framedDimCount` `:8961`) — the function that decides whether a framed
+it is not counted as a driver anywhere. `textDimCount` (`:8976-8989`) — the function that decides whether a framed
 object is fully dimensioned — **skips reference dims explicitly** (`:8982`).
 
 **The aspect lock releases itself.** Every framed object gets an `aspect`

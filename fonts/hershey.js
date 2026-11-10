@@ -74,11 +74,6 @@
   function isSingleLine(family) {
     return !!byName[family];
   }
-  function fontKeyOf(family) {
-    const f = byName[family];
-    return f ? (fonts.simplex.name === family ? 'simplex' : 'script') : null;
-  }
-
   // Lay text out in reference pixels: origin is the baseline of the FIRST
   // line's start, x to the right, y up. Returns { strokes, width, height,
   // ascent, lineHeight } — strokes carry only geometry, no frame mapping.

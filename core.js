@@ -1532,13 +1532,6 @@ function solveAssembly(parts, mates, targets, opts) {
     }
     return r;
   };
-  const jointCost = (x) => {
-    const r = jointResiduals(x);
-    let c = 0;
-    for (let i = 0; i < r.length; i++) c += r[i] * r[i];
-    return c;
-  };
-
   // Nothing is free (everything grounded): the answer is the input, whatever
   // the residuals say — lmSolve would burn its attempts on an empty x.
   if (!x0.length) return { poses: poseOf(x0), cost: costOf(x0), iterations: 0 };
