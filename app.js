@@ -22730,7 +22730,25 @@ function cmdSplitCurve() {
       }
     }
     if (!pairs.length) return 0;
-    return weldPoints(pairs, { checkDist: false }).welded;
+    const welded = weldPoints(pairs, { checkDist: false }).welded;
+    // Post-weld cleanup: once ends are welded together, near-duplicate
+    // segments that were only slightly apart at import become exactly
+    // overlapping — keep a single copy. Also drop any segment that collapsed
+    // onto itself. (i.e. clean doubles AFTER joining, not before.)
+    const seenPost = new Set();
+    for (const e of lines) {
+      const pa = P(e.a), pb = P(e.b);
+      if (!pa || !pb || +e.a === +e.b) {
+        delete state.entities[e.id];
+        continue;
+      }
+      const ka = (+pa.x.toFixed(4)) + ',' + (+pa.y.toFixed(4));
+      const kb = (+pb.x.toFixed(4)) + ',' + (+pb.y.toFixed(4));
+      const key = (ka < kb ? ka + '|' + kb : kb + '|' + ka) + '#' + e.color;
+      if (seenPost.has(key)) { delete state.entities[e.id]; continue; }
+      seenPost.add(key);
+    }
+    return welded;
   }
 
   // [Clean up loop] — per-loop weld of doubled points. At every loop junction
