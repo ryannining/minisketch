@@ -997,6 +997,10 @@
       }
     }
 
+    // connect same-colour segments that meet within the join tolerance (SVG
+    // often arrives as many tiny open paths)
+    if (made.lines >= 2) joinImportedSegments(made.entities);
+
     return made;
   }
 
@@ -14465,6 +14469,8 @@
       toast('No supported geometry in that DXF');
       return null;
     }
+    // connect same-colour open segments (DXF arrives as loose LINE entities)
+    if (made.length >= 2) joinImportedSegments(made);
     fitView();
     // commit (not just render): without scheduleSave the import vanishes on a
     // refresh before the next edit triggers an autosave
@@ -14489,6 +14495,7 @@
     };
     pushHistory();
     let made = 0;
+    const lineIds = [];
     for (const pr of prims) {
       if (pr.kind === 'note') {
         if (o.textMode === 'skip') continue;
@@ -14542,6 +14549,7 @@
           if (a === b) continue;
           const id = newId();
           state.entities[id] = { id, type: 'line', a, b, color };
+          lineIds.push(id);
           made++;
         }
       } else {
@@ -14558,6 +14566,9 @@
         made++;
       }
     }
+    // connect same-colour segments that meet within the join tolerance, so the
+    // imported contours arrive chained and machine-ready
+    if (lineIds.length >= 2) joinImportedSegments(lineIds);
     if (!made) return 0;
     fitView();
     commit();
@@ -22634,6 +22645,69 @@ function cmdSplitCurve() {
     }
     for (const pid of killed) delete state.points[pid];
     return { welded, killed };
+  }
+
+  // Join open same-colour segments created by a vector import (PDF/CDR/DXF/
+  // SVG): coincident endpoints within JOIN_TOL become one shared point, so
+  // contours arrive connected and machine-ready. Only same-colour line ends
+  // weld — never ends of the SAME entity (a tiny segment must not collapse),
+  // never different colours (different operations), never curves/circles.
+  function joinImportedSegments(entityIds) {
+    const lines = [];
+    for (const eid of entityIds) {
+      const e = state.entities[eid];
+      if (!e || e.type !== 'line') continue;
+      if (+e.a === +e.b) continue;
+      const pa = P(e.a), pb = P(e.b);
+      if (!pa || !pb) continue;
+      lines.push(e);
+    }
+    if (lines.length < 2) return 0;
+    const cell = Math.max(JOIN_TOL, 1e-4);
+    const grid = new Map();
+    const put = (pid, pt, color) => {
+      const k = Math.floor(pt.x / cell) + ':' + Math.floor(pt.y / cell);
+      let arr = grid.get(k);
+      if (!arr) { arr = []; grid.set(k, arr); }
+      arr.push({ pid: +pid, color });
+    };
+    for (const e of lines) {
+      put(e.a, P(e.a), e.color);
+      put(e.b, P(e.b), e.color);
+    }
+    const pairs = [];
+    const seen = new Set();
+    for (const e of lines) {
+      const ends = [[e.a, P(e.a)], [e.b, P(e.b)]];
+      for (let i = 0; i < 2; i++) {
+        const pid = ends[i][0], pt = ends[i][1];
+        const cx = Math.floor(pt.x / cell), cy = Math.floor(pt.y / cell);
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            const list = grid.get((cx + dx) + ':' + (cy + dy));
+            if (!list) continue;
+            for (const ent of list) {
+              const cid = ent.pid;
+              if (cid <= +pid) continue;
+              // different colours are different operations — never weld them
+              if (ent.color !== e.color) continue;
+              const q = P(cid);
+              if (!q) continue;
+              if (Math.hypot(pt.x - q.x, pt.y - q.y) > JOIN_TOL) continue;
+              // the same entity's own ends must never weld (short-segment guard)
+              const sameEnt = (+e.a === cid && +e.b === pid) || (+e.a === pid && +e.b === cid);
+              if (sameEnt) continue;
+              const key = pid + ':' + cid;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              pairs.push([cid, pid]);
+            }
+          }
+        }
+      }
+    }
+    if (!pairs.length) return 0;
+    return weldPoints(pairs, { checkDist: false }).welded;
   }
 
   // [Clean up loop] — per-loop weld of doubled points. At every loop junction
