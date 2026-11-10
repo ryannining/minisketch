@@ -9331,13 +9331,21 @@
   // must refresh every frame.
   let loopPathFrameLoops = null;
   let loopPathFrameKey = null;
+  let loopPathFrameSel = null;
+  let loopPathFrameSelLen = -1;
   let loopPathMeta = null;
   function loopFrameData(loop) {
     const loops = getLoops();
     const key = view.zoom + '|' + view.ox + '|' + view.oy;
-    if (loopPathFrameLoops !== loops || loopPathFrameKey !== key) {
+    // d carries sel/fill/visible, which depend on the SELECTION as much as on
+    // the camera — a stale d hides a selection change until the next pan/zoom.
+    const selIdx = selectionIndex();
+    if (loopPathFrameLoops !== loops || loopPathFrameKey !== key ||
+      loopPathFrameSel !== selIdx || loopPathFrameSelLen !== ui.selection.length) {
       loopPathFrameLoops = loops;
       loopPathFrameKey = key;
+      loopPathFrameSel = selIdx;
+      loopPathFrameSelLen = ui.selection.length;
       loopPathMeta = new Map();
     }
     if (!loop.circle) {
