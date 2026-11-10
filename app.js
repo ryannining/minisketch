@@ -22499,6 +22499,36 @@ function cmdSplitCurve() {
         bb.minY >= w0.y - 1e-9 && bb.maxY <= w1.y + 1e-9)) continue;
       picked.set('entity:' + +key, { kind: 'entity', id: +key });
     }
+    // Pick filter 3 (loop): a closed loop is selectable as a unit even when
+    // its points/lines are locked (keys 1/2) — a marquee covering the whole
+    // loop takes every editable member entity, the same rule the point-less
+    // containers above use. The geometry test is the loop polygon itself (or
+    // the circle's bounding box), so partial marquees still grab nothing.
+    if (pickFilter.loop) {
+      for (const loop of getLoops()) {
+        let fullyInside = true;
+        if (loop.circle) {
+          const cd = circleData(state.entities[loop.entity]);
+          if (!cd || !(cd.c.x - cd.r >= w0.x - 1e-9 && cd.c.x + cd.r <= w1.x + 1e-9 &&
+            cd.c.y - cd.r >= w0.y - 1e-9 && cd.c.y + cd.r <= w1.y + 1e-9)) fullyInside = false;
+        } else {
+          if (!loop.poly || loop.poly.length < 3) fullyInside = false;
+          else for (const p of loop.poly) {
+            if (!hits(p.x, p.y)) { fullyInside = false; break; }
+          }
+        }
+        if (!fullyInside) continue;
+        const members = loopEntities(loop);
+        if (!members.length) continue;
+        if (!members.every(id => {
+          const e = state.entities[id];
+          if (!e) return false;
+          if (!d.crossLayer && !entityEditable(e)) return false;
+          return true;
+        })) continue;
+        for (const id of members) picked.set('entity:' + id, { kind: 'entity', id: +id });
+      }
+    }
     ui.selection = Array.from(picked.values());
     updateUI();
     render();
