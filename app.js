@@ -25183,8 +25183,10 @@ function cmdSplitCurve() {
     return out.length ? out : null;
   }
 
-  function cncCollectItems(scopeOverride) {
+  function cncCollectItems(scopeOverride, mode) {
     const scope = scopeOverride || cnc.scope;
+    const dedupe = !!(mode && mode.dedupe);
+    const segSeen = dedupe ? new Set() : null;
     const selIds = new Set(selectedEntitiesForExport().map(e => +e.id));
     const opts = {
       onlySelected: scope === 'selected',
@@ -25318,6 +25320,17 @@ function cmdSplitCurve() {
       }
       const color = cncColorStroke(colorOf(e));
       const fill = (e.fill === 'gray' || e.fill === 'yellow') ? e.fill : 'none';
+      // The Express route sends skipJoin=true (data is claimed clean), so it
+      // must actually BE clean: drop duplicate segments (same undirected
+      // endpoint pair, same colour/fill) — the legacy text route relied on
+      // KaryaCNC's own join to absorb these, JSON does not.
+      if (segSeen && pts.length === 2) {
+        const ka = (+pts[0][0].toFixed(4)) + ',' + (+pts[0][1].toFixed(4));
+        const kb = (+pts[1][0].toFixed(4)) + ',' + (+pts[1][1].toFixed(4));
+        const key = (ka < kb ? ka + '|' + kb : kb + '|' + ka) + '#' + color + '|' + fill;
+        if (segSeen.has(key)) continue;
+        segSeen.add(key);
+      }
       list.push({ color, fill, group: color + '|' + fill, pts, closed });
     }
     return cncChains(list);
@@ -25560,8 +25573,8 @@ function cmdSplitCurve() {
       say('Select objects first (or change Scope)', 'error');
       return;
     }
-    const items = cncCollectItems();
     const jsonRoute = cnc.route === 'json';
+    const items = cncCollectItems(undefined, { dedupe: jsonRoute });
     const payload = jsonRoute ? cncBuildJsonPayload(items) : cncBuildPayload(items);
     // Classic counts paths as a number; the JSON frame carries them as an
     // array — derive a count either way for the status/toast lines.
@@ -25605,6 +25618,24 @@ function cmdSplitCurve() {
           // One JSON frame per job (wire contract v1); the meta fields
           // (points/width/height) are for the status line, not the wire.
           const { width, height, points, ...frame } = payload;
+          // TEMP DEBUG (remove after diagnosis): keep the exact frame for
+          // console inspection — copy with copy(window.__cncLastFrame).
+          window.__cncLastFrame = frame;
+          const byColor = {};
+          for (const p of frame.paths) {
+            byColor[p.color] = (byColor[p.color] || 0) + 1;
+          }
+          const lens = frame.paths.map(p => p.pts.length);
+          console.log('[CNC_JSON_FRAME]', JSON.stringify({
+            pathCount: frame.paths.length,
+            totalPts: frame.paths.reduce((n, p) => n + p.pts.length, 0),
+            closed: frame.paths.filter(p => p.closed).length,
+            minPts: Math.min.apply(null, lens),
+            maxPts: Math.max.apply(null, lens),
+            byColor,
+            sample: frame.paths.slice(0, 5),
+            imageCount: frame.images.length
+          }));
           ws.send(JSON.stringify(frame));
         } else {
           for (let i = 0; i < payload.text.length; i += CNC_CHUNK) {
