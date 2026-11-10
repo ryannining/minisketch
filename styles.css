@@ -470,16 +470,6 @@ button {
   color: var(--accent);
 }
 
-.rail-label {
-  font-size: 9.5px;
-  font-weight: 700;
-  color: var(--faint);
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  padding-left: 3px;
-  margin-bottom: -4px;
-}
-
 .swatches {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -872,15 +862,6 @@ button {
   margin-top: 6px;
 }
 
-.fill-label {
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--faint);
-  margin-right: auto;
-}
-
 .fill-btn.active {
   background: var(--accent-soft);
   border-color: var(--accent-border);
@@ -1171,9 +1152,6 @@ details.settings-group.hidden {
 }
 #constraint-list li.dup .name { color: var(--faint); text-decoration: line-through; }
 
-.loop-dot.fill-yellow { background: #eab308; border-color: #eab308; }
-.loop-dot.fill-gray { background: #8b929c; border-color: #8b929c; }
-
 .text-box { width: 410px; }
 
 .fit-box { width: 380px; }
@@ -1357,36 +1335,7 @@ details.settings-group.hidden {
   color: var(--danger);
 }
 
-/* ---- Preset editor ---- */
-.cost-preset-edit { margin: 6px 0 2px; }
-.cost-preset-edit textarea {
-  width: 100%;
-  min-height: 150px;
-  box-sizing: border-box;
-  padding: 7px 8px;
-  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--ink);
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  resize: vertical;
-}
-.cost-preset-edit textarea:focus {
-  outline: none;
-  border-color: var(--accent-border);
-}
-.cost-hint { font-size: 10.5px; line-height: 1.45; color: var(--faint); margin-top: 5px; }
-
 .cnc-row .cnc-unit { flex: 0 0 auto; }
-
-.rail-hint {
-  margin-top: auto;
-  font-size: 9.5px;
-  line-height: 1.35;
-  color: var(--faint);
-  text-align: center;
-  padding: 6px 2px;
-}
 
 .stage {
   position: relative;
@@ -1559,14 +1508,6 @@ details.settings-group.hidden {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.rb-caption {
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--faint);
-  margin: 0 0 2px;
-}
 /* swatches live inside the ribbon now: one horizontal row of small dots */
 .ribbon .swatches {
   display: flex;
@@ -1574,14 +1515,11 @@ details.settings-group.hidden {
   gap: 4px;
   padding: 0;
 }
-.ribbon .swatch,
-.rb-fill {
+.ribbon .swatch {
   width: 20px;
   height: 20px;
   flex: 0 0 auto;
 }
-.rb-fills { display: flex; gap: 4px; align-items: center; }
-.rb-fills .rb-fill { border-radius: 50%; }
 
 /* swatches moved to a floating strip at the bottom of the canvas */
 .stage-colors {
@@ -1833,7 +1771,6 @@ details.settings-group.hidden {
   }
   .rb-mini { min-width: 44px; min-height: 44px; }
   .rb-mini svg { width: 20px; height: 20px; }
-  .rb-caption { display: block; font-size: 8px; }
 
   /* Shift/Ctrl/Alt toggle buttons for touch devices. The panel is kept as
      narrow as the Layers card (120px) so it does not eat the canvas: the icon
@@ -1877,7 +1814,6 @@ details.settings-group.hidden {
     outline: 2px solid var(--accent-border);
     outline-offset: 1px;
   }
-  .rb-center-spacer { display: none; }
   .stage-layers { width: 120px; padding: 5px 7px 6px; }
 }
 @media (max-width: 700px) {
@@ -2059,12 +1995,6 @@ details[open] > .panel-title::before { content: '\25BE'; }
   gap: 6px;
   flex-wrap: wrap;
   align-items: center;
-}
-
-.constraint-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 5px;
 }
 
 .hint {
@@ -2307,14 +2237,6 @@ body.xf-active .sidebar .panel {
   background: var(--danger-soft);
 }
 
-.loop-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  border: 1.5px solid var(--loop-dot);
-  flex: 0 0 auto;
-}
-
 .help summary {
   cursor: pointer;
   font-size: 11px;
@@ -2460,11 +2382,6 @@ body.xf-active .sidebar .panel {
 }
 
 /* Help window: two languages, 1.25x the old type size, scannable sections */
-.help-btn {
-  margin-left: 10px;
-  flex: 0 0 auto;
-}
-
 .help-box {
   width: min(880px, 94vw);
   max-height: 88vh;
