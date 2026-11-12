@@ -91,7 +91,7 @@ function buildCncBlock() {
   const start = appSrc.indexOf('  // ---- Send to KaryaCNC');
   const end = appSrc.indexOf('  function bindUI() {', start);
   const block = appSrc.slice(start, end);
-  const tail = '\n return { cnc, cncCollectItems, cncBuildPayload, cncPolyline, cncChains, cncColorStroke, cncFillCode };';
+  const tail = '\n return { cnc, cncCollectItems, cncBuildPayload, cncBuildJsonPayload, cncPolyline, cncChains, cncColorStroke, cncFillCode };';
   const params = ['state', 'ui', 'TAU', 'fmt', 'toast', 'localStorage', 'document', 'location', 'WebSocket', 'window'];
   const fn = new Function(...params, prelude + block + tail);
   return fn.bind(null, state, ui, Math.PI * 2, fmtStub, () => {}, noopStorage, {}, { hostname: '127.0.0.1' }, function () {}, {});
@@ -200,9 +200,26 @@ check('open line keeps the blue engrave stroke', !!openLine && openLine[9].strok
 check('yellow fill survives on a closed contour', !!yellowPath && yellowPath[8] === true);
 check('gray fill survives on a pocket contour', !!grayPath && grayPath[9].stroke === '#800080',
   grayPath && grayPath[9].stroke);
-const widthAttr = /width="([^"]+)"/.exec(svg)[1];
+const widthAttr = /width="([^"]+)"/.exec(String(svg).slice(0, 2000))?.[1];
 check('workpiece stays 100mm wide', widthAttr === '100mm', widthAttr);
 check('Y mirrored (bottom-left origin)', /M0 0/.test(svg.replace(/\r/g, '')));
+
+// ---- 4. sort weight -> JSON frame (v1 wire) ------------------------------
+console.log('\n== 4. sort weight -> KaryaCNC JSON frame ==');
+state.entities[13].sortWeight = 1;   // one member of the chained rectangle
+state.entities[15].sortWeight = 2;   // the standalone engrave line
+api.cnc.scope = 'visible';
+const jitems = api.cncCollectItems();
+const json = api.cncBuildJsonPayload(jitems);
+const rectJ = json.paths.find(p => p.closed && p.pts.length === 5);
+const blueJ = json.paths.find(p => p.color === '#0000ff');
+check('rect chain takes the max member weight (1 -> 100)', !!rectJ && rectJ.weight === 100, rectJ && rectJ.weight);
+check('single line sends weight*100 (2 -> 200)', !!blueJ && blueJ.weight === 200, blueJ && blueJ.weight);
+const otherJ = json.paths.filter(p => p !== rectJ && p !== blueJ);
+check('exactly the two weighted contours carry weight', json.paths.filter(p => 'weight' in p).length === 2,
+  json.paths.filter(p => 'weight' in p).map(p => p.weight));
+check('circle contours omit the weight field', otherJ.length === 2 && otherJ.every(p => !('weight' in p)),
+  otherJ.map(p => p.weight));
 
 console.log('\n' + (fail ? (fail + ' FAILED, ' + pass + ' passed') : ('all ' + pass + ' checks passed')));
 process.exit(fail ? 1 : 0);

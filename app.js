@@ -1361,6 +1361,22 @@
   let SEL_WIDTH = 2.6;
   let LINE_ZOOM_MIN = 0.5;
   let LINE_ZOOM_MAX = 1.25;
+  // How far above the finger a touch-dragged point is lifted so the thumb does
+  // not cover it (screen px).
+  const TOUCH_LIFT_PX = 70;
+  // Touch "lift": for DRAFTING, steer the pointer from a virtual cursor
+  // ~TOUCH_LIFT_PX above the finger so the created point is not hidden by the
+  // thumb. Returns the lifted world, or null to keep the real pointer.
+  // Suppressed while the finger is on an existing point (so welds still land).
+  function touchLiftWorld(realWorld, pos, suppressNearPoint) {
+    if (!ui._touchPress || !ui._touching) return null;
+    if (Math.hypot(pos.x - ui._touchPress.x, pos.y - ui._touchPress.y) <= 8) return null;
+    if (suppressNearPoint) {
+      const sp = snapPoint(realWorld, { skip: new Set() });
+      if (sp && sp.id != null) return null;
+    }
+    return s2w(pos.x, pos.y - TOUCH_LIFT_PX);
+  }
   let RENDER_AA = true;
   let RENDER_SCALE = 1;
 
@@ -2173,6 +2189,90 @@
     render();
   }
 
+  // Circumcenter of three points; the returned c/start/end describe the arc
+  // that passes through all three with start..end as the CCW endpoints (the
+  // middle point lies on the drawn curve). Returns null when collinear.
+  function threePointArcCenter(a, b, m) {
+    const ax = a.x, ay = a.y, bx = b.x, by = b.y, mx = m.x, my = m.y;
+    const d = 2 * (ax * (by - my) + bx * (my - ay) + mx * (ay - by));
+    if (Math.abs(d) < 1e-12) return null;
+    const a2 = ax * ax + ay * ay;
+    const b2 = bx * bx + by * by;
+    const m2 = mx * mx + my * my;
+    const ux = (a2 * (by - my) + b2 * (my - ay) + m2 * (ay - by)) / d;
+    const uy = (a2 * (mx - bx) + b2 * (ax - mx) + m2 * (bx - ax)) / d;
+    const ang = p => {
+      const t = Math.atan2(p.y - uy, p.x - ux);
+      return t < 0 ? t + TAU : t;
+    };
+    const aA = ang(a), aB = ang(b), aM = ang(m);
+    const ccw = (p, q) => {
+      const t = q - p;
+      return t <= 0 ? t + TAU : t;
+    };
+    const start = ccw(aA, aM) < ccw(aA, aB) ? a : b;
+    return { c: { x: ux, y: uy }, start, end: start === a ? b : a };
+  }
+
+  // Mobile tap-on-icon: an existing point selection seeds/completes the shape
+  // instead of opening a blank draft. Line + 2 pts = connect; + 1 pt = start
+  // the chain from it. Circle + 1 pt = centre (tap for radius). Arc + 2 pts =
+  // endpoints, next tap is the through-point (3-point arc).
+  function toolIconTapped(tool) {
+    if (xfBlock()) return;
+    if (tool === 'line' || tool === 'arc' || tool === 'circle') {
+      const pts = selectedPointIds();
+      if (tool === 'line' && pts.length === 2) {
+        const a = P(pts[0]), b = P(pts[1]);
+        if (a && b && dist(a, b) >= 1e-9) {
+          pushHistory();
+          const id = newId();
+          state.entities[id] = { id, type: 'line', a: pts[0], b: pts[1], color: ui.color };
+          ui.selection = [{ kind: 'entity', id }];
+          setTool('line');
+          requestSolve();
+          commit();
+          return;
+        }
+      }
+      if (tool === 'line' && pts.length === 1) {
+        const a = P(pts[0]);
+        if (a) {
+          setTool('line');
+          ui.draft = { type: 'line', a: { x: a.x, y: a.y, id: pts[0] }, chain: [] };
+          updateUI();
+          render();
+          return;
+        }
+      }
+      if (tool === 'circle' && pts.length === 1) {
+        const a = P(pts[0]);
+        if (a) {
+          setTool('circle');
+          ui.draft = { type: 'circle', c: { x: a.x, y: a.y, id: pts[0] } };
+          updateUI();
+          render();
+          return;
+        }
+      }
+      if (tool === 'arc' && pts.length === 2) {
+        const a = P(pts[0]), b = P(pts[1]);
+        if (a && b) {
+          setTool('arc');
+          ui.draft = {
+            type: 'arc', stage: '3pt',
+            a: { x: a.x, y: a.y, id: pts[0] },
+            b: { x: b.x, y: b.y, id: pts[1] }
+          };
+          updateUI();
+          render();
+          return;
+        }
+      }
+    }
+    setTool(tool);
+  }
+
   function updateCanvasCursor() {
     if (ui.pan) {
       canvas.style.cursor = 'grabbing';
@@ -2806,6 +2906,16 @@
       if (layerOf(e) !== wantLayer) return false;
     }
     return true;
+  }
+
+  // The colour of the geometry being dragged (for weld permission): the colour
+  // of the point's owning entities if they all agree, else null (no weld).
+  function dragWeldColor(pid) {
+    const uses = pointUses(pid);
+    if (!uses || !uses.length) return null;
+    const c = colorOf(uses[0]);
+    for (const e of uses) if (colorOf(e) !== c) return null;
+    return c;
   }
 
   function materializePoint(snap) {
@@ -5034,13 +5144,18 @@
   function updateTransformPanel(force) {
     const ids = ['tf-left', 'tf-top', 'tf-width', 'tf-height'];
     const els = ids.map(id => document.getElementById(id));
+    const wel = document.getElementById('tf-weight');
     if (!els[0]) return;
     const lock = document.getElementById('tf-lock');
     const b = xfBusy() ? null : selectionBounds();
     for (const el of els) el.disabled = !b;
     if (lock) lock.disabled = !b;
+    const ents = selectedEntities();
+    const hasEnts = ents.length > 0 && !!b;
+    if (wel) wel.disabled = !hasEnts;
     if (!b) {
       for (const el of els) if (force || document.activeElement !== el) el.value = '';
+      if (wel && (force || document.activeElement !== wel)) wel.value = '';
       return;
     }
     const vals = [b.minX, b.maxY, b.maxX - b.minX, b.maxY - b.minY];
@@ -5048,10 +5163,51 @@
       if (!force && document.activeElement === el) return;
       el.value = fmt(vals[i]);
     });
+    // Weight is a per-entity property, not geometry: show the shared value
+    // when the whole selection agrees, blank when it is mixed.
+    if (wel) {
+      if (!force && document.activeElement === wel) return;
+      const w0 = ents[0] ? (ents[0].sortWeight || 0) : 0;
+      const uni = ents.every(e => (e.sortWeight || 0) === w0);
+      wel.value = uni ? String(w0) : '';
+    }
   }
 
   function applyTransformField(field, raw) {
     if (xfBlock()) return;
+    if (field === 'weight') {
+      const ents = selectedEntities();
+      if (!ents.length) {
+        updateTransformPanel(true);
+        return;
+      }
+      // Absolute only: a plain number is the value itself, never an offset
+      // from the current one (so "−10" sets −10, not current−10). Empty
+      // clears to 0. No formula syntax here — evalFormula would treat a
+      // leading minus as "relative to current".
+      const txt = String(raw == null ? '' : raw).trim();
+      const target = txt === '' ? 0 : parseFloat(txt);
+      if (!isFinite(target)) {
+        toast('Enter a number between -100 and 100');
+        updateTransformPanel(true);
+        return;
+      }
+      const nw = Math.max(-100, Math.min(100, Math.round(target)));
+      pushHistory();
+      let changed = false;
+      for (const e of ents) {
+        if ((e.sortWeight || 0) !== nw) { e.sortWeight = nw; changed = true; }
+      }
+      if (changed) {
+        invalidateLoops();
+        commit();
+      } else {
+        history.pop();
+        updateHistoryButtons();
+        updateTransformPanel(true);
+      }
+      return;
+    }
     const b = selectionBounds();
     if (!b) {
       updateTransformPanel(true);
@@ -12105,6 +12261,43 @@
     if (e.shapes && e.shapesEpoch === geometryEpoch) return;
     e.shapes = arrayBuildShapes(e.masters);
     e.shapesEpoch = geometryEpoch;
+    arrayReanchorGuide(e);
+  }
+
+  // The grid array's guide (the two green construction lines) exists only to
+  // show the dx/dy spacing, anchored at the master's bounding-box TOP-LEFT
+  // (minX, maxY in world coords — Y is down, so maxY is the top edge). The
+  // anchor is a private point with no geometric link to the master, so when
+  // the master moves or reshapes the guide would stay behind (or drift when
+  // the solver runs). Every time the master geometry changes we translate the
+  // three guide points together by the delta to the master's current top-left,
+  // preserving the spacing vectors exactly — the clone layout is unaffected.
+  function arrayReanchorGuide(e) {
+    if (e.kind !== 'grid') return;
+    if (e.p0 == null || e.pw == null || e.ph == null) return;
+    const p0 = P(e.p0), pw = P(e.pw), ph = P(e.ph);
+    if (!p0 || !pw || !ph) return;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let any = false;
+    for (const mid of (e.masters || [])) {
+      const m = state.entities[mid];
+      if (!m) continue;
+      for (const sh of arrayShapesOf(m)) {
+        for (const p of sh.pts) {
+          if (p[0] < minX) minX = p[0];
+          if (p[0] > maxX) maxX = p[0];
+          if (p[1] < minY) minY = p[1];
+          if (p[1] > maxY) maxY = p[1];
+          any = true;
+        }
+      }
+    }
+    if (!any || !isFinite(minX)) return;
+    const tx = minX - p0.x, ty = maxY - p0.y;
+    if (Math.abs(tx) < 1e-9 && Math.abs(ty) < 1e-9) return;
+    p0.x += tx; p0.y += ty;
+    pw.x += tx; pw.y += ty;
+    ph.x += tx; ph.y += ty;
   }
 
   function arrayBuildShapes(masters) {
@@ -16934,19 +17127,25 @@
     // entities the generic selected colour is the honest signal.
     const selEnts = selectionIndex().entity;
     const entityHighlight = selEnts.size > 0 && selEnts.size <= 200;
-    const SEG_COLOR = 'rgba(245, 158, 11, 0.9)';
     // The amber band is THE selection stroke for lines: drawOneEntity's
     // brightened pass sits under it and reads as a white rim, which is why
     // turning the Selected line width down never slimmed a picked line. One
     // stroke, one width — the setting drives it, with the same zoom clamp the
-    // other strokes use.
+    // other strokes use. The band colour is now per-entity: the object's own
+    // colour mixed toward amber (selectMixColor), so a picked line keeps its
+    // hue instead of flattening to pure amber.
     const SEG_WIDTH = Math.max(2, SEL_WIDTH * clamp(view.zoom, LINE_ZOOM_MIN, LINE_ZOOM_MAX));
-    // one batched path for every highlighted segment: the old loop issued a
-    // beginPath/stroke pair PER segment — 9k selected lines meant 18k draw
-    // calls where one stroke of one path answers the same picture
-    let segPath = null;
-    const segMoveTo = (x, y) => { if (!segPath) segPath = new Path2D(); segPath.moveTo(x, y); };
-    const segLineTo = (x, y) => segPath.lineTo(x, y);
+    // one batched path per band colour: the old loop issued a beginPath/stroke
+    // pair PER segment — 9k selected lines meant 18k draw calls where one stroke
+    // of one path answered the same picture
+    const segPaths = new Map();
+    const segPathFor = (color) => {
+      let p = segPaths.get(color);
+      if (!p) { p = new Path2D(); segPaths.set(color, p); }
+      return p;
+    };
+    const segMoveTo = (x, y, color) => segPathFor(color).moveTo(x, y);
+    const segLineTo = (x, y, color) => segPathFor(color).lineTo(x, y);
 
     if (entityHighlight) {
       for (const eid of selEnts) {
@@ -16961,22 +17160,25 @@
           const a = P(e.a), b = P(e.b);
           if (!a || !b) continue;
           const sa = w2s(a.x, a.y), sb = w2s(b.x, b.y);
-          segMoveTo(sa.x, sa.y);
-          segLineTo(sb.x, sb.y);
+          const col = selectMixColor(themedCanvasColor(colorOf(e)));
+          segMoveTo(sa.x, sa.y, col);
+          segLineTo(sb.x, sb.y, col);
         } else if (e.type === 'circle') {
           const c = P(e.c);
           if (!c) continue;
           const cs = w2s(c.x, c.y);
           const r = Math.max(0.01, e.r) * view.zoom;
-          segMoveTo(cs.x + r, cs.y);
-          segPath.arc(cs.x, cs.y, r, 0, TAU);
+          const col = selectMixColor(themedCanvasColor(colorOf(e)));
+          segMoveTo(cs.x + r, cs.y, col);
+          segPathFor(col).arc(cs.x, cs.y, r, 0, TAU);
         } else if (e.type === 'arc') {
           const ad = arcData(e);
           if (!ad || ad.sweep < 1e-6) continue;
           const cs = w2s(ad.c.x, ad.c.y);
           const r = ad.r * view.zoom;
-          segMoveTo(cs.x + Math.cos(ad.a0) * r, cs.y + Math.sin(ad.a0) * r);
-          segPath.arc(cs.x, cs.y, r, ad.a0, ad.a0 + ad.sweep, false);
+          const col = selectMixColor(themedCanvasColor(colorOf(e)));
+          segMoveTo(cs.x + Math.cos(ad.a0) * r, cs.y + Math.sin(ad.a0) * r, col);
+          segPathFor(col).arc(cs.x, cs.y, r, ad.a0, ad.a0 + ad.sweep, false);
         }
       }
     }
@@ -16991,8 +17193,9 @@
         const a = P(e.a), b = P(e.b);
         if (!a || !b) continue;
         const sa = w2s(a.x, a.y), sb = w2s(b.x, b.y);
-        segMoveTo(sa.x, sa.y);
-        segLineTo(sb.x, sb.y);
+        const col = selectMixColor(themedCanvasColor(colorOf(e)));
+        segMoveTo(sa.x, sa.y, col);
+        segLineTo(sb.x, sb.y, col);
       }
     }
 
@@ -17004,6 +17207,7 @@
       ensureSplineHandles(e);
       if (!e.hs) continue;
       const wholeSplineSel = entityHighlight && selEnts.has(+eid);
+      const col = selectMixColor(themedCanvasColor(colorOf(e)));
       const nsegs = e.closed ? ids.length : ids.length - 1;
       for (let seg = 0; seg < nsegs; seg++) {
         const nxt = (seg + 1) % ids.length;
@@ -17012,29 +17216,29 @@
         const P3 = P(ids[nxt]);
         if (!P0 || !P3) continue;
         const s0 = w2s(P0.x, P0.y);
-        segMoveTo(s0.x, s0.y);
+        segMoveTo(s0.x, s0.y, col);
         // a span with no handles on either side IS a straight chord: draw the
         // line instead of sampling a degenerate cubic 18 times
         if (!e.hs.o[seg] && !e.hs.i[nxt]) {
           const s3 = w2s(P3.x, P3.y);
-          segLineTo(s3.x, s3.y);
+          segLineTo(s3.x, s3.y, col);
         } else {
           // the exact cubic, drawn natively: the old path sampled cubicAt 18
           // times per span per frame
           const P1 = e.hs.o[seg] || P0;
           const P2 = e.hs.i[nxt] || P3;
           const s1 = w2s(P1.x, P1.y), s2 = w2s(P2.x, P2.y), s3 = w2s(P3.x, P3.y);
-          segPath.bezierCurveTo(s1.x, s1.y, s2.x, s2.y, s3.x, s3.y);
+          segPathFor(col).bezierCurveTo(s1.x, s1.y, s2.x, s2.y, s3.x, s3.y);
         }
       }
     }
 
-    if (segPath) {
+    for (const [color, path] of segPaths) {
       ctx.save();
-      ctx.strokeStyle = SEG_COLOR;
+      ctx.strokeStyle = color;
       ctx.lineWidth = SEG_WIDTH;
       ctx.lineCap = 'round';
-      ctx.stroke(segPath);
+      ctx.stroke(path);
       ctx.restore();
     }
   }
@@ -17221,6 +17425,29 @@
     // mix with black at 50%
     const out = 'rgb(' + rgb.map(v => Math.round(v * 0.5)).join(',') + ')';
     darkCache.set(key, out);
+    return out;
+  }
+
+  // The selection band colour: the object's DISPLAYED colour (themed, so it
+  // matches what is on screen) mixed toward the amber selection tint — a picked
+  // line keeps its hue instead of flattening to pure amber. Non-hex colours
+  // fall back to the flat amber band.
+  const AMBER_RGB = [245, 158, 11];
+  const AMBER_MIX = 0.3;              // amber share of the mix (0..1); kept low
+                                        // so the object's own hue stays readable
+                                        // (a high share collapses green/blue to khaki)
+  const SEG_COLOR_FLAT = 'rgba(245, 158, 11, 0.9)';
+  const mixCache = new Map();
+  function selectMixColor(hex) {
+    const key = String(hex || '');
+    const hit = mixCache.get(key);
+    if (hit) return hit;
+    const m = /^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/.exec(key);
+    const out = m
+      ? 'rgb(' + [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)]
+          .map((v, i) => Math.round(v + (AMBER_RGB[i] - v) * AMBER_MIX)).join(',') + ')'
+      : SEG_COLOR_FLAT;
+    mixCache.set(key, out);
     return out;
   }
 
@@ -18298,6 +18525,55 @@
         drawBadge(glyph, mid.x + 14 + count * 17, mid.y - 14, bid, conflictSet.has(bid));
       }
     }
+    // W badge: one marker per connected cluster of weighted entities (a loop
+    // of several lines shows a single W at its centre). A cluster is the
+    // transitive closure over shared points — the same connectivity the CNC
+    // chain uses — so the badge count matches the cut loops the user will see.
+    // The cluster weight is the max member weight, mirroring cncChains. The
+    // badge is decoration only (id null: never hits, selects or deletes).
+    const weighted = [];
+    for (const id in state.entities) {
+      const e = state.entities[id];
+      if (e && e.sortWeight && layerVisible(e)) weighted.push(e);
+    }
+    if (weighted.length) {
+      const parent = new Map();
+      const find = (x) => {
+        while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); }
+        return x;
+      };
+      const union = (a, b) => {
+        const ra = find(a), rb = find(b);
+        if (ra !== rb) parent.set(rb, ra);
+      };
+      const ptEnts = new Map();
+      weighted.forEach(w => { parent.set(w.id, w.id); });
+      for (const w of weighted) {
+        for (const pid of entityPointIds(w)) {
+          if (!ptEnts.has(pid)) ptEnts.set(pid, []);
+          ptEnts.get(pid).push(w);
+        }
+      }
+      for (const list of ptEnts.values()) {
+        for (let i = 1; i < list.length; i++) union(list[0].id, list[i].id);
+      }
+      const groups = new Map();
+      for (const w of weighted) {
+        const root = find(w.id);
+        if (!groups.has(root)) groups.set(root, { max: 0, sx: 0, sy: 0, n: 0 });
+        const g = groups.get(root);
+        g.max = Math.max(g.max, w.sortWeight || 0);
+        const bb = entityBounds(w);
+        if (bb) { g.sx += (bb.minX + bb.maxX) / 2; g.sy += (bb.minY + bb.maxY) / 2; g.n++; }
+      }
+      for (const g of groups.values()) {
+        if (!g.max) continue;
+        if (g.n) {
+          const s = w2s(g.sx / g.n, g.sy / g.n);
+          drawBadge('W', s.x, s.y - 14, null);
+        }
+      }
+    }
     ui.badgeHits = ui.badgeHits.filter(h => {
       const c = state.constraints[h.id];
       return c && constraintAnnotationActive(c);
@@ -18428,17 +18704,31 @@
     ctx.lineWidth = 1.4;
     ctx.fillStyle = 'rgba(37, 99, 235, 0.08)';
 
-    if (d.type === 'line' && d.a) {
-      const start = d.a.id != null ? P(d.a.id) : d.a;
+    if (d.type === 'line') {
+      const start = d.a ? (d.a.id != null ? P(d.a.id) : d.a) : null;
       if (start) {
         const s = w2s(start.x, start.y);
         const e = w2s(end.x, end.y);
+        // the draft anchor (placed point) indicator
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, 4.5, 0, TAU);
+        ctx.fillStyle = '#2563eb';
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 1.4;
+        ctx.setLineDash([6, 4]);
         ctx.beginPath();
         ctx.moveTo(s.x, s.y);
         ctx.lineTo(e.x, e.y);
         ctx.stroke();
-        drawSnapMarker(end, snapped && end.snapped !== false);
       }
+      // live pending-point indicator (also before the first point is locked) —
+      // snaps to grid / other points like a hover marker
+      drawSnapMarker(end, snapped && end.snapped !== false);
     } else if (d.type === 'circle' && d.c) {
       const c = d.c.id != null ? P(d.c.id) : d.c;
       if (c) {
@@ -18849,6 +19139,10 @@
     ctx.save();
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, W, H);
+    // camera lift while dragging a single point on touch: the whole scene
+    // renders a little higher so the grabbed point (and its snap target) stay
+    // above the finger. Interaction math stays on the real pointer.
+    if (ui._dragLift) ctx.translate(0, -TOUCH_LIFT_PX);
     drawGrid();
     drawAxes();
     // A reference picture is a backdrop: its bitmap goes under the fills and the
@@ -20355,6 +20649,7 @@
     }
     if (ev.button !== 0) return;
     const pos = pointerPos(ev);
+    if (ev.pointerType === 'touch') { ui._touchPress = { x: pos.x, y: pos.y }; ui._touching = true; }
     const world = s2w(pos.x, pos.y);
     if (ui.nestPlace) {
       ev.preventDefault();
@@ -20843,6 +21138,31 @@
     handleCreateClick(snap, ev);
   }
 
+  // Create the next segment of a line draft up to `end` (shared by the second
+  // tap and by the touch drag-release). Returns true when a segment was added.
+  function lineCommitToEnd(end) {
+    const d = ui.draft;
+    if (!d || d.type !== 'line' || !d.a) return false;
+    const start = d.a.id != null ? P(d.a.id) : d.a;
+    if (!start) { cancelDraft(); render(); return false; }
+    if (Math.hypot(end.x - start.x, end.y - start.y) < 1e-7) return false;
+    pushHistory();
+    const aId = materializePoint(d.a);
+    const bId = materializePoint(end);
+    if (aId === bId) { history.pop(); updateHistoryButtons(); return false; }
+    const id = newId();
+    state.entities[id] = { id, type: 'line', a: aId, b: bId, color: ui.color };
+    if (!d.chain) d.chain = [];
+    d.chain.push({ a: { x: start.x, y: start.y, id: aId }, seg: id });
+    d.a = { x: end.x, y: end.y, id: bId };
+    if (d.chain.length === 1) d.firstId = aId;
+    const closing = d.firstId != null && bId === d.firstId && d.chain.length >= 2;
+    requestSolve();
+    commit();
+    if (closing) { cancelDraft(); toast('Loop closed — the chain is done'); }
+    return true;
+  }
+
   function handleCreateClick(snap, ev) {
     const shift = ev.shiftKey;
 
@@ -20885,45 +21205,23 @@
     }
 
     if (ui.tool === 'line') {
-      if (!ui.draft || ui.draft.type !== 'line') {
-        ui.draft = { type: 'line', a: snap, chain: [] };
+      if (ev.pointerType !== 'touch') {
+        if (!ui.draft || ui.draft.type !== 'line') {
+          ui.draft = { type: 'line', a: snap, chain: [] };
+        } else {
+          const start = ui.draft.a.id != null ? P(ui.draft.a.id) : ui.draft.a;
+          let end = { x: snap.x, y: snap.y, id: snap.id, midId: snap.midId, lineId: snap.lineId, weld: snap.weld };
+          if (shift && start) end = angleSnap(start, end);
+          lineCommitToEnd(end);
+        }
       } else {
-        const start = ui.draft.a.id != null ? P(ui.draft.a.id) : ui.draft.a;
-        if (!start) {
-          cancelDraft();
-          render();
-          return;
-        }
-        let end = { x: snap.x, y: snap.y, id: snap.id, midId: snap.midId, lineId: snap.lineId, weld: snap.weld };
-        if (shift) end = angleSnap(start, end);
-        if (Math.hypot(end.x - start.x, end.y - start.y) < 1e-7) return;
-        pushHistory();
-        const aId = materializePoint(ui.draft.a);
-        const bId = materializePoint(end);
-        if (aId === bId) {
-          history.pop();
-          updateHistoryButtons();
-          return;
-        }
-        const id = newId();
-        state.entities[id] = { id, type: 'line', a: aId, b: bId, color: ui.color };
-        // the vertex this segment started from, so Esc can take the segment
-        // back and continue from there (same undo-last-segment as the curve)
-        if (!ui.draft.chain) ui.draft.chain = [];
-        ui.draft.chain.push({ a: { x: start.x, y: start.y, id: aId }, seg: id });
-        ui.draft.a = { x: end.x, y: end.y, id: bId };
-        // remember the point the chain started from: landing back on it closes
-        // the loop and the draft is done (a third segment at least, so a
-        // two-point "closure" — which would only double the first line — still
-        // just continues the chain)
-        if (ui.draft.chain.length === 1) ui.draft.firstId = aId;
-        const closing = ui.draft.firstId != null && bId === ui.draft.firstId &&
-          ui.draft.chain.length >= 2;
-        requestSolve();
-        commit();
-        if (closing) {
-          cancelDraft();
-          toast('Loop closed — the chain is done');
+        // touch: the pending point is live during press-drag and locks/commits
+        // on release. A fresh draft starts with no locked anchor (first point).
+        if (!ui.draft || ui.draft.type !== 'line') {
+          ui.draft = { type: 'line', a: null, chain: [] };
+          ui._linePressHadDraft = false;
+        } else {
+          ui._linePressHadDraft = ui.draft.a != null;
         }
       }
       render();
@@ -20931,6 +21229,30 @@
     }
 
     if (ui.tool === 'arc') {
+      if (ui.draft && ui.draft.type === 'arc' && ui.draft.stage === '3pt') {
+        const a = ui.draft.a.id != null ? P(ui.draft.a.id) : ui.draft.a;
+        const b = ui.draft.b.id != null ? P(ui.draft.b.id) : ui.draft.b;
+        if (!a || !b) { cancelDraft(); render(); return; }
+        const res = threePointArcCenter(a, b, snap);
+        if (!res || dist(res.c, a) < 1e-7) {
+          toast('The three points must not be collinear');
+          render();
+          return;
+        }
+        pushHistory();
+        const cId = materializePoint(res.c);
+        const sId = materializePoint(res.start);
+        const eId = materializePoint(res.end);
+        if (sId === eId) { history.pop(); updateHistoryButtons(); render(); return; }
+        const id = newId();
+        state.entities[id] = { id, type: 'arc', c: cId, s: sId, e: eId, color: ui.color };
+        ui.draft = null;
+        ui.selection = [{ kind: 'entity', id }];
+        requestSolve();
+        commit();
+        render();
+        return;
+      }
       if (!ui.draft || ui.draft.type !== 'arc') {
         ui.draft = { type: 'arc', stage: 1, c: snap };
       } else if (ui.draft.stage === 1) {
@@ -21968,7 +22290,23 @@ function cmdSplitCurve() {
       return;
     }
 
-    const world = s2w(pos.x, pos.y);
+    // Touch point-drag lift: once the finger has moved a little, steer the
+    // drag from a virtual cursor ~TOUCH_LIFT_PX above the finger so the grabbed
+    // point stays visible (the thumb would otherwise cover it). The lift is
+    // suppressed when the finger is about to weld onto an existing point —
+    // otherwise the offset would aim the dragged point above the target and the
+    // weld would miss.
+    const realWorld = s2w(pos.x, pos.y);
+    // Visibility for a single-point touch drag comes from a RENDER-time camera
+    // lift (ui._dragLift), not from offsetting the drag world — so snap/weld
+    // stay on the real pointer and never jitter. Drafting keeps its pointer
+    // lift (the created point tracks above the finger).
+    const singlePointDrag = ui.drag && ui.drag.kind === 'entity' &&
+      ui.drag.ids && ui.drag.ids.length <= 1;
+    ui._dragLift = !!(singlePointDrag && ev.pointerType === 'touch');
+    const creating = (/^(line|arc|circle|box|poly|curve)$/.test(ui.tool) && !ui.drag);
+    const world = (creating ? touchLiftWorld(realWorld, pos, true) : null) || realWorld;
+    if (ui.drag) ui.drag.realWorld = realWorld;
     ui.raw = world;
     ui.lastWorld = world;
 
@@ -22245,14 +22583,25 @@ function cmdSplitCurve() {
         // and a snap near where the press-time grab vertex WOULD land shifts
         // the whole selection by the small difference.
         if (d.ids.length <= 1 && d.snapPrimary && d.primary != null && d.origPrimary) {
+          // Snap only to a real point (the visible square). Grid / on-line /
+          // midpoint results are ignored so a misleading blue ring never appears
+          // and the snap target is unambiguous.
           const snap = snapPoint(world, { skip: new Set(d.bodyDrag ? d.ids : [d.primary]) });
-          // A CORRECTION to the pointer, not an absolute delta from the press
-          // pose. `dx = snap - origPrimary` re-anchored the point to where the
-          // drag started, wiping out any solve that ran mid-drag (the snapped
-          // single-point drag was the one case the rebase could not rescue).
-          dx += snap.x - world.x;
-          dy += snap.y - world.y;
-          d.snap = { x: snap.x, y: snap.y, coincident: snap.id != null, id: snap.id != null ? snap.id : null };
+          if (snap.id != null) {
+            const dragColor = dragWeldColor(d.primary);
+            const canWeld = dragColor != null && weldAllowed(snap.id, dragColor);
+            // Anchor to the snap position (relative to the point's base) so the
+            // dragged point lands EXACTLY on the target, not shifted by the grab
+            // offset between the press point and the point centre.
+            const bp = (d.base && d.base[d.primary]) ||
+              (d.startPos && d.startPos[d.primary]) ||
+              { x: d.origPrimary.x, y: d.origPrimary.y };
+            dx = snap.x - bp.x + (d.offX || 0);
+            dy = snap.y - bp.y + (d.offY || 0);
+            d.snap = { x: snap.x, y: snap.y, coincident: true, id: snap.id, weld: canWeld };
+          } else {
+            d.snap = null;
+          }
         } else if (d.grab && d.snapCache) {
           const wx = d.grab.x + dx;
           const wy = d.grab.y + dy;
@@ -22990,6 +23339,24 @@ function cmdSplitCurve() {
     }
     pushHistory();
     let ids = pts.map(Number);
+    // Exactly two non-touching points: weld the SECOND into the FIRST (anchored
+    // at the first endpoint) so the two open ends become one shared point and
+    // the chain closes. Merging to the midpoint instead would yank both ends
+    // together — overlaying an interior point and eating a segment.
+    if (ids.length === 2) {
+      const a = +ids[0], b = +ids[1];
+      if (state.points[a] && state.points[b] && !pointsCoincident(a, b)) {
+        mergePoints(b, a);
+        invalidateLoops();
+        normalizeSplineLoops(affected);
+        cleanupPoints();
+        ui.selection = [{ kind: 'point', id: a }];
+        toast('Points joined');
+        requestSolve();
+        commit();
+        return;
+      }
+    }
     let merged = 0;
     // Index the selected points by rounded position (cell 1e-6 mm — the same
     // scale as pointsTouching) and, walking ids in the old ascending order,
@@ -23103,6 +23470,32 @@ function cmdSplitCurve() {
     // the gesture is over: the solve below is allowed again
     dragSolveSuppressed = false;
     cancelDragAutoSolve();
+    ui._dragLift = false;
+    // Line draft on touch: the pending point locks on its first release, and the
+    // second-and-later release commits a segment (tap = at the tapped spot,
+    // drag = at the lifted tip).
+    if (ev.pointerType === 'touch' && ui.tool === 'line' &&
+      ui.draft && ui.draft.type === 'line') {
+      const pos = pointerPos(ev);
+      const pp = ui._touchPress;
+      const moved = !!(pp && Math.hypot(pos.x - pp.x, pos.y - pp.y) > 8);
+      const realWorld = s2w(pos.x, pos.y);
+      const endW = moved ? (touchLiftWorld(realWorld, pos, true) || realWorld) : realWorld;
+      const snap = snapFor('line', endW);
+      const end = { x: snap.x, y: snap.y, id: snap.id, midId: snap.midId, lineId: snap.lineId, weld: snap.weld };
+      if (ui._linePressHadDraft) {
+        lineCommitToEnd(end);
+      } else if (ui.draft.a == null) {
+        // position the first point
+        ui.draft.a = end;
+      }
+      ui._linePressHadDraft = false;
+      ui._touching = false;
+      ui._touchPress = null;
+      render();
+      return;
+    }
+    if (ev.pointerType === 'touch') { ui._touching = false; ui._touchPress = null; }
     if (ui.tool === 'curve' && ui.draft && ui.draft.drag) {
       ui.draft.drag = null;
       render();
@@ -23175,7 +23568,11 @@ function cmdSplitCurve() {
       // dimension is ON — that is the whole point of the setting. This path used
       // to add it unconditionally, so dragging a point with auto dimension off
       // still produced "Coincident constraint added".
-      if (settings.autoDimension !== 'off' &&
+      const weldTarget = (d.moved && d.kind === 'entity' && d.primary != null &&
+        d.snap && d.snap.id != null && d.snap.weld && +d.snap.id !== +d.primary &&
+        state.points[d.primary] && state.points[d.snap.id])
+        ? +d.snap.id : null;
+      if (settings.autoDimension !== 'off' && !weldTarget &&
         d.moved && d.primary != null && d.snap && d.snap.id != null &&
         state.points[d.primary] && state.points[d.snap.id]) {
         if (!constraintExists(c => c.type === 'coincident' &&
@@ -23188,6 +23585,14 @@ function cmdSplitCurve() {
       if (d.moved && (d.kind === 'point' || d.kind === 'entity' || d.kind === 'radius')) {
         solveRelease(d);
         invalidateLoops();
+        updateUI();
+      }
+      // A drop onto the snap-crosshair target WELDS: merge the dragged point
+      // into the target so both become one shared point.
+      if (weldTarget) {
+        weldPoints([[d.primary, weldTarget]], { checkDist: false });
+        invalidateLoops();
+        ui.selection = ui.selection.filter(s => !(s.kind === 'point' && +s.id === +d.primary));
         updateUI();
       }
       if (!ui.drag.moved) {
@@ -25173,6 +25578,7 @@ function cmdSplitCurve() {
       used[s] = true;
       const seed = open[s];
       const group = seed.group;
+      let wmax = seed.sortWeight || 0;
       let pts = seed.pts.slice();
       // grow at the tail
       for (let guard = 0; guard < N + 2; guard++) {
@@ -25181,6 +25587,7 @@ function cmdSplitCurve() {
         const hit = findNext(key(tail), group);
         if (!hit) break;
         used[hit.i] = true;
+        wmax = Math.max(wmax, open[hit.i].sortWeight || 0);
         const add = oriented(open[hit.i], hit.end);
         for (let k = 1; k < add.length; k++) pts.push(add[k]);
       }
@@ -25191,6 +25598,7 @@ function cmdSplitCurve() {
         const hit = findNext(key(head), group);
         if (!hit) break;
         used[hit.i] = true;
+        wmax = Math.max(wmax, open[hit.i].sortWeight || 0);
         // add ends at the matching point; the rest prepends far-end first.
         // (The old .reverse() here flipped the segment and made the chain jump
         // across the shape — raw sends disagreed with the baked contours.)
@@ -25199,7 +25607,7 @@ function cmdSplitCurve() {
         pts = prep.concat(pts);
       }
       const closed = pts.length > 2 && key(pts[0]) === key(pts[pts.length - 1]);
-      out.push({ color: seed.color, fill: seed.fill, pts, closed });
+      out.push({ color: seed.color, fill: seed.fill, pts, closed, sortWeight: wmax });
     }
     return out;
   }
@@ -25329,7 +25737,7 @@ function cmdSplitCurve() {
             }
             const col = cncColorStroke(shape.color);
             const fl = (shape.fill === 'gray' || shape.fill === 'yellow') ? shape.fill : fill;
-            list.push({ color: col, fill: fl, group: col + '|' + fl, pts, closed: shape.closed });
+            list.push({ color: col, fill: fl, group: col + '|' + fl, pts, closed: shape.closed, sortWeight: e.sortWeight || 0 });
             any = true;
           }
         }
@@ -25338,7 +25746,7 @@ function cmdSplitCurve() {
             const pts = cncCleanPts(loop.pts.map(p => [p.x, p.y]));
             if (pts.length < (loop.closed ? 3 : 2)) continue;
             if (loop.closed) pts.push([pts[0][0], pts[0][1]]);
-            list.push({ color, fill, group: color + '|' + fill, pts, closed: loop.closed });
+            list.push({ color, fill, group: color + '|' + fill, pts, closed: loop.closed, sortWeight: e.sortWeight || 0 });
             any = true;
           }
         }
@@ -25361,7 +25769,7 @@ function cmdSplitCurve() {
           } else if (pts.length < 2) {
             continue;
           }
-          list.push({ color, fill, group: color + '|' + fill, pts, closed: outline.closed });
+          list.push({ color, fill, group: color + '|' + fill, pts, closed: outline.closed, sortWeight: e.sortWeight || 0 });
           any = true;
         }
         if (!any) cnc.skippedText++;
@@ -25394,7 +25802,7 @@ function cmdSplitCurve() {
             }
             const color = cncColorStroke(sh.color || colorOf(e));
             const fill = sh.fill || baseFill;
-            list.push({ color, fill, group: color + '|' + fill, pts, closed });
+            list.push({ color, fill, group: color + '|' + fill, pts, closed, sortWeight: e.sortWeight || 0 });
           }
         }
         continue;
@@ -25429,7 +25837,7 @@ function cmdSplitCurve() {
         if (segSeen.has(key)) continue;
         segSeen.add(key);
       }
-      list.push({ color, fill, group: color + '|' + fill, pts, closed });
+      list.push({ color, fill, group: color + '|' + fill, pts, closed, sortWeight: e.sortWeight || 0 });
     }
     return cncChains(list);
   }
@@ -25505,6 +25913,9 @@ function cmdSplitCurve() {
       const p = { color: it.color, pts: it.pts, closed: !!it.closed, skipJoin: true };
       if (it.fill === 'gray') p.fill = '#808000';
       else if (it.fill === 'yellow') p.fill = '#ffff00';
+      // KaryaCNC adds weight to the sort distance (positive = cut later); the
+      // UI stores -100..100, sent scaled by ×100 to match sortadd's scale.
+      if (it.sortWeight) p.weight = Math.round(it.sortWeight * 100);
       paths.push(p);
       points += it.pts.length;
       for (const q of it.pts) {
@@ -25764,7 +26175,7 @@ function cmdSplitCurve() {
 
   function bindUI() {
     document.querySelectorAll('.tool-btn').forEach(btn => {
-      btn.addEventListener('click', () => setTool(btn.dataset.tool));
+      btn.addEventListener('click', () => toolIconTapped(btn.dataset.tool));
     });
 
     // Collapse / expand the left edit+layers stack. A phone cannot spare two
@@ -26220,7 +26631,7 @@ function cmdSplitCurve() {
     });
     syncModToggles();
 
-    const tfFields = { 'tf-left': 'left', 'tf-top': 'top', 'tf-width': 'width', 'tf-height': 'height' };
+    const tfFields = { 'tf-left': 'left', 'tf-top': 'top', 'tf-width': 'width', 'tf-height': 'height', 'tf-weight': 'weight' };
     for (const id in tfFields) {
       const el = document.getElementById(id);
       if (!el) continue;
@@ -26251,7 +26662,7 @@ function cmdSplitCurve() {
           // Alt+R +20 Tab +20 Enter = move by (+20,+20) without the mouse.
           // change fires on blur, which the blur below triggers.
           ev.preventDefault();
-          const order = ['tf-left', 'tf-top', 'tf-width', 'tf-height'];
+          const order = ['tf-left', 'tf-top', 'tf-width', 'tf-height', 'tf-weight'];
           const at = order.indexOf(id);
           const next = document.getElementById(order[(at + 1) % order.length]);
           el.blur();
@@ -26882,25 +27293,49 @@ function cmdSplitCurve() {
         if (pids.length < 2) continue;
         let closed = !!e.closed && pids.length >= 2;
         let dropped = false;
+        // stored handles may be re-homed below when the duplicated seam node
+        // gets collapsed, so read them up front
+        const hasStoredHs = e.hs && Array.isArray(e.hs.o) && Array.isArray(e.hs.i) &&
+          e.hs.o.length === pids.length && e.hs.i.length === pids.length;
+        const stored = hasStoredHs
+          ? {
+            o: e.hs.o.map(h => (Array.isArray(h) && isFinite(+h[0]) && isFinite(+h[1]) ? { x: +h[0], y: +h[1] }
+              : (h && isFinite(h.x) && isFinite(h.y) ? { x: +h.x, y: +h.y } : null))),
+            i: e.hs.i.map(h => (Array.isArray(h) && isFinite(+h[0]) && isFinite(+h[1]) ? { x: +h[0], y: +h[1] }
+              : (h && isFinite(h.x) && isFinite(h.y) ? { x: +h.x, y: +h.y } : null)))
+          }
+          : null;
         if (!closed && pids.length >= 4) {
           const firstP = points[pids[0]];
           const lastP = points[pids[pids.length - 1]];
           if (pids[0] === pids[pids.length - 1] ||
             (firstP && lastP && Math.hypot(firstP.x - lastP.x, firstP.y - lastP.y) < 1e-6)) {
+            // An exporter may draw a closed shape as an OPEN path that curves
+            // back to its exact start point (a PDF rounded rect does this: the
+            // final corner Bézier lands on node 0 without a `h` operator). The
+            // duplicated seam node must go, but its HANDLES are real curve
+            // data: its in-handle belongs to the closing segment (the wrap
+            // segment node[n-1] -> node[0] reads node[0].i), and its out-handle
+            // leaves the same coordinates as node 0. Re-home them instead of
+            // discarding hs — dropping them here used to replace a rounded
+            // rectangle's corners with autoHandles() loops after a reload.
+            const seam = stored ? { o: stored.o[pids.length - 1], i: stored.i[pids.length - 1] } : null;
+            if (stored && seam) {
+              if (!stored.i[0] && seam.i) stored.i[0] = seam.i;
+              if (!stored.o[0] && seam.o) stored.o[0] = seam.o;
+            }
             pids.pop();
+            if (stored) { stored.o.pop(); stored.i.pop(); }
             closed = true;
             dropped = true;
           }
         }
         const ent = { id, type: 'spline', pts: pids, color: e.color || '#000000', layer: elayer };
         if (closed && pids.length >= 2) ent.closed = true;
-        if (!dropped && e.hs && Array.isArray(e.hs.o) && Array.isArray(e.hs.i) &&
-          e.hs.o.length === pids.length && e.hs.i.length === pids.length) {
-          const handle = h => {
-            if (Array.isArray(h)) return isFinite(+h[0]) && isFinite(+h[1]) ? { x: +h[0], y: +h[1] } : null;
-            return h && isFinite(h.x) && isFinite(h.y) ? { x: +h.x, y: +h.y } : null;
-          };
-          ent.hs = { o: e.hs.o.map(handle), i: e.hs.i.map(handle) };
+        if (stored && stored.o.length === pids.length && stored.i.length === pids.length) {
+          ent.hs = { o: stored.o, i: stored.i };
+        } else if (!dropped) {
+          ent.hs = null;
         }
         entities[id] = ent;
       } else if (e.type === 'part') {
@@ -27094,6 +27529,16 @@ function cmdSplitCurve() {
         entities[id].fitCurve = true;
       }
       if (id > maxId) maxId = id;
+    }
+    // Sort weight (-100..100) survives save+load; absent means 0 (no badge,
+    // no wire field). Kept separate from e.weight, which text uses for font
+    // weight.
+    for (const key in s.entities) {
+      const src = s.entities[key];
+      const ent = entities[+key];
+      if (!src || !ent) continue;
+      const w = +src.sortWeight;
+      if (isFinite(w)) ent.sortWeight = Math.max(-100, Math.min(100, Math.round(w)));
     }
     // names are cosmetic, so they are carried for every entity type at once
     for (const key in entities) {

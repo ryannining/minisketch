@@ -120,6 +120,7 @@ function build(world) {
   const body = [
     slice('arrayShapesOf'),
     slice('arrayEnsureShapes'),
+    slice('arrayReanchorGuide'),
     slice('arrayBuildShapes'),
     slice('arrayInstancePolylines'),
     slice('arrayInstanceOffsets'),
@@ -464,6 +465,44 @@ console.log('\n== a clone is not a simplified master ==');
   const coarse = rdp(closedRing, 2);
   check('a coarse Object detail shreds it further (the hexagon case)',
     coarse.length < 25, coarse.length);
+}
+
+// ---- 9. the grid guide stays glued to the master's top-left ----------
+console.log('\n== the guide stays glued to the master top-left ==');
+{
+  const world = makeWorld();
+  const api = build(world);
+  const artId = makeGroup(world);
+  const arrId = grid1(world, [artId]);
+  const arr = world.state.entities[arrId];
+  // give the array the guide points a real createArrayGuides() would have made:
+  // p0 at the master's top-left (minX, maxY) and pw/ph as the spacing vectors
+  // (the group's world bbox is 0..40 x 0..30, so its top-left is 0,30)
+  const p0 = world.privatePoint(0, 30);
+  const pw = world.privatePoint(100, 30);
+  const ph = world.privatePoint(0, 130);
+  arr.p0 = p0; arr.pw = pw; arr.ph = ph;
+
+  // a geometry change that shifts the master by +10 in both axes — its top-left
+  // moves from (0,30) to (10,40)
+  const art = world.state.entities[artId];
+  art.contours = art.contours.map(loop =>
+    loop.map(([u, v]) => [u + 10 / 50, v + 10 / 50]));
+  art._loops = art._loops.map(loop => ({
+    ...loop,
+    pts: loop.pts.map(p => ({ x: p.x + 10, y: p.y + 10 }))
+  }));
+  api.bumpGeometry();
+  api.arrayInstancePolylines(arr, { dx: 100, dy: 0 });  // triggers arrayEnsureShapes
+
+  check('the guide anchor follows the master top-left',
+    world.P(p0).x === 10 && world.P(p0).y === 40,
+    world.P(p0).x + ',' + world.P(p0).y + ' vs 10,40');
+  check('the spacing vectors are preserved (clones do not move)',
+    world.P(pw).x - world.P(p0).x === 100 &&
+    world.P(ph).y - world.P(p0).y === 100,
+    (world.P(pw).x - world.P(p0).x) + ',' +
+    (world.P(ph).y - world.P(p0).y));
 }
 
 console.log('\n' + (fail ? fail + ' FAILED, ' : 'all ') + pass + ' checks passed');
