@@ -21855,7 +21855,14 @@ function findSelectedCurveSegment() {
     const e = state.entities[key];
     if (!e || e.type !== 'spline' || !Array.isArray(e.pts)) continue;
     const a = e.pts.indexOf(pts[0]), b = e.pts.indexOf(pts[1]);
-    if (a >= 0 && b >= 0 && Math.abs(a - b) === 1) return { host: e, i: Math.min(a, b) };
+    if (a < 0 || b < 0) continue;
+    if (Math.abs(a - b) === 1) return { host: e, i: Math.min(a, b) };
+    // Closed curve: the closing segment runs from the last to the first point.
+    // Those indices are not adjacent (|a-b| = n-1), so the pair above misses
+    // it; the segment is still a real, deletable span.
+    const n = e.pts.length;
+    if (e.closed && ((a === 0 && b === n - 1) || (b === 0 && a === n - 1)))
+      return { host: e, i: n - 1 };
   }
   return null;
 }
@@ -21903,7 +21910,7 @@ function splitCurveSegment(host, i, withLine) {
   let lid = null;
   if (withLine) {
     lid = newId();
-    state.entities[lid] = { id: lid, type: 'line', a: host.pts[i], b: host.pts[i + 1],
+    state.entities[lid] = { id: lid, type: 'line', a: host.pts[i], b: host.pts[(i + 1) % n],
       color, layer: host.layer };
   }
   removeEntity(+host.id);
