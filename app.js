@@ -2400,6 +2400,26 @@
     scheduleViewSave();
   }
 
+  // Inkscape-style "3" = fit the selection (zoom to what is selected).
+  // Uses the same framing math as fitView but off the selection bbox.
+  function fitSelection() {
+    const b = selectionBounds();
+    if (!b) {
+      toast('Select something first');
+      return;
+    }
+    const margin = 58;
+    const w = Math.max(1, b.maxX - b.minX);
+    const h = Math.max(1, b.maxY - b.minY);
+    let zoom = Math.min((W - margin * 2) / w, (H - margin * 2) / h, 12);
+    zoom = clamp(zoom, 0.03, 100);
+    view.zoom = zoom;
+    view.ox = W / 2 - ((b.minX + b.maxX) / 2) * zoom;
+    view.oy = H / 2 - ((b.minY + b.maxY) / 2) * zoom;
+    render();
+    scheduleViewSave();
+  }
+
   function contentBounds() {
     let has = false;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -24379,19 +24399,18 @@ function cmdSplitCurve() {
   // match: key for .tool-btn[data-tool], #qb-*, [data-quick], [data-cmd].
   const KEYMAP = [
     // Select carries no shortcut: Esc / clicking empty space deselects, so no chip.
-    { key: 'L', label: 'Line', match: 'line', kind: 'tool' },
-    { key: 'K', label: 'Curve', match: 'curve', kind: 'tool' },
-    { key: 'Y', label: 'Poly', match: 'poly', kind: 'tool' },
+    { key: 'Shift+B', chip: 'Sh+B', label: 'Line', match: 'line', kind: 'tool' },
+    { key: 'B', label: 'Curve', match: 'curve', kind: 'tool' },
+    { key: '*', label: 'Poly', match: 'poly', kind: 'tool' },
     { key: 'A', label: 'Arc', match: 'arc', kind: 'tool' },
-    { key: 'C', label: 'Circle', match: 'circle', kind: 'tool' },
-    { key: 'B', label: 'Box', match: 'box', kind: 'tool' },
-    { key: 'W', label: 'Text', match: 'text', kind: 'tool' },
+    { key: 'E', label: 'Circle', match: 'circle', kind: 'tool' },
+    { key: 'R', label: 'Box', match: 'box', kind: 'tool' },
+    { key: 'T', label: 'Text', match: 'text', kind: 'tool' },
     { key: 'I', label: 'Trim', match: 'trim', kind: 'tool' },
-    { key: 'E', label: 'Separate', match: 'separate', kind: 'tool' },
-    { key: 'R', label: 'Transform', match: 'qb-transform', kind: 'cmd' },
+    { key: 'Shift+E', chip: 'Sh+E', label: 'Separate', match: 'separate', kind: 'tool' },
+    { key: 'Ctrl+M', chip: 'Ct+M', label: 'Transform', match: 'qb-transform', kind: 'cmd' },
     { key: 'D', label: 'Dimension', match: 'qb-dimension', kind: 'cmd' },
     { key: 'Shift+D', label: 'Measure', match: 'qb-refdim', kind: 'cmd' },
-    { key: 'Shift+E', label: 'Driving ↔ ref', match: '', kind: 'cmd' },
     { key: 'F', label: 'Fillet', match: 'qb-fillet', kind: 'cmd' },
     { key: 'Shift+F', chip: 'Sh+F', label: 'Fit', match: 'qb-fit', kind: 'cmd' },
     { key: 'J', label: 'Join', match: 'qb-join', kind: 'cmd' },
@@ -24404,11 +24423,11 @@ function cmdSplitCurve() {
     { key: 'Q', label: 'Equal', match: 'equal', kind: 'cmd' },
     { key: '.', label: 'Anchor', match: 'anchor', kind: 'cmd' },
     { key: 'M', label: 'Midpoint', match: 'midpoint', kind: 'cmd' },
-    { key: 'T', label: 'Tangent', match: 'tangent', kind: 'cmd' },
+    { key: 'G', label: 'Tangent', match: 'tangent', kind: 'cmd' },
     { key: 'Z', label: 'Clean', match: 'rb-clean', kind: 'cmd' },
     { key: 'N', label: 'Connected', match: 'btn-connected', kind: 'cmd' },
-    { key: 'G', label: 'Grid', match: 'tgl-grid', kind: 'toggle' },
-    { key: 'S', label: 'Snap', match: 'tgl-snap', kind: 'toggle' },
+    { key: '#', label: 'Grid', match: 'tgl-grid', kind: 'toggle' },
+    { key: '%', chip: 'Shift+5', label: 'Snap', match: 'tgl-snap', kind: 'toggle' },
     { key: 'F9', label: 'Solve', match: '', kind: 'cmd' },
     { key: 'Alt+T', label: 'Mate', match: 'rb-mate', kind: 'cmd' },
     { key: 'Alt+Q', label: 'CNC', match: 'qb-cnc', kind: 'cmd' },
@@ -24474,11 +24493,17 @@ function cmdSplitCurve() {
       }
       return;
     }
-    // Plasticity-style pick filter: 1 = points, 2 = lines, 3 = loops. Plain
-    // digits only — with Ctrl/Alt the chord shortcuts keep their meaning.
-    if (!ev.ctrlKey && !ev.metaKey && !ev.altKey && (key === '1' || key === '2' || key === '3')) {
+    // Inkscape-style pick filter: Alt+1 = points, Alt+2 = lines, Alt+3 = loops.
+    // Plain 3 is free now and means fit-selection (handled just below).
+    if (ev.altKey && !ev.ctrlKey && !ev.metaKey && (key === '1' || key === '2' || key === '3')) {
       ev.preventDefault();
       setPickFilter({ '1': 'point', '2': 'line', '3': 'loop' }[key], !pickFilter[{ '1': 'point', '2': 'line', '3': 'loop' }[key]]);
+      return;
+    }
+    // Plain 3 = fit the selection (Inkscape-style zoom to selection).
+    if (!ev.ctrlKey && !ev.metaKey && !ev.altKey && key === '3') {
+      ev.preventDefault();
+      fitSelection();
       return;
     }
     // Ctrl+T opens a browser tab and the page cannot stop it (like Ctrl+N):
@@ -24507,7 +24532,8 @@ function cmdSplitCurve() {
     }
     if ((ev.ctrlKey || ev.metaKey) && lower === 'm') {
       ev.preventDefault();
-      startMoveJob();
+      if (ev.shiftKey) startMoveJob();
+      else enterTransformMode();
       return;
     }
     if (key === ' ') {
@@ -24535,6 +24561,11 @@ function cmdSplitCurve() {
         ev.preventDefault();
         exitTransformMode();
       }
+      return;
+    }
+    if (key === 'F3') {
+      ev.preventDefault();
+      cmdSelectJunctionPoints();
       return;
     }
     if (key === 'F9') {
@@ -24776,13 +24807,13 @@ function cmdSplitCurve() {
       fitView();
       return;
     }
-    // P0-1: Shift+E toggles driving <-> reference on the selected dimension.
-    // Plain E is the Separate tool only — overloading one letter for two jobs
-    // (tool vs constraint toggle) was invisible in the UI.
-    if (ev.shiftKey && lower === 'e') {
+    // P0-1: Shift+D is now contextual — a selected dimension badge toggles
+    // driving <-> reference; otherwise it adds a Measure (reference dimension).
+    // The old Shift+E toggle moved here. Plain E is the Circle tool now (Shift+E
+    // is Separate), so there is no room for a separate letter toggle.
+    if (ev.shiftKey && lower === 'd') {
       const dims = selectedConstraintIds().filter(cid => isDimensionConstraint(state.constraints[cid]));
       if (dims.length) toggleDimensionReference(dims[0]);
-      else toast('Select a dimension first, then Shift+E toggles driving ↔ reference');
       return;
     }
     // P0-1: Shift+Z opens the shortcut panel. Plain Z is Clean only — the old
@@ -24793,17 +24824,34 @@ function cmdSplitCurve() {
       return;
     }
     switch (lower) {
-      case 'l': cmdLineFromPoints(); break;
       case 'a': setTool('arc'); break;
-      case 'c': setTool('circle'); break;
-      case 'b': setTool('box'); break;
-      case 'z': cmdCleanSelection(); break;
+      case 'b':
+        // Shift+B = line (the old L); plain B = curve/pen (old K)
+        if (ev.shiftKey) cmdLineFromPoints();
+        else setTool('curve');
+        break;
+      case 'e':
+        // Shift+E = separate; plain E = circle (old C)
+        if (ev.shiftKey) setTool('separate');
+        else setTool('circle');
+        break;
+      case 'r': setTool('box'); break;            // R = box (old B)
+      case 't': setTool('text'); break;           // T = text (old W)
+      case 'g': cmdTangent(); break;              // G = tangent (old T; grid moved to #)
+      case '*': setTool('poly'); break;           // * = poly/star (old Y)
+      case '#':                                    // # = grid (old G)
+        ui.showGrid = !ui.showGrid;
+        syncViewToggles();
+        render();
+        break;
+      case '%':                                    // % (Shift+5) = snap (old S)
+      case 's':                                    // S kept as a snap alias
+        ui.snap = !ui.snap;
+        syncViewToggles();
+        break;
       case 'i': setTool('trim'); break;
-      case 't': cmdTangent(); break;
-      case 'e': setTool('separate'); break;
-      case 'k': setTool('curve'); break;
-      case 'y': setTool('poly'); break;
       case 'n': cmdSelectConnected(); break;
+      case 'z': cmdCleanSelection(); break;
       case 'j': cmdJoinPoints(); break;
       case 'o': cmdCoincident(); break;
       case 'h': cmdLineAxis('horizontal'); break;
@@ -24811,21 +24859,15 @@ function cmdSplitCurve() {
       case 'p': cmdLinePair('parallel'); break;
       case '[': cmdLinePair('perpendicular'); break;
       case 'q': cmdLinePair('equal'); break;
-      case 'r': enterTransformMode(); break;
       case '.': cmdAnchor(); break;
       case 'm': cmdMidpoint(); break;
-      case 'd': createDimension({ reference: ev.shiftKey }); break;
+      case 'd': {
+        // D = driving dimension; Shift+D (with no dimension selected) = Measure.
+        // The badge-toggle case is handled earlier in this keydown.
+        createDimension({ reference: ev.shiftKey });
+        break;
+      }
       case 'f': cmdFillet(); break;
-      case 'w': setTool('text'); break;
-      case 'g':
-        ui.showGrid = !ui.showGrid;
-        syncViewToggles();
-        render();
-        break;
-      case 's':
-        ui.snap = !ui.snap;
-        syncViewToggles();
-        break;
       default: break;
     }
   }
