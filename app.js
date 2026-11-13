@@ -3701,11 +3701,9 @@
           const e1 = state.entities[c.line1];
           const e2 = state.entities[c.line2];
           if (!e1 || !e2 || e1.type !== 'line' || e2.type !== 'line') continue;
-          const a1 = GP(e1.a), b1 = GP(e1.b);
-          const a2 = GP(e2.a), b2 = GP(e2.b);
-          const ang1 = Math.atan2(b1.y - a1.y, b1.x - a1.x);
-          const ang2 = Math.atan2(b2.y - a2.y, b2.x - a2.x);
-          const deg = wrapPi(ang2 - ang1) * 180 / Math.PI;
+          const g = angleRays(GP(e1.a), GP(e1.b), GP(e2.a), GP(e2.b));
+          if (!g) continue;
+          const deg = g.delta * 180 / Math.PI;
           out.push(wrapDeg(deg - c.value) * 2);
         } else if (c.type === 'fix') {
           if (!state.points[c.p]) continue;
@@ -4643,11 +4641,8 @@
   }
 
   function measureAngleDeg(e1, e2) {
-    const d1 = dirOf(e1);
-    const d2 = dirOf(e2);
-    const a1 = Math.atan2(d1.y, d1.x);
-    const a2 = Math.atan2(d2.y, d2.x);
-    return wrapPi(a2 - a1) * 180 / Math.PI;
+    const g = angleRays(P(e1.a), P(e1.b), P(e2.a), P(e2.b));
+    return g ? g.delta * 180 / Math.PI : 0;
   }
 
   function isDimensionConstraint(c) {
@@ -18257,24 +18252,41 @@
     return g ? { nx: g.nx, ny: g.ny } : null;
   }
 
+  // The angle a dimension arc spans: from the vertex to each line's far
+  // endpoint — the ray the visible segment actually occupies. The raw a→b
+  // direction can point *into* the vertex; using it put the arc on the wrong
+  // side of the lines and made it rotate backwards when a line was dragged
+  // (the visible ray is the negative of a→b).
+  function angleRays(a, b, c, d) {
+    if (!a || !b || !c || !d) return null;
+    const r = { x: b.x - a.x, y: b.y - a.y };
+    const s = { x: d.x - c.x, y: d.y - c.y };
+    if (Math.hypot(r.x, r.y) < 1e-9 || Math.hypot(s.x, s.y) < 1e-9) return null;
+    const denom = r.x * s.y - r.y * s.x;
+    if (Math.abs(denom) < 1e-9) {
+      // Parallel: no vertex, fall back to the a→b directions as before.
+      const a1 = Math.atan2(r.y, r.x);
+      const a2 = Math.atan2(s.y, s.x);
+      return { v: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, a1, a2, delta: wrapPi(a2 - a1) };
+    }
+    const t = ((c.x - a.x) * s.y - (c.y - a.y) * s.x) / denom;
+    const v = { x: a.x + r.x * t, y: a.y + r.y * t };
+    const ray = (p, q) => (Math.hypot(q.x - v.x, q.y - v.y) >= Math.hypot(p.x - v.x, p.y - v.y)
+      ? Math.atan2(q.y - v.y, q.x - v.x)
+      : Math.atan2(p.y - v.y, p.x - v.x));
+    const a1 = ray(a, b);
+    const a2 = ray(c, d);
+    return { v, a1, a2, delta: wrapPi(a2 - a1) };
+  }
+
   function angleGeom(c) {
     const e1 = state.entities[c.line1];
     const e2 = state.entities[c.line2];
     if (!e1 || !e2 || e1.type !== 'line' || e2.type !== 'line') return null;
-    const d1 = dirOf(e1);
-    const d2 = dirOf(e2);
-    if (d1.len < 1e-9 || d2.len < 1e-9) return null;
-    let v = lineIntersectionPoint(e1, e2);
-    if (!v) {
-      const a = P(e1.a), b = P(e1.b);
-      if (!a || !b) return null;
-      v = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-    }
-    const a1 = Math.atan2(d1.y, d1.x);
-    const a2 = Math.atan2(d2.y, d2.x);
-    const delta = wrapPi(a2 - a1);
+    const g = angleRays(P(e1.a), P(e1.b), P(e2.a), P(e2.b));
+    if (!g) return null;
     const radius = c.radius == null ? 46 : c.radius;
-    return { v, a1, a2, delta, radius };
+    return { v: g.v, a1: g.a1, a2: g.a2, delta: g.delta, radius };
   }
 
   function drawArrow(sx, sy, angle, size) {
@@ -18516,12 +18528,15 @@
     const color = dimToneColor(c, isSel);
     ctx.strokeStyle = color;
     ctx.lineWidth = 1;
+    // The world is Y-down (w2s does not flip), so a world angle IS the canvas
+    // angle: positive delta sweeps visually clockwise. Negating the angles was
+    // a Y-up leftover that mirrored the arc across the vertex.
     ctx.beginPath();
-    ctx.arc(vs.x, vs.y, Math.max(8, rs), -g.a1, -(g.a1 + g.delta), g.delta > 0);
+    ctx.arc(vs.x, vs.y, Math.max(8, rs), g.a1, g.a1 + g.delta, g.delta < 0);
     ctx.stroke();
 
-    const dir1 = { x: Math.cos(g.a1), y: -Math.sin(g.a1) };
-    const dir2 = { x: Math.cos(g.a1 + g.delta), y: -Math.sin(g.a1 + g.delta) };
+    const dir1 = { x: Math.cos(g.a1), y: Math.sin(g.a1) };
+    const dir2 = { x: Math.cos(g.a1 + g.delta), y: Math.sin(g.a1 + g.delta) };
     ctx.beginPath();
     ctx.moveTo(vs.x + dir1.x * (rs - 7), vs.y + dir1.y * (rs - 7));
     ctx.lineTo(vs.x + dir1.x * (rs + 6), vs.y + dir1.y * (rs + 6));
@@ -24571,6 +24586,21 @@ function cmdSplitCurve() {
 
   let pendingImportMode = 'replace';
 
+  // Collapse / expand the left edit+layers stack (#stage-left). Defined here
+  // at module scope so both the tab button (bindUI) and the Tab key
+  // (onKeyDown) can call it; state persists across reloads.
+  function toggleStageLeft() {
+    const wrap = document.getElementById('stage-left');
+    const tab = document.getElementById('stage-left-tab');
+    if (!wrap || !tab) return;
+    const KEY = 'minisketch.stageLeftCollapsed';
+    const collapsed = !wrap.classList.contains('collapsed');
+    wrap.classList.toggle('collapsed', collapsed);
+    tab.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    try { localStorage.setItem(KEY, collapsed ? '1' : '0'); } catch (err) { /* ignore */ }
+    resize();
+  }
+
   function onKeyDown(ev) {
     const key = ev.key;
     const lower = key.toLowerCase();
@@ -24689,6 +24719,20 @@ function cmdSplitCurve() {
     if (key === ';' || key === ':') {
       ev.preventDefault();
       createNote();
+      return;
+    }
+    // Plain Tab (no Ctrl/Shift/Alt) toggles the whole LEFT panel — the edit
+    // grid + the Layers card, i.e. the #stage-left stack. It reuses the same
+    // toggle as the slim tab button so state stays in sync and persists. When
+    // a modal is open Tab cycles its fields instead, so never steal it there.
+    // Field focus (INPUT/TEXTAREA/SELECT) is already excluded by the guard at
+    // the top of this handler. Shift+Tab keeps the browser's native backward-
+    // focus navigation.
+    if (key === 'Tab' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey) {
+      if (!activeModal()) {
+        ev.preventDefault();
+        toggleStageLeft();
+      }
       return;
     }
     if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown') {
@@ -26540,24 +26584,18 @@ function cmdSplitCurve() {
 
     // Collapse / expand the left edit+layers stack. A phone cannot spare two
     // cards' worth of canvas, so one slim tab hides them; the choice sticks.
+    // toggleStageLeft() (defined at module scope) is shared: the tab button
+    // and the Tab key both call it.
     (function bindStageLeftTab() {
       const wrap = document.getElementById('stage-left');
       const tab = document.getElementById('stage-left-tab');
       if (!wrap || !tab) return;
       const KEY = 'minisketch.stageLeftCollapsed';
-      const apply = (collapsed) => {
-        wrap.classList.toggle('collapsed', collapsed);
-        tab.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-      };
       let collapsed = false;
       try { collapsed = localStorage.getItem(KEY) === '1'; } catch (err) { /* no storage */ }
-      apply(collapsed);
-      tab.addEventListener('click', () => {
-        collapsed = !wrap.classList.contains('collapsed');
-        apply(collapsed);
-        try { localStorage.setItem(KEY, collapsed ? '1' : '0'); } catch (err) { /* ignore */ }
-        resize();
-      });
+      wrap.classList.toggle('collapsed', collapsed);
+      tab.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      tab.addEventListener('click', toggleStageLeft);
     })();
 
     // Collapse / expand the right-hand sidebar panels one-by-one, the same way
