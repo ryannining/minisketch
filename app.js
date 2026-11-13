@@ -22045,10 +22045,12 @@ function cmdSplitCurve() {
         const ids = [];
         for (const st of strokes) {
           if (!st.pts || st.pts.length < 2) continue;
+          // A spline's pts are POINT IDS into state.points, not coordinates.
+          const pts = st.pts.map(p => privatePoint(p.x, p.y));
           const nid = newId();
           state.entities[nid] = {
-            id: nid, type: 'spline', pts: st.pts,
-            hs: { o: st.pts.map(() => null), i: st.pts.map(() => null) },
+            id: nid, type: 'spline', pts,
+            hs: { o: pts.map(() => null), i: pts.map(() => null) },
             closed: false, color: colorOf(e), layer: e.layer
           };
           ids.push(nid);
