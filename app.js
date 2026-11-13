@@ -21998,7 +21998,11 @@ function cmdSplitCurve() {
       // A text or picture marked "fit curves" becomes real Bezier splines
       // instead of a line per contour segment. A grouped object that still
       // carries its own curve data ignores the flag: that is already a curve.
-      if ((e.type === 'text' || e.type === 'art') && e.fitCurve && !artCurveSource(e)) {
+      // Single-line fonts (Hershey) are stroke geometry and must never take
+      // this closed-loop path — they fall through to the dedicated open-stroke
+      // branch below.
+      if ((e.type === 'text' || e.type === 'art') && e.fitCurve && !artCurveSource(e) &&
+        !(e.type === 'text' && isSingleLineFont(e))) {
         const loops = framedLoopsWorld(e);
         const tol = framedFitTol(e);
         const ids = [];
