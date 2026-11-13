@@ -16647,6 +16647,27 @@
   function saveTextHeight(v) {
     try { localStorage.setItem(TEXT_HEIGHT_KEY, String(v)); } catch (err) {}
   }
+  // Remembered text style (font + weight/italic/tracking): a NEW text opens
+  // with the last-used styling instead of the hardcoded default, so the font
+  // you picked stays picked across sessions.
+  const TEXT_STYLE_KEY = 'minisketch.textStyle.v1';
+  function loadTextStyle() {
+    try {
+      const s = JSON.parse(localStorage.getItem(TEXT_STYLE_KEY) || 'null');
+      if (s && typeof s === 'object') return s;
+    } catch (err) {}
+    return { font: TEXT_DEFAULT_FONT, weight: 400, italic: false, tracking: 0 };
+  }
+  function saveTextStyle(s) {
+    try {
+      localStorage.setItem(TEXT_STYLE_KEY, JSON.stringify({
+        font: (s.font && typeof s.font === 'string') ? s.font : TEXT_DEFAULT_FONT,
+        weight: isFinite(+s.weight) ? +s.weight : 400,
+        italic: !!s.italic,
+        tracking: isFinite(+s.tracking) ? clamp(+s.tracking, -30, 60) : 0
+      }));
+    } catch (err) {}
+  }
   // The driven dimension on the vertical guide (p0 -> ph). Replaces the
   // previous p0-ph distance so re-applying a height never stacks dimensions.
   function applyTextHeightDimension(e, hMm) {
@@ -16847,6 +16868,8 @@
     e.tracking = tracking;
     e.leading = leading;
     e.align = alignEl && ['left', 'center', 'right'].includes(alignEl.value) ? alignEl.value : 'left';
+    // Remember the font/style so a new text opens with the same look.
+    saveTextStyle({ font: family, weight: e.weight, italic: e.italic, tracking });
     const tolEl = document.getElementById('text-tol');
     if (tolEl) {
       const t = parseFloat(tolEl.value);
@@ -21382,9 +21405,10 @@
         id: cHdim, type: 'distance', p1: p0, p2: phId, value: thH, offset: 26
       };
       const id = newId();
+      const def = loadTextStyle();
       state.entities[id] = {
         id, type: 'text', p0, pw: pwId, ph: phId, guide: [idW, idH],
-        text: 'Text', font: TEXT_DEFAULT_FONT, weight: 400, italic: false, tracking: 0,
+        text: 'Text', font: def.font, weight: def.weight, italic: def.italic, tracking: def.tracking,
         color: ui.color, fitCurve: loadTextFit()
       };
       ensureTextAspect(state.entities[id]);
