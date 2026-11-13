@@ -6719,7 +6719,7 @@
         toast('Measure added');
         return;
       }
-      const input = prompt('Radius (enter "rx, ry" for an ellipse)', fmt(e.r));
+      const input = prompt('Diameter (enter "rx, ry" radii for an ellipse)', fmt(e.r * 2));
       if (input == null) return;
       const pair = parsePairInput(input);
       if (pair) {
@@ -6750,7 +6750,7 @@
         toast('Enter a positive number or formula');
         return;
       }
-      const c = { type: 'radius', entity: e.id, value };
+      const c = { type: 'radius', entity: e.id, value: value / 2 };
       addConstraint(c, { solve: false });
       selectOnly('constraint', c.id);
       requestSolve();
@@ -24271,10 +24271,13 @@ function cmdSplitCurve() {
       toast('Measure — double-click it to make it driving first');
       return;
     }
+    const ce0 = c.entity != null ? state.entities[c.entity] : null;
+    const isCir = c.type === 'radius' && ce0 && ce0.type === 'circle';
     const label = c.type === 'angle' ? 'Angle in degrees' :
-      (c.type === 'radius' ? 'Radius (or "rx, ry" for an ellipse)' :
-        (c.kind === 'radius' ? 'Radius' : 'Distance'));
-    const input = prompt(label, fmt(c.value));
+      (isCir ? 'Diameter (or "rx, ry" radii for an ellipse)' :
+        (c.type === 'radius' ? 'Radius (or "rx, ry" for an ellipse)' :
+          (c.kind === 'radius' ? 'Radius' : 'Distance')));
+    const input = prompt(label, fmt(isCir ? c.value * 2 : c.value));
     if (input == null) return;
     if (c.type === 'radius') {
       const pair = parsePairInput(input);
@@ -24316,9 +24319,10 @@ function cmdSplitCurve() {
       return;
     }
     // the new value must not fight the other constraints on the same geometry
-    if (!c.reference && constraintBlocked(Object.assign({}, c, { value }), c.id)) return;
+    const finalValue = isCir ? value / 2 : value;
+    if (!c.reference && constraintBlocked(Object.assign({}, c, { value: finalValue }), c.id)) return;
     pushHistory();
-    c.value = value;
+    c.value = finalValue;
     requestSolve();
     commit();
   }
