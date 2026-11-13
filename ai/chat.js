@@ -545,6 +545,67 @@
   }
 
   // ---- offline fallback: Indonesian/English pattern parser, no LLM --------
+  // Usage-question answers ("cara membuat dimensi") — sourced from the current
+  // UI/shortcuts so they never fight the keymap. Kept here (not in help.js) so
+  // the offline chat stays self-contained and free.
+  const USAGE_FAQ = [
+    { keys: ['dimensi', 'dimension', 'ukur', 'measure', 'diameter', 'radial'],
+      id: "Dimensi: pilih dua titik (atau lingkaran), tekan D untuk dimensi penggerak, Shift+D untuk ukur/referensi. Lingkaran menampilkan diameter ⌀; busur tetap R. Pilih badge lalu double-click/Enter untuk mengubah nilainya.",
+      en: "Dimensions: select two points (or a circle), press D for a driving dimension, Shift+D for a measure/reference. Circles read as diameter ⌀; arcs stay R. Double-click / Enter a selected dimension to edit its value." },
+    { keys: ['offset', 'sisih', 'tebal dinding', 'gambar ulang'],
+      id: "Offset (Ctrl+J): pilih loop/objek, lalu Ctrl+J — muncul pratinjau putus-putus; roda mouse mengubah jarak (Shift=0.1, Alt=5), Enter untuk nilai pasti, Esc batal.",
+      en: "Offset (Ctrl+J): select a loop/object, press Ctrl+J — a dashed preview appears; mouse wheel changes the distance (Shift=0.1, Alt=5), Enter for an exact value, Esc cancels." },
+    { keys: ['group', 'grup', 'kelompokkan', 'gabung', 'ungroup', 'bongkar'],
+      id: "Group: pilih beberapa objek lalu Ctrl+G untuk membungkus jadi satu objek; Ctrl+U (atau Ctrl+Shift+G) membongkarnya kembali.",
+      en: "Group: select several objects and press Ctrl+G to wrap them into one object; Ctrl+U (or Ctrl+Shift+G) breaks it back apart." },
+    { keys: ['kurva', 'curve', 'pen', 'pena', 'bezier', 'spline'],
+      id: "Kurva: tekan B (pena kurva) — klik untuk sudut, klik-tahan-geser untuk lengkung, klik node pertama untuk menutup. Shift+B untuk garis lurus.",
+      en: "Curve: press B (curve pen) — click for a corner, click-drag for a smooth bend, click the first node to close. Shift+B for a straight line." },
+    { keys: ['lingkaran', 'circle', 'bulat', 'bundar', 'elips', 'ellipse', 'kotak', 'box', 'persegi', 'rectangle', 'teks', 'text', 'tulisan'],
+      id: "Bentuk dasar: E lingkaran, R kotak, T teks. Pilih alat, klik titik awal, lalu klik lagi untuk menentukan ukurannya.",
+      en: "Basic shapes: E circle, R box, T text. Pick the tool, click a start point, then click again to set the size." },
+    { keys: ['trim', 'potong', 'crossing', 'persimpangan', 'separate', 'pisah'],
+      id: "Trim (I) memotong di persimpangan; Ctrl+klik menyusuri rantai. Separate (Shift+E) membelah tanpa menghapus.",
+      en: "Trim (I) cuts at crossings; Ctrl+click walks the whole chain. Separate (Shift+E) splits without deleting." },
+    { keys: ['snap', 'menempel', 'grid', 'kisi'],
+      id: "Snap: Shift+5 (%) menghidupkan/mematikan snap; # untuk grid. Alt membalik snap sementara.",
+      en: "Snap: Shift+5 (%) toggles snapping; # toggles the grid. Alt temporarily inverts the snap." },
+    { keys: ['navigasi', 'geser', 'pan', 'zoom', 'perbesar', 'fit', 'memaskan', 'lihat'],
+      id: "Navigasi: roda = geser vertikal, Shift+roda = horizontal, Ctrl+roda = zoom. Drag tengah/kanan = pan. 3 = fit ke seleksi, Shift+F = fit ke seluruh gambar.",
+      en: "Navigation: wheel pans vertically, Shift+wheel horizontally, Ctrl+wheel zooms. Middle/right drag pans. 3 fits the selection, Shift+F fits the whole drawing." },
+    { keys: ['node', 'simpul', 'edit titik', 'ubah bentuk', 'handle', 'lancip', 'halus'],
+      id: "Edit node: F2 masuk mode node — titik objek terpilih muncul dan bisa digeser; seret handle untuk melengkungkan, \\ untuk lancip/halus. F1 kembali ke mode pilih/geser, F3 memilih titik junction (dilalui >3 garis).",
+      en: "Node editing: F2 enters node mode — the selected object's points appear and are draggable; drag a handle to bend, \\ to make sharp/smooth. F1 returns to select/move, F3 selects junction points (used by >3 lines)." },
+    { keys: ['layer', 'lapisan', 'aktif'],
+      id: "Panel Layers: klik baris layer untuk menjadikannya aktif; tombol ⇥ memindahkan seleksi ke layer itu. Titik/label hanya tampil di layer aktif.",
+      en: "Layers panel: click a layer row to make it active; the ⇥ button moves the selection to that layer. Points/labels appear only on the active layer." },
+    { keys: ['import', 'impor', 'buka', 'open', 'simpan', 'save', 'ekspor', 'export', 'svg', 'dxf', 'pdf', 'cdr'],
+      id: "File menu: Ctrl+O buka (mengganti), Ctrl+I impor (menggabung), Ctrl+S simpan ke browser, Ctrl+Shift+S unduh .sketch, Ctrl+E ekspor SVG. Mendukung SVG/PDF/DXF/CDR.",
+      en: "File menu: Ctrl+O open (replaces), Ctrl+I import (merges), Ctrl+S save to browser, Ctrl+Shift+S download .sketch, Ctrl+E export SVG. Supports SVG/PDF/DXF/CDR." },
+    { keys: ['kirim', 'send', 'cnc', 'karya', 'mesin', 'laser'],
+      id: "Kirim ke KaryaCNC: Alt+Q langsung kirim dengan pengaturan terakhir; menu Tool → Send to KaryaCNC membuka dialog (host/port/ruang lingkup).",
+      en: "Send to KaryaCNC: Alt+Q sends immediately with the last settings; Tool → Send to KaryaCNC opens the dialog (host/port/scope)." },
+    { keys: ['undo', 'batal', 'redo', 'ulangi', 'copy', 'salin', 'paste', 'tempel', 'duplicate', 'duplikat'],
+      id: "Ctrl+Z batal, Ctrl+Shift+Z ulangi; Ctrl+C/V salin/tempel; Ctrl+D duplikat di tempat.",
+      en: "Ctrl+Z undo, Ctrl+Shift+Z redo; Ctrl+C/V copy/paste; Ctrl+D duplicate in place." },
+    { keys: ['transform', 'putar', 'rotasi', 'skala', 'geser', 'move', 'pindah'],
+      id: "Transform: pilih objek lalu Ctrl+M untuk mode transform (putar/skala). Ctrl+Shift+M untuk memindahkan tepat (pilih titik referensi lalu tujuan).",
+      en: "Transform: select an object and press Ctrl+M for transform mode (rotate/scale). Ctrl+Shift+M moves precisely (pick a reference point, then the destination)." }
+  ];
+  function answerUsage(text) {
+    const t = ' ' + String(text == null ? '' : text).toLowerCase().trim() + ' ';
+    const isQuestion = /\b(cara|bagaimana|gimana|how|apa|what|tolong|bantu|help)\b/.test(t);
+    if (!isQuestion) return null;
+    let best = null, bestScore = 0;
+    for (const f of USAGE_FAQ) {
+      let s = 0;
+      for (const k of f.keys) if (t.includes(k)) s++;
+      if (s > bestScore) { best = f; bestScore = s; }
+    }
+    if (!best || bestScore === 0) return null;
+    const indo = /\b(cara|bagaimana|gimana|apa|tolong|bantu)\b/.test(t);
+    return indo ? best.id : best.en;
+  }
   function parseLocal(text) {
     const t = ' ' + String(text || '').toLowerCase().trim() + ' ';
     const num = (re) => { const m = t.match(re); return m ? +m[1] : null; };
@@ -618,6 +679,9 @@
         }
       }
     }
+    // Not a drawing command — try the offline usage-question answer.
+    const usage = answerUsage(text);
+    if (usage) return { ops: [], reply: usage };
     return null;
   }
 
