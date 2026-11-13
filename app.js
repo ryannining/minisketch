@@ -16586,12 +16586,12 @@
   // Help keeps its hand-written prose; only the key reference regenerates.
   function renderHelpKeyGrid() {
     const groups = [
-      { title: { en: 'Tools', id: 'Alat' }, keys: ['L', 'K', 'Y', 'A', 'C', 'B', 'W', 'I', 'E', 'R'] },
-      { title: { en: 'Dimensions', id: 'Dimensi' }, keys: ['D', 'Shift+D', 'Shift+E'] },
-      { title: { en: 'Constraints', id: 'Constraint' }, keys: ['T', 'O', 'H', 'V', 'P', '[', 'Q', '.', 'M', 'F', 'J', 'Alt+T'] },
-      { title: { en: 'Edit', id: 'Edit' }, keys: ['Z', 'N', 'Ctrl+J', 'Ctrl+M', 'Ctrl+G', 'Ctrl+U', 'Ctrl+L'] },
+      { title: { en: 'Tools', id: 'Alat' }, keys: ['Shift+B', 'B', '*', 'A', 'E', 'R', 'T', 'I', 'Shift+E', 'Ctrl+M'] },
+      { title: { en: 'Dimensions', id: 'Dimensi' }, keys: ['D', 'Shift+D'] },
+      { title: { en: 'Constraints', id: 'Constraint' }, keys: ['G', 'O', 'H', 'V', 'P', '[', 'Q', '.', 'M', 'F', 'J', '\\', 'Alt+T'] },
+      { title: { en: 'Edit', id: 'Edit' }, keys: ['Z', 'N', 'Ctrl+J', 'Ctrl+Shift+M', 'Ctrl+G', 'Ctrl+U', 'Ctrl+L'] },
       { title: { en: 'Boolean', id: 'Boolean' }, keys: ['Ctrl++', 'Ctrl+-', 'Ctrl+0'] },
-      { title: { en: 'View & solve', id: 'Tampilan' }, keys: ['G', 'S', 'Shift+F', 'F9', '?', 'Shift+Z'] },
+      { title: { en: 'View & solve', id: 'Tampilan' }, keys: ['#', '%', '3', 'F1', 'F2', 'F3', 'Alt+1', 'Alt+2', 'Alt+3', 'Shift+F', 'F9', '?', 'Shift+Z'] },
       { title: { en: 'Machine', id: 'Mesin' }, keys: ['Alt+Q', 'Alt+C'] },
       { title: { en: 'Frame', id: 'Bingkai' }, keys: ['Alt+R'] },
     ];
@@ -24505,6 +24505,13 @@ function cmdSplitCurve() {
     { key: '#', label: 'Grid', match: 'tgl-grid', kind: 'toggle' },
     { key: '%', chip: 'Shift+5', label: 'Snap', match: 'tgl-snap', kind: 'toggle' },
     { key: 'F9', label: 'Solve', match: '', kind: 'cmd' },
+    { key: 'F1', label: 'Select / Move', match: '', kind: 'cmd' },
+    { key: 'F2', label: 'Node edit', match: '', kind: 'cmd' },
+    { key: 'F3', label: 'Junction points', match: '', kind: 'cmd' },
+    { key: '3', label: 'Fit selection', match: '', kind: 'cmd' },
+    { key: 'Alt+1', label: 'Pick: points', match: '', kind: 'cmd' },
+    { key: 'Alt+2', label: 'Pick: lines', match: '', kind: 'cmd' },
+    { key: 'Alt+3', label: 'Pick: loops', match: '', kind: 'cmd' },
     { key: 'Alt+T', label: 'Mate', match: 'rb-mate', kind: 'cmd' },
     { key: 'Alt+Q', label: 'CNC', match: 'qb-cnc', kind: 'cmd' },
     { key: 'Alt+C', label: 'Biaya', match: 'qb-cost', kind: 'cmd' },
