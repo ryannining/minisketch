@@ -20781,6 +20781,9 @@
       }
       ev.preventDefault();
       startPan(pointerPos(ev));
+      // Right-click (no drag) in select mode cycles through the stacked
+      // objects at the spot — see onPointerUp. Right-DRAG stays pan.
+      ui.pan.cycleOnClick = true;
       canvas.setPointerCapture(ev.pointerId);
       return;
     }
@@ -23700,6 +23703,7 @@ function cmdSplitCurve() {
       const p = pointerPos(ev);
       const moved = ui.pan.startX != null &&
         (Math.abs(p.x - ui.pan.startX) > 3 || Math.abs(p.y - ui.pan.startY) > 3);
+      const cycleOnClick = ui.pan.cycleOnClick;
       ui.pan = null;
       // A right press in transform mode panned; if it never moved it was a
       // right CLICK, which still means cancel / exit there.
@@ -23710,6 +23714,12 @@ function cmdSplitCurve() {
           else exitTransformMode();
           return;
         }
+      }
+      // Right-click in select mode (no drag) cycles through the stacked
+      // objects at the spot — the old middle-click role, now on right-click.
+      if (cycleOnClick && !moved) {
+        selectBelow(ev);
+        return;
       }
       updateCanvasCursor();
       scheduleViewSave();
