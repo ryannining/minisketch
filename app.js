@@ -4702,10 +4702,15 @@
     const b = isFinite(base) ? base : 0;
     if (!raw) return NaN;
     // A leading + / - with no left operand means "relative to the current
-    // value": +20 on a field showing 100 edits as 100+20. Without this the
-    // primary() below sees no number and the whole field is NaN.
-    const s = (/^[+-]/.test(raw) && !/^[+-]?[0-9]*\.?[0-9]+(?:[eE][+-]?[0-9]+)?[+\-*/]/.test(raw) && !/^\(/.test(raw))
-      ? String(b) + raw : raw;
+    // value": +20 on a field showing 100 edits as 100+20. But a plain signed
+    // NUMBER (e.g. "-151.449", a reflex angle) must be read literally — the
+    // old rule prepended the base to any leading minus, doubling it. So: a
+    // pure "+N" is relative, a pure "-N" or "N" is literal, and a signed
+    // expression (e.g. "-5+3") keeps the relative treatment.
+    const pure = /^[+-]?[0-9]*\.?[0-9]+(?:[eE][+-]?[0-9]+)?$/.test(raw);
+    const s = pure
+      ? (raw[0] === '+' ? String(b) + raw : raw)
+      : (/^[+-]/.test(raw) && !/^\(/.test(raw) ? String(b) + raw : raw);
     let i = 0;
     function expr() {
       let v = term();
