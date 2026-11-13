@@ -1338,6 +1338,32 @@
       }
     }
   }
+  // F1/F2 modes (Inkscape-style). F1 = select/move: points and lines are not
+  // editable (pick filter locks them) and node markers are hidden. F2 = node
+  // edit: everything selectable, markers show on the selection.
+  function setMode(mode) {
+    if (mode !== 'select' && mode !== 'node') return;
+    ui.mode = mode;
+    if (mode === 'select') {
+      pickFilter.point = false;
+      pickFilter.line = false;
+      pickFilter.loop = true;
+      ui.showPoints = false;
+    } else {
+      pickFilter.point = true;
+      pickFilter.line = true;
+      pickFilter.loop = true;
+      ui.showPoints = true;
+    }
+    savePickFilter();
+    syncPickFilterUI();
+    syncViewToggles();
+    updateUI();
+    scheduleRender();
+    toast(mode === 'select'
+      ? 'F1 · Select/Move — points & lines locked'
+      : 'F2 · Node edit — points & lines editable');
+  }
   let CIRCLE_CHORD = 1.5;
   let OFFSET_MITER = 4;
   let OFFSET_TOL = 0.05;
@@ -1790,6 +1816,9 @@
     selection: [],
     groupSelect: false,
     snap: true,
+    // F1/F2 mode: 'select' (move objects, points/lines locked, no node
+    // markers) vs 'node' (edit points/lines, node markers show on selection).
+    mode: 'node',
     showGrid: true,
     showPoints: true,
     showLoops: true,
@@ -17869,6 +17898,9 @@
   let selEntPointsCacheFor = null;
   const EMPTY_SET = new Set();
   function drawPoints() {
+    // F1 (select/move) hides ALL node markers — not even a selected object
+    // shows its points; that is what F2 is for.
+    if (ui.mode === 'select') return;
     // The Points toggle shows the handles of the whole drawing: a point is drawn
     // when its layer is VISIBLE, whatever layer is active. Grabbing is the
     // narrower rule (pointEditable, active layer only) and is applied at the
@@ -24580,6 +24612,16 @@ function cmdSplitCurve() {
         ev.preventDefault();
         exitTransformMode();
       }
+      return;
+    }
+    if (key === 'F1') {
+      ev.preventDefault();
+      setMode('select');
+      return;
+    }
+    if (key === 'F2') {
+      ev.preventDefault();
+      setMode('node');
       return;
     }
     if (key === 'F3') {
