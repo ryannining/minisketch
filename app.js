@@ -18496,7 +18496,11 @@
     drawArrow(rs.x, rs.y, Math.atan2(rs.y - cs.y, rs.x - cs.x), 6);
     const mx = (cs.x + rs.x) / 2;
     const my = (cs.y + rs.y) / 2;
-    drawLabel('R ' + (c.reference ? '(' + fmt(c.value) + ')' : fmt(c.value)), mx, my - 14, c.id, isSel);
+    // Circles read as diameters (⌀ = 2×r); arcs keep the radius R.
+    const isCircle = e.type === 'circle';
+    const prefix = isCircle ? '⌀ ' : 'R ';
+    const shown = isCircle ? c.value * 2 : c.value;
+    drawLabel(prefix + (c.reference ? '(' + fmt(shown) + ')' : fmt(shown)), mx, my - 14, c.id, isSel);
   }
 
   function drawAngleDim(c, isSel) {
@@ -19688,7 +19692,14 @@
   function constraintName(c) {
     if (!c) return 'Constraint';
     if (c.type === 'distance') return (c.kind === 'radius' ? 'Radius ' : 'Distance ') + fmt(c.value) + (c.reference ? ' (ref)' : '');
-    if (c.type === 'radius') return 'Radius ' + fmt(c.value) + (c.reference ? ' (ref)' : '');
+    if (c.type === 'radius') {
+      // Circles read as diameters in the UI; arcs stay radius.
+      const e = c.entity != null ? state.entities[c.entity] : null;
+      if (e && e.type === 'circle') {
+        return '⌀ ' + fmt(c.value * 2) + (c.reference ? ' (ref)' : '');
+      }
+      return 'Radius ' + fmt(c.value) + (c.reference ? ' (ref)' : '');
+    }
     if (c.type === 'angle') return 'Angle ' + fmt(c.value) + '\u00b0' + (c.reference ? ' (ref)' : '');
     if (c.type === 'pointOn') {
       const e = state.entities[c.entity];
