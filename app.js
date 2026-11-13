@@ -20750,10 +20750,11 @@
       return;
     }
     if (ev.button === 1) {
-      // middle click = the loop below (Alt+click does the same, but many Linux
-      // desktops steal Alt+drag for moving the window)
+      // middle drag = pan (Inkscape-style). Alt+click still selects the loop
+      // below, so the old middle-click role is covered.
       ev.preventDefault();
-      selectBelow(ev);
+      startPan(pointerPos(ev));
+      canvas.setPointerCapture(ev.pointerId);
       return;
     }
     if (ev.button === 2) {
@@ -23819,24 +23820,41 @@ function cmdSplitCurve() {
       return;
     }
     const pos = pointerPos(ev);
-    const w = s2w(pos.x, pos.y);
-    const factor = Math.exp(-ev.deltaY * 0.0015);
-    const next = clamp(view.zoom * factor, 0.03, 100);
-    if (next === view.zoom) return;
-    if (!ui.zoomBlast) {
-      // first wheel tick of a burst: keep the last fully rendered frame; while
-      // the wheel spins it is blitted scaled instead of re-rendering the scene
-      const snap = frameSnapshot();
-      ui.zoomBlast = snap
-        ? { snap: snap, zoom0: view.zoom, ax: pos.x, ay: pos.y }
-        : null;
+    // Ctrl+wheel = zoom about the cursor (Inkscape-style). Plain wheel pans;
+    // Shift+wheel pans horizontally instead of vertically.
+    if (ev.ctrlKey || ev.metaKey) {
+      const w = s2w(pos.x, pos.y);
+      const factor = Math.exp(-ev.deltaY * 0.0015);
+      const next = clamp(view.zoom * factor, 0.03, 100);
+      if (next === view.zoom) return;
+      if (!ui.zoomBlast) {
+        // first wheel tick of a burst: keep the last fully rendered frame; while
+        // the wheel spins it is blitted scaled instead of re-rendering the scene
+        const snap = frameSnapshot();
+        ui.zoomBlast = snap
+          ? { snap: snap, zoom0: view.zoom, ax: pos.x, ay: pos.y }
+          : null;
+      }
+      view.zoom = next;
+      view.ox = pos.x - w.x * view.zoom;
+      view.oy = pos.y - w.y * view.zoom;
+      markZoomFast();
+      scheduleRender();
+      scheduleZoomSettle();
+      scheduleViewSave();
+      return;
     }
-    view.zoom = next;
-    view.ox = pos.x - w.x * view.zoom;
-    view.oy = pos.y - w.y * view.zoom;
-    markZoomFast();
+    const dv = ev.deltaY || 0;
+    const deltaX = ev.deltaX || 0;
+    if (ev.shiftKey) {
+      // shift+wheel pans horizontally
+      view.ox -= (dv || deltaX);
+    } else {
+      // plain wheel pans vertically
+      view.oy -= dv;
+    }
+    ui.lastWorld = s2w(pos.x, pos.y);
     scheduleRender();
-    scheduleZoomSettle();
     scheduleViewSave();
   }
 
