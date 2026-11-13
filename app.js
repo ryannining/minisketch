@@ -2260,9 +2260,10 @@
         if (a && b) {
           setTool('arc');
           ui.draft = {
-            type: 'arc', stage: '3pt',
+            type: 'arc', stage: 2,
             a: { x: a.x, y: a.y, id: pts[0] },
-            b: { x: b.x, y: b.y, id: pts[1] }
+            b: { x: b.x, y: b.y, id: pts[1] },
+            fullCircle: false
           };
           updateUI();
           render();
@@ -2326,6 +2327,21 @@
       d.drag = null;
       if (d.nodes.length) {
         toast('Last node taken back — click to continue, Esc again to cancel');
+        updateUI();
+        render();
+        return;
+      }
+    } else if (d.type === 'arc') {
+      if (d.stage === 2) {
+        d.stage = 1;
+        delete d.b;
+        d.fullCircle = false;
+        toast('Back to the first endpoint — click the second, Esc again to cancel');
+        updateUI();
+        render();
+        return;
+      } else if (d.stage === 1) {
+        cancelDraft();
         updateUI();
         render();
         return;
@@ -3011,12 +3027,12 @@
       if (onGeometry) return onGeometry;
       // A loop centre is the last geometry snap: the midpoint of a line is a
       // more specific feature and wins over it.
-      const loopSnap = snapLoopCentroid(world, tol);
+      const loopSnap = snapLoopCentroid(world, tol, opts.skipLoops);
       if (loopSnap) return loopSnap;
       // The grid is only a drafting aid: no grid on screen, no grid snap.
       if (ui.showGrid) {
         const step = gridStep();
-        return { x: Math.round(world.x / step) * step, y: Math.round(world.y / step) * step };
+        return { x: Math.round(world.x / step) * step, y: Math.round(world.y / step) * step, grid: true };
       }
     }
     return { x: world.x, y: world.y };
@@ -3055,10 +3071,13 @@
     }
     return loopCentroidMap;
   }
-  function snapLoopCentroid(world, tol) {
+  function snapLoopCentroid(world, tol, skipLoops) {
     let best = null;
     let bestD = tol;
-    for (const [, c] of loopCentroids()) {
+    for (const [loop, c] of loopCentroids()) {
+      // A body drag excludes the loops it is dragging (their centres move with
+      // the selection); drafting and single-point drags pass no skip set.
+      if (skipLoops && skipLoops.has(loop)) continue;
       const d = Math.hypot(c.mx - world.x, c.my - world.y);
       if (d < bestD) {
         bestD = d;
@@ -8412,6 +8431,10 @@
         const b = P(e.b);
         if (!a || !b) continue;
         out.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, kind: 'mid' });
+      }
+      // closed-loop centres: a part can land on them too (like drafting)
+      for (const [, c] of loopCentroids()) {
+        out.push({ x: c.mx, y: c.my, kind: 'loop' });
       }
     }
     return out;
@@ -18768,41 +18791,122 @@
         drawSnapMarker(end, snapped && end.snapped !== false);
       }
     } else if (d.type === 'arc') {
-      if (d.stage === 1 && d.c) {
-        const c = d.c.id != null ? P(d.c.id) : d.c;
-        if (c) {
-          const r = Math.max(1e-6, dist(c, end));
-          const cs = w2s(c.x, c.y);
+      const A = d.a ? (d.a.id != null ? P(d.a.id) : d.a) : null;
+      const B = d.b ? (d.b.id != null ? P(d.b.id) : d.b) : null;
+      if (d.stage === 1 && A) {
+        // only the first endpoint is locked — no connecting line yet, a long
+        // rubber-band to the cursor reads as noise before the arc exists
+        const as = w2s(A.x, A.y);
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(as.x, as.y, 4.5, 0, TAU);
+        ctx.fillStyle = '#2563eb';
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+        drawSnapMarker(end, snapped && end.snapped !== false);
+      } else if (d.stage === 2 && A && B) {
+        // both endpoints locked; the through point rides the cursor. The
+        // candidate arc stays valid only while the three points are not
+        // collinear — otherwise a red indicator replaces it.
+        const as = w2s(A.x, A.y);
+        const bs = w2s(B.x, B.y);
+        // the chord is only a guide: thin and light, clearly not geometry
+        ctx.setLineDash([6, 4]);
+        ctx.strokeStyle = 'rgba(37, 99, 235, 0.35)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(as.x, as.y);
+        ctx.lineTo(bs.x, bs.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        for (const p of [as, bs]) {
           ctx.beginPath();
-          ctx.arc(cs.x, cs.y, r * view.zoom, 0, TAU);
+          ctx.arc(p.x, p.y, 3.6, 0, TAU);
+          ctx.fillStyle = '#2563eb';
+          ctx.fill();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1.2;
           ctx.stroke();
-          const rim = w2s(c.x + r, c.y);
-          ctx.setLineDash([]);
-          ctx.beginPath();
-          ctx.moveTo(cs.x, cs.y);
-          ctx.lineTo(rim.x, rim.y);
-          ctx.stroke();
-          drawSnapMarker(end, snapped && end.snapped !== false);
         }
-      } else if (d.stage === 2 && d.c && d.s) {
-        const c = d.c.id != null ? P(d.c.id) : d.c;
-        const sPt = d.s.id != null ? P(d.s.id) : d.s;
-        if (c && sPt) {
-          const r = Math.max(1e-6, dist(c, sPt));
-          let a0 = Math.atan2(sPt.y - c.y, sPt.x - c.x);
-          let a1 = Math.atan2(end.y - c.y, end.x - c.x);
-          if (ui.shiftDown) {
-            const step = Math.PI / 12;
-            a1 = Math.round(a1 / step) * step;
+        const res = threePointArcCenter(A, B, end);
+        const ok = res && dist(res.c, A) >= 1e-7;
+        const ms = w2s(end.x, end.y);
+        if (ok) {
+          const cs = w2s(res.c.x, res.c.y);
+          const r = dist(res.c, A);
+          const Rpx = r * view.zoom;
+          // faint full construction circle: when the through point sits close to
+          // the chord the arc radius explodes and the arc looks almost straight
+          // — the circle makes the intended curvature legible
+          if (Rpx < 50000) {
+            ctx.beginPath();
+            ctx.arc(cs.x, cs.y, Rpx, 0, TAU);
+            ctx.strokeStyle = 'rgba(37, 99, 235, 0.16)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([]);
+            ctx.stroke();
           }
-          const sweep = norm2pi(a1 - a0);
-          const cs = w2s(c.x, c.y);
+          if (d.fullCircle) {
+            // Space: a FULL circle through the three points
+            ctx.beginPath();
+            ctx.arc(cs.x, cs.y, Rpx, 0, TAU);
+            ctx.strokeStyle = '#2563eb';
+            ctx.lineWidth = 1.8;
+            ctx.setLineDash([6, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.font = '600 11px ui-sans-serif, system-ui, sans-serif';
+            ctx.fillStyle = '#2563eb';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText('circle — Space toggles arc', ms.x + 8, ms.y - 6);
+          } else {
+            const sPt = res.start;
+            const ePt = res.end;
+            const a0 = Math.atan2(sPt.y - res.c.y, sPt.x - res.c.x);
+            const a1 = Math.atan2(ePt.y - res.c.y, ePt.x - res.c.x);
+            const sweep = norm2pi(a1 - a0);
+            // the candidate arc — dashed, matching every other draft preview
+            ctx.beginPath();
+            ctx.arc(cs.x, cs.y, Rpx, a0, a0 + sweep, false);
+            ctx.strokeStyle = '#2563eb';
+            ctx.lineWidth = 1.8;
+            ctx.setLineDash([6, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.font = '600 11px ui-sans-serif, system-ui, sans-serif';
+            ctx.fillStyle = '#2563eb';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText('arc — Space toggles circle', ms.x + 8, ms.y - 6);
+          }
           ctx.beginPath();
-          ctx.arc(cs.x, cs.y, r * view.zoom, a0, a0 + sweep, false);
+          ctx.arc(ms.x, ms.y, 3, 0, TAU);
+          ctx.fillStyle = '#2563eb';
+          ctx.fill();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1;
           ctx.stroke();
-          const endPt = w2s(c.x + Math.cos(a0 + sweep) * r, c.y + Math.sin(a0 + sweep) * r);
-          drawSnapMarker(endPt);
+        } else {
+          // collinear / degenerate: no arc is drawn, show the failure instead
+          ctx.save();
+          ctx.strokeStyle = '#dc2626';
+          ctx.lineWidth = 1.8;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.arc(ms.x, ms.y, 8, 0, TAU);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.font = '600 11px ui-sans-serif, system-ui, sans-serif';
+          ctx.fillStyle = '#dc2626';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText('collinear — move the point', ms.x + 10, ms.y - 6);
+          ctx.restore();
         }
+        drawSnapMarker(end, snapped && end.snapped !== false);
       }
     }
 
@@ -18930,6 +19034,28 @@
       ctx.textAlign = 'left';
       ctx.textBaseline = 'bottom';
       ctx.fillText('origin', s.x + 9, s.y - 6);
+      return;
+    }
+    if (p && p.grid) {
+      // grid snap: a small square pin on a ring — distinct from the round
+      // point target and the dashed loop-centre ring.
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, 7, 0, TAU);
+      ctx.fillStyle = 'rgba(37, 99, 235, 0.12)';
+      ctx.fill();
+      ctx.strokeStyle = '#2563eb';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.rect(s.x - 3, s.y - 3, 6, 6);
+      ctx.fillStyle = '#2563eb';
+      ctx.fill();
+      ctx.font = '600 10px ui-sans-serif, system-ui, sans-serif';
+      ctx.fillStyle = '#2563eb';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('grid', s.x + 9, s.y - 6);
       return;
     }
     const kind = p && p.midId != null ? 'midpoint' : (p && p.lineId != null ? 'online' : null);
@@ -20532,35 +20658,45 @@
     }
     if (!grab) grab = { x: world.x, y: world.y };
     const dragSet = new Set(ids);
-    const cache = [];
-    const m = 60 / view.zoom;
-    const x0 = (0 - view.ox) / view.zoom - m;
-    const x1 = (W - view.ox) / view.zoom + m;
-    const y0 = (0 - view.oy) / view.zoom - m;
-    const y1 = (H - view.oy) / view.zoom + m;
-    for (const key in state.points) {
-      const p = state.points[key];
-      const id = +key;
-      if (dragSet.has(id)) continue;
-      if (p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1) continue;
-      cache.push({ x: p.x, y: p.y });
+    // The body drag snaps through the SAME snapPoint machinery a single-point
+    // drag (and drafting) uses, so every point-snap feature applies here too:
+    // existing points, origin, on-line, line midpoints, closed-loop centres,
+    // and grid when it is on. What must be excluded is the selection itself:
+    //   - skip: the dragged points (a group never snaps to its own vertices)
+    //   - skipEntities: lines whose two ends are both dragged (their midpoints
+    //     / on-line positions are part of the moved geometry)
+    //   - skipLoops: loops sharing a vertex with the dragged selection (their
+    //     centroid would move with the drag)
+    // Lines/loops with a dragged vertex but an undragged mate stay valid
+    // targets: a chain dragged by one end can land on its free neighbour.
+    const dragCoords = new Set();
+    for (const pid of ids) {
+      const p = P(pid);
+      if (p) dragCoords.add(Math.round(p.x * 1e6) + ',' + Math.round(p.y * 1e6));
     }
+    const skipLoops = new Set();
+    for (const [loop] of loopCentroids()) {
+      for (const v of loop.poly) {
+        if (dragCoords.has(Math.round(v.x * 1e6) + ',' + Math.round(v.y * 1e6))) {
+          skipLoops.add(loop);
+          break;
+        }
+      }
+    }
+    const skipEntities = new Set();
     for (const id in state.entities) {
       const e = state.entities[id];
       if (e.type !== 'line' || !layerVisible(e)) continue;
-      const a = P(e.a);
-      const b = P(e.b);
-      if (!a || !b) continue;
-      if (!dragSet.has(+e.a) && !dragSet.has(+e.b)) {
-        cache.push({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
-      }
+      if (dragSet.has(+e.a) && dragSet.has(+e.b)) skipEntities.add(+id);
     }
     return {
       kind: 'entity',
       ids,
       clones,
       grab,
-      snapCache: cache,
+      skip: dragSet,
+      skipEntities,
+      skipLoops,
       moved: false,
       startWorld: world
     };
@@ -21229,7 +21365,19 @@
     }
 
     if (ui.tool === 'arc') {
-      if (ui.draft && ui.draft.type === 'arc' && ui.draft.stage === '3pt') {
+      // 3-point arc: click the two endpoints on the arc first, then a point
+      // the arc passes through (the middle point). The arc is created the
+      // moment the third point lands, when it is valid. The third point fully
+      // determines the arc (it passes through it), so there is no direction
+      // choice to make.
+      if (!ui.draft || ui.draft.type !== 'arc') {
+        ui.draft = { type: 'arc', stage: 1, a: snap, fullCircle: false };
+      } else if (ui.draft.stage === 1) {
+        const a = ui.draft.a.id != null ? P(ui.draft.a.id) : ui.draft.a;
+        if (!a) { cancelDraft(); render(); return; }
+        if (dist(a, snap) < 1e-7) { render(); return; }
+        ui.draft = { type: 'arc', stage: 2, a: ui.draft.a, b: snap, fullCircle: false };
+      } else if (ui.draft.stage === 2) {
         const a = ui.draft.a.id != null ? P(ui.draft.a.id) : ui.draft.a;
         const b = ui.draft.b.id != null ? P(ui.draft.b.id) : ui.draft.b;
         if (!a || !b) { cancelDraft(); render(); return; }
@@ -21240,6 +21388,18 @@
           return;
         }
         pushHistory();
+        if (ui.draft.fullCircle) {
+          // Space = full circle through the three points instead of an arc.
+          const cId = materializePoint(res.c);
+          const id = newId();
+          state.entities[id] = { id, type: 'circle', c: cId, r: dist(res.c, a), color: ui.color };
+          ui.draft = null;
+          ui.selection = [{ kind: 'entity', id }];
+          requestSolve();
+          commit();
+          render();
+          return;
+        }
         const cId = materializePoint(res.c);
         const sId = materializePoint(res.start);
         const eId = materializePoint(res.end);
@@ -21252,41 +21412,6 @@
         commit();
         render();
         return;
-      }
-      if (!ui.draft || ui.draft.type !== 'arc') {
-        ui.draft = { type: 'arc', stage: 1, c: snap };
-      } else if (ui.draft.stage === 1) {
-        const c = ui.draft.c.id != null ? P(ui.draft.c.id) : ui.draft.c;
-        if (!c) {
-          cancelDraft();
-          return;
-        }
-        const end = shift ? angleSnap(c, snap) : snap;
-        const r = Math.hypot(end.x - c.x, end.y - c.y);
-        if (r < 1e-7) return;
-        const sPoint = { x: c.x + (end.x - c.x) / r * r, y: c.y + (end.y - c.y) / r * r, id: end.id };
-        ui.draft = { type: 'arc', stage: 2, c: ui.draft.c, s: sPoint };
-      } else if (ui.draft.stage === 2) {
-        const c = ui.draft.c.id != null ? P(ui.draft.c.id) : ui.draft.c;
-        const sPt = ui.draft.s.id != null ? P(ui.draft.s.id) : ui.draft.s;
-        if (!c || !sPt) {
-          cancelDraft();
-          return;
-        }
-        const r = Math.hypot(sPt.x - c.x, sPt.y - c.y);
-        let angle = Math.atan2(snap.y - c.y, snap.x - c.x);
-        if (shift) angle = Math.round(angle / (Math.PI / 12)) * (Math.PI / 12);
-        const a0 = Math.atan2(sPt.y - c.y, sPt.x - c.x);
-        if (Math.abs(wrapPi(angle - a0)) < 1e-7) return;
-        pushHistory();
-        const cId = materializePoint(ui.draft.c);
-        const sId = materializePoint(ui.draft.s);
-        const eId = pointAtWorld(c.x + Math.cos(angle) * r, c.y + Math.sin(angle) * r);
-        const id = newId();
-        state.entities[id] = { id, type: 'arc', c: cId, s: sId, e: eId, color: ui.color };
-        ui.draft = null;
-        requestSolve();
-        commit();
       }
       render();
       return;
@@ -22583,13 +22708,22 @@ function cmdSplitCurve() {
         // and a snap near where the press-time grab vertex WOULD land shifts
         // the whole selection by the small difference.
         if (d.ids.length <= 1 && d.snapPrimary && d.primary != null && d.origPrimary) {
-          // Snap only to a real point (the visible square). Grid / on-line /
-          // midpoint results are ignored so a misleading blue ring never appears
-          // and the snap target is unambiguous.
+          // A single-point drag snaps like drafting: to existing points (the
+          // visible square), to the origin, to line midpoints, anywhere along a
+          // line, to closed-loop centres, and to the grid when it is on. Every
+          // snap lands the dragged point EXACTLY on the target and shows its
+          // marker — drawSnapMarker draws each kind (midpoint / on line / loop
+          // centre / origin / grid / point). Ends, lines and loops always beat
+          // the grid; the grid is the last resort, like in drafting.
           const snap = snapPoint(world, { skip: new Set(d.bodyDrag ? d.ids : [d.primary]) });
-          if (snap.id != null) {
+          const geomSnap = snap && (snap.id != null || snap.origin ||
+            snap.midId != null || snap.lineId != null || snap.virtual || snap.grid);
+          if (geomSnap) {
+            // A snap onto a real point may WELD (same colour) or leave a
+            // coincident constraint on release; geometry snaps never do.
+            const isPoint = snap.id != null;
             const dragColor = dragWeldColor(d.primary);
-            const canWeld = dragColor != null && weldAllowed(snap.id, dragColor);
+            const canWeld = isPoint && dragColor != null && weldAllowed(snap.id, dragColor);
             // Anchor to the snap position (relative to the point's base) so the
             // dragged point lands EXACTLY on the target, not shifted by the grab
             // offset between the press point and the point centre.
@@ -22598,19 +22732,56 @@ function cmdSplitCurve() {
               { x: d.origPrimary.x, y: d.origPrimary.y };
             dx = snap.x - bp.x + (d.offX || 0);
             dy = snap.y - bp.y + (d.offY || 0);
-            d.snap = { x: snap.x, y: snap.y, coincident: true, id: snap.id, weld: canWeld };
+            d.snap = {
+              x: snap.x, y: snap.y,
+              coincident: isPoint,
+              id: isPoint ? snap.id : null,
+              weld: canWeld,
+              origin: snap.origin,
+              midId: snap.midId,
+              lineId: snap.lineId,
+              virtual: snap.virtual,
+              loop: snap.loop,
+              grid: snap.grid
+            };
           } else {
             d.snap = null;
           }
-        } else if (d.grab && d.snapCache) {
+        } else if (d.grab) {
+          // Multi-point body drag (a selected loop, several objects): the same
+          // bounded-snap model as before — the move is always the raw delta,
+          // and a snap near where the press-time grab vertex WOULD land shifts
+          // the whole selection by the small difference. The targets are the
+          // FULL point-snap set via snapPoint (points, origin, on-line, line
+          // midpoints, other loops' centres, grid) minus the dragged geometry
+          // itself (d.skip / d.skipEntities / d.skipLoops).
           const wx = d.grab.x + dx;
           const wy = d.grab.y + dy;
-          const snap = findSnapFor({ x: wx, y: wy }, null, d.snapCache);
-          if (snap && !(Math.abs(snap.x - d.grab.x) < 0.75 &&
+          const snap = snapPoint({ x: wx, y: wy }, {
+            tolPx: 16,   // body drags keep their wider 16-px catch radius
+            skip: d.skip,
+            skipEntities: d.skipEntities,
+            skipLoops: d.skipLoops
+          });
+          const isPoint = snap && snap.id != null;
+          const caught = snap && (isPoint || snap.origin ||
+            snap.midId != null || snap.lineId != null || snap.virtual || snap.grid);
+          if (caught && !(Math.abs(snap.x - d.grab.x) < 0.75 &&
             Math.abs(snap.y - d.grab.y) < 0.75)) {
             dx += snap.x - wx;
             dy += snap.y - wy;
-            d.snap = { x: snap.x, y: snap.y, coincident: false, id: null };
+            d.snap = {
+              x: snap.x, y: snap.y,
+              coincident: isPoint,
+              id: isPoint ? snap.id : null,
+              weld: snap.weld,
+              origin: snap.origin,
+              midId: snap.midId,
+              lineId: snap.lineId,
+              virtual: snap.virtual,
+              loop: snap.loop,
+              grid: snap.grid
+            };
           } else {
             d.snap = null;
           }
@@ -24313,6 +24484,12 @@ function cmdSplitCurve() {
     }
     if (key === ' ') {
       ev.preventDefault();
+      // Space at the arc's third point toggles between an arc and a full
+      // circle through the three points.
+      if (ui.tool === 'arc' && ui.draft && ui.draft.type === 'arc' && ui.draft.stage === 2) {
+        ui.draft.fullCircle = !ui.draft.fullCircle;
+        render();
+      }
       return;
     }
     if (ui.transform.pending) {
