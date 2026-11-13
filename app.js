@@ -1818,7 +1818,8 @@
     snap: true,
     // F1/F2 mode: 'select' (move objects, points/lines locked, no node
     // markers) vs 'node' (edit points/lines, node markers show on selection).
-    mode: 'node',
+    // Default is F1; init() forces it on every reload.
+    mode: 'select',
     showGrid: true,
     showPoints: true,
     showLoops: true,
@@ -29021,6 +29022,14 @@ function cmdSplitCurve() {
     initTheme();
     loadSettings();
     loadPickFilter();
+    // Every open/reload starts in F1 (select/move): points & lines locked and
+    // node markers hidden, regardless of what was persisted. Press F2 for
+    // node edit.
+    ui.mode = 'select';
+    pickFilter.point = false;
+    pickFilter.line = false;
+    pickFilter.loop = true;
+    ui.showPoints = false;
     syncPickFilterUI();
     loadSolveMode();
     cncLoadSettings();
