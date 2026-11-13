@@ -22036,16 +22036,22 @@ function cmdSplitCurve() {
         for (const nid of ids) created.push(nid);
         continue;
       }
-      // A single-line text is stroke geometry: fit each stroke as an OPEN
-      // spline (no wrap-around segment), never a closed loop.
+      // A single-line text is stroke geometry: each stroke is a polyline, so
+      // it becomes an OPEN spline whose nodes are all sharp (no handles) — the
+      // letterform keeps its straight runs and corners. Never a smooth fit,
+      // never a closed loop.
       if (e.type === 'text' && isSingleLineFont(e)) {
         const strokes = textStrokesWorld(e);
-        const tol = framedFitTol(e);
         const ids = [];
         for (const st of strokes) {
           if (!st.pts || st.pts.length < 2) continue;
-          const nid = addFittedSpline(st.pts, colorOf(e), { tol, sharpAngle, closed: false });
-          if (nid) ids.push(nid);
+          const nid = newId();
+          state.entities[nid] = {
+            id: nid, type: 'spline', pts: st.pts,
+            hs: { o: st.pts.map(() => null), i: st.pts.map(() => null) },
+            closed: false, color: colorOf(e), layer: e.layer
+          };
+          ids.push(nid);
         }
         if (!ids.length) {
           toast('Nothing to convert in that text');
