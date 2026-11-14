@@ -381,12 +381,14 @@
     const st = {
       stroke: parent.stroke, fill: parent.fill, fillSet: !!parent.fillSet,
       strokeWidth: parent.strokeWidth, fillRule: parent.fillRule,
+      fontSize: parent.fontSize,
       display: parent.display, visibility: parent.visibility, opacity: parent.opacity
     };
     const attr = (k) => (el.getAttribute && el.hasAttribute && el.hasAttribute(k) ? el.getAttribute(k) : null);
     const keys = {
       stroke: 'stroke', fill: 'fill', 'stroke-width': 'strokeWidth',
-      'fill-rule': 'fillRule', display: 'display', visibility: 'visibility', opacity: 'opacity'
+      'fill-rule': 'fillRule', 'font-size': 'fontSize',
+      display: 'display', visibility: 'visibility', opacity: 'opacity'
     };
     for (const k in keys) {
       const v = attr(k);
@@ -404,6 +406,7 @@
       if (d.fill != null) st.fillSet = true;
       if (d['stroke-width'] != null) st.strokeWidth = d['stroke-width'];
       if (d['fill-rule'] != null) st.fillRule = d['fill-rule'];
+      if (d['font-size'] != null) st.fontSize = d['font-size'];
       if (d.display != null) st.display = d.display;
       if (d.visibility != null) st.visibility = d.visibility;
       if (d.opacity != null) st.opacity = d.opacity;
@@ -575,7 +578,33 @@
       return;
     }
 
-    if (tag === 'text') { ctx.skipped.text++; return; }
+    if (tag === 'text') {
+      // SVG text becomes a note (comment) item. The anchor is the element's
+      // x/y in its own user space, mapped through the CTM to world mm. The
+      // font size is a CSS length: physical units (mm/pt/...) are absolute,
+      // unitless/px values are user units scaled by the CTM.
+      if (svgHidden(style)) return;
+      const raw = String(el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!raw) { ctx.skipped.text++; return; }
+      const x = parseFloat(el.getAttribute('x') || '0') || 0;
+      const y = parseFloat(el.getAttribute('y') || '0') || 0;
+      const p = matApply(m, { x, y });
+      const fsRaw = String(style.fontSize || '16').trim();
+      const fsNum = parseFloat(fsRaw);
+      const mScale = Math.hypot(m[0], m[1]) || 1;
+      const size = /(mm|cm|in|pt|pc)$/i.test(fsRaw)
+        ? svgLenToMm(fsRaw)
+        : (isFinite(fsNum) ? fsNum : 16) * mScale;
+      const color = svgColorToHex(style.fill) || '#000000';
+      // SVG y is the baseline; a comment/text frame hangs from its top-left,
+      // so lift the anchor to the cap line (0.75 em)
+      const anchorY = p.y - size * 0.75;
+      ctx.items.push({ kind: 'note', x: p.x, y: anchorY, text: raw, size,
+        color, group, source: 'text' });
+      ctx.colors.set(color, (ctx.colors.get(color) || 0) + 1);
+      ctx.textCount = (ctx.textCount || 0) + 1;
+      return;
+    }
     if (tag === 'image') { ctx.skipped.image++; return; }
     if (tag === 'use') {
       const id = svgHref(el);
@@ -745,7 +774,7 @@
   // --- document level ----------------------------------------------------------
   const SVG_DEFAULT_STYLE = {
     stroke: 'none', fill: '#000000', fillSet: false, strokeWidth: '1', fillRule: 'nonzero',
-    display: null, visibility: null, opacity: null
+    fontSize: '16', display: null, visibility: null, opacity: null
   };
 
   function svgCollectBounds(items) {
@@ -758,6 +787,10 @@
       if (y > maxY) maxY = y;
     };
     for (const item of items) {
+      if (item.kind === 'note') {
+        put(item.x, item.y);
+        continue;
+      }
       if (item.kind === 'circle') {
         put(item.c.x - item.r, item.c.y - item.r);
         put(item.c.x + item.r, item.c.y + item.r);
@@ -884,6 +917,7 @@
       colorList: colors,
       segments: segments,
       skipped: ctx.skipped,
+      textCount: ctx.textCount || 0,
       groupNames: ctx.groupNames,
       groupCount: Object.keys(ctx.groupNames).length
     };
@@ -908,7 +942,7 @@
       return id;
     };
     const colorOfSrc = (hex) => colorMap[hex] || hex;
-    const made = { entities: [], groups: new Set(), lines: 0, splines: 0, circles: 0, framed: 0 };
+    const made = { entities: [], groups: new Set(), lines: 0, splines: 0, circles: 0, framed: 0, notes: 0 };
     const groupBag = new Map();
 
     const tagEntity = (ent, item) => {
@@ -969,6 +1003,25 @@
     for (const item of ir.items) {
       const color = colorOfSrc(item.color);
       const meta = { color, filled: item.filled, group: keepGroups ? null : item.group };
+
+      if (item.kind === 'note') {
+        const text = String(item.text || '').slice(0, 500);
+        if (!text) continue;
+        if (o.textMode === 'skip') continue;
+        if (o.textMode === 'text') {
+          const id = addImportedTextObject(item.x + off.x, item.y + off.y, text,
+            item.size || 5, { ux: 1, uy: 0, vx: 0, vy: -1 });
+          made.entities.push(id);
+          made.framed++;
+        } else {
+          const pid = mkPoint(item.x + off.x, item.y + off.y);
+          const id = newId();
+          state.entities[id] = { id, type: 'note', p: pid, text, layer: ui.activeLayer };
+          made.entities.push(id);
+          made.notes++;
+        }
+        continue;
+      }
 
       if (item.kind === 'circle') {
         const cid = mkPoint(item.c.x + off.x, item.c.y + off.y);
@@ -1091,6 +1144,7 @@
     bits.push(ir.items.length + (ir.items.length === 1 ? ' shape' : ' shapes'));
     if (ir.segments) bits.push(ir.segments + ' segments');
     if (ir.groupCount) bits.push(ir.groupCount + (ir.groupCount === 1 ? ' group' : ' groups'));
+    if (ir.textCount) bits.push(ir.textCount + ' text');
     if (ir.skipped.text) bits.push(ir.skipped.text + ' text skipped');
     if (ir.skipped.image) bits.push(ir.skipped.image + ' image skipped');
     if (ir.skipped.use) bits.push(ir.skipped.use + ' unresolved use');
@@ -1144,12 +1198,19 @@
     }
   }
 
-  function runSvgImport() {
+  async function runSvgImport() {
     const job = svgImportJob;
     if (!job) return;
     const keepGroups = !!(document.getElementById('imp-keep-groups') || {}).checked;
     const fillEl = document.getElementById('imp-fill');
     const fillMode = fillEl ? fillEl.value : 'gray';
+    const textEl = document.getElementById('imp-text-mode');
+    const textMode = textEl ? textEl.value : 'comment';
+    // text objects need the real face before the first render, or the glyphs
+    // only show up on the next repaint
+    if (textMode === 'text' && window.MiniSketchFonts) {
+      await window.MiniSketchFonts.load(TEXT_DEFAULT_FONT, 400, 'normal');
+    }
     const colorMap = {};
     for (const sel of document.querySelectorAll('#imp-colors select[data-src]')) {
       colorMap[sel.dataset.src] = sel.value;
@@ -1158,7 +1219,7 @@
     pushHistory();
     let made = null;
     try {
-      made = svgImportInsert(job.ir, { keepGroups, fillMode, colorMap });
+      made = svgImportInsert(job.ir, { keepGroups, fillMode, colorMap, textMode });
     } catch (err) {
       history.pop();
       updateHistoryButtons();
@@ -1174,6 +1235,7 @@
     if (made.splines) parts.push(made.splines + ' curve' + (made.splines === 1 ? '' : 's'));
     if (made.circles) parts.push(made.circles + ' circle' + (made.circles === 1 ? '' : 's'));
     if (made.framed) parts.push(made.framed + ' framed object' + (made.framed === 1 ? '' : 's'));
+    if (made.notes) parts.push(made.notes + ' comment' + (made.notes === 1 ? '' : 's'));
     const skipped = job.ir.skipped;
     const sk = [];
     if (skipped.text) sk.push(skipped.text + ' text');
@@ -14841,7 +14903,8 @@
       made = svgImportInsert(ir, {
         center: ui.lastWorld ? { x: ui.lastWorld.x, y: ui.lastWorld.y } : s2w(W / 2, H / 2),
         fillMode: 'gray',
-        colorMap
+        colorMap,
+        textMode: 'comment'
       });
     } catch (err) {
       // the pushed snapshot stays: the insert may have written geometry before it
@@ -14935,12 +14998,69 @@
     return made.length;
   }
 
+  // One editable text object for an imported label. x/y are world mm (Y down),
+  // sizeMm is the PDF font's em size in mm, dir carries the text's baseline and
+  // up vectors in world coordinates (defaults: horizontal). The frame is fitted
+  // to the real font metrics so the glyphs keep the PDF's size instead of being
+  // stretched to a guessed box. Callers load the face first (importPrimsIntoDocument
+  // awaits it) so the glyphs are on the first render.
+  function addImportedTextObject(x, y, text, sizeMm, dir) {
+    const d = dir || {};
+    const ux = isFinite(d.ux) ? d.ux : 1, uy = isFinite(d.uy) ? d.uy : 0;
+    const vx = isFinite(d.vx) ? d.vx : 0, vy = isFinite(d.vy) ? d.vy : 1;
+    const h = clamp(sizeMm, 0.5, 500);
+    const w = Math.max(h, String(text).length * h * 0.55);
+    const p0 = newId();
+    state.points[p0] = { id: p0, x, y };
+    const pwId = newId();
+    state.points[pwId] = { id: pwId, x: x + ux * w, y: y + uy * w };
+    const phId = newId();
+    state.points[phId] = { id: phId, x: x - vx * h, y: y - vy * h };
+    const idW = newId();
+    state.entities[idW] = { id: idW, type: 'line', a: p0, b: pwId, color: '#00ff00' };
+    const idH = newId();
+    state.entities[idH] = { id: idH, type: 'line', a: p0, b: phId, color: '#00ff00' };
+    const id = newId();
+    const ent = {
+      id, type: 'text', p0, pw: pwId, ph: phId, guide: [idW, idH],
+      text: String(text), font: TEXT_DEFAULT_FONT, weight: 400, italic: false, tracking: 0,
+      color: ui.color
+    };
+    state.entities[id] = ent;
+    const fit = () => {
+      const m = textMetricsOf(ent);
+      const q0 = P(ent.p0), qw = P(ent.pw), qh = P(ent.ph);
+      if (!m || !q0 || !qw || !qh) return;
+      const ww = sizeMm * (m.width / TEXT_REF);
+      const hh = sizeMm * (m.height / TEXT_REF);
+      const dx = qw.x - q0.x, dy = qw.y - q0.y;
+      const dl = Math.hypot(dx, dy) || 1;
+      qw.x = q0.x + dx / dl * ww;
+      qw.y = q0.y + dy / dl * ww;
+      const ex = qh.x - q0.x, ey = qh.y - q0.y;
+      const el = Math.hypot(ex, ey) || 1;
+      qh.x = q0.x + ex / el * hh;
+      qh.y = q0.y + ey / el * hh;
+      ensureTextAspect(ent);
+      requestSolve();
+    };
+    fit();
+    return id;
+  }
+
   // Shared entity builder for vector imports (PDF, CDR): prims are
   // { color, closed, nodes } with coordinates in `scale` mm per unit. Straight
   // paths become line chains, anything with a curve becomes a spline with
   // handles. The toast carries the measured size as a health check.
-  function importPrimsIntoDocument(prims, scale, label, opts) {
+  async function importPrimsIntoDocument(prims, scale, label, opts) {
     const o = opts || {};
+    // Bundled faces load on demand: a text import into a sketch that never
+    // used text would otherwise create frames whose glyphs only appear once
+    // the face lands (and only after some later repaint). Wait for the face
+    // here, before the first render.
+    if (o.textMode === 'text' && window.MiniSketchFonts) {
+      await window.MiniSketchFonts.load(TEXT_DEFAULT_FONT, 400, 'normal');
+    }
     // only frame the view when the sketch was empty — an import into existing
     // work must not move the camera
     const wasEmpty = !Object.keys(state.entities).length;
@@ -14957,26 +15077,20 @@
     const lineIds = [];
     for (const pr of prims) {
       if (pr.kind === 'note') {
-        if (o.textMode === 'skip') continue;
+        // page markers ("=== Page N ===") are importer annotation, not page
+        // text: they always arrive as comments, whatever the text mode says
+        const pageLabel = pr.pageLabel === true;
+        if (o.textMode === 'skip' && !pageLabel) continue;
         const text = String(pr.text || '').slice(0, 500);
-        if (o.textMode === 'text') {
-          // keep it editable text: a framed text object at the anchor
-          const p0 = addPoint([pr.x, pr.y]);
-          const w = Math.max(20, text.length * 12);
-          const pwId = newId();
-          state.points[pwId] = { id: pwId, x: state.points[p0].x + w, y: state.points[p0].y };
-          const phId = newId();
-          state.points[phId] = { id: phId, x: state.points[p0].x, y: state.points[p0].y + w / 3 };
-          const idW = newId();
-          state.entities[idW] = { id: idW, type: 'line', a: p0, b: pwId, color: '#00ff00' };
-          const idH = newId();
-          state.entities[idH] = { id: idH, type: 'line', a: p0, b: phId, color: '#00ff00' };
-          const id = newId();
-          state.entities[id] = {
-            id, type: 'text', p0, pw: pwId, ph: phId, guide: [idW, idH],
-            text, font: TEXT_DEFAULT_FONT, weight: 400, italic: false, tracking: 0,
-            color: ui.color
-          };
+        if (o.textMode === 'text' && !pageLabel) {
+          // keep it editable text: a framed text object at the anchor, fitted
+          // to the PDF font's own size and proportions
+          const ux = isFinite(pr.ux) ? pr.ux : 1;
+          const uy = isFinite(pr.uy) ? -pr.uy : 0;
+          const vx = isFinite(pr.vx) ? pr.vx : 0;
+          const vy = isFinite(pr.vy) ? -pr.vy : -1;
+          const sizeMm = (isFinite(pr.size) && pr.size > 0 ? pr.size : 10) * scale;
+          addImportedTextObject(pr.x * scale, pr.y * scale * sy, text, sizeMm, { ux, uy, vx, vy });
           made++;
           continue;
         }
@@ -15147,7 +15261,7 @@
     pendingPdf = null;
   }
 
-  function applyPdfImport() {
+  async function applyPdfImport() {
     const prims = pendingPdf;
     closePdfImport();
     if (!prims) return;
@@ -15174,7 +15288,7 @@
       toast('Everything was filtered out \u2014 nothing imported');
       return;
     }
-    importPrimsIntoDocument(kept, 25.4 / 72, 'PDF', {
+    await importPrimsIntoDocument(kept, 25.4 / 72, 'PDF', {
       textMode: (document.getElementById('pdf-text-mode') || {}).value || 'text',
       flipY: true
     });
@@ -27105,7 +27219,7 @@ function cmdSplitCurve() {
     const arrKind = document.getElementById('arr-kind');
     if (arrKind) arrKind.addEventListener('change', updateArrayDialogKind);
     const cdrRun = document.getElementById('cdr-imp-run');
-    if (cdrRun) cdrRun.addEventListener('click', () => {
+    if (cdrRun) cdrRun.addEventListener('click', async () => {
       const modal = document.getElementById('cdr-import-modal');
       if (modal) modal.classList.add('hidden');
       const prims = pendingCdr;
@@ -27113,7 +27227,7 @@ function cmdSplitCurve() {
       if (prims && prims.length) {
         const sel = document.getElementById('cdr-text-mode');
         const keep = document.getElementById('cdr-keep-color');
-        importPrimsIntoDocument(prims, 1, 'CDR', {
+        await importPrimsIntoDocument(prims, 1, 'CDR', {
           textMode: sel ? sel.value : 'comment',
           keepColors: keep ? keep.checked : true,
           flipY: true
@@ -27538,7 +27652,7 @@ function cmdSplitCurve() {
     const impCancel = document.getElementById('imp-cancel');
     if (impCancel) impCancel.addEventListener('click', closeSvgImport);
     const impRun = document.getElementById('imp-run');
-    if (impRun) impRun.addEventListener('click', runSvgImport);
+    if (impRun) impRun.addEventListener('click', () => { runSvgImport(); });
     const impModal = document.getElementById('svg-import-modal');
 
     const helpClose = document.getElementById('help-close');

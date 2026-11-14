@@ -211,11 +211,21 @@ console.log('pdfContentPrims');
   p = C.pdfContentPrims('BT\n/F1 12 Tf\n100 200 Td\n(Hello) Tj\n0 -14 TD\n[(Wor) -200 (ld)] TJ\nET\n');
   const notes = p.filter(x => x.kind === 'note');
   ok(notes.length === 2, 'two text notes extracted');
-  ok(notes[0].text === 'Hello' && notes[0].x === 100 && notes[0].y === 200, 'Tj note keeps its text and position');
-  ok(notes[1].text === 'World' && notes[1].y === 186, 'TJ array joins its strings and moves down');
+  ok(notes[0].text === 'Hello' && notes[0].x === 100 && notes[0].y === 209, 'Tj note keeps its text and position (top-left anchor)');
+  ok(notes[1].text === 'World' && notes[1].y === 195, 'TJ array joins its strings and moves down');
   p = C.pdfContentPrims('BT 10 20 Td (a\\(b\\)\\n\\101) Tj ET');
   const n1 = p.find(x => x.kind === 'note');
   ok(n1 && n1.text === 'a(b)\nA', 'string escapes decode (parens, newline, octal)');
+  // CAD writers put each glyph in its own BT/ET block: touching runs on one
+  // baseline merge back into the label
+  p = C.pdfContentPrims('BT /F1 12 Tf 100 200 Td (1) Tj ET BT /F1 12 Tf 107 200 Td (D) Tj ET');
+  const merged = p.filter(x => x.kind === 'note');
+  ok(merged.length === 1 && merged[0].text === '1D', 'split glyph runs merge into one label');
+  // Type0 / Identity-H text: hex groups are 2-byte codes resolved by ToUnicode
+  const cidMap = new Map([['\u027a', 'P'], ['\u0277', 'e']]);
+  p = C.pdfContentPrims('BT /F1 12 Tf 10 20 Td <027a0277> Tj ET', cidMap);
+  const cid = p.find(x => x.kind === 'note');
+  ok(cid && cid.text === 'Pe', 'Identity-H hex codes decode through ToUnicode');
 }
 
 // --- CDR ---------------------------------------------------------------------
