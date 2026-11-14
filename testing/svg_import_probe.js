@@ -65,7 +65,7 @@ const NAMES = [
   'svgStyleDecls', 'svgParseStyleSheets', 'svgApplyRules', 'svgStyleFor', 'svgHidden',
   'svgLocalId', 'svgHref', 'svgPointsAttr', 'svgRoundRectSegs', 'svgEllipseSegs', 'svgShapeSegs',
   'svgWalk', 'svgResolveClip', 'svgOwnBBox', 'svgCollectBounds', 'svgSubpathPolygon',
-  'svgClipSubpaths', 'svgImportInsert'
+  'svgClipSubpaths', 'svgImportParse', 'svgImportInsert', 'svgName'
 ];
 
 const state = { points: {}, entities: {}, constraints: {}, layers: [{ id: 1, name: 'Layer 1' }] };
@@ -73,7 +73,7 @@ const state = { points: {}, entities: {}, constraints: {}, layers: [{ id: 1, nam
 const api = new Function(
   'COLORS', 'CNC_CODES', 'ClipperLib', 'OFFSET_SCALE', 'MAT_ID', 'SVG_MM_PER', 'SVG_DEFAULT_STYLE', 'SVG_SHAPES',
   'SVG_CONTAINERS', 'SVG_NAMED', 'state', 'ui', 'privatePoint', 'newId', 's2w', 'W', 'H',
-  'addFramedObject', 'ART_TOL_MM', 'clipperLib', 'pathBoolLib', 'toast', 'invalidateLoops',
+  'addFramedObject', 'ART_TOL_MM', 'clipperLib', 'pathBoolLib', 'toast', 'invalidateLoops', 'settings', 'pasteTrace',
   'const COLORS_ = COLORS;\n' +
   NAMES.map(sliceAppOrCore).join('\n') +
   '\nreturn {' + NAMES.join(',') + ', COLORS_};'
@@ -110,6 +110,10 @@ const api = new Function(
     return global.PathBool;
   },
   () => {},
+  () => {},
+  // auto-join is off: this probe is about SVG geometry, and joinImportedSegments
+  // belongs to the settings > geometry feature rather than the importer
+  { joinImportAuto: 'off', joinImportTol: 0.02 },
   () => {}
 );
 // --- tiny DOM stand-in ------------------------------------------------------
@@ -380,6 +384,118 @@ console.log('\n== <use> and clip ==');
 
   const none = api.svgClipSubpaths(subject, [{ nodes: [{ x: 50, y: 50 }, { x: 60, y: 50 }, { x: 60, y: 60 }], closed: true }]);
   check('a clip that misses leaves nothing', none && none.length === 0, none && none.length);
+}
+
+console.log('\n== Inkscape clipboard markup ==');
+{
+  // What Inkscape writes for Edit > Copy: one <g> per shared parent carrying that
+  // parent's transform, the originals of linked duplicates parked in an
+  // <inkscape:clipboard> node beside the bbox of the copy, and - for a millimetre
+  // template - width in mm against a viewBox in 1/90 inch user units.
+  const original = el('rect', { id: 'rect123', x: 0, y: 0, width: 20, height: 12, stroke: '#0000ff' });
+  const ctx = {
+    rules: [], byId: new Map([['rect123', original]]), items: [], colors: new Map(),
+    skipped: { text: 0, image: 0, use: 0, clip: 0 }, groupSeq: 0, groupNames: {}, useDepth: 0,
+    prefix: 'clip-7f3-'
+  };
+  const svg = el('svg', { width: '120mm', height: '80mm', viewBox: '0 0 425.197 283.465' }, [
+    el('sodipodi:namedview', { id: 'base' }, []),
+    el('inkscape:clipboard', { min: '0 0', max: '425.197 283.465' }, [original]),
+    group({ id: 'layer1', transform: 'translate(3.5,4.5)' }, [
+      el('path', { d: 'M0 0 L30 0', stroke: '#000000' }),
+      el('use', { 'xlink:href': '#rect123', x: 40, y: 0 })
+    ])
+  ]);
+  const scale = 120 / 425.197;                      // the mm-per-user-unit of a 90 dpi document
+  const minX = (it) => Math.min.apply(null, it.subpaths[0].nodes.map(n => n.x));
+  api.svgWalk(svg, ctx, baseMat(scale, 0, 0),
+    { stroke: 'none', fill: '#000000', strokeWidth: '1', fillRule: 'nonzero', display: null, visibility: null, opacity: null },
+    null, 0);
+  check('the clipboard node is not walked as a drawing', ctx.items.length === 2,
+    ctx.items.map(i => i.source).join(','));
+  check('the clone is still pasted, once',
+    ctx.items.filter(i => i.source === 'rect').length === 1 && ctx.skipped.use === 0,
+    'use skipped: ' + ctx.skipped.use);
+  const path = ctx.items.filter(i => i.source === 'path')[0];
+  const rect = ctx.items.filter(i => i.source === 'rect')[0];
+  check('the inherited group transform lands', near(minX(path), 3.5 * scale, 1e-6), minX(path));
+  check('the use offset stacks on it', near(minX(rect), 43.5 * scale, 1e-6), minX(rect));
+  check('millimetres survive at 90 dpi', near(scale, 0.28222, 1e-4), scale);
+
+  // The same payload written with the namespace prefix Inkscape keeps on its
+  // clipboard nodes: <svg:rect> is a rect. Matching on nodeName alone would see
+  // an empty drawing and paste nothing at all.
+  const pctx = {
+    rules: [], byId: new Map(), items: [], colors: new Map(),
+    skipped: { text: 0, image: 0, use: 0, clip: 0 }, groupSeq: 0, groupNames: {}, useDepth: 0,
+    prefix: 'clip-8a-'
+  };
+  api.svgWalk(el('svg', { 'xmlns:svg': 'http://www.w3.org/2000/svg' }, [
+    el('inkscape:clipboard', { min: '0 0', max: '10 10' }, [original]),
+    el('svg:g', { transform: 'translate(1,2)' }, [
+      el('svg:rect', { x: 0, y: 0, width: 10, height: 5, stroke: '#ff0000' }),
+      el('svg:path', { d: 'M0 0 L8 0', stroke: '#000000' })
+    ])
+  ]), pctx, baseMat(1, 0, 0),
+    { stroke: 'none', fill: '#000000', strokeWidth: '1', fillRule: 'nonzero', display: null, visibility: null, opacity: null },
+    null, 0);
+  check('namespace-prefixed markup is still a drawing', pctx.items.length === 2,
+    pctx.items.map(i => i.source).join(','));
+  check('a prefixed clipboard node is skipped by its local name',
+    pctx.items.filter(i => i.source === 'rect').length === 1,
+    pctx.items.filter(i => i.source === 'rect').length);
+}
+
+console.log('\n== Inkscape clipboard scale ==');
+{
+  // An Inkscape clipboard copy keeps only the viewBox and drops the root
+  // width/height. A shape that is 100 mm wide at 96 dpi spans 377.95276 user
+  // units, so the importer must fall back to the CSS px scale (25.4/96).
+  const collectAll = (node) => {
+    const out = [];
+    const walk = (n) => { for (const c of (n.childNodes || [])) { out.push(c); walk(c); } };
+    walk(node);
+    return out;
+  };
+  const originalRect = el('rect', { id: 'rect100', x: 0, y: 0, width: 377.95276, height: 188.97638, stroke: '#0000ff' });
+  // the realistic Inkscape clipboard: root carries inkscape:version but NO
+  // <inkscape:clipboard> node (that node only appears for linked/filter refs)
+  const root = el('svg', { viewBox: '0 0 377.95276 188.97638', 'inkscape:version': '1.2.2' }, [
+    el('sodipodi:namedview', { id: 'base', 'inkscape:document-units': 'mm' }, []),
+    group({ id: 'layer1' }, [originalRect])
+  ]);
+  root.getElementsByTagName = (t) => (t === '*' ? collectAll(root) : []);
+  const doc = { documentElement: root, getElementsByTagName: () => [] };
+  global.DOMParser = class { parseFromString() { return doc; } };
+  const ir = api.svgImportParse('<svg></svg>', { prefix: 'clip-9-' });
+  check('a bare-viewBox Inkscape clipboard uses the CSS px scale (96dpi)',
+    near(ir.scale, 25.4 / 96, 1e-9), ir.scale);
+  check('the 100 mm rectangle measures about 100 mm',
+    near(ir.mmW, 100, 0.01), ir.mmW);
+}
+{
+  // The clipboard format we actually see from Inkscape: root carries px
+  // width/height but NO viewBox. One user unit is then one CSS pixel, so a
+  // 377.95276-wide drawing (100 mm at 96 dpi) must map to ~100 mm.
+  const collectAll = (node) => {
+    const out = [];
+    const walk = (n) => { for (const c of (n.childNodes || [])) { out.push(c); walk(c); } };
+    walk(node);
+    return out;
+  };
+  const rect = el('rect', { x: 0, y: 0, width: 377.95276, height: 113.38583, stroke: '#0000ff' });
+  const root = el('svg', { width: '377.95276', height: '113.38583', 'inkscape:version': '1.2.2' }, [
+    el('sodipodi:namedview', { id: 'base', 'inkscape:document-units': 'mm' }, []),
+    group({ id: 'layer1' }, [rect])
+  ]);
+  root.getElementsByTagName = (t) => (t === '*' ? collectAll(root) : []);
+  const doc = { documentElement: root, getElementsByTagName: () => [] };
+  global.DOMParser = class { parseFromString() { return doc; } };
+  const ir = api.svgImportParse('<svg></svg>', { prefix: 'clip-a-' });
+  check('px width/height without a viewBox uses the CSS px scale',
+    near(ir.scale, 25.4 / 96, 1e-9), ir.scale);
+  check('and a 100 mm object measures about 100 mm',
+    near(ir.mmW, 100, 0.01), ir.mmW);
 }
 
 console.log('\n== insertion ==');

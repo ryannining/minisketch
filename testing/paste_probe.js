@@ -38,14 +38,19 @@ const code = [
   'let ignorePasteUntil = 0;',
   'let clipboard = null;',
   sliceApp('clipboardEventInTextWidget'),
+  sliceApp('looksLikeSvgDoc'),
   sliceApp('onPasteEvent')
 ].join('\n');
 
 const make = () => {
   const log = [];
+  // whether the vector importer claims to have handled the markup
+  let vectorHandles = true;
+  // and whether the flat "art" reader found any path in it
+  let artHandles = true;
   const api = new Function(
     'CLIP_MARK', 'importClipboardText', 'pasteClipboard', 'artFromSvgText', 'artFromBlob', 'toast',
-    'openImageDialog',
+    'openImageDialog', 'svgClipboardToSketch', 'pasteTrace',
     code + `
     return {
       onPasteEvent,
@@ -59,12 +64,26 @@ const make = () => {
     CLIP_MARK,
     (txt) => { const ok = txt.indexOf(CLIP_MARK) === 0; if (ok) log.push('import'); return ok; },
     () => log.push('pasteObjects'),
-    (svg) => { log.push('svg'); return true; },
+    (svg) => { log.push('svg'); return artHandles; },
     (blob) => log.push('blob'),
     (m) => log.push('toast:' + m),
     // the trace-or-picture dialog: the probe only needs to see it was reached
-    (blob) => log.push('imageDialog')
+    (blob) => log.push('imageDialog'),
+    // the file importer for SVG markup: real geometry, no flattening. When it
+    // refuses it says why, and that reason has to reach the user.
+    (text, report) => {
+      log.push('vector');
+      log.push('vector sees ' + String(text).slice(0, 5));
+      if (!vectorHandles && report) report('no shapes the importer reads');
+      return vectorHandles;
+    },
+    // the [paste] trace is a console.log behind a flag: silent in the probe
+    () => {}
   );
+  // lives here, not in the compiled body: the stubs below close over this
+  // variable, a write from inside the compiled function would not reach it
+  api.vector = (handled) => { vectorHandles = handled; };
+  api.art = (handled) => { artHandles = handled; };
   return { api, log };
 };
 
@@ -119,7 +138,37 @@ console.log('\n== normal keyboard paste ==');
 {
   const { api, log } = make();
   api.onPasteEvent(itemEvent({ kind: 'string', type: 'image/svg+xml', getAsString: (cb) => cb('<svg><path d="M0 0 L1 1"/></svg>') }));
-  check('an SVG clipboard item goes to the parser', log.indexOf('svg') >= 0, JSON.stringify(log));
+  check('an SVG clipboard item goes to the vector importer', log.indexOf('vector') >= 0, JSON.stringify(log));
+}
+{
+  const { api, log } = make();
+  api.onPasteEvent(itemEvent({ kind: 'string', type: 'image/svg-xml', getAsString: (cb) => cb('<svg/>') }));
+  check('the misspelled macOS SVG type is still vector', log.indexOf('vector') >= 0, JSON.stringify(log));
+}
+{
+  const { api, log } = make();
+  // a thenable that answers at once, so the probe stays synchronous
+  const file = { text: () => ({ then: (ok) => ok('<svg/>') }) };
+  api.onPasteEvent(itemEvent({ kind: 'file', type: 'image/svg+xml', getAsFile: () => file }));
+  check('an SVG file item is read as markup', log.indexOf('vector') >= 0, JSON.stringify(log));
+}
+{
+  const { api, log } = make();
+  api.vector(false);
+  api.onPasteEvent(itemEvent({ kind: 'string', type: 'image/svg+xml', getAsString: (cb) => cb('<svg><path d="M0 0 L1 1"/></svg>') }));
+  check('when the importer declines, the flat art path still gets a turn',
+    log.indexOf('vector') >= 0 && log.indexOf('svg') >= 0, JSON.stringify(log));
+}
+{
+  const { api, log } = make();
+  // the browser hands over an image/svg+xml item that answers EMPTY (the async
+  // quirk the user hit), while the same markup also rides as plain text
+  const ev = itemEvent({ kind: 'string', type: 'image/svg+xml', getAsString: (cb) => cb('') },
+    '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="4" height="4"/></svg>');
+  ev.clipboardData.types = ['text/plain', 'image/svg+xml'];
+  api.onPasteEvent(ev);
+  check('an empty svg item falls back to the text/plain payload',
+    log.indexOf('vector sees <?xml') >= 0, JSON.stringify(log));
 }
 {
   const { api, log } = make();
@@ -129,8 +178,34 @@ console.log('\n== normal keyboard paste ==');
 }
 {
   const { api, log } = make();
+  const ev = itemEvent({ kind: 'file', type: 'image/png', getAsFile: () => ({ type: 'image/png' }) });
+  ev.clipboardData.getData = () => '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"/>';
+  ev.clipboardData.types = ['text/plain', 'Files'];
+  api.onPasteEvent(ev);
+  check('a PNG preview next to SVG markup loses to the vectors',
+    log.indexOf('vector') >= 0 && log.indexOf('imageDialog') < 0, JSON.stringify(log));
+}
+{
+  const { api, log } = make();
   api.onPasteEvent(stringEvent('<svg><path d="M0 0 L1 1"/></svg>', ['text/plain']));
-  check('plain text that is really SVG is parsed', log.indexOf('svg') >= 0, JSON.stringify(log));
+  check('plain text that is really an SVG document is imported as vectors',
+    log.indexOf('vector') >= 0, JSON.stringify(log));
+}
+{
+  const { api, log } = make();
+  api.onPasteEvent(stringEvent('<html><body><p>hi</p><svg><path d="M0 0 L1 1"/></svg></body></html>',
+    ['text/html', 'text/plain']));
+  check('markup that only contains an <svg> is not an SVG document', log.length === 0, JSON.stringify(log));
+}
+
+{
+  const { api, log } = make();
+  api.vector(false);
+  api.art(false);
+  api.onPasteEvent(stringEvent('<svg><rect x="0" y="0" width="4" height="4"/></svg>', ['text/plain']));
+  const notes = log.filter(l => l.indexOf('toast:') === 0).join(' | ');
+  check('a refused paste says why instead of saying nothing',
+    notes.indexOf('no shapes the importer reads') >= 0, notes || 'no note at all');
 }
 
 console.log('\n== the in-memory fallback is narrow ==');

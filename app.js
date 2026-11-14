@@ -315,6 +315,15 @@
 
 
 
+  // Elements are matched on their LOCAL name: SVG is namespace-aware, so
+  // <svg:path> and <path> are the same shape, while nodeName keeps whichever
+  // prefix the file (or an Inkscape clipboard payload) happened to use.
+  function svgName(el) {
+    const n = String((el && (el.localName || el.nodeName)) || '').toLowerCase();
+    const c = n.indexOf(':');
+    return c < 0 ? n : n.slice(c + 1);
+  }
+
   // --- style -------------------------------------------------------------------
   function svgStyleDecls(text) {
     const out = {};
@@ -343,7 +352,7 @@
   }
 
   function svgApplyRules(rules, el, style) {
-    const tag = String(el.nodeName || '').toLowerCase();
+    const tag = svgName(el);
     const cls = String(el.getAttribute ? (el.getAttribute('class') || '') : '').split(/\s+/).filter(Boolean);
     const id = el.getAttribute ? (el.getAttribute('id') || '') : '';
     for (const rule of rules) {
@@ -466,7 +475,7 @@
   }
 
   function svgShapeSegs(el) {
-    const tag = String(el.nodeName || '').toLowerCase();
+    const tag = svgName(el);
     const a = (k, d) => {
       const v = el.getAttribute(k);
       if (v == null || v === '') return d;
@@ -502,7 +511,7 @@
 
   function svgWalk(el, ctx, ctm, parentStyle, groupTag, depth) {
     if (!el || depth > 40) return;
-    const tag = String(el.nodeName || '').toLowerCase();
+    const tag = svgName(el);
     if (tag === 'title' || tag === 'desc' || tag === 'metadata' || tag === 'style') return;
 
     const style = svgStyleFor(el, parentStyle, ctx.rules);
@@ -583,6 +592,10 @@
       tag === 'mask' || tag === 'pattern' || tag === 'lineargradient' || tag === 'radialgradient') {
       return;                                  // only reachable through <use>
     }
+    // What Inkscape puts on the clipboard: the bbox of the copy plus the originals
+    // of any linked duplicates, which the <use> elements in the sibling groups
+    // point at. A defs block in disguise — walked as a drawing it pastes clones twice.
+    if (tag === 'clipboard') return;
 
     const kids = el.childNodes || [];
     for (let i = 0; i < kids.length; i++) {
@@ -609,7 +622,7 @@
     const subpaths = [];
     const collect = (el, ctm2, depth) => {
       if (!el || depth > 12) return;
-      const tag = String(el.nodeName || '').toLowerCase();
+      const tag = svgName(el);
       if (SVG_SHAPES[tag]) {
         const m2 = matMul(ctm2, parseTransformList(el.getAttribute && el.getAttribute('transform')));
         for (const sub of svgSegmentsToSubpaths(svgShapeSegs(el), m2)) subpaths.push(sub);
@@ -619,7 +632,7 @@
       for (let i = 0; i < kids.length; i++) {
         const kid = kids[i];
         if (kid.nodeType === 3) continue;
-        const t = String(kid.nodeName || '').toLowerCase();
+        const t = svgName(kid);
         if (t === 'defs') continue;
         const m3 = matMul(ctm2, parseTransformList(kid.getAttribute && kid.getAttribute('transform')));
         if (SVG_SHAPES[t]) {
@@ -632,7 +645,7 @@
   }
 
   function svgOwnBBox(el) {
-    const tag = String(el.nodeName || '').toLowerCase();
+    const tag = svgName(el);
     const num = (k, d) => {
       const v = parseFloat(el.getAttribute(k));
       return isFinite(v) ? v : d;
@@ -770,15 +783,23 @@
     const err = doc.getElementsByTagName('parsererror');
     if (err && err.length) throw new Error('SVG could not be parsed');
     const root = doc.documentElement;
-    if (!root || String(root.nodeName).toLowerCase() !== 'svg') throw new Error('Not an SVG document');
+    if (!root || svgName(root) !== 'svg') throw new Error('Not an SVG document');
 
     const byId = new Map();
+    const styleNodes = [];
+    // Inkscape signs its documents with an inkscape:version attribute on the root
+    // (kept on clipboard payloads too) and may add an <inkscape:clipboard> node;
+    // either marks this payload as coming from the Inkscape editor.
+    let isInkscapeClipboard = false;
+    const rootVersion = root.getAttribute && root.getAttribute('inkscape:version');
+    if (rootVersion) isInkscapeClipboard = true;
     const all = root.getElementsByTagName('*');
     for (let i = 0; i < all.length; i++) {
       const id = svgLocalId(all[i]);
       if (id && !byId.has(id)) byId.set(id, all[i]);
+      if (svgName(all[i]) === 'style') styleNodes.push(all[i]);
+      if (!isInkscapeClipboard && svgName(all[i]) === 'clipboard') isInkscapeClipboard = true;
     }
-    const styleNodes = root.getElementsByTagName('style');
     let rules = [];
     for (let i = 0; i < styleNodes.length; i++) {
       rules = rules.concat(svgParseStyleSheets(styleNodes[i].textContent || ''));
@@ -793,15 +814,36 @@
     if (vb && vb.length === 4 && vb[2] > 0 && vb[3] > 0) {
       if (wMm > 0) scale = wMm / vb[2];
       else if (hMm > 0) scale = hMm / vb[3];
-    } else if (wMm > 0 && !vb) {
-      scale = 1;                                // already mm through the width unit
+    } else if (!vb && (wMm > 0 || hMm > 0)) {
+      // No viewBox: one user unit equals one unit of the root width/height. A
+      // px (or unitless) size puts the drawing in CSS pixels; a physical size
+      // means the coordinates already live in that physical unit.
+      const rawUnit = String(root.getAttribute('width') || root.getAttribute('height') || '').trim();
+      const unitMatch = rawUnit.match(/[a-z%]*$/i);
+      const unit = (unitMatch && unitMatch[0]) ? unitMatch[0].toLowerCase() : 'px';
+      scale = (unit && unit !== 'px' && SVG_MM_PER[unit] != null) ? SVG_MM_PER[unit] : SVG_MM_PER.px;
+      pasteTrace('no viewBox: width unit', unit, '-> scale', scale);
+    }
+    // The Inkscape clipboard markup keeps only the viewBox and drops the root
+    // width/height, so its user units are CSS pixels (96 dpi for Inkscape >=
+    // 0.92). A shape authored in mm then needs the px→mm step, otherwise a
+    // 100 mm copy lands as ~378 mm (one user unit read as one millimetre).
+    if (isInkscapeClipboard &&
+        (!wMm || wMm <= 0) && (!hMm || hMm <= 0) &&
+        vb && vb.length === 4 && vb[2] > 0 && vb[3] > 0) {
+      scale = SVG_MM_PER.px;                    // 25.4 / 96
+      pasteTrace('Inkscape clipboard has no root width/height — using CSS px scale', scale);
+    } else {
+      pasteTrace('svg root: width=', root.getAttribute('width'), 'height=', root.getAttribute('height'),
+        'viewBox=', root.getAttribute('viewBox'), 'inkscape?', isInkscapeClipboard,
+        'scale=', scale);
     }
     if (isFinite(o.scale) && o.scale > 0) scale *= o.scale;
     const vbX = vb && isFinite(vb[0]) ? vb[0] : 0;
     const vbY = vb && isFinite(vb[1]) ? vb[1] : 0;
     // The sketch is Y-down (screen/SVG convention) — a file SVG maps straight
     // in, no flip. o.flipY === false reads the SVG AS Y-up (AI-authored
-    // drawings): y' = -scale*(y - vbY), mirroring it into the sketch frame.
+    // drawings): y = -scale*(y - vbY) mirrors into the sketch frame.
     const base = o.flipY === false
       ? [scale, 0, 0, -scale, -vbX * scale, vbY * scale]
       : [scale, 0, 0, scale, -vbX * scale, -vbY * scale];
@@ -14723,6 +14765,89 @@
     return insertArt(paths, opts);
   }
 
+  // Markup that merely contains an <svg> (a copied web page) is not an SVG
+  // document: the prolog is stepped over and the root tag alone decides.
+  function looksLikeSvgDoc(text) {
+    let s = String(text == null ? '' : text);
+    for (let k = 0; k < 8; k++) {
+      const m = /^\s*(?:<\?xml[\s\S]*?\?>|<!--[\s\S]*?-->|<!DOCTYPE[^>]*>)?/i.exec(s);
+      if (!m || !m[0]) break;
+      s = s.slice(m[0].length);
+    }
+    return /^<svg[\s>]/i.test(s);
+  }
+
+  // Console trace for the clipboard route: every decision the paste handler makes
+  // is printed to the developer console as `[paste]` lines, so a paste that
+  // silently does nothing can be traced end-to-end. Trace is ON by default so
+  // a paste gone wrong is immediately diagnosable; set
+  // window.MINISKETCH_PASTE_DEBUG = false in the console to silence it.
+  function pasteTrace() {
+    if (window.MINISKETCH_PASTE_DEBUG === false) return;
+    console.log.apply(console, ['[paste]'].concat(Array.prototype.slice.call(arguments)));
+  }
+
+  // A desktop vector editor hands over a real SVG document (groups carrying
+  // transforms, primitives, millimetres), so clipboard paste goes through the
+  // file importer instead of the flat path reader. Unlike File > Import a
+  // paste keeps every shape editable and selects them as one group: what you
+  // copied is meant to be worked on, not just cut. Returns true when the
+  // payload was handled, false when the caller should fall back; a refusal
+  // says why, because a paste that silently does nothing cannot be reported.
+  function svgClipboardToSketch(text, report) {
+    const why = typeof report === 'function' ? report : function () {};
+    pasteTrace('importer sees', String(text == null ? '' : text).length, 'chars');
+    let ir = null;
+    try {
+      ir = svgImportParse(text, { prefix: 'clip-' + Date.now().toString(36) + '-' });
+    } catch (err) {
+      pasteTrace('parse threw:', err);
+      why(err && err.message ? err.message : 'the markup did not parse');
+      return false;
+    }
+    pasteTrace('parsed:', ir && ir.items.length, 'shapes · scale', ir && ir.scale, '·', ir && fmt(ir.mmW) + ' x ' + fmt(ir.mmH) + ' mm');
+    if (!ir || !ir.items.length) { why('no shapes the importer reads'); return false; }
+
+    const colorMap = {};
+    for (const entry of ir.colorList) colorMap[entry.hex] = nearestCncColor(entry.hex);
+    const wasEmpty = !Object.keys(state.entities).length;
+    pushHistory();
+    let made = null;
+    try {
+      made = svgImportInsert(ir, {
+        center: ui.lastWorld ? { x: ui.lastWorld.x, y: ui.lastWorld.y } : s2w(W / 2, H / 2),
+        fillMode: 'gray',
+        colorMap
+      });
+    } catch (err) {
+      // the pushed snapshot stays: the insert may have written geometry before it
+      // threw, and Ctrl+Z has to be able to take it back
+      pasteTrace('insert threw:', err);
+      invalidateLoops();
+      commit();
+      toast('That SVG could not be pasted (' + (err && err.message ? err.message : 'unknown error') + ')');
+      return true;
+    }
+    pasteTrace('inserted', made.entities.length, 'entities ·', made.lines, 'lines ·', made.splines, 'curves ·', made.circles, 'circles');
+
+    ui.selection = made.entities.map(id => ({ kind: 'entity', id }));
+    invalidateLoops();
+    commit();
+    if (wasEmpty) fitView();
+
+    const parts = [fmt(ir.mmW) + ' \u00d7 ' + fmt(ir.mmH) + ' mm'];
+    if (made.lines) parts.push(made.lines + ' line' + (made.lines === 1 ? '' : 's'));
+    if (made.splines) parts.push(made.splines + ' curve' + (made.splines === 1 ? '' : 's'));
+    if (made.circles) parts.push(made.circles + ' circle' + (made.circles === 1 ? '' : 's'));
+    if (made.framed) parts.push(made.framed + ' framed object' + (made.framed === 1 ? '' : 's'));
+    const sk = [];
+    if (ir.skipped.text) sk.push(ir.skipped.text + ' text');
+    if (ir.skipped.image) sk.push(ir.skipped.image + ' image');
+    if (ir.skipped.use) sk.push(ir.skipped.use + ' unresolved use');
+    toast('Pasted ' + parts.join(' \u00b7 ') + (sk.length ? ' \u00b7 skipped ' + sk.join(', ') : ''));
+    return true;
+  }
+
   // DXF carries real coordinates (mm): keep them 1:1 and just frame the view.
   // Primitives become native objects (lines / circles / arcs / splines), so
   // they can be edited, constrained and sent to the CNC afterwards.
@@ -15953,20 +16078,32 @@
     return true;
   }
 
+  // The three guards above return before the counter on purpose: an ignored
+  // paste must not look like a paste that happened, or the Ctrl+V fallback in
+  // the key handler would be skipped for nothing.
   function onPasteEvent(ev) {
-    if (Date.now() < ignorePasteUntil) return;      // middle-click (primary selection)
-    if (clipboardEventInTextWidget(ev)) return;     // a field pasting its own text:
-    pasteEventSeq++;                                // must NOT suppress the Ctrl+V fallback
+    if (Date.now() < ignorePasteUntil) { pasteTrace('ignored: right after a middle click'); return; }
+    if (clipboardEventInTextWidget(ev)) { pasteTrace('ignored: a text field is the target'); return; }
+    pasteEventSeq++;
     const dt = ev.clipboardData;
-    if (!dt) return;
+    if (!dt) { pasteTrace('ignored: the event carries no clipboardData'); return; }
     let text = '';
     try {
       text = dt.getData('text/plain') || '';
     } catch (err) { text = ''; }
+    pasteTrace('event', ev.type, {
+      types: dt.types ? Array.from(dt.types) : null,
+      items: dt.items ? Array.from(dt.items).map(i => i.kind + ' ' + i.type) : null,
+      textChars: text.length,
+      textHead: text.slice(0, 70)
+    });
 
     // A paste already happened for this keystroke and the event arrived late
     // without a MiniSketch payload: skip, so nothing is pasted twice.
-    if (Date.now() - fallbackPasteAt < 400 && text.indexOf(CLIP_MARK) !== 0) return;
+    if (Date.now() - fallbackPasteAt < 400 && text.indexOf(CLIP_MARK) !== 0) {
+      pasteTrace('ignored: a paste for this keystroke already ran');
+      return;
+    }
 
     // 1. objects copied in another MiniSketch window
     if (text.indexOf(CLIP_MARK) === 0) {
@@ -15994,33 +16131,72 @@
 
     const items = dt.items ? Array.from(dt.items) : [];
 
-    // 2. SVG on the clipboard (Inkscape, Illustrator, another CAD)
+    // 2. SVG on the clipboard (Inkscape, Illustrator, another CAD). The type
+    // is matched loosely: Inkscape on macOS advertises the misspelled
+    // "image/svg-xml", and some browsers hand the markup over as a file.
+    // An SVG clipboard *item* can answer empty even though the real markup sits on
+    // the clipboard as text/plain (a browser async/format quirk). So when an item
+    // gives us nothing, fall back to the plain-text payload before giving up.
+    const svgTextOf = (str) => {
+      pasteTrace('the svg item answered with', str == null ? 'nothing' : String(str).length + ' chars');
+      let src = str && str.trim() ? str : '';
+      if (!src) {
+        if (text && looksLikeSvgDoc(text)) {
+          src = text;
+          pasteTrace('route: item empty — using the text/plain payload instead (' + src.length + ' chars)');
+        } else {
+          pasteTrace('route: item empty and no SVG in text/plain — nothing to import');
+          return;
+        }
+      }
+      // the reason the importer declined rides along in the note: a paste that
+      // does nothing and says nothing cannot be reported
+      let why = '';
+      if (!svgClipboardToSketch(src, (m) => { why = m; })) {
+        pasteTrace('route: vector importer declined (' + (why || 'unknown') + ') — trying the flat art reader');
+        if (!artFromSvgText(src))
+          toast('No paths in that SVG (' + (why || 'nothing to import') + ')');
+      }
+    };
     for (const item of items) {
-      if (item.kind === 'string' && item.type === 'image/svg+xml') {
+      if (!/svg/i.test(item.type || '')) continue;
+      if (item.kind === 'string') {
+        pasteTrace('route: svg clipboard item', item.type);
         ev.preventDefault();
-        item.getAsString(str => {
-          if (str && !artFromSvgText(str)) toast('No paths in that SVG');
-        });
+        item.getAsString(svgTextOf);
+        return;
+      }
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (!file || typeof file.text !== 'function') continue;
+        pasteTrace('route: svg clipboard file', item.type);
+        ev.preventDefault();
+        file.text().then(svgTextOf, () => toast('That SVG could not be read'));
         return;
       }
     }
 
-    // 3. raster image: ask trace or keep-as-image first
+    // 3. the same markup handed over as plain text, and checked BEFORE the
+    // raster: Inkscape also puts a PNG preview on the clipboard, so a browser
+    // that offers both would otherwise lose the vectors.
+    if (text && looksLikeSvgDoc(text)) {
+      pasteTrace('route: svg in plain text');
+      ev.preventDefault();
+      svgTextOf(text);
+      return;
+    }
+    pasteTrace('no svg item; the text is', text ? 'not an SVG document' : 'empty');
+
+    // 4. raster image: ask trace or keep-as-image first
     for (const item of items) {
       if (item.kind === 'file' && /^image\//.test(item.type) && item.type !== 'image/svg+xml') {
         const blob = item.getAsFile();
         if (!blob) continue;
+        pasteTrace('route: raster image', item.type);
         ev.preventDefault();
         openImageDialog(blob);
         return;
       }
-    }
-
-    // 4. plain text that is really SVG markup
-    if (text && text.indexOf('<') >= 0 && /<svg[\s>]/i.test(text)) {
-      ev.preventDefault();
-      if (!artFromSvgText(text)) toast('No paths in that SVG');
-      return;
     }
 
     // 5. the browser handed us nothing at all (clipboard write was blocked
@@ -16029,8 +16205,12 @@
     // our objects over it.
     const declared = dt.types ? dt.types.length : 0;
     if (!text && !declared && clipboard && (clipboard.entities.length || clipboard.points.length)) {
+      pasteTrace('route: in-memory fallback');
       ev.preventDefault();
       pasteClipboard();
+    } else {
+      pasteTrace('nothing matched: text', text ? 'present' : 'empty', '· declared types', declared,
+        '· this tab copied', !!(clipboard && (clipboard.entities.length || clipboard.points.length)));
     }
   }
 
