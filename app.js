@@ -9360,14 +9360,30 @@
       }
     }
 
+    const normColor = (c) => String(c == null ? '' : c).toLowerCase();
     const usedEdges = new Set();
-    const bfs = (start, goal, skipKey) => {
+    // Loop extraction is colour-aware: between all cycles through the start edge
+    // we pick the one that stays monochrome, so segments of the same colour are
+    // grouped into one loop before a mixed-colour cycle (e.g. a different-colour
+    // arc bridging two corners) gets a chance to consume them. Same-colour edges
+    // cost 0, any other colour costs 1, so Dijkstra returns the most
+    // colour-consistent cycle — a pure BFS would happily take the first, shortest
+    // path whatever its colours, and merge e.g. a black arc with one green edge
+    // into a loop, destroying the green rectangle it spans.
+    const bfs = (start, goal, skipKey, startColor) => {
+      const dist = {};
       const prevEdge = {};
       const prevNode = {};
-      const q = [start];
-      const seen = new Set([start]);
-      for (let qi = 0; qi < q.length; qi++) {
-        const u = q[qi];
+      dist[start] = 0;
+      let frontier = [[0, start]];
+      const seen = new Set();
+      while (frontier.length) {
+        let best = 0;
+        for (let i = 1; i < frontier.length; i++) if (frontier[i][0] < frontier[best][0]) best = i;
+        const [d, u] = frontier[best];
+        frontier.splice(best, 1);
+        if (seen.has(u)) continue;
+        seen.add(u);
         if (u === goal) {
           const path = [];
           let cur = goal;
@@ -9383,10 +9399,16 @@
           const eg = edges[ek];
           const v = eg.aNode === u ? eg.bNode : eg.aNode;
           if (seen.has(v)) continue;
-          seen.add(v);
-          prevEdge[v] = ek;
-          prevNode[v] = u;
-          q.push(v);
+          const ent = state.entities[eg.entity];
+          const ec = normColor(ent && ent.color);
+          const w = (startColor && ec && ec === startColor) ? 0 : 1;
+          const nd = d + w;
+          if (dist[v] === undefined || nd < dist[v]) {
+            dist[v] = nd;
+            prevEdge[v] = ek;
+            prevNode[v] = u;
+            frontier.push([nd, v]);
+          }
         }
       }
       return null;
@@ -9417,7 +9439,9 @@
         if (guardLeft-- <= 0) break;
         if (usedEdges.has(startKey) || noLoop.has(startKey)) continue;
         const startEdge = edges[startKey];
-        const path = bfs(startEdge.bNode, startEdge.aNode, startKey);
+        const startEnt = state.entities[startEdge.entity];
+        const startColor = normColor(startEnt && startEnt.color);
+        const path = bfs(startEdge.bNode, startEdge.aNode, startKey, startColor);
         if (!path) { noLoop.add(startKey); continue; }
         const found = { key: startKey, eg: startEdge, path };
         const steps = [];

@@ -36,7 +36,16 @@ const sliceApp = (name) => {
 const stubs = {
   TAU: 'var TAU = Math.PI * 2;',
   loopCache: 'var loopCache = null;',
+  loopsDeferred: 'var loopsDeferred = false;',
+  ui: 'var ui = { drag: false };',
   splineSampleCache: 'var splineSampleCache = new Map();',
+  epiCache: 'var epiCache = new Map();',
+  byLayerCache: 'var byLayerCache = null;',
+  arcData: 'var arcData = function(e){ var c = state.points[e.c]; var s = state.points[e.s]; var a0 = Math.atan2(s.y-c.y, s.x-c.x); var a1 = a0 + Math.PI/2; return { c: c, r: Math.hypot(s.x-c.x, s.y-c.y), a0: a0, a1: a1, sweep: Math.PI/2 }; };',
+  sampleArc: 'var sampleArc = function(c,r,a0,sweep,reverse){ var n=12, out=[]; for(var i=0;i<=n;i++){ var t=reverse?1-i/n:i/n, a=a0+sweep*t; out.push({x:c.x+Math.cos(a)*r,y:c.y+Math.sin(a)*r}); } return out; };',
+  circleData: 'var circleData = function(e){ if(e.type==="circle"){ var c=state.points[e.c]; return { c: c, r: e.r }; } if(e.type==="arc"){ var c=state.points[e.c]; var s=state.points[e.s]; return { c: c, r: Math.hypot(s.x-c.x,s.y-c.y) }; } return null; };',
+  ensureSplineHandles: 'var ensureSplineHandles = function(){ };',
+  splineSamplesOf: 'var splineSamplesOf = function(e){ return (e.pts||[]).map(function(p){ return state.points[p]; }); };',
   // the probe runs app.js's splineSamplesOf, which needs the core sampler plus
   // the same handle fallback app.js gets from core.js at load time
   splineSamples: 'var splineSamples = ' + (function(){ const C = require('../core.js'); return C.splineSamples.toString(); })() + ';',
@@ -189,6 +198,38 @@ check('a 0.05 mm gap between line ends closes', loops.length === 1, loops.length
 fx.points[45] = { id: 45, x: 0.3, y: 300 };
 loops = run(fx);
 check('a 0.3 mm gap between line ends stays open', loops.length === 0, loops.length);
+
+console.log('\n== mixed colours: a green rectangle + a black arc on one edge ==');
+fx = base();
+fx.points[10] = { id: 10, x: 50, y: -20 };
+fx.entities = {
+  1: { id: 1, type: 'line', a: 1, b: 2, color: '#00ff00' },
+  2: { id: 2, type: 'line', a: 2, b: 3, color: '#00ff00' },
+  3: { id: 3, type: 'line', a: 3, b: 4, color: '#00ff00' },
+  4: { id: 4, type: 'line', a: 4, b: 1, color: '#00ff00' },
+  5: { id: 5, type: 'arc', c: 10, s: 1, e: 2, color: '#000000' }
+};
+loops = run(fx);
+const colorsOf = (l) => (l.steps || []).map(s => fx.entities[s.edge.entity].color);
+check('exactly one loop', loops.length === 1, loops.length);
+check('it is the all-green rectangle, not the arc+line mix',
+  loops.length === 1 && colorsOf(loops[0]).length === 4 &&
+  colorsOf(loops[0]).every(c => c === '#00ff00'),
+  loops.length && JSON.stringify(colorsOf(loops[0])));
+check('the rectangle area is 100 x 100',
+  loops[0] && Math.abs(loops[0].area - 10000) < 1, loops[0] && Math.round(loops[0].area));
+
+console.log('\n== a mixed-colour cycle is still found when it is the only one ==');
+fx = base();
+fx.points[10] = { id: 10, x: 50, y: -20 };
+fx.entities = {
+  1: { id: 1, type: 'line', a: 1, b: 2, color: '#00ff00' },
+  2: { id: 2, type: 'line', a: 2, b: 3, color: '#000000' },
+  3: { id: 3, type: 'line', a: 3, b: 1, color: '#000000' }
+};
+loops = run(fx);
+check('one triangle loop still forms',
+  loops.length === 1 && colorsOf(loops[0]).length === 3, loops.length);
 
 console.log('\n' + (fail ? (fail + ' FAILED, ' + pass + ' passed') : ('all ' + pass + ' checks passed')));
 process.exit(fail ? 1 : 0);
