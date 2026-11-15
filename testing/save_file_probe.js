@@ -129,8 +129,8 @@ const mkWin = (opts) => {
   check('Open and the <input> share one handler',
     /await openDocumentFile\(file\)/.test(app) &&
     (app.match(/async function openDocumentFile\(file\)/g) || []).length === 1);
-  check('the click handler does not pass the Event as forcePicker',
-    /btn-download'\)\.addEventListener\('click', \(\) => downloadSketch\(\)\)/.test(app));
+  check('the Save as click forces the picker (no silent overwrite)',
+    /btn-download'\)\.addEventListener\('click', \(\) => downloadSketch\(true\)\)/.test(app));
 
   console.log('save: host bridge (KaryaCNC iframe)');
   const viaSrc = slice('async function saveViaHost(', 'async function downloadSketch(');

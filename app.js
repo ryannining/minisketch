@@ -2694,6 +2694,7 @@
       }
       localStorage.setItem(STORAGE_KEY, serializeDoc());
       docDirty = false;
+      paintFileDirty(false);
       if (!quiet) setSavedLabel('saved');
     } catch (err) {
       if (!quiet) toast('Browser storage is unavailable', { type: 'error' });
@@ -2771,6 +2772,7 @@
   function scheduleSave() {
     docDirty = true;
     setSavedLabel('saving...');
+    paintFileDirty(true);
     clearTimeout(saveTimer);
     saveTimer = setTimeout(persistNow, 350);
   }
@@ -5322,6 +5324,7 @@
     const ids = ['tf-left', 'tf-top', 'tf-width', 'tf-height'];
     const els = ids.map(id => document.getElementById(id));
     const wel = document.getElementById('tf-weight');
+    const zel = document.getElementById('tf-depth');
     if (!els[0]) return;
     const lock = document.getElementById('tf-lock');
     const b = xfBusy() ? null : selectionBounds();
@@ -5330,9 +5333,11 @@
     const ents = selectedEntities();
     const hasEnts = ents.length > 0 && !!b;
     if (wel) wel.disabled = !hasEnts;
+    if (zel) zel.disabled = !hasEnts;
     if (!b) {
       for (const el of els) if (force || document.activeElement !== el) el.value = '';
       if (wel && (force || document.activeElement !== wel)) wel.value = '';
+      if (zel && (force || document.activeElement !== zel)) zel.value = '';
       return;
     }
     const vals = [b.minX, b.maxY, b.maxX - b.minX, b.maxY - b.minY];
@@ -5340,49 +5345,74 @@
       if (!force && document.activeElement === el) return;
       el.value = fmt(vals[i]);
     });
-    // Weight is a per-entity property, not geometry: show the shared value
-    // when the whole selection agrees, blank when it is mixed.
-    if (wel) {
-      if (!force && document.activeElement === wel) return;
+    // Weight and depth are per-entity properties, not geometry: show the
+    // shared value when the whole selection agrees, blank when it is mixed.
+    if (wel && (force || document.activeElement !== wel)) {
       const w0 = ents[0] ? (ents[0].sortWeight || 0) : 0;
       const uni = ents.every(e => (e.sortWeight || 0) === w0);
       wel.value = uni ? String(w0) : '';
+    }
+    if (zel && (force || document.activeElement !== zel)) {
+      const d0 = ents[0] ? (ents[0].depth || 0) : 0;
+      const uni = ents.every(e => (e.depth || 0) === d0);
+      zel.value = uni ? String(d0) : '';
+    }
+  }
+
+  // One numeric per-entity property edited from the strip (Wt -> sortWeight,
+  // Z -> depth). Absolute only: a plain number is the value itself, never an
+  // offset from the current one. Empty clears to 0. `parse` maps the typed
+  // text to the stored value, or returns null to reject it (toast label).
+  function applyEntityNumber(prop, raw, parse, rejectLabel) {
+    const ents = selectedEntities();
+    if (!ents.length) {
+      updateTransformPanel(true);
+      return;
+    }
+    const txt = String(raw == null ? '' : raw).trim();
+    const val = parse(txt);
+    if (val == null) {
+      toast(rejectLabel);
+      updateTransformPanel(true);
+      return;
+    }
+    pushHistory();
+    let changed = false;
+    for (const e of ents) {
+      if ((e[prop] || 0) !== val) { e[prop] = val; changed = true; }
+    }
+    if (changed) {
+      invalidateLoops();
+      commit();
+    } else {
+      history.pop();
+      updateHistoryButtons();
+      updateTransformPanel(true);
     }
   }
 
   function applyTransformField(field, raw) {
     if (xfBlock()) return;
     if (field === 'weight') {
-      const ents = selectedEntities();
-      if (!ents.length) {
-        updateTransformPanel(true);
-        return;
-      }
-      // Absolute only: a plain number is the value itself, never an offset
-      // from the current one (so "−10" sets −10, not current−10). Empty
-      // clears to 0. No formula syntax here — evalFormula would treat a
-      // leading minus as "relative to current".
-      const txt = String(raw == null ? '' : raw).trim();
-      const target = txt === '' ? 0 : parseFloat(txt);
-      if (!isFinite(target)) {
-        toast('Enter a number between -100 and 100');
-        updateTransformPanel(true);
-        return;
-      }
-      const nw = Math.max(-100, Math.min(100, Math.round(target)));
-      pushHistory();
-      let changed = false;
-      for (const e of ents) {
-        if ((e.sortWeight || 0) !== nw) { e.sortWeight = nw; changed = true; }
-      }
-      if (changed) {
-        invalidateLoops();
-        commit();
-      } else {
-        history.pop();
-        updateHistoryButtons();
-        updateTransformPanel(true);
-      }
+      // No formula syntax here — evalFormula would treat a leading minus as
+      // "relative to current".
+      applyEntityNumber('sortWeight', raw, (txt) => {
+        if (txt === '') return 0;
+        const v = parseFloat(txt);
+        if (!isFinite(v)) return null;
+        return Math.max(-100, Math.min(100, Math.round(v)));
+      }, 'Enter a number between -100 and 100');
+      return;
+    }
+    if (field === 'depth') {
+      // Millimetre depth override for the machine. 0 / empty means "no
+      // override": KaryaCNC then uses its global carved/zdown depth.
+      applyEntityNumber('depth', raw, (txt) => {
+        if (txt === '') return 0;
+        const v = parseFloat(txt);
+        if (!isFinite(v) || v < 0) return null;
+        return v > 0 ? Math.round(v * 100) / 100 : 0;
+      }, 'Enter a depth in mm above 0 (empty = machine default)');
       return;
     }
     const b = selectionBounds();
@@ -19074,18 +19104,20 @@
         drawBadge(glyph, mid.x + 14 + count * 17, mid.y - 14, bid, conflictSet.has(bid));
       }
     }
-    // W badge: one marker per connected cluster of weighted entities (a loop
-    // of several lines shows a single W at its centre). A cluster is the
+    // Cluster badges: one marker per connected cluster of entities carrying a
+    // per-entity numeric property (W = sortWeight, Z = depth override). A loop
+    // of several lines shows a single badge at its centre. A cluster is the
     // transitive closure over shared points — the same connectivity the CNC
     // chain uses — so the badge count matches the cut loops the user will see.
-    // The cluster weight is the max member weight, mirroring cncChains. The
-    // badge is decoration only (id null: never hits, selects or deletes).
-    const weighted = [];
-    for (const id in state.entities) {
-      const e = state.entities[id];
-      if (e && e.sortWeight && layerVisible(e)) weighted.push(e);
-    }
-    if (weighted.length) {
+    // The cluster value is the max member value, mirroring cncChains. The badge
+    // is decoration only (id null: never hits, selects or deletes).
+    const clusterBadge = (prop, glyph) => {
+      const list = [];
+      for (const id in state.entities) {
+        const e = state.entities[id];
+        if (e && e[prop] && layerVisible(e)) list.push(e);
+      }
+      if (!list.length) return;
       const parent = new Map();
       const find = (x) => {
         while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); }
@@ -19096,8 +19128,8 @@
         if (ra !== rb) parent.set(rb, ra);
       };
       const ptEnts = new Map();
-      weighted.forEach(w => { parent.set(w.id, w.id); });
-      for (const w of weighted) {
+      list.forEach(w => { parent.set(w.id, w.id); });
+      for (const w of list) {
         for (const pid of entityPointIds(w)) {
           if (!ptEnts.has(pid)) ptEnts.set(pid, []);
           ptEnts.get(pid).push(w);
@@ -19107,11 +19139,11 @@
         for (let i = 1; i < list.length; i++) union(list[0].id, list[i].id);
       }
       const groups = new Map();
-      for (const w of weighted) {
+      for (const w of list) {
         const root = find(w.id);
         if (!groups.has(root)) groups.set(root, { max: 0, sx: 0, sy: 0, n: 0 });
         const g = groups.get(root);
-        g.max = Math.max(g.max, w.sortWeight || 0);
+        g.max = Math.max(g.max, w[prop] || 0);
         const bb = entityBounds(w);
         if (bb) { g.sx += (bb.minX + bb.maxX) / 2; g.sy += (bb.minY + bb.maxY) / 2; g.n++; }
       }
@@ -19119,10 +19151,15 @@
         if (!g.max) continue;
         if (g.n) {
           const s = w2s(g.sx / g.n, g.sy / g.n);
-          drawBadge('W', s.x, s.y - 14, null);
+          // The badge carries the value itself (W 100, Z 2.5): the point of
+          // the marker is to read the override without opening the strip.
+          const val = Math.round(g.max * 100) / 100;
+          drawBadge(glyph + ' ' + val, s.x, s.y - 14, null);
         }
       }
-    }
+    };
+    clusterBadge('sortWeight', 'W');
+    clusterBadge('depth', 'Z');
     ui.badgeHits = ui.badgeHits.filter(h => {
       const c = state.constraints[h.id];
       return c && constraintAnnotationActive(c);
@@ -23543,6 +23580,16 @@ function cmdSplitCurve() {
     updateCanvasCursor();
   }
 
+  // True when the entity's own geometry lies entirely inside the marquee
+  // rectangle, judged on the tessellated bounds (a curve is measured by its
+  // real outline, not by its control points).
+  function marqueeCovers(e, w0, w1) {
+    const bb = entityBounds(e);
+    if (!bb) return false;
+    return bb.minX >= w0.x - 1e-9 && bb.maxX <= w1.x + 1e-9 &&
+      bb.minY >= w0.y - 1e-9 && bb.maxY <= w1.y + 1e-9;
+  }
+
   function applyRubberSelection(d, pos) {
     ui.rubber = null;
     lastPickEntityId = null;   // a marquee has no key object
@@ -23568,15 +23615,33 @@ function cmdSplitCurve() {
         if (!hits(p.x, p.y)) continue;
         kill.add('point:' + +key);
       }
+      // ...and the entities the rectangle fully covers (lines, curves, whole
+      // loops, containers) — the same geometric rule the additive pass uses, so
+      // Shift+drag can take out anything the marquee could put in.
+      for (const key in state.entities) {
+        const e = state.entities[key];
+        if (!e) continue;
+        if (e.type === 'note') continue;
+        if (!marqueeCovers(e, w0, w1)) continue;
+        kill.add('entity:' + +key);
+      }
       ui.selection = ui.selection.filter(s => !kill.has(s.kind + ':' + s.id));
       updateUI();
       render();
       return;
     }
-    // Rectangle selection picks POINTS only. Picking whole entities whose bounds
-    // graze the rectangle made a partial marquee grab a polyline wholesale —
-    // touching one edge selected the entire shape. Points are the atomic unit:
-    // the entities they belong to follow (drags, selection info, segments).
+    // Rectangle selection: a marquee takes POINTS inside it, then everything
+    // those points cover (lines, curves and therefore whole loops) and finally
+    // any loop fully inside. Picking whole entities whose bounds merely GRAZE
+    // the rectangle made a partial marquee grab a polyline wholesale — touching
+    // one edge selected the entire shape. Points are the atomic unit: the
+    // entities they belong to follow (drags, selection info, segments).
+    //
+    // The pick filters (Alt+1/2/3) are NOT applied on the way up: they say what
+    // the user may END UP with, so they are a post-processing pass on the
+    // finished selection (see below). Applying them while climbing broke the
+    // climb itself — with filter 1 off there were no points, so no line and no
+    // loop could ever be reached, while a plain click still worked.
     const picked = new Map(ui.selection.map(s => [s.kind + ':' + s.id, s]));
     if (!d.additive) picked.clear();
     // Text/picture frames are container objects: their p0/pw/ph are the frame,
@@ -23591,7 +23656,6 @@ function cmdSplitCurve() {
     for (const key in state.points) {
       const p = state.points[key];
       if (!hits(p.x, p.y)) continue;
-      if (!pickFilter.point) continue;   // pick filter 1: points locked
       if (framePointIds.has(+key)) continue;
       if (!d.crossLayer && !pointEditable(+key)) continue;
       if (d.crossLayer) {
@@ -23612,7 +23676,6 @@ function cmdSplitCurve() {
       if (!e) continue;
       if (e.type !== 'art' && e.type !== 'array' && e.type !== 'part' &&
         e.type !== 'text' && e.type !== 'image') continue;
-      if (!pickFilter.loop && e.type !== 'part') continue;   // filter 3: container loop-like terkunci
       if (!d.crossLayer && !entityEditable(e)) continue;
       const bb = entityBounds(e);
       if (!bb) continue;
@@ -23632,7 +23695,6 @@ function cmdSplitCurve() {
       if (!e || picked.has('entity:' + +key)) continue;
       if (e.type === 'note' || e.type === 'array' || e.type === 'part' ||
         e.type === 'image' || e.type === 'art' || e.type === 'text') continue;
-      if (!pickFilter.line) continue;   // pick filter 2: lines/curves locked
       if (!d.crossLayer && !entityEditable(e)) continue;
       const ids = entityPointIds(e);
       if (!ids.length) continue;
@@ -23648,8 +23710,10 @@ function cmdSplitCurve() {
     // loop takes every editable member entity, the same rule the point-less
     // containers above use. The geometry test is the loop polygon itself (or
     // the circle's bounding box), so partial marquees still grab nothing.
-    if (pickFilter.loop) {
-      for (const loop of getLoops()) {
+    // loopPicked remembers those members: the post-pass below keeps them even
+    // with the line filter off, because the LOOP is what the user selected.
+    const loopPicked = new Set();
+    for (const loop of getLoops()) {
         let fullyInside = true;
         if (loop.circle) {
           const cd = circleData(state.entities[loop.entity]);
@@ -23670,8 +23734,33 @@ function cmdSplitCurve() {
           if (!d.crossLayer && !entityEditable(e)) return false;
           return true;
         })) continue;
-        for (const id of members) picked.set('entity:' + id, { kind: 'entity', id: +id });
+        for (const id of members) {
+          picked.set('entity:' + id, { kind: 'entity', id: +id });
+          loopPicked.add(+id);
+        }
       }
+    // Post-processing: the climb above is purely geometric on purpose (points →
+    // the lines they cover → whole loops, plus containers fully inside), because
+    // that is what "the marquee took this shape" means. The pick filters decide
+    // what the user may END UP with, so they are applied to the FINISHED
+    // selection. A line that belongs to a loop taken as a unit stays even with
+    // the line filter off — that is exactly what filter 3 selected.
+    for (const [key, s] of Array.from(picked)) {
+      if (s.kind === 'point') {
+        if (!pickFilter.point) picked.delete(key);   // filter 1
+        continue;
+      }
+      const e = state.entities[s.id];
+      if (!e) { picked.delete(key); continue; }
+      if (e.type === 'part') continue;               // parts never machine
+      if (e.type === 'art' || e.type === 'text' || e.type === 'image' || e.type === 'array') {
+        if (!pickFilter.loop) picked.delete(key);    // filter 3: containers
+        continue;
+      }
+      // line / arc / circle / spline
+      if (pickFilter.line) continue;                // filter 2
+      if (pickFilter.loop && loopPicked.has(+s.id)) continue;
+      picked.delete(key);
     }
     ui.selection = Array.from(picked.values());
     updateUI();
@@ -25645,6 +25734,10 @@ function cmdSplitCurve() {
     ui.focusLoop = null;
     ui.solverCost = null;
     ui.draft = null;
+    // a demo is not a file: the next Save must ask, not overwrite the
+    // document that was open before
+    save.handle = null;
+    setFileName(null);
     invalidateLoops();
     requestSolve();
     fitView();
@@ -26420,6 +26513,7 @@ function cmdSplitCurve() {
       const seed = open[s];
       const group = seed.group;
       let wmax = seed.sortWeight || 0;
+      let dmax = seed.depth || 0;
       let pts = seed.pts.slice();
       // grow at the tail
       for (let guard = 0; guard < N + 2; guard++) {
@@ -26429,6 +26523,7 @@ function cmdSplitCurve() {
         if (!hit) break;
         used[hit.i] = true;
         wmax = Math.max(wmax, open[hit.i].sortWeight || 0);
+        dmax = Math.max(dmax, open[hit.i].depth || 0);
         const add = oriented(open[hit.i], hit.end);
         for (let k = 1; k < add.length; k++) pts.push(add[k]);
       }
@@ -26440,6 +26535,7 @@ function cmdSplitCurve() {
         if (!hit) break;
         used[hit.i] = true;
         wmax = Math.max(wmax, open[hit.i].sortWeight || 0);
+        dmax = Math.max(dmax, open[hit.i].depth || 0);
         // add ends at the matching point; the rest prepends far-end first.
         // (The old .reverse() here flipped the segment and made the chain jump
         // across the shape — raw sends disagreed with the baked contours.)
@@ -26448,7 +26544,7 @@ function cmdSplitCurve() {
         pts = prep.concat(pts);
       }
       const closed = pts.length > 2 && key(pts[0]) === key(pts[pts.length - 1]);
-      out.push({ color: seed.color, fill: seed.fill, pts, closed, sortWeight: wmax });
+      out.push({ color: seed.color, fill: seed.fill, pts, closed, sortWeight: wmax, depth: dmax });
     }
     return out;
   }
@@ -26578,7 +26674,7 @@ function cmdSplitCurve() {
             }
             const col = cncColorStroke(shape.color);
             const fl = (shape.fill === 'gray' || shape.fill === 'yellow') ? shape.fill : fill;
-            list.push({ color: col, fill: fl, group: col + '|' + fl, pts, closed: shape.closed, sortWeight: e.sortWeight || 0 });
+            list.push({ color: col, fill: fl, group: col + '|' + fl, pts, closed: shape.closed, sortWeight: e.sortWeight || 0, depth: e.depth || 0 });
             any = true;
           }
         }
@@ -26587,7 +26683,7 @@ function cmdSplitCurve() {
             const pts = cncCleanPts(loop.pts.map(p => [p.x, p.y]));
             if (pts.length < (loop.closed ? 3 : 2)) continue;
             if (loop.closed) pts.push([pts[0][0], pts[0][1]]);
-            list.push({ color, fill, group: color + '|' + fill, pts, closed: loop.closed, sortWeight: e.sortWeight || 0 });
+            list.push({ color, fill, group: color + '|' + fill, pts, closed: loop.closed, sortWeight: e.sortWeight || 0, depth: e.depth || 0 });
             any = true;
           }
         }
@@ -26610,7 +26706,7 @@ function cmdSplitCurve() {
           } else if (pts.length < 2) {
             continue;
           }
-          list.push({ color, fill, group: color + '|' + fill, pts, closed: outline.closed, sortWeight: e.sortWeight || 0 });
+          list.push({ color, fill, group: color + '|' + fill, pts, closed: outline.closed, sortWeight: e.sortWeight || 0, depth: e.depth || 0 });
           any = true;
         }
         if (!any) cnc.skippedText++;
@@ -26643,7 +26739,7 @@ function cmdSplitCurve() {
             }
             const color = cncColorStroke(sh.color || colorOf(e));
             const fill = sh.fill || baseFill;
-            list.push({ color, fill, group: color + '|' + fill, pts, closed, sortWeight: e.sortWeight || 0 });
+            list.push({ color, fill, group: color + '|' + fill, pts, closed, sortWeight: e.sortWeight || 0, depth: e.depth || 0 });
           }
         }
         continue;
@@ -26678,7 +26774,7 @@ function cmdSplitCurve() {
         if (segSeen.has(key)) continue;
         segSeen.add(key);
       }
-      list.push({ color, fill, group: color + '|' + fill, pts, closed, sortWeight: e.sortWeight || 0 });
+      list.push({ color, fill, group: color + '|' + fill, pts, closed, sortWeight: e.sortWeight || 0, depth: e.depth || 0 });
     }
     return cncChains(list);
   }
@@ -26757,6 +26853,10 @@ function cmdSplitCurve() {
       // KaryaCNC adds weight to the sort distance (positive = cut later); the
       // UI stores -100..100, sent scaled by ×100 to match sortadd's scale.
       if (it.sortWeight) p.weight = Math.round(it.sortWeight * 100);
+      // Millimetre depth override, straight through: KaryaCNC reads p.depth
+      // into sty.strokedeep and honours it for cut / engrave / mark / pocket,
+      // whatever colour picked the operation. 0 / absent = machine default.
+      if (it.depth && it.depth > 0) p.depth = +it.depth;
       paths.push(p);
       points += it.pts.length;
       for (const q of it.pts) {
@@ -27117,6 +27217,10 @@ function cmdSplitCurve() {
       ui.draft = null;
       ui.solverCost = null;
       view = { ox: W / 2, oy: H / 2, zoom: 1 };
+      // a new document has no file yet: the next Save must ask for a name
+      // instead of overwriting the file that was open before
+      save.handle = null;
+      setFileName(null);
       invalidateLoops();
       commit();
       toast('New sketch');
@@ -27211,10 +27315,15 @@ function cmdSplitCurve() {
           render();
           toast('Merged ' + file.name + ' · ' + added + ' entity' + (added === 1 ? '' : 's'));
         } else {
+          // A plain <input type=file> pick carries no handle: the next Save
+          // must ASK, never write into the file opened before this one.
+          save.handle = null;
           loadDocument(data);
           fitView();
           updateUI();
           render();
+          saveRememberName(file.name);
+          setFileName(file.name);
           toast('Opened ' + file.name);
         }
       } catch (err) {
@@ -27228,7 +27337,13 @@ function cmdSplitCurve() {
       if (!file) return;
       await openDocumentFile(file);
     });
-    document.getElementById('btn-download').addEventListener('click', () => downloadSketch());
+    // Save as ALWAYS asks: no handle reuse, whatever the context (the File
+    // menu item used to call downloadSketch() with no argument and silently
+    // overwrote the current file).
+    document.getElementById('btn-download').addEventListener('click', () => downloadSketch(true));
+    // the caption under the colour strip is a Save button too
+    const fileChip = document.getElementById('stage-file');
+    if (fileChip) fileChip.addEventListener('click', () => downloadSketch(false));
 
     const btnName = document.getElementById('btn-name');
     if (btnName) btnName.addEventListener('click', cmdNameSelection);
@@ -27466,7 +27581,7 @@ function cmdSplitCurve() {
     });
     syncModToggles();
 
-    const tfFields = { 'tf-left': 'left', 'tf-top': 'top', 'tf-width': 'width', 'tf-height': 'height', 'tf-weight': 'weight' };
+    const tfFields = { 'tf-left': 'left', 'tf-top': 'top', 'tf-width': 'width', 'tf-height': 'height', 'tf-weight': 'weight', 'tf-depth': 'depth' };
     for (const id in tfFields) {
       const el = document.getElementById(id);
       if (!el) continue;
@@ -27497,7 +27612,7 @@ function cmdSplitCurve() {
           // Alt+R +20 Tab +20 Enter = move by (+20,+20) without the mouse.
           // change fires on blur, which the blur below triggers.
           ev.preventDefault();
-          const order = ['tf-left', 'tf-top', 'tf-width', 'tf-height', 'tf-weight'];
+          const order = ['tf-left', 'tf-top', 'tf-width', 'tf-height', 'tf-weight', 'tf-depth'];
           const at = order.indexOf(id);
           const next = document.getElementById(order[(at + 1) % order.length]);
           el.blur();
@@ -28365,15 +28480,18 @@ function cmdSplitCurve() {
       }
       if (id > maxId) maxId = id;
     }
-    // Sort weight (-100..100) survives save+load; absent means 0 (no badge,
-    // no wire field). Kept separate from e.weight, which text uses for font
-    // weight.
+    // Sort weight (-100..100) and the depth override (mm, > 0) survive
+    // save+load; absent means 0 (no badge, no wire field). Both are kept
+    // separate from e.weight, which text uses for font weight.
     for (const key in s.entities) {
       const src = s.entities[key];
       const ent = entities[+key];
       if (!src || !ent) continue;
       const w = +src.sortWeight;
       if (isFinite(w)) ent.sortWeight = Math.max(-100, Math.min(100, Math.round(w)));
+      const d = +src.depth;
+      if (isFinite(d) && d > 0) ent.depth = Math.round(d * 100) / 100;
+      else delete ent.depth;
     }
     // names are cosmetic, so they are carried for every entity type at once
     for (const key in entities) {
@@ -28774,8 +28892,11 @@ function cmdSplitCurve() {
       if (viaHost === 'saved') {
         // Remember the name the dialog actually ended up with, so the next
         // Save suggests THAT name instead of the stale default.
-        if (save.hostName) saveRememberName(save.hostName);
+        const written = save.hostName;
+        if (written) saveRememberName(written);
         save.hostName = null;
+        // the host renamed it in the dialog: the caption follows the real file
+        if (written) setFileName(written);
         toast('Saved');
         return;
       }
@@ -28783,6 +28904,7 @@ function cmdSplitCurve() {
     }
     const res = await saveTextAs(text, '.sketch', 'MiniSketch drawing', forcePicker);
     if (res === 'saved') {
+      if (save.handle && save.handle.name) setFileName(save.handle.name);
       toast('Saved');
       return;
     }
@@ -28790,7 +28912,8 @@ function cmdSplitCurve() {
     // No picker in this browser (or it was blocked): keep the old behaviour.
     const date = new Date();
     const stamp = date.toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    downloadBlob('sketch-' + stamp + '.sketch', new Blob([text], { type: 'application/json' }));
+    const written = downloadBlob('sketch-' + stamp + '.sketch', new Blob([text], { type: 'application/json' }));
+    if (written) setFileName(written);
     toast('Downloaded .sketch file');
   }
 
@@ -28815,8 +28938,45 @@ function cmdSplitCurve() {
   const save = {
     handle: null,          // FileSystemFileHandle from the picker
     suggested: '',         // last name, used to prefill the dialog
+    name: null,            // basename of the document on disk (null = Untitled)
     busy: false
   };
+
+  // The current document's file name, shown as a caption under the colour
+  // strip and in the browser tab title. MiniSketch also runs INSIDE the
+  // KaryaCNC tab (an iframe with no tab title of its own), so the caption is
+  // the reliable place to read "which file am I editing".
+  const DOCNAME_KEY = 'minisketch.v1.docname';
+  function setFileName(name) {
+    save.name = name ? String(name) : null;
+    try {
+      if (save.name) localStorage.setItem(DOCNAME_KEY, save.name);
+      else localStorage.removeItem(DOCNAME_KEY);
+    } catch (err) { /* private mode: the caption still works this session */ }
+    paintFileName();
+  }
+  function paintFileName() {
+    const el = document.getElementById('stage-file-name');
+    if (!el) return;
+    el.textContent = save.name || 'Untitled';
+    const chip = document.getElementById('stage-file');
+    if (chip) {
+      chip.classList.toggle('is-untitled', !save.name);
+      chip.title = save.name
+        ? 'File aktif: ' + save.name + ' \u2014 klik untuk Save (Ctrl+S menulis ulang file ini)'
+        : 'Belum ada file \u2014 Ctrl+S untuk menyimpan';
+    }
+    // the browser tab is the second readout (useless inside KaryaCNC, free
+    // everywhere else)
+    document.title = save.name
+      ? save.name + ' \u2014 MiniSketch'
+      : 'MiniSketch - 2D constraint sketcher';
+  }
+  // Small dot on the caption: the document differs from the file on disk.
+  function paintFileDirty(on) {
+    const chip = document.getElementById('stage-file');
+    if (chip) chip.classList.toggle('dirty', !!on);
+  }
 
   // Is the app running inside someone else's frame (the KaryaCNC tab)?
   //
@@ -28915,7 +29075,7 @@ function cmdSplitCurve() {
       let typed = prompt('File name', remembered || base0);
       if (typed == null) {
         toast('Download cancelled');
-        return;
+        return null;
       }
       typed = String(typed).trim().replace(/[\\/:*?"<>|]/g, '_');
       if (!typed) typed = base0;
@@ -28935,6 +29095,8 @@ function cmdSplitCurve() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1200);
+    // the caller shows this name as the current document's file
+    return outName;
   }
 
   function svgArcPath(e) {
@@ -29598,6 +29760,14 @@ function cmdSplitCurve() {
       requestSolve();
       invalidateLoops();
     }
+
+    // Caption under the colour strip: restore the name of the document that
+    // came back from storage — only when one did, a fresh demo has no file —
+    // and start with no "unsaved" dot.
+    let docName = null;
+    try { docName = localStorage.getItem(DOCNAME_KEY); } catch (err) { docName = null; }
+    setFileName(loaded ? docName : null);
+    paintFileDirty(false);
 
     // Imported fonts register from IndexedDB; a load bumps FONT_EPOCH, which
     // invalidates every text trace key, so texts redraw with the real font.

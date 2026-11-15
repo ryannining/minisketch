@@ -198,9 +198,8 @@
       <div class="stage-lth tf-strip" id="tf-strip" title="Selection bounds &mdash; type a number or a formula like 100*2 or 150%">
         <label class="tf"><span>L</span><input id="tf-left" type="text" inputmode="decimal" spellcheck="false" disabled></label>
         <label class="tf"><span>T</span><input id="tf-top" type="text" inputmode="decimal" spellcheck="false" disabled></label>
-        <label class="tf"><span>W</span><input id="tf-width" type="text" inputmode="decimal" spellcheck="false" disabled></label>
+        <label class="tf tf-gap"><span>W</span><input id="tf-width" type="text" inputmode="decimal" spellcheck="false" disabled></label>
         <label class="tf"><span>H</span><input id="tf-height" type="text" inputmode="decimal" spellcheck="false" disabled></label>
-        <label class="tf" title="Sort weight −100..100 (absolute, type the value as-is; higher = cut later in KaryaCNC, sent ×100). Empty = 0"><span>Wt</span><input id="tf-weight" type="text" inputmode="decimal" spellcheck="false" disabled></label>
         <label class="tf-lock" id="tf-lock-label" title="Lock width / height ratio" aria-label="Lock width / height ratio">
           <input type="checkbox" id="tf-lock" disabled>
           <svg class="lock-icon" viewBox="0 0 16 16" aria-hidden="true">
@@ -208,6 +207,8 @@
             <rect x="3.3" y="7.1" width="9.4" height="6.4" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.35"/>
           </svg>
         </label>
+        <label class="tf" title="Sort weight −100..100 (absolute, type the value as-is; higher = cut later in KaryaCNC, sent ×100). Empty = 0"><span>Wt</span><input id="tf-weight" type="text" inputmode="decimal" spellcheck="false" disabled></label>
+        <label class="tf" title="Depth override in mm (Z, above 0): sent as p.depth so KaryaCNC cuts/etches/marks/pockets this depth instead of the machine default. Empty or 0 = machine default"><span>Z</span><input id="tf-depth" type="text" inputmode="decimal" spellcheck="false" disabled></label>
       </div>
 
       <div class="stage-left" id="stage-left">
@@ -268,6 +269,13 @@
           <button class="stage-undo" id="qb-redo-side" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">&#8631;</button>
         </div>
       </div>
+      <!-- Current file name: a caption under the colour strip, out of the way
+           of the drawing (the app also runs inside the KaryaCNC tab, where
+           there is no browser tab title to read). -->
+      <button type="button" class="stage-file" id="stage-file" title="File aktif &mdash; klik untuk Save (Ctrl+S)">
+        <span class="stage-file-dot" id="stage-file-dot" aria-hidden="true"></span>
+        <span class="stage-file-name" id="stage-file-name">Untitled</span>
+      </button>
   <section class="xf-float" id="transform-panel">
     <h3>Transform <span class="count">R</span></h3>
     <div class="xf-fields">

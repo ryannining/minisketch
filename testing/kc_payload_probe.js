@@ -221,5 +221,21 @@ check('exactly the two weighted contours carry weight', json.paths.filter(p => '
 check('circle contours omit the weight field', otherJ.length === 2 && otherJ.every(p => !('weight' in p)),
   otherJ.map(p => p.weight));
 
+// ---- 5. depth override -> JSON frame (v1 wire) ---------------------------
+console.log('\n== 5. depth override -> KaryaCNC JSON frame ==');
+state.entities[13].depth = 2.5;     // one member of the chained rectangle
+state.entities[15].depth = 0.75;    // the standalone engrave line
+state.entities[16].depth = 0;       // explicit zero must NOT travel
+const jd = api.cncBuildJsonPayload(api.cncCollectItems());
+const rectD = jd.paths.find(p => p.closed && p.pts.length === 5);
+const blueD = jd.paths.find(p => p.color === '#0000ff');
+check('rect chain takes the max member depth (2.5)', !!rectD && rectD.depth === 2.5, rectD && rectD.depth);
+check('single line sends its own depth (0.75)', !!blueD && blueD.depth === 0.75, blueD && blueD.depth);
+const otherD = jd.paths.filter(p => p !== rectD && p !== blueD);
+check('contours without a depth omit the field', otherD.length === 2 && otherD.every(p => !('depth' in p)),
+  otherD.map(p => p.depth));
+check('depth is plain mm (no x100 scaling like weight)', blueD.depth === 0.75 && blueD.weight === 200,
+  blueD.depth + ' / ' + blueD.weight);
+
 console.log('\n' + (fail ? (fail + ' FAILED, ' + pass + ' passed') : ('all ' + pass + ' checks passed')));
 process.exit(fail ? 1 : 0);
