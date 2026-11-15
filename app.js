@@ -4164,6 +4164,57 @@
     d.offY = dy || 0;
   }
 
+  // Arrow-key rotation while dragging a CLONES-ONLY selection (Left/Right = 5°).
+  // Each instance matrix turns about the grab point; the wall envelope turns
+  // with it so the classic collision stays aligned. The drag keeps applying its
+  // translation on top: we rotate the current pose, then rewrite the press-base
+  // so base + delta still reproduces it on the next pointermove.
+  function rotateDragClones(d, deg) {
+    if (!d || d.kind !== 'entity' || !d.clones || !d.clones.length) return false;
+    if (d.ids && d.ids.length) return false;   // mixed selection: not clones-only
+    const a = deg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+    const pivot = d.rotPivot || d.grab || d.startWorld;
+    if (!pivot) return false;
+    d.rotPivot = pivot;
+    // Recover the translation the drag has applied (current matrix minus base).
+    let dx = 0, dy = 0;
+    for (const cl of d.clones) {
+      const e = state.entities[cl.id];
+      const inst = e && e.instances && e.instances[0];
+      const base = cl.base && cl.base[0];
+      if (inst && inst.m && base) { dx = inst.m[4] - base[4]; dy = inst.m[5] - base[5]; break; }
+    }
+    // Turn the wall envelope (press-pose world polys) about the grab pivot.
+    if (d.wall && d.wall.polys) {
+      const rw = (x, y) => ({
+        x: pivot.x + c * (x - pivot.x) - s * (y - pivot.y),
+        y: pivot.y + s * (x - pivot.x) + c * (y - pivot.y)
+      });
+      d.wall.polys = d.wall.polys.map(pts => pts.map(p => rw(p.x, p.y)));
+      d.wall.boxes = d.wall.polys.map(polyBBox);
+      d.wall.box = wallBoxUnion(d.wall.boxes);
+    }
+    // Turn the current instance matrices about the moved pivot (pivot + delta),
+    // then rebase so the drag's base + delta reproduces the rotated pose.
+    const ccx = pivot.x + dx, ccy = pivot.y + dy;
+    const Mc = [c, s, -s, c, ccx - (c * ccx - s * ccy), ccy - (s * ccx + c * ccy)];
+    for (const cl of d.clones) {
+      const e = state.entities[cl.id];
+      if (!e || e.type !== 'array') continue;
+      e.instances = (e.instances || []).map((inst, i) => {
+        if (!inst || !inst.m) return inst;
+        const m = matMul(Mc, inst.m);
+        if (cl.base) cl.base[i] = [m[0], m[1], m[2], m[3], m[4] - dx, m[5] - dy];
+        return { ...inst, m };
+      });
+      delete e.shapes;
+    }
+    d.moved = true;
+    invalidateLoops();
+    scheduleRender();
+    return true;
+  }
+
   // The solve that runs when a drag ends. Unlike a plain projection, this one
   // carries the pointer position as a target AND pins the points the hand was
   // holding, so the held point lands where the user let go and only the
@@ -21586,6 +21637,23 @@
     list.push({ kind, box, entity: entityId == null ? null : +entityId, polys: null });
   }
 
+  // Precise outer contours of every instance of a clone, for use as a collision
+  // obstacle. A clone used to block as one coarse bounding box; the real outer
+  // envelope of each instance lets the wall hug the actual shape (holes dropped,
+  // exactly like the dragged wall's own envelope).
+  function wallClonePolys(e) {
+    const polys = [];
+    for (const t of cloneInstanceOffsets(e)) {
+      const closed = arrayInstancePolylines(e, t)
+        .filter(pl => pl.closed && pl.pts && pl.pts.length >= 3);
+      if (!closed.length) continue;
+      for (const c of wallOuterContours(closed)) {
+        polys.push({ pts: c.pts, closed: true, box: polyBBox(c.pts) });
+      }
+    }
+    return polys;
+  }
+
   function wallObstaclePolys(o) {
     if (o.polys) return o.polys;
     if (o.kind === 'lazy') {
@@ -21601,6 +21669,12 @@
       return polys;
     }
     if (o.kind === 'box') {
+      // A clone blocks as its precise per-instance outer contours, not its bbox.
+      const e = o.entity != null ? state.entities[o.entity] : null;
+      if (e && e.type === 'array' && e.kind === 'clone') {
+        const cp = wallClonePolys(e);
+        if (cp.length) { o.polys = cp; return cp; }
+      }
       const b = o.box;
       const pts = [
         { x: b.minX, y: b.minY }, { x: b.maxX, y: b.minY },
@@ -21614,6 +21688,36 @@
     return o.polys;
   }
 
+  // A sheet is a container drawn in the construction colour (green): the material
+  // parts are arranged on. Loops placed directly inside a sheet are separate
+  // objects (obstacles), NOT holes of the sheet — unlike a loop inside a regular
+  // part, which is that part's hole.
+  function wallLoopIsSheet(L) {
+    const own = loopEntities(L);
+    if (!own.length) return false;
+    return own.every(id => {
+      const e = state.entities[id];
+      return e && isConstructionColor(colorOf(e));
+    });
+  }
+
+  // The smallest-area loop that fully contains L (its immediate container).
+  function wallImmediateParent(L, loops, boxes) {
+    const lb = boxes.get(L);
+    if (!lb) return null;
+    let parent = null, parentArea = Infinity;
+    for (const O of loops) {
+      if (O === L) continue;
+      const ob = boxes.get(O);
+      if (!ob) continue;
+      if (ob.x0 > lb.x0 || ob.y0 > lb.y0 || ob.x1 < lb.x1 || ob.y1 < lb.y1) continue;
+      if (!loopContainedIn(L, O, lb, ob)) continue;
+      const area = Math.abs(O.area || 0);
+      if (area < parentArea) { parentArea = area; parent = O; }
+    }
+    return parent;
+  }
+
   function wallBuildObstacles(excludeIds) {
     const obstacles = [];
     const covered = new Set();
@@ -21624,13 +21728,25 @@
     // OUTERMOST loop becomes an obstacle. Without this set the individual pass
     // below would add the hole boundary as-is and the wall would collide with
     // the hole instead of the object's outer edge.
-    for (const L of getLoops()) {
+    const loops = getLoops();
+    for (const L of loops) {
       for (const id of loopEntities(L)) loopEntityIds.add(+id);
     }
+    const loopBoxes = new Map();
+    for (const L of loops) loopBoxes.set(L, loopBox(L));
 
-    // 1) outermost loops of the whole document (renderer depth 0)
-    for (const L of getLoops()) {
-      if (loopDepthOf(L) !== 0) continue;
+    // 1) object outer boundaries: every top-level loop (depth 0), PLUS any loop
+    // sitting directly inside a sheet (depth 1, parent is the green material).
+    // The latter is what lets a part dragged inside the sheet collide with the
+    // other parts already placed on it. Deeper loops stay holes (not obstacles).
+    for (const L of loops) {
+      const depth = loopDepthOf(L);
+      let isBoundary = depth === 0;
+      if (!isBoundary && depth === 1) {
+        const parent = wallImmediateParent(L, loops, loopBoxes);
+        isBoundary = !!(parent && wallLoopIsSheet(parent));
+      }
+      if (!isBoundary) continue;
       const own = loopEntities(L).map(Number);
       if (!own.length) continue;
       if (own.some(id => excludeIds.has(id))) continue;
@@ -21640,7 +21756,7 @@
       })) continue;
       const o = {
         kind: 'poly', box: polyBBox(L.poly), entity: null, polys: null, pts: L.poly,
-        entities: own, depth: 0, area: L.area
+        entities: own, depth, area: L.area
       };
       obstacles.push(o);
       for (const id of own) covered.add(id);
@@ -21751,50 +21867,7 @@
     }
     const contours = wallCompoundContours(movingIds, dragSet);
     const outer = wallOuterContours(contours);
-    const selectedLoopsAll = getLoops().filter(L =>
-      loopEntities(L).every(id => movingIds.has(+id)));
-    const selectedOuterLoops = selectedLoopsAll.filter(L => loopDepthOf(L) === 0);
-    console.log('[dragwall] selected loops', selectedLoopsAll.length, '(global outer:', selectedOuterLoops.length + ')');
-    selectedLoopsAll.slice(0, 20).forEach((L, i) => {
-      console.log('[dragwall] selected loop', i, {
-        globalDepth: loopDepthOf(L),
-        entities: loopEntities(L),
-        points: L.poly ? L.poly.length : 0,
-        first: L.poly ? L.poly.slice(0, 8) : [],
-        area: L.area,
-        box: loopBox(L)
-      });
-    });
-    console.log('[dragwall] build', {
-      wallMm: WALL_DRAG_MM,
-      movingEntities: movingIds.size,
-      selectedOuterLoops: selectedOuterLoops.length,
-      contours: contours.length,
-      outer: outer.length
-    });
-    selectedOuterLoops.slice(0, 20).forEach((L, i) => {
-      console.log('[dragwall] selected outer loop', i, {
-        entities: loopEntities(L),
-        points: L.poly ? L.poly.length : 0,
-        area: L.area,
-        box: loopBox(L)
-      });
-    });
-    outer.slice(0, 20).forEach((c, i) => {
-      console.log('[dragwall] wall contour', i, {
-        points: c.pts.length,
-        first: c.pts.slice(0, 8),
-        area: Math.abs(signedAreaPts(c.pts)),
-        box: polyBBox(c.pts)
-      });
-    });
-    console.log('[dragwall] offset input', outer.map(c => ({
-      points: c.pts.length,
-      first: c.pts.slice(0, 8),
-      box: polyBBox(c.pts)
-    })));
     if (!outer.length) {
-      console.log('[dragwall] NO OUTER CONTOUR — wall disabled', { loops: getLoops().length });
       d.wall = null;
       d.wallDisabled = true;
       return;
@@ -21814,12 +21887,6 @@
         // usable (zero-clearance) wall.
         console.warn('drag wall offset failed', err);
       }
-      console.log('[dragwall] offset output', off ? off.map(c => ({
-        depth: c.depth,
-        points: c.pts ? c.pts.length : 0,
-        first: c.pts ? c.pts.slice(0, 8) : [],
-        box: c.pts ? polyBBox(c.pts) : null
-      })) : null);
       if (off && off.length) {
         // Keep ONLY the outer contours of the offset result. If the source
         // compound had a hole that slipped past wallOuterContours(), Clipper
@@ -21839,25 +21906,6 @@
     if (!box) { d.wall = null; d.wallDisabled = true; return; }
     const obstacles = wallBuildObstacles(excludeIds);
     const barrierLoops = obstacles.filter(o => o.kind === 'poly');
-    console.log('[dragwall] wall polys', polys.length, polys.map(pts => ({
-      points: pts.length,
-      first: pts.slice(0, 8),
-      box: polyBBox(pts)
-    })));
-    console.log('[dragwall] obstacles', {
-      total: obstacles.length,
-      barrierLoops: barrierLoops.length,
-      groupBoxes: obstacles.filter(o => o.kind === 'box').length,
-      lazyLines: obstacles.filter(o => o.kind === 'lazy').length
-    });
-    barrierLoops.slice(0, 30).forEach((o, i) => {
-      console.log('[dragwall] barrier loop', i, {
-        entities: o.entities,
-        depth: o.depth,
-        area: o.area,
-        box: o.box
-      });
-    });
     d.wall = {
       polys,
       boxes,
@@ -21926,30 +21974,12 @@
       return { dx, dy, blocked: false };
     }
     const hit = wallCandidateHit(w, dx, dy);
-    const wasBlocked = w.blocked;
     if (hit) {
-      if (!wasBlocked || w.hit !== hit) {
-        console.log('[dragwall] BLOCK', {
-          candidate: { dx, dy },
-          lastValid: { dx: w.lastDx, dy: w.lastDy },
-          wallBox: {
-            minX: w.box.minX + dx, minY: w.box.minY + dy,
-            maxX: w.box.maxX + dx, maxY: w.box.maxY + dy
-          },
-          obstacle: {
-            kind: hit.kind, entity: hit.entity, depth: hit.depth,
-            area: hit.area, box: hit.box
-          }
-        });
-      }
       w.blocked = true;
       w.hit = hit;
       w.dx = w.lastDx;
       w.dy = w.lastDy;
       return { dx: w.lastDx, dy: w.lastDy, blocked: true };
-    }
-    if (wasBlocked) {
-      console.log('[dragwall] CLEAR', { candidate: { dx, dy }, lastValid: { dx: w.lastDx, dy: w.lastDy } });
     }
     w.blocked = false;
     w.hit = null;
@@ -21974,16 +22004,22 @@
     ctx.setLineDash([3, 5]);
     for (const o of d.wall.obstacles) {
       if (o.kind !== 'poly' && o.kind !== 'box') continue;
-      const pts = o.kind === 'poly' ? o.pts : wallObstaclePolys(o)[0] && wallObstaclePolys(o)[0].pts;
-      if (!pts || pts.length < 2) continue;
-      ctx.beginPath();
-      for (let i = 0; i < pts.length; i++) {
-        const s = w2s(pts[i].x, pts[i].y);
-        if (i === 0) ctx.moveTo(s.x, s.y);
-        else ctx.lineTo(s.x, s.y);
+      // A clone obstacle carries one contour per instance; draw them all.
+      const polys = o.kind === 'poly'
+        ? (o.pts ? [{ pts: o.pts }] : [])
+        : wallObstaclePolys(o);
+      for (const pl of polys) {
+        const pts = pl.pts;
+        if (!pts || pts.length < 2) continue;
+        ctx.beginPath();
+        for (let i = 0; i < pts.length; i++) {
+          const s = w2s(pts[i].x, pts[i].y);
+          if (i === 0) ctx.moveTo(s.x, s.y);
+          else ctx.lineTo(s.x, s.y);
+        }
+        ctx.closePath();
+        ctx.stroke();
       }
-      if (o.kind === 'poly' || o.kind === 'box') ctx.closePath();
-      ctx.stroke();
     }
     ctx.restore();
   }
@@ -26136,6 +26172,14 @@ function cmdSplitCurve() {
       return;
     }
     if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown') {
+      // While dragging a clones-only selection, Left/Right turn it 5° per press
+      // (the classic wall turns with it). Other drags keep the nudge behaviour.
+      if ((key === 'ArrowLeft' || key === 'ArrowRight') && ui.drag) {
+        if (rotateDragClones(ui.drag, key === 'ArrowLeft' ? -5 : 5)) {
+          ev.preventDefault();
+          return;
+        }
+      }
       if (ui.draft) {
         // drafting: the arrows shift the view by one scale-bar unit (the "100 mm"
         // shown bottom left) instead of nudging points
