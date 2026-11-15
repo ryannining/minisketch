@@ -18299,9 +18299,13 @@
     //  - in F2 (node edit) the points of a selected line/loop/frame show, and
     //    the Points menu toggle is the "show all points" override.
     const showAll = !!ui.showPoints && ui.mode === 'node';
+    // In F2 with nothing selected, a point still reveals itself on hover:
+    // the hit-test can find it, so draw the hover marker without running the
+    // full point scan on every idle frame.
+    const hoverPoint = !!(ui.hover && ui.hover.kind === 'point');
     if (ui.mode === 'select' && !selPts.size) return;
-    if (ui.mode === 'node' && !showAll && !selEnts.size && !selPts.size) return;
-    if (fastMode && !showAll && !selPts.size && !selEnts.size) return;
+    if (ui.mode === 'node' && !showAll && !selEnts.size && !selPts.size && !hoverPoint) return;
+    if (fastMode && !showAll && !selPts.size && !selEnts.size && !hoverPoint) return;
     const skipPlain = fastMode && !showAll;
     // Every marker goes into one of three batched paths (plain, selected,
     // hovered) with a single fill + stroke each, and off-screen markers are
