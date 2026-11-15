@@ -14030,7 +14030,7 @@
     const cPerp = newId();
     state.constraints[cPerp] = { id: cPerp, type: 'perpendicular', line1: idW, line2: idH };
     const cHdim = newId();
-    state.constraints[cHdim] = { id: cHdim, type: 'distance', p1: p0, p2: phId, value: thH, offset: 26 };
+    state.constraints[cHdim] = { id: cHdim, type: 'distance', p1: p0, p2: phId, value: thH, offset: 10 };
     const id = newId();
     state.entities[id] = {
       id, type: 'text', p0, pw: pwId, ph: phId, guide: [idW, idH],
@@ -17006,7 +17006,7 @@
       const a = +c.p1, b = +c.p2;
       if ((a === +e.p0 && b === +e.ph) || (a === +e.ph && b === +e.p0)) delete state.constraints[cid];
     }
-    const c = { type: 'distance', p1: +e.p0, p2: +e.ph, value: hMm, offset: 26 };
+    const c = { type: 'distance', p1: +e.p0, p2: +e.ph, value: hMm, offset: 10 };
     c.id = newId();
     state.constraints[c.id] = c;
   }
@@ -17215,9 +17215,12 @@
     closeTextEditor();
   }
 
-  // per-epoch grouping cache for drawEntities (see above)
+  // per-epoch grouping cache for drawEntities (see above). guideIdCache holds
+  // the owned construction lines (text/frame/array guides) so the renderer can
+  // paint them in a faint transparent pass instead of over the text.
   let byLayerCache = null;
   let byLayerEpoch = -1;
+  let guideIdCache = null;
 
   function drawEntities() {
     const bulk = bulkActive();
@@ -17257,16 +17260,26 @@
     const byLayer = new Map();
     for (const l of (state.layers || [])) byLayer.set(l.id, []);
     const fallbackLayer0 = state.layers && state.layers[0] ? state.layers[0].id : null;
+    const guideIds = new Set();
     for (const id in state.entities) {
       const e = state.entities[id];
+      if (!e) continue;
+      if (Array.isArray(e.guide)) for (const gid of e.guide) guideIds.add(+gid);
+      if (e.type === 'array' && e.guideId != null) guideIds.add(+e.guideId);
+    }
+    for (const id in state.entities) {
+      const e = state.entities[id];
+      if (!e || guideIds.has(+id)) continue;   // guides draw in the faint pass
       const lid = layerOf(e);
       let bucket = byLayer.get(lid);
       if (!bucket) bucket = byLayer.get(fallbackLayer0) || null;
       if (bucket) bucket.push(e);
     }
     byLayerCache = byLayer;
+    guideIdCache = guideIds;
     }
     const byLayer = byLayerCache;
+    const guideIds = guideIdCache || new Set();
     const layers = state.layers || [];
     for (let li = layers.length - 1; li >= 0; li--) {
       const l = layers[li];
@@ -17284,6 +17297,20 @@
       batch.clear();
       selBatch.clear();
       if (dim) ctx.restore();
+    }
+    // Owned construction lines (text/frame/array guides): faint (25%), so a
+    // green guide over red text reads as a guide, not as a stroke on top of it.
+    if (guideIds.size) {
+      ctx.save();
+      ctx.globalAlpha = 0.25;
+      const gbatch = new Map();
+      for (const id in state.entities) {
+        const e = state.entities[id];
+        if (!e || !guideIds.has(+id)) continue;
+        drawOneEntity(e, bulk, manySelected, lw, selLw, gbatch, gbatch);
+      }
+      flushEntityBatch(gbatch, lw, manySelected);
+      ctx.restore();
     }
   }
 
@@ -21752,7 +21779,7 @@
       // The vertical guide is born dimensioned to the remembered text height
       const cHdim = newId();
       state.constraints[cHdim] = {
-        id: cHdim, type: 'distance', p1: p0, p2: phId, value: thH, offset: 26
+        id: cHdim, type: 'distance', p1: p0, p2: phId, value: thH, offset: 10
       };
       const id = newId();
       const def = loadTextStyle();
