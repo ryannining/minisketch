@@ -15020,6 +15020,21 @@
     state.entities[idW] = { id: idW, type: 'line', a: p0, b: pwId, color: '#00ff00' };
     const idH = newId();
     state.entities[idH] = { id: idH, type: 'line', a: p0, b: phId, color: '#00ff00' };
+    // Same construction as a text object drawn with the Text tool: the two
+    // guides are constrained square. Without this, changing the font (which
+    // re-fits the aspect ratio) lets the solver shear the frame and the green
+    // guides go slanted. A rotated PDF label keeps its own baseline, so it only
+    // gets the perpendicular constraint, not horizontal.
+    const cPerp = newId();
+    state.constraints[cPerp] = { id: cPerp, type: 'perpendicular', line1: idW, line2: idH };
+    if (Math.abs(uy) < 1e-9) {
+      const cH = newId();
+      state.constraints[cH] = { id: cH, type: 'horizontal', entity: idW };
+    } else if (Math.abs(vy) < 1e-9) {
+      // 90°-rotated label: its height guide runs horizontally, pin that one
+      const cH = newId();
+      state.constraints[cH] = { id: cH, type: 'horizontal', entity: idH };
+    }
     const id = newId();
     const ent = {
       id, type: 'text', p0, pw: pwId, ph: phId, guide: [idW, idH],
