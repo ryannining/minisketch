@@ -12631,7 +12631,9 @@
 
   // The loops worth nesting: fully selected, not owned guide lines. Returns
   // { sheetLoops, partLoops } — green loops (all entities #00ff00) are sheet
-  // candidates, everything else is a part.
+  // candidates, everything else is a part. A TEXT object is a part too: it is
+  // atomic (one object = the whole string), so it is added here as a synthetic
+  // "loop" whose polygon is the convex hull of its glyph outlines.
   function nestCollectLoops() {
     const loops = getLoops();
     const guides = ownedGuideIds();
@@ -12647,12 +12649,73 @@
       });
       (allGreen ? sheetLoops : partLoops).push({ loop, entityIds: eids });
     }
+    // Text never comes out of getLoops() (it owns no points), but it IS real
+    // cut geometry. A text is one rigid part — the hull keeps the letters
+    // together — and the clone that lands in the layout draws the real glyphs
+    // (arrayShapesOf traces them, exactly like a cloned group).
+    for (const id in state.entities) {
+      const e = state.entities[id];
+      if (!e || e.type !== 'text') continue;
+      if (guides.has(+id) || !entityEditable(e)) continue;
+      if (!selected('entity', +id) && !entityFullySelectedByPoints(+id)) continue;
+      const rec = nestTextRec(e);
+      if (rec) partLoops.push(rec);
+    }
     return { sheetLoops, partLoops };
+  }
+
+  // Convex hull (monotone chain) of a point cloud, world mm. Used for text:
+  // the glyph outlines are many rings (letters plus counters), while the engine
+  // packs ONE outer ring per part — the hull is that ring.
+  function nestHull(points) {
+    const pts = points.slice().sort((a, b) => (a.x === b.x ? a.y - b.y : a.x - b.x));
+    if (pts.length < 3) return null;
+    const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    const lower = [];
+    for (const p of pts) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+      lower.push(p);
+    }
+    const upper = [];
+    for (let i = pts.length - 1; i >= 0; i--) {
+      const p = pts[i];
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+      upper.push(p);
+    }
+    lower.pop(); upper.pop();
+    const hull = lower.concat(upper);
+    return hull.length >= 3 ? hull : null;
+  }
+
+  // A text as a nestable part: { loop, entityIds, isText }. The polygon is the
+  // hull of every glyph outline point; the clone later draws the true glyphs.
+  function nestTextRec(e) {
+    if (!e || e.type !== 'text') return null;
+    const out = textOutlineWorld(e);
+    if (!out || !Array.isArray(out.loops) || !out.loops.length) return null;
+    const pts = [];
+    for (const loop of out.loops) {
+      if (!loop) continue;
+      for (const p of loop) {
+        if (p && isFinite(p.x) && isFinite(p.y)) pts.push({ x: p.x, y: p.y });
+      }
+    }
+    const hull = nestHull(pts);
+    if (!hull) return null;
+    return {
+      loop: { poly: hull, area: Math.abs(signedAreaPts(hull)), circle: null },
+      entityIds: [+e.id],
+      isText: true
+    };
   }
 
   // Group part loops into objects: a loop fully inside another loop becomes
   // that loop's hole (compound part = one object). Uses the sampled loop
   // polygon and pointInPoly from core.js.
+  //
+  // A TEXT follows exactly the same rule: a string engraved inside a plate is
+  // part of THAT part (one compound object), not a piece of its own — the
+  // clone that lands carries the text master and the two move together.
   function nestGroupParts(partLoops) {
     const items = partLoops.map(rec => ({ rec, area: rec.loop.area }));
     items.sort((a, b) => b.area - a.area); // outer candidates first
@@ -12745,6 +12808,10 @@
         const paths = [nestEnginePoly(rec.loop.poly, GEOM)];
         const outerArea = MiniSketchNest.Path.getSignedArea(paths[0]);
         for (const h of holes) {
+          // A text carried by a part is ENGRAVING, not a void: it stays out of
+          // the packed ring (the clone draws it from the text master anyway),
+          // so the plate is still offset/packed as a solid plate.
+          if (h.isText) continue;
           const hp = nestEnginePoly(h.loop.poly, GEOM);
           if (Math.sign(MiniSketchNest.Path.getSignedArea(hp)) === Math.sign(outerArea)) hp.reverse();
           paths.push(hp);
@@ -12923,7 +12990,9 @@
       sheetIds: (spec.sheetLoops[0].entityIds || []).slice(),
       objects: spec.objects.map(o => ({
         outerIds: (o.outer.entityIds || []).slice(),
-        holeIds: o.holeRecs.map(h => (h.entityIds || []).slice())
+        holeIds: o.holeRecs.map(h => (h.entityIds || []).slice()),
+        // a text part is resolved through its entity id, not through getLoops()
+        ...(o.outer.isText ? { text: true } : {})
       })),
       params: {
         spacing: spec.spacing, gridMm: spec.gridMm, rotation: spec.rotation,
@@ -12945,6 +13014,26 @@
     return null;
   }
 
+  // Text part by entity id: the hull is rebuilt from the CURRENT glyph
+  // outlines, so a re-nest follows an edited string (Re-nest keeps the id).
+  function nestTextRecById(id) {
+    const e = state.entities[id];
+    if (!e || e.type !== 'text') return null;
+    return nestTextRec(e);
+  }
+
+  // Resolve one remembered rec: a text id rebuilds its hull from the CURRENT
+  // glyphs, anything else is looked up in the loop graph. Both the outer and
+  // the holes go through here — a text is a normal compound member (engraving
+  // on the part), and resolving holes through nestFindLoop() alone silently
+  // DROPPED it on every Re-nest (the layout lost the lettering).
+  function nestEntityRec(ids) {
+    if (!ids || !ids.length) return null;
+    const e = state.entities[+ids[0]];
+    if (e && e.type === 'text') return nestTextRecById(+ids[0]);
+    return nestFindLoop(ids);
+  }
+
   // Rebuild a runnable spec from the remembered ids. null means the geometry it
   // referred to is gone (deleted, merged or redrawn).
   function nestResolveSpec() {
@@ -12954,11 +13043,11 @@
     if (!sheet) return null;
     const objects = [];
     for (const o of mem.objects) {
-      const outer = nestFindLoop(o.outerIds);
+      const outer = o.text ? nestTextRecById(o.outerIds[0]) : nestEntityRec(o.outerIds);
       if (!outer) return null;
       const holeRecs = [];
       for (const h of o.holeIds) {
-        const hr = nestFindLoop(h);
+        const hr = nestEntityRec(h);
         if (hr) holeRecs.push(hr);
       }
       objects.push({ outer, holeRecs });

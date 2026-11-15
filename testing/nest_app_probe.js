@@ -59,6 +59,8 @@ const MiniSketchNest = loadEngine();
 // constants the sliced functions read
 const consts = `
 const NEST_OUT_GAP = 10;
+const NEST_SIMPLIFY_MM = 0.02;
+const NEST_MAX_COPIES = 500;
 const MiniSketchNest = globalThis.__nest;
 const matMul = globalThis.__matMul;
 const state = globalThis.__state;
@@ -83,13 +85,28 @@ const document = globalThis.__document;
 const performance = globalThis.__perf;
 const setTimeout = globalThis.__setTimeout;
 const matFromPlacement = (p) => [1,0,0,1,0,0];
+const textOutlineWorld = globalThis.__textOutlineWorld;
+const entityEditable = globalThis.__entityEditable;
+const selected = globalThis.__selected;
+const entityFullySelectedByPoints = globalThis.__entityFullySelectedByPoints;
+const signedAreaPts = globalThis.__signedAreaPts;
 `;
 const fns = [
+  'nestEnginePoly',
+  'nestCommentCount',
+  'nestHull',
+  'nestTextRec',
+  'nestTextRecById',
   'nestRotationAngles',
   'nestCollectLoops',
   'nestGroupParts',
   'nestBuildEntries',
   'nestPrepare',
+  'nestReadParams',
+  'nestSpecIds',
+  'nestResolveSpec',
+  'nestEntityRec',
+  'nestFindLoop',
   'nestPlacementMatrixAt',
   'nestAnchorOf',
   'nestApplyResult',
@@ -97,9 +114,12 @@ const fns = [
 
 function buildHarness(world) {
   const g = globalThisRef(world);
-  const src = consts + fns + `
-    return { nestRotationAngles, nestCollectLoops, nestGroupParts, nestBuildEntries,
-             nestPrepare, nestPlacementMatrixAt, nestAnchorOf, nestApplyResult };`;
+  const src = 'let nestLastSpec = null;\n' + consts + fns + `
+    return { nestHull, nestTextRec, nestRotationAngles, nestCollectLoops, nestGroupParts,
+             setSpec: (v) => { nestLastSpec = v; },
+             nestBuildEntries, nestPrepare, nestReadParams, nestPlacementMatrixAt,
+             nestAnchorOf, nestApplyResult, nestSpecIds, nestResolveSpec,
+             nestEntityRec };`;
   return new Function('globalThis', src)(g);
 }
 // new Function('globalThis', ...) shadows the real globalThis only if the
@@ -135,6 +155,15 @@ function makeWorld() {
   w.__invalidateLoops = () => {};
   w.__nestSetStatus = (t) => { w.status = t; };
   w.__xfBlock = () => false;
+  // text-part stubs (nestCollectLoops reads them only for e.type === 'text')
+  // read the CURRENT w.textLoops at call time: the harness captures the stub
+  // once, so a per-test swap must go through the world, not the property
+  w.textLoops = [];
+  w.__textOutlineWorld = () => ({ loops: w.textLoops, closed: true });
+  w.__entityEditable = () => true;
+  w.__selected = (kind, id) => (w.selEnts || new Set()).has(+id);
+  w.__entityFullySelectedByPoints = () => false;
+  w.__signedAreaPts = C.signedAreaPts;
   w.__isConstructionColor = (c) => String(c || '').trim().toLowerCase() === '#00ff00';
   w.__colorOf = (e) => (e && e.color) || '#000000';
   w.__ownedGuideIds = () => w.owned || new Set();
@@ -145,6 +174,10 @@ function makeWorld() {
     'nest-flip': { checked: false },
     'nest-pop': { value: '6' },
     'nest-gen': { value: '5' },
+    'nest-grid': { value: '4' },
+    'nest-mut': { value: '0.1' },
+    'nest-ls': { value: '6' },
+    'nest-infinite': { checked: false },
   };
   w.__document = { getElementById: (id) => fields[id] || null };
   w.fields = fields;
@@ -222,6 +255,79 @@ console.log('\n== nestCollectLoops ==');
   w.owned = new Set([1, 2, 3, 4]);
   const sel2 = h.nestCollectLoops();
   check('owned green guides dropped', sel2.sheetLoops.length === 0 && sel2.partLoops.length === 2);
+}
+
+console.log('\n== nest text part ==');
+{
+  const w = makeWorld();
+  makeLoops(w);
+  // a text "0": outer ring 10x20 at (300,0) plus its counter
+  const outer = [{ x: 300, y: 0 }, { x: 310, y: 0 }, { x: 310, y: 20 }, { x: 300, y: 20 }];
+  const counter = [{ x: 303, y: 5 }, { x: 307, y: 5 }, { x: 307, y: 15 }, { x: 303, y: 15 }];
+  w.state.entities[30] = { id: 30, type: 'text', p0: 't0', pw: 't1', ph: 't2', text: '0', color: '#0000ff' };
+  w.textLoops = [outer, counter];
+  w.selEnts = new Set([30]);
+  w.selectedLoops = [];
+  const h = buildHarness(w);
+  const sel = h.nestCollectLoops();
+  const rec = sel.partLoops.find(r => r.isText);
+  check('a selected text becomes a nestable part', !!rec);
+  check('the text part points at the text entity',
+    !!rec && rec.entityIds.length === 1 && rec.entityIds[0] === 30);
+  const xs = rec ? rec.loop.poly.map(p => p.x) : [];
+  const ys = rec ? rec.loop.poly.map(p => p.y) : [];
+  check('hull covers the glyph bbox',
+    !!rec && Math.min(...xs) === 300 && Math.max(...xs) === 310 &&
+    Math.min(...ys) === 0 && Math.max(...ys) === 20,
+    rec ? JSON.stringify([Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]) : 'none');
+  check('hull is the 4 corners', !!rec && rec.loop.poly.length === 4, rec && rec.loop.poly.length);
+  check('unselected text is ignored', (() => {
+    w.selEnts = new Set();
+    const s2 = h.nestCollectLoops();
+    return !s2.partLoops.some(r => r.isText);
+  })());
+
+  // grouping, standalone: a text outside every loop is its own object
+  const objs = h.nestGroupParts([
+    { loop: w.loops[1], entityIds: [10, 11, 12, 13] },
+    { loop: w.loops[2], entityIds: [14, 15, 16, 17] },
+    { loop: w.loops[3], entityIds: [18, 19, 20, 21] },
+    rec,
+  ]);
+  check('standalone text is one object of its own', objs.filter(o => o.outer.isText).length === 1 &&
+    objs.find(o => o.outer.isText).holeRecs.length === 0);
+  check('standalone text leaves the other parts alone', objs.length === 3, objs.length);
+  check('standalone text is not turned into a hole', objs.every(o => o.holeRecs.every(h => !h.isText)));
+
+  // a text whose hull sits INSIDE a part is part of THAT part (engraving)
+  const inner = [{ x: 210, y: 10 }, { x: 220, y: 10 }, { x: 220, y: 25 }, { x: 210, y: 25 }];
+  w.textLoops = [inner];
+  const recIn = h.nestTextRec(w.state.entities[30]);
+  const objsIn = h.nestGroupParts([
+    { loop: w.loops[1], entityIds: [10, 11, 12, 13] },   // plate (40x40)
+    recIn,
+  ]);
+  check('text inside a part joins that part as a compound object',
+    objsIn.length === 1 && objsIn[0].holeRecs.length === 1 && objsIn[0].holeRecs[0].isText,
+    objsIn.length + ' objects');
+  const entryIn = h.nestBuildEntries([{ loop: w.loops[0], entityIds: [1, 2, 3, 4] }],
+    objsIn, 2, '0', false)[0];
+  check('the packed ring is the plate only (text is engraving, not a void)',
+    entryIn.variants[0].paths.length === 1, entryIn.variants[0].paths.length);
+  check('the compound carries both masters (plate + text)',
+    entryIn._rec.holes.some(hh => hh.isText && hh.entityIds[0] === 30));
+
+  const sheet = { loop: w.loops[0], entityIds: [1, 2, 3, 4] };
+  const entries = h.nestBuildEntries([sheet], objs, 2, '0', false);
+  const textEntry = entries.find(e => e._rec && e._rec.outer.isText);
+  check('text gets one engine entry', !!textEntry && textEntry.variants.length === 1);
+  check('text entry carries a single ring (the hull)',
+    !!textEntry && textEntry.variants[0].paths.length === 1);
+  const GEOM = MiniSketchNest.GEOM_SCALE;
+  const tb = textEntry ? textEntry.variants[0].getBounds() : null;
+  check('text entry is 10x20 mm plus spacing (2mm -> 12x22)',
+    !!tb && Math.round(tb.width / GEOM) === 12 && Math.round(tb.height / GEOM) === 22,
+    tb ? (tb.width / GEOM) + 'x' + (tb.height / GEOM) : 'none');
 }
 
 console.log('\n== nestGroupParts ==');
@@ -377,8 +483,11 @@ console.log('\n== nestApplyResult creates clones ==');
   const before = Object.keys(w.state.entities).length;
   h.nestApplyResult(job, placements, placedCount, unplacedCount, false);
   const clones = Object.values(w.state.entities).filter(e => e && e.kind === 'clone');
-  check('one clone per object created', clones.length === objects.length,
-    clones.length + ' vs ' + objects.length);
+  // +1: the sheet itself is re-emitted as the FRAME clone of the result block
+  const frames = clones.filter(c => c.params && c.params.role === 'frame');
+  check('one clone per object created (+ the sheet frame)', clones.length === objects.length + 1,
+    clones.length + ' vs ' + objects.length + ' + frame');
+  check('the extra clone is the sheet frame', frames.length === 1, frames.length);
   check('history pushed once + commit ran', w.historyPushed === true && w.committed === true);
   check('selection = new clone ids', w.ui.selection.length === clones.length &&
     w.ui.selection.every(s => s.kind === 'entity' && clones.some(c => c.id === s.id)));
@@ -422,8 +531,52 @@ console.log('\n== nestApplyResult creates clones ==');
   // no placements: every part goes to the unplaced stack
   h2.nestApplyResult(job2, placements.filter(p => p.lcolor === '#00ff00'), 0, 1, false);
   const clones2 = Object.values(w2.state.entities).filter(e => e && e.kind === 'clone');
-  check('unplaced part still becomes a clone (stack branch)', clones2.length === 1,
+  // the unplaced part is stacked below the block, plus the sheet frame clone
+  check('unplaced part still becomes a clone (stack branch)', clones2.length === 2,
     clones2.length + ' clones');
+}
+
+console.log('\n== nestResolveSpec keeps text members ==');
+{
+  const w = makeWorld();
+  makeLoops(w);
+  const outer = [{ x: 210, y: 10 }, { x: 220, y: 10 }, { x: 220, y: 25 }, { x: 210, y: 25 }];
+  w.textLoops = [outer];
+  w.state.entities[30] = { id: 30, type: 'text', p0: 't0', pw: 't1', ph: 't2', text: '0', color: '#0000ff' };
+  w.selEnts = new Set([30]);
+  const h = buildHarness(w);
+  const sel = h.nestCollectLoops();
+  const objs = h.nestGroupParts([
+    { loop: w.loops[1], entityIds: [10, 11, 12, 13] },
+    { loop: w.loops[2], entityIds: [14, 15, 16, 17] },
+    { loop: w.loops[3], entityIds: [18, 19, 20, 21] },
+    sel.partLoops.find(r => r.isText),
+  ]);
+  const spec = {
+    sheetLoops: [{ loop: w.loops[0], entityIds: [1, 2, 3, 4] }], objects: objs,
+    spacing: 2, gridMm: 4, rotation: '0', flip: false,
+    popSize: 5, generations: 5, mutation: 0.1, infinite: false,
+  };
+  h.setSpec(h.nestSpecIds(spec));
+  // the plate that used to swallow the text keeps the text in its holeIds
+  const withText = h.nestSpecIds(spec).objects.filter(o => o.holeIds.some(ids => ids[0] === 30));
+  check('spec remembers the text as a compound member', withText.length === 1,
+    withText.length + ' objects');
+  const back = h.nestResolveSpec();
+  check('re-nest resolves the whole spec again', !!back);
+  const recBack = back && back.objects.flatMap(o => o.holeRecs).find(r => r.isText);
+  check('re-nest keeps the text member (was dropped -> lettering vanished)', !!recBack);
+  check('re-nest text still points at the text entity',
+    !!recBack && recBack.entityIds[0] === 30);
+  check('re-nest text hull is rebuilt from the current glyphs',
+    !!recBack && recBack.loop.poly.length === 4 && Math.max(...recBack.loop.poly.map(p => p.x)) === 220);
+  // a deleted text must not nest as a ghost: the resolve drops that member and
+  // the run still works (the plate nests without the lettering)
+  delete w.state.entities[30];
+  w.textLoops = [];
+  const gone = h.nestResolveSpec();
+  check('deleted text -> member dropped, run still valid', !!gone &&
+    !gone.objects.flatMap(o => o.holeRecs).some(r => r.isText));
 }
 
 console.log('\n== nestPrepare validation ==');
