@@ -1457,7 +1457,9 @@
       pickFilter.point = true;
       pickFilter.line = true;
       pickFilter.loop = true;
-      ui.showPoints = true;
+      // F2 starts selection-based: the points of the selected object (or an
+      // explicit point selection) show. The Points menu toggle is the
+      // "show all points" override.
     }
     savePickFilter();
     syncPickFilterUI();
@@ -1925,7 +1927,7 @@
     // Default is F1; init() forces it on every reload.
     mode: 'select',
     showGrid: true,
-    showPoints: true,
+    showPoints: false,
     showLoops: true,
     raw: null,
     // Touch toggle state for Shift, Ctrl, Alt (used when no modifier key is pressed)
@@ -18288,25 +18290,17 @@
     const selIdx = selectionIndex();
     const selEnts = selIdx.entity;
     const selPts = selIdx.point;
-    // F1 (select/move) hides the plain node markers — that is what F2 is for.
-    // An explicit POINT selection (F3 junction points) is the exception: the
-    // command would otherwise look like it did nothing. Selected points draw
-    // as squares, so a junction reads as a box on the drawing.
+    // Visibility rule:
+    //  - an explicit point selection (F3 junction points, a point picked in
+    //    node edit) always shows;
+    //  - in F1 (select/move) nothing else shows;
+    //  - in F2 (node edit) the points of a selected line/loop/frame show, and
+    //    the Points menu toggle is the "show all points" override.
+    const showAll = !!ui.showPoints && ui.mode === 'node';
     if (ui.mode === 'select' && !selPts.size) return;
-    // The Points toggle shows the handles of the whole drawing: a point is drawn
-    // when its layer is VISIBLE, whatever layer is active. Grabbing is the
-    // narrower rule (pointEditable, active layer only) and is applied at the
-    // hit-test, not here — using it here hid every point outside the active
-    // layer.
-    // With the Points toggle off the points of a selected object still show,
-    // so a selection can still be fine-tuned point by point.
-    if (!ui.showPoints && !selEnts.size && !selPts.size) return;
-    // fast zoom mode: plain markers carry almost no information per pixel at
-    // 24k points; selected/hover markers (decimated when bulk) still show
-    if (fastMode && !ui.showPoints) return;
-    // in fast mode plain markers drop only when the user did not explicitly
-    // turn Points on; selected/hover markers (decimated when bulk) still show
-    const skipPlain = fastMode && !ui.showPoints;
+    if (ui.mode === 'node' && !showAll && !selEnts.size && !selPts.size) return;
+    if (fastMode && !showAll && !selPts.size && !selEnts.size) return;
+    const skipPlain = fastMode && !showAll;
     // Every marker goes into one of three batched paths (plain, selected,
     // hovered) with a single fill + stroke each, and off-screen markers are
     // culled — so thousands of handles stay visible and selectable without a
@@ -18331,16 +18325,19 @@
     // points owned by selected entities, computed once per SELECTION (not per
     // frame): the cache key is the selection index object, which rebuilds
     // exactly when the selection changes
-    let selEntPoints = selEntPointsCache || EMPTY_SET;
-    if (selEnts.size && selEntPointsCacheFor !== selIdx) {
-      selEntPoints = new Set();
-      for (const eid of selEnts) {
-        const e = state.entities[eid];
-        if (!e) continue;
-        for (const pid of entityPointIds(e)) selEntPoints.add(+pid);
+    let selEntPoints = EMPTY_SET;
+    if (selEnts.size) {
+      if (selEntPointsCacheFor !== selIdx) {
+        selEntPoints = new Set();
+        for (const eid of selEnts) {
+          const e = state.entities[eid];
+          if (!e) continue;
+          for (const pid of entityPointIds(e)) selEntPoints.add(+pid);
+        }
+        selEntPointsCache = selEntPoints;
+        selEntPointsCacheFor = selIdx;
       }
-      selEntPointsCache = selEntPoints;
-      selEntPointsCacheFor = selIdx;
+      selEntPoints = selEntPointsCache || EMPTY_SET;
     }
     // marker density: at most one plain marker per 8px screen cell — at low
     // zoom thousands of them overlap into one blob anyway. Selected points are
@@ -18370,7 +18367,7 @@
       // grab: it keeps the plain style and skips the selection/hover emphasis,
       // which belongs to the active layer only.
       const grabbable = pointEditable(id);
-      let show = ui.showPoints || isSel || isHover || selEntPoints.has(id);
+      const show = isSel || (ui.mode === 'node' && (isHover || showAll || selEntPoints.has(id)));
       if (!show) continue;
       // inline screen math: w2s() allocates an object per call, and ten
       // thousand markers per frame is what pushed the garbage collector into
