@@ -15311,7 +15311,7 @@
   }
 
   // Ctrl+Shift+A: select every object that shares the colour of the pick
-  // Alt+3: junction points — the points more than two lines run through.
+  // F3 / Alt+3: junction points — points used by 3 or more lines.
   // With a selection only the selection is examined, so picking the wanted
   // points first and pressing Alt+3 leaves exactly those junctions selected.
   function cmdSelectJunctionPoints() {
@@ -15330,12 +15330,15 @@
       let lines = 0;
       for (const u of uses) {
         const e = state.entities[+u.id];
-        if (e && e.type !== 'note' && e.type !== 'array') lines++;
+        // line-like geometry only: text frames / images / arrays / notes that
+        // happen to reuse the point are not lines through a junction
+        if (e && (e.type === 'line' || e.type === 'arc' ||
+          e.type === 'circle' || e.type === 'spline')) lines++;
       }
-      if (lines > 3) out.push({ kind: 'point', id: pid });
+      if (lines >= 3) out.push({ kind: 'point', id: pid });
     }
     if (!out.length) {
-      toast('No junction points (used by more than 3 lines)');
+      toast('No junction points (no point used by 3+ lines)');
       return;
     }
     ui.selection = out;
@@ -18282,9 +18285,14 @@
   let selEntPointsCacheFor = null;
   const EMPTY_SET = new Set();
   function drawPoints() {
-    // F1 (select/move) hides ALL node markers — not even a selected object
-    // shows its points; that is what F2 is for.
-    if (ui.mode === 'select') return;
+    const selIdx = selectionIndex();
+    const selEnts = selIdx.entity;
+    const selPts = selIdx.point;
+    // F1 (select/move) hides the plain node markers — that is what F2 is for.
+    // An explicit POINT selection (F3 junction points) is the exception: the
+    // command would otherwise look like it did nothing. Selected points draw
+    // as squares, so a junction reads as a box on the drawing.
+    if (ui.mode === 'select' && !selPts.size) return;
     // The Points toggle shows the handles of the whole drawing: a point is drawn
     // when its layer is VISIBLE, whatever layer is active. Grabbing is the
     // narrower rule (pointEditable, active layer only) and is applied at the
@@ -18292,9 +18300,6 @@
     // layer.
     // With the Points toggle off the points of a selected object still show,
     // so a selection can still be fine-tuned point by point.
-    const selIdx = selectionIndex();
-    const selEnts = selIdx.entity;
-    const selPts = selIdx.point;
     if (!ui.showPoints && !selEnts.size && !selPts.size) return;
     // fast zoom mode: plain markers carry almost no information per pixel at
     // 24k points; selected/hover markers (decimated when bulk) still show
@@ -29283,7 +29288,7 @@ function cmdSplitCurve() {
         cmdSelectSameColor();
         return;
       }
-      // Alt+3: select the junction points (used by more than 3 lines)
+      // Alt+3: select the junction points (used by 3+ lines)
       if (ev.altKey && (ev.key === '3' || ev.key === '#')) {
         ev.preventDefault();
         ev.stopPropagation();
