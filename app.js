@@ -23513,10 +23513,20 @@ function cmdSplitCurve() {
     // the entities they belong to follow (drags, selection info, segments).
     const picked = new Map(ui.selection.map(s => [s.kind + ':' + s.id, s]));
     if (!d.additive) picked.clear();
+    // Text/picture frames are container objects: their p0/pw/ph are the frame,
+    // not marquee point targets. They are picked as whole objects below (loop
+    // filter), so dragging a marquee never grabs a text by its corner points.
+    const framePointIds = new Set();
+    for (const key in state.entities) {
+      const e = state.entities[key];
+      if (!e || (e.type !== 'text' && e.type !== 'image')) continue;
+      for (const pid of entityPointIds(e)) framePointIds.add(+pid);
+    }
     for (const key in state.points) {
       const p = state.points[key];
       if (!hits(p.x, p.y)) continue;
       if (!pickFilter.point) continue;   // pick filter 1: points locked
+      if (framePointIds.has(+key)) continue;
       if (!d.crossLayer && !pointEditable(+key)) continue;
       if (d.crossLayer) {
         const uses = pointUses(+key) || [];
@@ -23534,7 +23544,8 @@ function cmdSplitCurve() {
     for (const key in state.entities) {
       const e = state.entities[key];
       if (!e) continue;
-      if (e.type !== 'art' && e.type !== 'array' && e.type !== 'part') continue;
+      if (e.type !== 'art' && e.type !== 'array' && e.type !== 'part' &&
+        e.type !== 'text' && e.type !== 'image') continue;
       if (!pickFilter.loop && e.type !== 'part') continue;   // filter 3: container loop-like terkunci
       if (!d.crossLayer && !entityEditable(e)) continue;
       const bb = entityBounds(e);
