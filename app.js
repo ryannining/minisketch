@@ -10183,11 +10183,21 @@
     } else if (e.type === 'spline') {
       const samples = splineSamplesOf(e);
       if (samples.length < 2) return;
-      const p0 = w2s(samples[0].x, samples[0].y);
-      path.moveTo(p0.x, p0.y);
-      for (let i = 1; i < samples.length; i++) {
+      // Realtime LOD: at zoom-out consecutive samples land on the same pixel;
+      // emitting them all only bloats the Path2D. Skip a sample that is closer
+      // than ~0.75 px to the last emitted one (no cache, no pre-pass).
+      let lx = 0, ly = 0, has = false;
+      const tol2 = 0.75 * 0.75;
+      for (let i = 0; i < samples.length; i++) {
         const q = w2s(samples[i].x, samples[i].y);
-        path.lineTo(q.x, q.y);
+        if (has) {
+          const dx = q.x - lx, dy = q.y - ly;
+          if (dx * dx + dy * dy < tol2) continue;
+          path.lineTo(q.x, q.y);
+        } else {
+          path.moveTo(q.x, q.y);
+        }
+        lx = q.x; ly = q.y; has = true;
       }
     } else if (e.type === 'arc') {
       const ad = arcData(e);
@@ -10219,11 +10229,18 @@
       const s = splineSamplesOf(e);
       if (s.length < 2) return;
       ctx.beginPath();
-      const p0 = w2s(s[0].x, s[0].y);
-      ctx.moveTo(p0.x, p0.y);
-      for (let i = 1; i < s.length; i++) {
+      let lx = 0, ly = 0, has = false;
+      const tol2 = 0.75 * 0.75;
+      for (let i = 0; i < s.length; i++) {
         const p = w2s(s[i].x, s[i].y);
-        ctx.lineTo(p.x, p.y);
+        if (has) {
+          const dx = p.x - lx, dy = p.y - ly;
+          if (dx * dx + dy * dy < tol2) continue;
+          ctx.lineTo(p.x, p.y);
+        } else {
+          ctx.moveTo(p.x, p.y);
+        }
+        lx = p.x; ly = p.y; has = true;
       }
       ctx.stroke();
     } else if (e.type === 'arc') {
@@ -17914,10 +17931,44 @@
     return out;
   }
 
+  // Points shared by 2+ line-like entities form a chain/polyline. A chain's
+  // tiny segments must NOT be dropped just because each is sub-pixel — that is
+  // what punched the dashed gaps when zoomed out. The set is per geometry epoch
+  // (one scan per edit), so the per-entity test stays O(1).
+  let chainPointCache = null;
+  let chainPointEpoch = -1;
+  function chainPointIds() {
+    if (chainPointCache && chainPointEpoch === geometryEpoch) return chainPointCache;
+    const uses = new Map();
+    for (const id in state.entities) {
+      const e = state.entities[id];
+      if (!e) continue;
+      let ids = null;
+      if (e.type === 'line') ids = [e.a, e.b];
+      else if (e.type === 'spline') ids = e.pts;
+      else if (e.type === 'arc' || e.type === 'circle') ids = [e.c, e.s, e.e].filter(v => v != null);
+      if (!ids) continue;
+      for (const pid of ids) {
+        if (pid == null) continue;
+        uses.set(+pid, (uses.get(+pid) || 0) + 1);
+      }
+    }
+    const out = new Set();
+    for (const [pid, n] of uses) if (n >= 2) out.add(pid);
+    chainPointCache = out;
+    chainPointEpoch = geometryEpoch;
+    return out;
+  }
   function entitySubPixel(e) {
     const b = entityQuickBounds(e);
     if (!b) return false;
-    return (b.maxX - b.minX) * view.zoom < 1 && (b.maxY - b.minY) * view.zoom < 1;
+    if ((b.maxX - b.minX) * view.zoom >= 1 || (b.maxY - b.minY) * view.zoom >= 1) return false;
+    // keep tiny segments that belong to a chain (see above)
+    if (e.type === 'line') {
+      const ch = chainPointIds();
+      if (ch.has(+e.a) || ch.has(+e.b)) return false;
+    }
+    return true;
   }
 
   // A part is visualisation only: green stroke (dark on the light theme, light
@@ -17933,12 +17984,19 @@
     ctx.strokeStyle = isSel ? themedCanvasColor(e.color || PART_COLOR) : dimColor(themedCanvasColor(e.color || PART_COLOR));
     if (isHover && !isSel) ctx.lineWidth = width * 1.4;
     ctx.beginPath();
+    const tol2 = 0.75 * 0.75;
     for (const pl of (e.polylines || [])) {
+      let lx = 0, ly = 0, has = false;
       for (let i = 0; i < pl.length; i++) {
         const w = matApply(t, { x: pl[i][0], y: pl[i][1] });
         const s = w2s(w.x, w.y);
-        if (i === 0) ctx.moveTo(s.x, s.y);
-        else ctx.lineTo(s.x, s.y);
+        if (!has) { ctx.moveTo(s.x, s.y); has = true; }
+        else {
+          const dx = s.x - lx, dy = s.y - ly;
+          if (dx * dx + dy * dy < tol2) continue;   // realtime LOD
+          ctx.lineTo(s.x, s.y);
+        }
+        lx = s.x; ly = s.y;
       }
     }
     ctx.stroke();
