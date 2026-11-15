@@ -140,6 +140,14 @@
           </div>
           <div class="ribbon-page hidden" data-rpage="arrange" id="rpage-arrange" role="tabpanel" aria-labelledby="rtab-arrange">
             <div class="rb-panel">
+              <button class="rb-btn tool-btn" data-tool="dragwall" title="Drag wall (W) — drag a selection with a live offset envelope. The wall stops at the last collision-free position and is never cut geometry."><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5" y="5" width="10" height="10" rx="1" fill="none" stroke="currentColor"/><rect x="2.5" y="2.5" width="15" height="15" rx="2" fill="none" stroke="currentColor" stroke-dasharray="2.5 2"/></svg><span>Drag&nbsp;wall</span></button>
+              <label class="rb-wall" title="Wall thickness in mm (default 1 mm; wheel also adjusts it while the tool is active)">
+                <span>Wall</span>
+                <input id="wall-mm" type="number" min="0" max="50" step="0.1" value="1" inputmode="decimal">
+                <span>mm</span>
+              </label>
+            </div>
+            <div class="rb-panel">
               <button class="rb-btn" data-arrange="left" title="Align left edges of the selected objects"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3v14" stroke="currentColor"/><rect x="5.5" y="5" width="8" height="4" fill="currentColor" opacity="0.7"/><rect x="5.5" y="11" width="5" height="4" fill="currentColor" opacity="0.7"/></svg><span>Align L</span></button>
               <button class="rb-btn" data-arrange="center-h" title="Center horizontally (align vertical centers)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v14" stroke="currentColor"/><rect x="5" y="5" width="6" height="4" fill="currentColor" opacity="0.7"/><rect x="7" y="11" width="6" height="4" fill="currentColor" opacity="0.7"/></svg><span>Center H</span></button>
               <button class="rb-btn" data-arrange="right" title="Align right edges"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 3v14" stroke="currentColor"/><rect x="6.5" y="5" width="8" height="4" fill="currentColor" opacity="0.7"/><rect x="9.5" y="11" width="5" height="4" fill="currentColor" opacity="0.7"/></svg><span>Align R</span></button>
@@ -193,6 +201,12 @@
 
     <div class="stage" id="stage">
       <div class="status-hint" id="status-hint">Select geometry or pick a drawing tool</div>
+      <div class="wall-indicator hidden" id="wall-indicator" role="status" aria-live="polite" data-state="armed">
+        <span class="wall-indicator-dot" aria-hidden="true"></span>
+        <span class="wall-indicator-title">Drag wall</span>
+        <span class="wall-indicator-value" id="wall-indicator-value">1 mm</span>
+        <span class="wall-indicator-state" id="wall-indicator-state">ON</span>
+      </div>
       <canvas id="canvas" tabindex="0" role="application" aria-label="Drawing canvas — arrow keys nudge the selection, Shift+F fits the view. All drawing commands are also reachable from the ribbon and the menus."></canvas>
 
       <div class="stage-lth tf-strip" id="tf-strip" title="Selection bounds &mdash; type a number or a formula like 100*2 or 150%">

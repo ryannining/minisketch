@@ -1742,6 +1742,70 @@ function lineLineIntersect(a, b, c, d) {
   return [{ x: a.x + rx * t, y: a.y + ry * t }];
 }
 
+// Axis-aligned bounds of a point list. Used by the drag-wall collision cache:
+// every obstacle and every candidate wall gets one box before the (much more
+// expensive) segment sweep.
+function polyBBox(pts) {
+  if (!pts || !pts.length) return null;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of pts) {
+    if (!p || !isFinite(p.x) || !isFinite(p.y)) continue;
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+}
+
+function bboxOverlap(a, b) {
+  if (!a || !b) return false;
+  return a.minX <= b.maxX && a.maxX >= b.minX &&
+         a.minY <= b.maxY && a.maxY >= b.minY;
+}
+
+// Inclusive segment intersection, including touching and collinear overlap.
+// The wall is a clearance envelope: a wall that merely touches an obstacle is
+// already a collision. The orientation tests are the standard ones; the small
+// epsilon keeps a shared endpoint (two contours that meet exactly) from being
+// missed by a floating-point sign flip.
+function segmentsIntersect(a, b, c, d) {
+  const orient = (p, q, r) =>
+    (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const onSeg = (p, q, r) =>
+    r.x >= Math.min(p.x, q.x) - 1e-9 && r.x <= Math.max(p.x, q.x) + 1e-9 &&
+    r.y >= Math.min(p.y, q.y) - 1e-7 && r.y <= Math.max(p.y, q.y) + 1e-7 &&
+    Math.abs(orient(p, q, r)) <= 1e-7;
+  const o1 = orient(a, b, c);
+  const o2 = orient(a, b, d);
+  const o3 = orient(c, d, a);
+  const o4 = orient(c, d, b);
+  if (((o1 > 0 && o2 < 0) || (o1 < 0 && o2 > 0)) &&
+      ((o3 > 0 && o4 < 0) || (o3 < 0 && o4 > 0))) return true;
+  if (onSeg(a, b, c) || onSeg(a, b, d) || onSeg(c, d, a) || onSeg(c, d, b)) return true;
+  return false;
+}
+
+// Boundary-only intersection between two polylines / polygons. Area containment
+// is deliberately NOT tested here: a part placed inside a sheet outline is a
+// valid nesting layout, and a filled-area test would refuse it. What must not
+// happen is one boundary crossing another.
+function polylineIntersectsPolyline(ptsA, closedA, ptsB, closedB) {
+  const na = ptsA ? ptsA.length : 0;
+  const nb = ptsB ? ptsB.length : 0;
+  if (na < 2 || nb < 2) return false;
+  const ea = closedA ? na : na - 1;
+  const eb = closedB ? nb : nb - 1;
+  for (let i = 0; i < ea; i++) {
+    const a = ptsA[i], b = ptsA[(i + 1) % na];
+    for (let j = 0; j < eb; j++) {
+      const c = ptsB[j], d = ptsB[(j + 1) % nb];
+      if (segmentsIntersect(a, b, c, d)) return true;
+    }
+  }
+  return false;
+}
+
 function lineCircleIntersect(a, b, c, r) {
   const dx = b.x - a.x, dy = b.y - a.y;
   const fx = a.x - c.x, fy = a.y - c.y;
@@ -3780,6 +3844,7 @@ if (typeof module !== 'undefined' && module.exports) {
     lmSolve, solveLinear,
     partTransform, partMarkerWorld, solveAssembly,
     pointInPoly, signedAreaPts, interiorProbe, normalizeWinding, chainPolylines,
+    polyBBox, bboxOverlap, segmentsIntersect, polylineIntersectsPolyline,
     dedupeSorted, lineLineIntersect, lineCircleIntersect,
     parseDxf, pdfContentPrims, parsePdf, parseCdr, cdrRectNodes, cdrEllipseNodes,
     imagePixelDensity, IMAGE_DEFAULT_DPI,

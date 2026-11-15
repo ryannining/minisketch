@@ -1358,6 +1358,9 @@
     { group: 'Geometry', key: 'offsetMiter', label: 'Offset miter limit', unit: 'x',
       def: 4, min: 1, max: 10, step: 0.5,
       help: 'How far a mitred corner may reach before Clipper squares it off.' },
+    { group: 'Geometry', key: 'wallDragMm', label: 'Drag wall thickness', unit: 'mm',
+      def: 1, min: 0, max: 50, step: 0.1,
+      help: 'The outward offset the Drag wall tool wraps around a selected compound object. The wall is a live collision envelope only: it is drawn while you drag and is never added to the drawing. 0 = the outline itself; 1 mm keeps a 1 mm gap to every other object.' },
     { group: 'Geometry', key: 'offsetJoin', label: 'Offset corners', unit: '',
       def: 'sharp', choices: [['sharp', 'Sharp (miter)'], ['round', 'Rounded'], ['square', 'Squared (bevel)']],
       help: 'Corner shape an offset produces: sharp mitres, rounded arcs, or squared-off bevels.' },
@@ -1477,6 +1480,7 @@
   let OFFSET_TOL = 0.05;
   let OFFSET_JOIN = 'sharp';
   let OFFSET_ARC_TOL = 0.05;
+  let WALL_DRAG_MM = 1;
   // Renderer: markers and strokes are BASE_PX * zoom, clamped to the min/max
   // percentages (a marker must stay clickable when zoomed out and must not
   // swamp the drawing when zoomed in).
@@ -1597,6 +1601,7 @@
     OFFSET_TOL = settings.offsetTol;
     OFFSET_JOIN = settings.offsetJoin;
     OFFSET_ARC_TOL = settings.offsetArcTol;
+    WALL_DRAG_MM = clamp(+settings.wallDragMm || 0, 0, 50);
     POINT_SIZE = settings.pointSize;
     POINT_ZOOM_MIN = settings.pointZoomMin / 100;
     POINT_ZOOM_MAX = Math.max(settings.pointZoomMin, settings.pointZoomMax) / 100;
@@ -1613,6 +1618,8 @@
     if (cnc) cnc.tol = settings.cncFlatten;
     // the text tracer caches by raster size, so drop it whenever it changes
     if (textTraceCache && textTraceCache.clear) textTraceCache.clear();
+    syncWallInput();
+    syncWallIndicator();
     invalidateLoops();
     if (W > 1) resize();   // pick up the new canvas quality and repaint
     if (typeof updateCncTolField === 'function') updateCncTolField();
@@ -1867,6 +1874,7 @@
     saveSettings();
     fillSettingsForm();
     refreshLinkedSettings();
+    syncWallIndicator();
     render();
     // P1-13: Apply keeps the modal open — the search + tweak loop stays alive.
     // Close explicitly with Close / Esc / backdrop.
@@ -1879,6 +1887,7 @@
     applySettings();
     saveSettings();
     fillSettingsForm();
+    syncWallIndicator();
     render();
     toast('Settings back to their defaults');
   }
@@ -2305,6 +2314,15 @@
     return true;
   }
 
+  // Drag wall borrows the whole select-mode interaction (pick, marquee, body
+  // drag, loop click) and only adds the collision envelope on top. Keeping it a
+  // real tool (W) means the ribbon/menu can show it as a mode; every select-mode
+  // branch below has to accept it as the same interaction.
+  function isSelectLikeTool(tool) {
+    const t = tool || ui.tool;
+    return t === 'select' || t === 'dragwall';
+  }
+
   function setTool(tool) {
     if (ui.transform.pending) {
       toast('Apply or cancel the transform first');
@@ -2316,6 +2334,7 @@
       ui.xfHits = [];
       document.body.classList.remove('xf-active');
       document.body.classList.remove('xf-pending');
+      ui.toolBeforeTransform = null;   // explicit tool switch: no restore target
     }
     if (ui.tool === tool) return;
     cancelDraft();
@@ -2421,7 +2440,7 @@
       canvas.style.cursor = ui.drag && ui.drag.kind && ui.drag.kind.indexOf('xf') === 0 ? 'grabbing' : 'default';
       return;
     }
-    if (ui.tool === 'select') {
+    if (ui.tool === 'select' || ui.tool === 'dragwall') {
       canvas.style.cursor = ui.hover && ui.hover.kind === 'partMarker' ? 'grab' : 'default';
     } else if (ui.tool === 'trim') {
       canvas.style.cursor = 'crosshair';
@@ -5042,6 +5061,47 @@
     if (bb.maxY > b.maxY) b.maxY = bb.maxY;
     return b;
   }
+  // Everything that belongs INSIDE one outer loop: the entities fully inside
+  // it (nested loops' lines, stray lines, texts) plus the point-less containers
+  // (art groups, clone arrays, parts) whose bounds sit inside, plus the member
+  // entities of any art group caught this way (a group's members carry the
+  // geometry, so translating the group id alone would move nothing).
+  function arrangeLoopContents(loop, selEnts) {
+    const ids = [];
+    const add = (id) => { if (!ids.includes(+id)) ids.push(+id); };
+    for (const id of loopEntities(loop)) add(id);
+    // ONLY explicitly selected children travel with the parent. Whatever else
+    // happens to sit inside the loop (unselected objects, geometry on other
+    // layers) must stay where it is — arrange never kidnaps bystanders.
+    const kids = entitiesInsideLoop(loop)
+      .filter(id => selEnts.has(+id))
+      .filter(id => {
+        const e = state.entities[id];
+        return e && entityEditable(e);
+      });
+    const queue = kids.slice();
+    while (queue.length) {
+      const id = +queue.shift();
+      if (ids.includes(id)) continue;
+      add(id);
+      const e = state.entities[id];
+      if (!e) continue;
+      // A selected art group travels as one: its guide points and the member
+      // entities carrying the geometry follow (members respect the layer rule).
+      if (e.type === 'art' && Array.isArray(e.guide)) {
+        for (const gid of e.guide) {
+          const g = state.entities[gid];
+          if (g && entityEditable(g)) add(gid);
+        }
+      }
+      for (const eid in state.entities) {
+        const m = state.entities[eid];
+        if (m && m.group === id && entityEditable(m) && !ids.includes(+eid)) queue.push(+eid);
+      }
+    }
+    return ids;
+  }
+
   function arrangeableUnits() {
     const selEnts = new Set();
     const selPts = new Set();
@@ -5054,6 +5114,7 @@
     // 1) complete loops: all of the loop's ENTITIES selected, or all of its
     //    POINTS selected (a marquee leaves point selections, which the entity
     //    cascade may not fill in when pick filters are off)
+    const loops = [];
     for (const loop of getLoops()) {
       const ids = loopEntities(loop);
       if (!ids.length) continue;
@@ -5074,19 +5135,50 @@
       let b = null;
       for (const id of ids) {
         b = mergeBounds(b, entityTightBounds(state.entities[id]));
-        seenEnt.add(+id);
       }
-      if (b) units.push({ ids, b });
+      if (b) loops.push({ loop, ids, b });
     }
-    // 2) container objects (group / clone-array / part), skipping any already
-    //    consumed as part of a loop unit
+    // 1b) compound rule: with several compounds selected, only the OUTERMOST
+    //     loop of each compound is an arrange unit — everything fully inside
+    //     the loop (nested loops, lines, texts, groups, clones) travels with
+    //     its parent, exactly like Drag wall treats the compound. A selected
+    //     loop fully inside another selected loop is NOT its own unit.
+    loops.sort((a, b2) => b2.b.maxX - b2.b.minX - (a.b.maxX - a.b.minX) ||
+                          (b2.b.maxY - b2.b.minY) - (a.b.maxY - a.b.minY));
+    const outer = [];
+    for (const cand of loops) {
+      const cx = (cand.b.minX + cand.b.maxX) / 2;
+      const cy = (cand.b.minY + cand.b.maxY) / 2;
+      const inside = outer.some(o =>
+        pointInPoly({ x: cx, y: cy }, o.loop.poly));
+      if (!inside) outer.push(cand);
+    }
+    for (const o of outer) {
+      const ids = arrangeLoopContents(o.loop, selEnts);
+      if (!ids.length) continue;
+      let b = o.b;
+      for (const id of ids) {
+        if (!o.ids.includes(id)) {
+          const e = state.entities[id];
+          if (e) b = mergeBounds(b, entityTightBounds(e));
+        }
+        seenEnt.add(id);
+      }
+      units.push({ ids, b });
+    }
+    // 2) container objects (group / clone-array / part) and framed objects
+    //    (text / image), skipping any already consumed as part of a loop unit.
+    //    A text owns no LOOP — only its frame points — so without this pass a
+    //    selected text was invisible to arrange (selecting text + a circle
+    //    left just one unit and the arrange buttons stayed disabled).
     for (const id of selEnts) {
-      if (seenEnt.has(id)) continue;
+      if (seenEnt.has(+id)) continue;
       const e = state.entities[id];
       if (!e) continue;
-      if (e.type !== 'art' && e.type !== 'array' && e.type !== 'part') continue;
+      if (e.type !== 'art' && e.type !== 'array' && e.type !== 'part' &&
+          e.type !== 'text' && e.type !== 'image') continue;
       const bb = entityTightBounds(e);
-      if (bb) units.push({ ids: [id], b: bb });
+      if (bb) units.push({ ids: [+id], b: bb });
     }
     return units;
   }
@@ -6420,6 +6512,12 @@
       commit();
     }
     cancelDraft();
+    // Remember the mode we came from: Transform (Ctrl+M) is used mid-workflow —
+    // e.g. while arranging parts in Drag wall mode (W). Leaving Transform must
+    // put the user back into that mode instead of always dropping to Select,
+    // or they would have to press W again after every single transform.
+    if (ui.tool === 'dragwall') ui.toolBeforeTransform = 'dragwall';
+    else if (ui.tool !== 'transform') ui.toolBeforeTransform = null;
     ui.tool = 'transform';
     // xfPivot() is the remembered pivot for this exact selection, falling back to
     // the bounding-box centre. Writing the centre unconditionally here made the
@@ -6434,7 +6532,10 @@
 
   function exitTransformMode() {
     if (ui.transform.pending) xfCancel();
-    ui.tool = 'select';
+    // Back to the mode Transform was entered from (Drag wall stays on — see
+    // enterTransformMode); otherwise the plain Select tool.
+    ui.tool = ui.toolBeforeTransform === 'dragwall' ? 'dragwall' : 'select';
+    ui.toolBeforeTransform = null;
     ui.transform.pivot = null;
     ui.transform.frame = 0;
     ui.xfHits = [];
@@ -7806,9 +7907,25 @@
       const id = +eid;
       if (own.has(id)) continue;
       const e = state.entities[eid];
+      const ids = entityPointIds(e);
+      if (!ids.length) {
+        // Point-less objects (a group/art, a clone array, a part, a picture)
+        // own no points, so the point rule below can never see them: they used
+        // to be skipped, so Ctrl+click on a loop selected the nested loops but
+        // NOT these objects sitting inside it. A container is inside the loop
+        // when its whole bounding box is.
+        const b = entityBounds(e);
+        if (!b) continue;
+        const corners = [
+          { x: b.minX, y: b.minY }, { x: b.maxX, y: b.minY },
+          { x: b.maxX, y: b.maxY }, { x: b.minX, y: b.maxY }
+        ];
+        if (corners.every(c => pointInPoly(c, poly))) out.push(id);
+        continue;
+      }
       let any = false;
       let all = true;
-      for (const pid of entityPointIds(e)) {
+      for (const pid of ids) {
         const p = P(pid);
         if (!p) continue;
         any = true;
@@ -7904,7 +8021,7 @@
   }
 
   function selectLoopBelow(ev) {
-    if (ui.tool !== 'select') return;
+    if (!isSelectLikeTool()) return;
     if (!pickFilter.loop) return;   // pick filter: loops locked
     const pos = pointerPos(ev);
     const world = s2w(pos.x, pos.y);
@@ -10903,6 +11020,7 @@
     if (hit) return hit;
     if (typeof document === 'undefined' || !document.createElement) return [];
     const m = textMetricsOf(e);
+    if (!m) return []; // font still loading: no metrics this frame
     const span = Math.max(m.width, m.height);
     if (!(span > 0) || !String(e.text || '').trim()) return [];
     const scale = Math.max(1, Math.min(32, TEXT_TRACE_PX / span));
@@ -10947,7 +11065,8 @@
   // Open polylines in the text's local reference pixels (origin = box
   // top-left, y down), mirroring the contour convention above.
   function textLocalStrokes(e, mNow) {
-    const m = mNow || textMetricsOf(e);
+    let m = mNow || textMetricsOf(e);
+    if (!m) return []; // font still loading: no stroke layout this frame
     const lay = window.MiniSketchHershey
       ? window.MiniSketchHershey.layout(e.text, TEXT_REF, m.lineHeight, e.align)
       : { strokes: [], width: 1, height: m.height };
@@ -10962,8 +11081,8 @@
   // simplification: glyph polylines are already minimal.
   function textStrokesWorld(e) {
     const gg = textGeom(e);
-    if (!gg) return [];
     const m = textMetricsOf(e);
+    if (!gg || !m) return []; // font still loading: frame-only this frame
     const ax = gg.A.x / m.width, ay = gg.A.y / m.width;
     const bx = gg.B.x / m.height, by = gg.B.y / m.height;
     return textLocalStrokes(e, m).map(st => ({
@@ -11036,6 +11155,7 @@
     const gg = textGeom(e);
     if (!gg) { textExactWhy = 'no-frame'; return null; }
     const m = textMetricsOf(e);
+    if (!m) { textExactWhy = 'no-metrics'; return null; }
     // Design units -> reference px. The canvas sets the font at TEXT_REF px, so
     // one em (upem units) is TEXT_REF px. The reference box is the measured
     // text box in those same px, and the frame maps that box into the world.
@@ -11145,8 +11265,11 @@
   // the raster resolution: enlarging a text no longer multiplies its nodes.
   function textContoursWorld(e) {
     const gg = textGeom(e);
-    if (!gg) return [];
+    // A webfont that is still loading has no metrics yet (textMetricsOf returns
+    // null): the render path skips the frame, the nesting path must too, or
+    // creating/updating a text crashes the whole UI.
     const m = textMetricsOf(e);
+    if (!gg || !m) return [];
     const ax = gg.A.x / m.width, ay = gg.A.y / m.width;
     const bx = gg.B.x / m.height, by = gg.B.y / m.height;
     const refPerMm = m.width / Math.max(1e-9, Math.hypot(gg.A.x, gg.A.y));
@@ -11805,8 +11928,12 @@
         out.push({ pts: sampleArc(ad.c, ad.r, ad.a0, ad.sweep, false), closed: false });
       }
     } else if (e.type === 'text') {
-      const out = textOutlineWorld(e);
-      for (const loop of out.loops) out.push({ pts: loop, closed: out.closed });
+      // textOutlineWorld returns { loops, closed } — do NOT shadow the `out`
+      // accumulator here (that used to crash: out.push is not a function).
+      const ol = textOutlineWorld(e);
+      for (const loop of (ol.loops || [])) {
+        if (loop && loop.length >= 3) out.push({ pts: loop, closed: !!ol.closed });
+      }
     } else if (e.type === 'array') {
       // every virtual instance contributes geometry (CNC, offset, groups)
       for (const t of arrayInstanceOffsets(e)) {
@@ -18713,7 +18840,8 @@
     return { x: Math.round(sx), y: Math.round(sy) };
   }
 
-  // A badge is clickable — plain click deletes (undoable), Shift/Ctrl+click
+  // A badge is clickable — double-click deletes (undoable), a single click or
+  // Shift/Ctrl+click selects
   // selects. A conflicting badge (P1-9) draws red; deleting one side of the
   // fight resolves it.
   function drawBadge(text, sx, sy, id, conflict) {
@@ -18744,8 +18872,9 @@
     if (id != null) ui.badgeHits.push({ id, x: sx - w / 2, y: sy - h / 2, w, h });
   }
 
-  // Badge -> constraint: delete with a left click, undoable via history.
-  // Shift+click (or Ctrl) keeps the old select behaviour for multi-select.
+  // Badge -> constraint: a DOUBLE-click deletes (undoable via history); a
+  // single click only selects, so a stray click can no longer remove a
+  // constraint. Shift+click (or Ctrl) keeps the select behaviour too.
   function deleteConstraintById(id) {
     id = +id;
     const c = state.constraints[id];
@@ -19887,7 +20016,7 @@
     if (ui.hoverProbe) {
       const p = ui.hoverProbe;
       ui.hoverProbe = null;
-      if (!ui.drag && !ui.pan && !pinch && ui.tool === 'select') runHoverProbe(p.x, p.y);
+      if (!ui.drag && !ui.pan && !pinch && isSelectLikeTool()) runHoverProbe(p.x, p.y);
     }
     // one layer-state check per frame (see pointCachesValid), not per marker
     pointSigTick++;
@@ -19939,6 +20068,8 @@
     prof('partMarkers', () => drawPartMarkers());
     prof('mates', () => drawMates());
     prof('partHighlight', () => drawPartHighlight());
+    prof('wallBarriers', () => drawWallBarriers());
+    prof('wallDrag', () => drawWallDrag());
     if (!fastMode) prof('notes', () => drawNotes());
     prof('offsetPreview', () => drawOffsetPreview());
     prof('segmentHighlight', () => drawSegmentHighlight());
@@ -19981,7 +20112,7 @@
     if (!ui.rubber) {
       const snapTop = (ui.drag && ui.drag.snap) ? ui.drag.snap
         : (ui.moveJob && ui.moveJob.snap) ? ui.moveJob.snap
-        : (ui.raw && (ui.draft || ui.tool !== 'select')) ? snapFor(ui.tool, ui.raw) : null;
+        : (ui.raw && (ui.draft || !isSelectLikeTool())) ? snapFor(ui.tool, ui.raw) : null;
       if (snapTop && snapTop.id != null) drawSnapMarker(snapTop, true);
     }
     drawTransformOverlay();
@@ -20081,7 +20212,16 @@
         ? 'Move: click the reference point. Esc cancels.'
         : 'Move: click the destination point. Esc cancels.';
     }
-    if (ui.tool === 'select') return selectHintText();
+    if (ui.tool === 'dragwall') {
+      const w = ui.drag && ui.drag.wall;
+      const wall = fmt(WALL_DRAG_MM) + ' mm';
+      const barriers = w && w.barrierLoops != null ? ' · ' + w.barrierLoops + ' barrier loop' + (w.barrierLoops === 1 ? '' : 's') : '';
+      if (w && w.blocked) return 'Drag wall ' + wall + ' — collision; holding the last valid position' + barriers + '.';
+      if (w) return 'Drag wall ' + wall + ' — clear' + barriers + '. The amber outline is the collision wall, not cut geometry.';
+      if (ui.drag && ui.drag.wallDisabled) return 'Drag wall ' + wall + ' — no closed loop in this drag; the selection moves freely.';
+      return 'Drag wall ' + wall + ' — select a closed shape, a group or several objects, then drag. The amber outline is generated from the outer contour and is never added to the drawing.';
+    }
+    if (isSelectLikeTool()) return selectHintText();
     switch (ui.tool) {
       case 'line': return 'Click start point, then end point. Keep clicking to chain; click the first point again to close the loop and finish. Enter finishes, Esc takes the last line back, Esc again stops. Shift = 15° polar, Alt = inverse of the Snap toggle while held. With exactly two points selected, L creates the line between them.';
       case 'arc': return 'Click center, then start point, then end point. Shift snaps angles.';
@@ -20117,6 +20257,38 @@
     return base + ' Frame: Alt+R jumps to L/T/W/H (+20 = move +20, Tab = next box). Dimension: select 2 points / 1–2 lines / circle, then D (driving) or Shift+D (measure). Constraints: H V P Q O T M . [ F J on a selection.';
   }
 
+  function syncWallInput() {
+    const el = document.getElementById('wall-mm');
+    if (!el) return;
+    if (document.activeElement === el) return;   // never overwrite what is being typed
+    const v = String(Math.round(clamp(+settings.wallDragMm || 0, 0, 50) * 100) / 100);
+    if (el.value !== v) el.value = v;
+  }
+
+  // The mode has to be visible even when the Arrange ribbon is on another page
+  // or the panels are collapsed: a top-right pill plus an amber stage frame.
+  function syncWallIndicator() {
+    const el = document.getElementById('wall-indicator');
+    const active = ui.tool === 'dragwall';
+    document.body.classList.toggle('wall-drag-active', active);
+    if (!el) return;
+    el.classList.toggle('hidden', !active);
+    if (!active) return;
+    const valueEl = document.getElementById('wall-indicator-value');
+    const stateEl = document.getElementById('wall-indicator-state');
+    const wall = fmt(WALL_DRAG_MM) + ' mm';
+    if (valueEl && valueEl.textContent !== wall) valueEl.textContent = wall;
+    const w = ui.drag && ui.drag.wall;
+    let state = 'armed';
+    let label = 'ON';
+    if (ui.drag && ui.drag.wallDisabled) { state = 'disabled'; label = 'NO LOOP'; }
+    else if (w && w.blocked) { state = 'blocked'; label = 'BLOCKED'; }
+    else if (w) { state = 'clear'; label = 'CLEAR'; }
+    else if (ui.drag && ui.drag.kind === 'entity') { state = 'armed'; label = 'BUILDING'; }
+    if (el.dataset.state !== state) el.dataset.state = state;
+    if (stateEl && stateEl.textContent !== label) stateEl.textContent = label;
+  }
+
   function updateUI() {
     // quickbar (tablet toolbar): flip / rotate / boolean need a selection;
     // the L T W H fields follow updateTransformPanel's own disabled logic
@@ -20132,6 +20304,8 @@
     document.querySelectorAll('.tool-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.tool === ui.tool);
     });
+    syncWallInput();
+    syncWallIndicator();
     // Every line colour used by the selection gets a dot, not just the first:
     // a selection mixing red and black has to show both, since both are real
     // machine operations.
@@ -20519,7 +20693,7 @@
         (conflicts.has(id) ? ' conflict' : '');
       const why = conflicts.has(id) ? conflictOf(c, id) : null;
       li.title = (why ? '⚠ ' + why + ' · ' : '') +
-        'Hover highlights the badge on canvas · click selects · × deletes';
+        'Hover highlights the badge on canvas · click selects · double-click deletes · × deletes';
       // auto-cleanup affordance: an exact-duplicate row offers one-click dedupe
       const dup = !why ? duplicateOf(c, id) : null;
       if (dup) li.title = 'Exact duplicate of #' + dup + ' · click × to remove it';
@@ -21267,6 +21441,574 @@
     commit();
   }
 
+  // ---- Drag wall -----------------------------------------------------------
+  // A live collision envelope for manual nesting. The wall is generated ONCE
+  // from the start pose of the dragged compound and then only translated with
+  // the drag delta, so a complex offset never runs per mouse move. It is never
+  // added to the document: it exists only for the preview and the collision
+  // test, and disappears on release.
+  //
+  // The obstacle cache is built on the first actual move (not on pointerdown),
+  // because a click that never moves must stay free. It contains:
+  //   - every OUTERMOST loop in the document (the same depth the loop fill
+  //     uses), as a polygon. Inner/hole loops are deliberately NOT obstacles:
+  //     the caller asked for the outermost loop of each object, and a hole
+  //     boundary must not be mistaken for the object's outer wall.
+  //   - every other visible non-dragged OPEN line/arc/circle/spline as-is
+  //     (sampled lazily, only when its box comes near the wall);
+  //   - every group / framed object (art, text, image, part, array, and every
+  //     entity that carries an SVG group tag) as its bounding box.
+  //
+  // Collision is BOUNDARY-only: a wall edge crossing an obstacle edge is a
+  // hit; one contour fully inside another is not. That is deliberate — a part
+  // placed inside a sheet outline is a valid nesting layout, and an area test
+  // would refuse it.
+  function wallAddEntityDeep(set, e) {
+    if (!e) return;
+    set.add(+e.id);
+    if (Array.isArray(e.guide)) {
+      for (const gid of e.guide) if (state.entities[gid]) set.add(+gid);
+    }
+    if (e.guideId != null && state.entities[e.guideId]) set.add(+e.guideId);
+  }
+
+  function wallEntityIdSet(d) {
+    const ids = new Set();
+    for (const e of selectedEntities()) wallAddEntityDeep(ids, e);
+    for (const pid of (d.ids || [])) {
+      const uses = pointUses(pid);
+      if (uses) for (const e of uses) wallAddEntityDeep(ids, e);
+    }
+    return ids;
+  }
+
+  function wallEntityFullyDragged(e, dragSet) {
+    if (!e) return false;
+    const ids = entityPointIds(e);
+    if (!ids.length) return true;   // parts / clones carry no points; their body is the drag
+    for (const pid of ids) {
+      if (!state.points[pid]) continue;
+      if (!dragSet.has(+pid)) return false;
+    }
+    return true;
+  }
+
+  // Closed contours of the dragged compound. A composite loop (rectangle made
+  // of four lines) comes from getLoops(); a framed object's contours come from
+  // entityWorldPolylines(). Holes are included here and then removed by the
+  // outer-contour pass: the wall is the compound's outer envelope.
+  function wallCompoundContours(movingIds, dragSet) {
+    const out = [];
+    const loopCovered = new Set();
+    const loops = getLoops();
+    for (const L of loops) {
+      // NOTE: do NOT filter by the renderer's GLOBAL depth here. A part being
+      // dragged inside an unselected sheet has global depth 1, but it is still
+      // the outermost loop of the SELECTION. wallOuterContours() below picks the
+      // outermost contour of the dragged compound (outer vs its own holes).
+      const own = loopEntities(L).map(Number);
+      if (!own.length) continue;
+      if (!own.every(id => movingIds.has(id))) continue;
+      let rigid = true;
+      for (const id of own) {
+        const e = state.entities[id];
+        if (!e || !wallEntityFullyDragged(e, dragSet)) { rigid = false; break; }
+      }
+      if (!rigid) continue;
+      if (L.poly && L.poly.length >= 3) out.push({ pts: L.poly, closed: true });
+      for (const id of own) loopCovered.add(id);
+    }
+    for (const id of movingIds) {
+      const e = state.entities[id];
+      if (!e || !layerVisible(e)) continue;
+      if (e.type === 'line' || e.type === 'arc' || e.type === 'part') continue;
+      if (!wallEntityFullyDragged(e, dragSet)) continue;
+      if ((e.type === 'circle' || e.type === 'spline') && loopCovered.has(+id)) continue;
+      for (const pl of entityWorldPolylines(e)) {
+        if (pl && pl.closed && pl.pts && pl.pts.length >= 3) {
+          out.push({ pts: pl.pts, closed: true });
+        }
+      }
+    }
+    return out;
+  }
+
+  // Keep only contours that are not inside another contour. This is the same
+  // containment rule as loopDepthOf(), but on plain point arrays so it also
+  // works for a group's stored contours.
+  function wallOuterContours(contours) {
+    const items = [];
+    for (const c of contours) {
+      const box = polyBBox(c.pts);
+      if (box) items.push({ c, box, area: (box.maxX - box.minX) * (box.maxY - box.minY) });
+    }
+    items.sort((a, b) => b.area - a.area);
+    const kept = [];
+    for (const it of items) {
+      let inside = false;
+      for (const k of kept) {
+        // A tiny epsilon on the bbox test: an imported contour can sit a few
+        // 1e-5 mm outside its container and the strict test would keep a hole
+        // as a second "outer" contour (the inner dashed wall in the report).
+        const eps = Math.max(1e-6, (k.box.maxX - k.box.minX + k.box.maxY - k.box.minY) * 1e-6);
+        if (k.box.minX > it.box.minX + eps || k.box.minY > it.box.minY + eps ||
+            k.box.maxX < it.box.maxX - eps || k.box.maxY < it.box.maxY - eps) continue;
+        // One robust interior probe beats testing every vertex: a single vertex
+        // that lands a hair outside the container used to make the whole hole
+        // look like an outer contour. interiorProbe() nudges toward the inside
+        // using the contour's own winding, so it works for CW and CCW loops.
+        const probe = interiorProbe(it.c.pts);
+        if (probe && pointInPoly(probe, k.c.pts)) { inside = true; break; }
+      }
+      if (!inside) kept.push(it);
+    }
+    return kept.map(x => x.c);
+  }
+
+  function wallBoxUnion(boxes) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const b of boxes) {
+      if (!b) continue;
+      if (b.minX < minX) minX = b.minX;
+      if (b.minY < minY) minY = b.minY;
+      if (b.maxX > maxX) maxX = b.maxX;
+      if (b.maxY > maxY) maxY = b.maxY;
+    }
+    return isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+  }
+
+  function wallAddObstacle(list, kind, box, entityId) {
+    if (!box) return;
+    list.push({ kind, box, entity: entityId == null ? null : +entityId, polys: null });
+  }
+
+  function wallObstaclePolys(o) {
+    if (o.polys) return o.polys;
+    if (o.kind === 'lazy') {
+      const e = o.entity != null ? state.entities[o.entity] : null;
+      const polys = [];
+      if (e) {
+        for (const pl of entityWorldPolylines(e)) {
+          if (!pl || !pl.pts || pl.pts.length < 2) continue;
+          polys.push({ pts: pl.pts, closed: !!pl.closed && pl.pts.length >= 3, box: polyBBox(pl.pts) });
+        }
+      }
+      o.polys = polys;
+      return polys;
+    }
+    if (o.kind === 'box') {
+      const b = o.box;
+      const pts = [
+        { x: b.minX, y: b.minY }, { x: b.maxX, y: b.minY },
+        { x: b.maxX, y: b.maxY }, { x: b.minX, y: b.maxY }
+      ];
+      o.polys = [{ closed: true, pts, box: b }];
+      return o.polys;
+    }
+    // poly obstacle: the caller stores its polygon in o.pts
+    o.polys = o.pts ? [{ pts: o.pts, closed: true, box: polyBBox(o.pts) }] : [];
+    return o.polys;
+  }
+
+  function wallBuildObstacles(excludeIds) {
+    const obstacles = [];
+    const covered = new Set();
+    const loopEntityIds = new Set();
+
+    // Every entity that belongs to ANY loop. A line/arc/circle/spline in an
+    // inner (hole) loop is still loop geometry, not a loose line: only the
+    // OUTERMOST loop becomes an obstacle. Without this set the individual pass
+    // below would add the hole boundary as-is and the wall would collide with
+    // the hole instead of the object's outer edge.
+    for (const L of getLoops()) {
+      for (const id of loopEntities(L)) loopEntityIds.add(+id);
+    }
+
+    // 1) outermost loops of the whole document (renderer depth 0)
+    for (const L of getLoops()) {
+      if (loopDepthOf(L) !== 0) continue;
+      const own = loopEntities(L).map(Number);
+      if (!own.length) continue;
+      if (own.some(id => excludeIds.has(id))) continue;
+      if (!own.some(id => {
+        const e = state.entities[id];
+        return e && layerVisible(e);
+      })) continue;
+      const o = {
+        kind: 'poly', box: polyBBox(L.poly), entity: null, polys: null, pts: L.poly,
+        entities: own, depth: 0, area: L.area
+      };
+      obstacles.push(o);
+      for (const id of own) covered.add(id);
+    }
+
+    // 2) groups (SVG group tag) use ONE bounding box for the whole group
+    const groupBoxes = new Map();
+    for (const id in state.entities) {
+      const e = state.entities[id];
+      if (!e || !e.group || excludeIds.has(+id) || !layerVisible(e)) continue;
+      const b = entityBounds(e);
+      if (!b) continue;
+      let g = groupBoxes.get(e.group);
+      if (!g) groupBoxes.set(e.group, g = { minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY });
+      else {
+        if (b.minX < g.minX) g.minX = b.minX;
+        if (b.minY < g.minY) g.minY = b.minY;
+        if (b.maxX > g.maxX) g.maxX = b.maxX;
+        if (b.maxY > g.maxY) g.maxY = b.maxY;
+      }
+    }
+    for (const b of groupBoxes.values()) wallAddObstacle(obstacles, 'box', b, null);
+
+    // 3) everything else: framed objects by bbox, line-like objects as-is
+    for (const id in state.entities) {
+      const eid = +id;
+      if (excludeIds.has(eid) || covered.has(eid)) continue;
+      const e = state.entities[id];
+      if (!e || !layerVisible(e) || e.type === 'note') continue;
+      if (e.group) continue;   // already represented by its group box
+      // Inner/hole loop geometry is not a separate obstacle: the outer loop
+      // already represents this object. Loose geometry (not in any loop) still
+      // uses its own line/arc/curve as-is.
+      if (loopEntityIds.has(eid)) continue;
+      if (e.type === 'art' || e.type === 'text' || e.type === 'image' ||
+          e.type === 'part' || e.type === 'array') {
+        wallAddObstacle(obstacles, 'box', entityBounds(e), eid);
+        continue;
+      }
+      // line / arc / circle / spline: sample only when the wall comes near
+      wallAddObstacle(obstacles, 'lazy', entityBounds(e), eid);
+    }
+    return obstacles;
+  }
+
+  function wallBuildGrid(obstacles) {
+    const boxes = obstacles.map(o => o.box).filter(Boolean);
+    const all = wallBoxUnion(boxes);
+    if (!all) return { cell: 50, map: new Map(), big: [] };
+    const span = Math.max(all.maxX - all.minX, all.maxY - all.minY, 1);
+    const cell = clamp(span / 64, 10, 200);
+    const map = new Map();
+    const big = [];
+    const key = (cx, cy) => cx + ':' + cy;
+    for (let i = 0; i < obstacles.length; i++) {
+      const b = obstacles[i].box;
+      if (!b) continue;
+      const x0 = Math.floor((b.minX - all.minX) / cell);
+      const x1 = Math.floor((b.maxX - all.minX) / cell);
+      const y0 = Math.floor((b.minY - all.minY) / cell);
+      const y1 = Math.floor((b.maxY - all.minY) / cell);
+      if (x1 - x0 > 64 || y1 - y0 > 64) { big.push(i); continue; }
+      for (let cy = y0; cy <= y1; cy++) {
+        for (let cx = x0; cx <= x1; cx++) {
+          const k = key(cx, cy);
+          let arr = map.get(k);
+          if (!arr) map.set(k, arr = []);
+          arr.push(i);
+        }
+      }
+    }
+    return { cell, map, big, minX: all.minX, minY: all.minY };
+  }
+
+  function wallQueryObstacles(grid, box, obstacles) {
+    const out = [];
+    const seen = new Set();
+    const push = (i) => { if (!seen.has(i)) { seen.add(i); out.push(obstacles[i]); } };
+    for (const i of grid.big) push(i);
+    if (grid.map && grid.map.size) {
+      const x0 = Math.floor((box.minX - grid.minX) / grid.cell);
+      const x1 = Math.floor((box.maxX - grid.minX) / grid.cell);
+      const y0 = Math.floor((box.minY - grid.minY) / grid.cell);
+      const y1 = Math.floor((box.maxY - grid.minY) / grid.cell);
+      for (let cy = y0; cy <= y1; cy++) {
+        for (let cx = x0; cx <= x1; cx++) {
+          const arr = grid.map.get(cx + ':' + cy);
+          if (arr) for (const i of arr) push(i);
+        }
+      }
+    }
+    return out;
+  }
+
+  function wallBuildDrag(d) {
+    const dragSet = new Set((d.ids || []).map(Number));
+    const movingIds = wallEntityIdSet(d);
+    const excludeIds = new Set(movingIds);
+    // A clone has no points and no geometry of its own: its shape is the
+    // master's. The master sits exactly under the clone, so it must be excluded
+    // from the obstacle cache or the wall would collide with the clone's own
+    // source at the start pose. It is NOT a wall source: the clone's placed
+    // instances are.
+    for (const e of selectedEntities()) {
+      if (e.type === 'array' && e.kind === 'clone' && Array.isArray(e.masters)) {
+        for (const mid of e.masters) wallAddEntityDeep(excludeIds, state.entities[mid]);
+      }
+    }
+    const contours = wallCompoundContours(movingIds, dragSet);
+    const outer = wallOuterContours(contours);
+    const selectedLoopsAll = getLoops().filter(L =>
+      loopEntities(L).every(id => movingIds.has(+id)));
+    const selectedOuterLoops = selectedLoopsAll.filter(L => loopDepthOf(L) === 0);
+    console.log('[dragwall] selected loops', selectedLoopsAll.length, '(global outer:', selectedOuterLoops.length + ')');
+    selectedLoopsAll.slice(0, 20).forEach((L, i) => {
+      console.log('[dragwall] selected loop', i, {
+        globalDepth: loopDepthOf(L),
+        entities: loopEntities(L),
+        points: L.poly ? L.poly.length : 0,
+        first: L.poly ? L.poly.slice(0, 8) : [],
+        area: L.area,
+        box: loopBox(L)
+      });
+    });
+    console.log('[dragwall] build', {
+      wallMm: WALL_DRAG_MM,
+      movingEntities: movingIds.size,
+      selectedOuterLoops: selectedOuterLoops.length,
+      contours: contours.length,
+      outer: outer.length
+    });
+    selectedOuterLoops.slice(0, 20).forEach((L, i) => {
+      console.log('[dragwall] selected outer loop', i, {
+        entities: loopEntities(L),
+        points: L.poly ? L.poly.length : 0,
+        area: L.area,
+        box: loopBox(L)
+      });
+    });
+    outer.slice(0, 20).forEach((c, i) => {
+      console.log('[dragwall] wall contour', i, {
+        points: c.pts.length,
+        first: c.pts.slice(0, 8),
+        area: Math.abs(signedAreaPts(c.pts)),
+        box: polyBBox(c.pts)
+      });
+    });
+    console.log('[dragwall] offset input', outer.map(c => ({
+      points: c.pts.length,
+      first: c.pts.slice(0, 8),
+      box: polyBBox(c.pts)
+    })));
+    if (!outer.length) {
+      console.log('[dragwall] NO OUTER CONTOUR — wall disabled', { loops: getLoops().length });
+      d.wall = null;
+      d.wallDisabled = true;
+      return;
+    }
+    let polys = outer.map(c => c.pts);
+    if (WALL_DRAG_MM > 1e-9) {
+      let off = null;
+      try {
+        off = offsetChains(outer.map(c => ({ pts: c.pts, closed: true })), WALL_DRAG_MM, {
+          join: OFFSET_JOIN,
+          miterLimit: OFFSET_MITER,
+          arcTol: OFFSET_ARC_TOL,
+          tol: OFFSET_TOL
+        });
+      } catch (err) {
+        // A degenerate contour must not break the drag: the outline is still a
+        // usable (zero-clearance) wall.
+        console.warn('drag wall offset failed', err);
+      }
+      console.log('[dragwall] offset output', off ? off.map(c => ({
+        depth: c.depth,
+        points: c.pts ? c.pts.length : 0,
+        first: c.pts ? c.pts.slice(0, 8) : [],
+        box: c.pts ? polyBBox(c.pts) : null
+      })) : null);
+      if (off && off.length) {
+        // Keep ONLY the outer contours of the offset result. If the source
+        // compound had a hole that slipped past wallOuterContours(), Clipper
+        // returns the hole as a separate depth-1 contour; treating that as a
+        // wall would draw/collide with the inner loop instead of the object's
+        // outer edge. offsetChains() normalises depth: 0 = outer island,
+        // 1 = hole, 2 = island inside a hole, and so on.
+        const outerOff = off.filter(c => (c.depth || 0) === 0 && c.pts && c.pts.length >= 3);
+        if (outerOff.length) polys = outerOff.map(c => c.pts);
+      }
+      // If Clipper collapsed a very thin shape, keep the original outline
+      // rather than pretending there is no wall at all.
+    }
+    const boxes = [];
+    for (const pts of polys) boxes.push(polyBBox(pts));
+    const box = wallBoxUnion(boxes);
+    if (!box) { d.wall = null; d.wallDisabled = true; return; }
+    const obstacles = wallBuildObstacles(excludeIds);
+    const barrierLoops = obstacles.filter(o => o.kind === 'poly');
+    console.log('[dragwall] wall polys', polys.length, polys.map(pts => ({
+      points: pts.length,
+      first: pts.slice(0, 8),
+      box: polyBBox(pts)
+    })));
+    console.log('[dragwall] obstacles', {
+      total: obstacles.length,
+      barrierLoops: barrierLoops.length,
+      groupBoxes: obstacles.filter(o => o.kind === 'box').length,
+      lazyLines: obstacles.filter(o => o.kind === 'lazy').length
+    });
+    barrierLoops.slice(0, 30).forEach((o, i) => {
+      console.log('[dragwall] barrier loop', i, {
+        entities: o.entities,
+        depth: o.depth,
+        area: o.area,
+        box: o.box
+      });
+    });
+    d.wall = {
+      polys,
+      boxes,
+      box,
+      obstacles,
+      grid: wallBuildGrid(obstacles),
+      lastDx: 0,
+      lastDy: 0,
+      dx: 0,
+      dy: 0,
+      blocked: false,
+      movedAny: false,
+      hit: null,
+      barrierLoops: barrierLoops.length
+    };
+  }
+
+  // Returns the first obstacle whose boundary the translated wall crosses.
+  function wallCandidateHit(wall, dx, dy) {
+    if (!wall.obstacles.length) return null;
+    const wb = {
+      minX: wall.box.minX + dx, minY: wall.box.minY + dy,
+      maxX: wall.box.maxX + dx, maxY: wall.box.maxY + dy
+    };
+    const near = wallQueryObstacles(wall.grid, wb, wall.obstacles);
+    // Translate the wall once for this candidate, not once per obstacle pair.
+    const movedPolys = [];
+    for (let i = 0; i < wall.polys.length; i++) {
+      const wpts = wall.polys[i];
+      const moved = wpts.map(p => ({ x: p.x + dx, y: p.y + dy }));
+      const pb = wall.boxes && wall.boxes[i];
+      movedPolys.push({
+        pts: moved,
+        box: pb ? {
+          minX: pb.minX + dx, minY: pb.minY + dy,
+          maxX: pb.maxX + dx, maxY: pb.maxY + dy
+        } : polyBBox(moved)
+      });
+    }
+    for (const o of near) {
+      if (!bboxOverlap(wb, o.box)) continue;
+      const ops = wallObstaclePolys(o);
+      for (const op of ops) {
+        const pts = op.pts;
+        if (!pts || pts.length < 2) continue;
+        const ob = op.box || (op.box = polyBBox(pts));
+        if (!ob || !bboxOverlap(wb, ob)) continue;
+        for (const mp of movedPolys) {
+          if (!mp.box || !bboxOverlap(mp.box, ob)) continue;
+          if (polylineIntersectsPolyline(mp.pts, true, pts, op.closed)) return o;
+        }
+      }
+    }
+    return null;
+  }
+
+  function wallResolve(d, dx, dy) {
+    const w = d.wall;
+    if (!w) return { dx, dy, blocked: false };
+    if (Math.abs(dx - w.lastDx) < 1e-12 && Math.abs(dy - w.lastDy) < 1e-12) {
+      // Back on the last valid pose: that pose is collision-free by definition.
+      w.blocked = false;
+      w.hit = null;
+      w.dx = dx;
+      w.dy = dy;
+      return { dx, dy, blocked: false };
+    }
+    const hit = wallCandidateHit(w, dx, dy);
+    const wasBlocked = w.blocked;
+    if (hit) {
+      if (!wasBlocked || w.hit !== hit) {
+        console.log('[dragwall] BLOCK', {
+          candidate: { dx, dy },
+          lastValid: { dx: w.lastDx, dy: w.lastDy },
+          wallBox: {
+            minX: w.box.minX + dx, minY: w.box.minY + dy,
+            maxX: w.box.maxX + dx, maxY: w.box.maxY + dy
+          },
+          obstacle: {
+            kind: hit.kind, entity: hit.entity, depth: hit.depth,
+            area: hit.area, box: hit.box
+          }
+        });
+      }
+      w.blocked = true;
+      w.hit = hit;
+      w.dx = w.lastDx;
+      w.dy = w.lastDy;
+      return { dx: w.lastDx, dy: w.lastDy, blocked: true };
+    }
+    if (wasBlocked) {
+      console.log('[dragwall] CLEAR', { candidate: { dx, dy }, lastValid: { dx: w.lastDx, dy: w.lastDy } });
+    }
+    w.blocked = false;
+    w.hit = null;
+    w.lastDx = dx;
+    w.lastDy = dy;
+    w.dx = dx;
+    w.dy = dy;
+    if (Math.abs(dx) > 1e-9 || Math.abs(dy) > 1e-9) w.movedAny = true;
+    return { dx, dy, blocked: false };
+  }
+
+  // While dragging, faintly show the barrier list (all outermost loops of
+  // unselected objects, plus group bboxes). This is the exact geometry used by
+  // the collision test, so a "wall passed through" report can be compared with
+  // what the app thinks is an obstacle.
+  function drawWallBarriers() {
+    const d = ui.drag;
+    if (!d || !d.wall || !d.wall.obstacles) return;
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(220, 38, 38, 0.28)';
+    ctx.setLineDash([3, 5]);
+    for (const o of d.wall.obstacles) {
+      if (o.kind !== 'poly' && o.kind !== 'box') continue;
+      const pts = o.kind === 'poly' ? o.pts : wallObstaclePolys(o)[0] && wallObstaclePolys(o)[0].pts;
+      if (!pts || pts.length < 2) continue;
+      ctx.beginPath();
+      for (let i = 0; i < pts.length; i++) {
+        const s = w2s(pts[i].x, pts[i].y);
+        if (i === 0) ctx.moveTo(s.x, s.y);
+        else ctx.lineTo(s.x, s.y);
+      }
+      if (o.kind === 'poly' || o.kind === 'box') ctx.closePath();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawWallDrag() {
+    const d = ui.drag;
+    if (!d || !d.wall || !d.wall.polys) return;
+    const w = d.wall;
+    const blocked = !!w.blocked;
+    ctx.save();
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = blocked ? '#dc2626' : '#f59e0b';
+    ctx.fillStyle = blocked ? 'rgba(220,38,38,0.07)' : 'rgba(245,158,11,0.07)';
+    ctx.setLineDash(blocked ? [] : [6, 4]);
+    for (const pts of w.polys) {
+      if (!pts || pts.length < 3) continue;
+      ctx.beginPath();
+      for (let i = 0; i < pts.length; i++) {
+        const s = w2s(pts[i].x + w.dx, pts[i].y + w.dy);
+        if (i === 0) ctx.moveTo(s.x, s.y);
+        else ctx.lineTo(s.x, s.y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function bodyDragFor(e, pos, world, ids) {
     const single = selectedEntities().length === 1 && selectedPointIds().length === 0;
     let primary = null;
@@ -21434,7 +22176,7 @@
         render();
         return;
       }
-      if (ui.tool !== 'select') {
+      if (!isSelectLikeTool()) {
         setTool('select');
         return;
       }
@@ -21507,7 +22249,7 @@
       return;
     }
 
-    if (ui.tool === 'select') {
+    if (isSelectLikeTool()) {
       // Mate job: every click in this mode is a part-marker pick. Side B may
       // be the same part (clicking the same marker twice opens the dialog in
       // ground mode — that is how a part becomes the grounded base). Side B
@@ -21639,12 +22381,19 @@
       if (dimHit == null) {
         const badgeHit = hitBadge(pos.x, pos.y);
         if (badgeHit != null) {
-          // P0-2: a badge click deletes its constraint (undoable). The
-          // modifiers keep the old select gesture for multi-select.
-          if (!(addMod || subMod)) {
+          // A SINGLE click on a badge only selects (toggle) — deleting on a
+          // plain click was far too eager: a stray click near a value badge
+          // silently removed a constraint. DOUBLE-click on the same badge
+          // deletes it (undoable). Modifier clicks keep the select gesture.
+          const now = performance.now();
+          if (!(addMod || subMod) && ui.lastBadgeClick &&
+              ui.lastBadgeClick.id === +badgeHit &&
+              now - ui.lastBadgeClick.t < 400) {
+            ui.lastBadgeClick = null;
             deleteConstraintById(badgeHit);
             return;
           }
+          ui.lastBadgeClick = { id: +badgeHit, t: now };
           toggleSelect('constraint', badgeHit);
           updateUI();
           render();
@@ -22452,6 +23201,7 @@
         return out;
       }
       const m = textMetricsOf(e);
+      if (!m) return out; // font still loading: skip this frame
       const ax = gg.A.x / m.width, ay = gg.A.y / m.width;
       const bx = gg.B.x / m.height, by = gg.B.y / m.height;
       for (const raw of textLocalContours(e)) {
@@ -23477,6 +24227,27 @@ function cmdSplitCurve() {
           if (Math.abs(dx) > Math.abs(dy)) dy = 0;
           else dx = 0;
         }
+        // Drag wall: the wall is generated once from the start pose and then
+        // only translated. A collision holds the LAST VALID delta; the object
+        // and the wall preview both stay there until the pointer finds a clear
+        // pose again.
+        if (ui.tool === 'dragwall') {
+          if (!d.wall && !d.wallDisabled) {
+            wallBuildDrag(d);
+            // The hint changes from "select ... then drag" to "clear" (or
+            // "no closed loop") as soon as the wall exists.
+            if (d.wall || d.wallDisabled) updateUI();
+          }
+          if (d.wall) {
+            const wr = wallResolve(d, dx, dy);
+            const changed = !!d.wallBlocked !== wr.blocked;
+            d.wallBlocked = wr.blocked;
+            if (wr.blocked) d.snap = null;
+            dx = wr.dx;
+            dy = wr.dy;
+            if (changed) updateUI();
+          }
+        }
         const targets = [];
         for (const id of d.ids) {
           const p = state.points[id];
@@ -23514,7 +24285,7 @@ function cmdSplitCurve() {
             delete e.shapes;
           }
         }
-        d.moved = true;
+        d.moved = !d.wall || !!d.wall.movedAny;
         invalidateLoops();
         // Remember what the gesture is carrying so the timed auto-solve and the
         // release solve can use the SAME target. A solve without the target is
@@ -23585,7 +24356,7 @@ function cmdSplitCurve() {
 
     if (ui.tool === 'transform') return;
 
-    if (ui.tool === 'select') {
+    if (isSelectLikeTool()) {
       // Hover testing walks the hit-test pipeline (part marker → point →
       // dimension → entity). At a 125 Hz mouse that ran the pipeline 125 times
       // a second even though at most one frame paints between events. The
@@ -23600,7 +24371,7 @@ function cmdSplitCurve() {
     }
 
     ui.hoverSnap = snapPoint(world);
-    if (ui.draft || ui.tool !== 'select') scheduleRender();
+    if (ui.draft || !isSelectLikeTool()) scheduleRender();
   }
 
   let hoverRaf = 0;
@@ -23611,7 +24382,7 @@ function cmdSplitCurve() {
       hoverRaf = 0;
       const p = ui.hoverProbe;
       ui.hoverProbe = null;
-      if (!p || ui.drag || ui.pan || pinch || ui.tool !== 'select') return;
+      if (!p || ui.drag || ui.pan || pinch || !isSelectLikeTool()) return;
       const prev = ui.hover;
       runHoverProbe(p.x, p.y);
       if (hoverChanged(prev, ui.hover)) {
@@ -24871,7 +25642,7 @@ function cmdSplitCurve() {
     }
     // Double-click on a loop: select the loop and everything it encloses —
     // the same selection a Ctrl+click on the loop performs.
-    if (ui.tool === 'select') {
+    if (isSelectLikeTool()) {
       const world = s2w(pos.x, pos.y);
       const loop = pickLoopAt(world, false);
       if (loop) {
@@ -25134,6 +25905,7 @@ function cmdSplitCurve() {
     { key: 'T', label: 'Text', match: 'text', kind: 'tool' },
     { key: 'I', label: 'Trim', match: 'trim', kind: 'tool' },
     { key: 'Shift+E', chip: 'Sh+E', label: 'Separate', match: 'separate', kind: 'tool' },
+    { key: 'W', label: 'Drag wall', match: 'dragwall', kind: 'tool' },
     { key: 'Ctrl+M', chip: 'Ct+M', label: 'Transform', match: 'qb-transform', kind: 'cmd' },
     { key: 'D', label: 'Dimension', match: 'qb-dimension', kind: 'cmd' },
     { key: 'Shift+D', label: 'Measure', match: 'qb-refdim', kind: 'cmd' },
@@ -25171,6 +25943,8 @@ function cmdSplitCurve() {
     // Ctrl chords: chip text shortened to Ct+ so wide chords fit the button.
     // Full form stays in title/tooltip/help.
     { key: 'Ctrl+J', chip: 'Ct+J', label: 'Offset', match: 'qb-offset', kind: 'cmd' },
+    { key: 'Ctrl+[', chip: 'Ct+[', label: 'Rotate 90 ↺', match: '', kind: 'cmd' },
+    { key: 'Ctrl+]', chip: 'Ct+]', label: 'Rotate 90 ↻', match: '', kind: 'cmd' },
     { key: 'Ctrl+M', chip: 'Ct+M', label: 'Move', match: 'qb-move', kind: 'cmd' },
     { key: 'Ctrl+G', chip: 'Ct+G', label: 'Group', match: 'rb-group', kind: 'cmd' },
     { key: 'Ctrl+U', chip: 'Ct+U', label: 'Ungroup', match: 'rb-ungroup', kind: 'cmd' },
@@ -25282,6 +26056,13 @@ function cmdSplitCurve() {
       ev.preventDefault();
       if (ev.shiftKey) startMoveJob();
       else enterTransformMode();
+      return;
+    }
+    // Ctrl+] = rotate 90° CW, Ctrl+[ = rotate 90° CCW — the Inkscape/CorelDRAW
+    // standard, wired to the same quickRotate the ribbon buttons use.
+    if ((ev.ctrlKey || ev.metaKey) && (key === '[' || key === ']')) {
+      ev.preventDefault();
+      quickRotate(key === '[' ? 90 : -90);
       return;
     }
     if (key === ' ') {
@@ -25608,6 +26389,27 @@ function cmdSplitCurve() {
         else setTool('circle');
         break;
       case 'r': setTool('box'); break;            // R = box (old B)
+      case 'w': setTool('dragwall'); break;        // W = drag wall (collision envelope)
+      case '+': case '=': {                        // +/- = wall thickness (wheel is zoom/pan)
+        if (ui.tool !== 'dragwall') break;
+        const step = (ev.shiftKey || ui.shiftToggle) ? 0.1 : ((ev.altKey || ui.altToggle) ? 1 : 0.5);
+        settings.wallDragMm = clamp(Math.round((+settings.wallDragMm + step) * 100) / 100, 0, 50);
+        applySettings();
+        saveSettings();
+        updateUI();
+        render();
+        return;
+      }
+      case '-': case '_': {
+        if (ui.tool !== 'dragwall') break;
+        const step = (ev.shiftKey || ui.shiftToggle) ? 0.1 : ((ev.altKey || ui.altToggle) ? 1 : 0.5);
+        settings.wallDragMm = clamp(Math.round((+settings.wallDragMm - step) * 100) / 100, 0, 50);
+        applySettings();
+        saveSettings();
+        updateUI();
+        render();
+        return;
+      }
       case 't': setTool('text'); break;           // T = text (old W)
       case 'g': cmdTangent(); break;              // G = tangent (old T; grid moved to #)
       case '*': setTool('poly'); break;           // * = poly/star (old Y)
@@ -27207,6 +28009,25 @@ function cmdSplitCurve() {
     document.querySelectorAll('.tool-btn').forEach(btn => {
       btn.addEventListener('click', () => toolIconTapped(btn.dataset.tool));
     });
+
+    // Drag wall thickness: one field, shared with Settings and the wheel.
+    (function bindWallInput() {
+      const el = document.getElementById('wall-mm');
+      if (!el) return;
+      const commit = () => {
+        const sp = settingSpec('wallDragMm');
+        settings.wallDragMm = clampSetting(sp, el.value === '' ? sp.def : el.value);
+        applySettings();
+        saveSettings();
+        el.value = String(settings.wallDragMm);
+        updateUI();
+        render();
+      };
+      el.addEventListener('change', commit);
+      el.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') { ev.preventDefault(); el.blur(); }
+      });
+    })();
 
     // Collapse / expand the left edit+layers stack. A phone cannot spare two
     // cards' worth of canvas, so one slim tab hides them; the choice sticks.
@@ -30101,7 +30922,7 @@ function cmdSplitCurve() {
       return {
         exact: textExactLoopsWorld(e),
         trace: textContoursWorld(e),
-        metrics: { width: m.width, height: m.height, ascent: m.ascent, lineHeight: m.lineHeight },
+        metrics: m ? { width: m.width, height: m.height, ascent: m.ascent, lineHeight: m.lineHeight } : null,
         geom: { p0: { x: P(e.p0).x, y: P(e.p0).y }, A: textGeom(e).A, B: textGeom(e).B }
       };
     }

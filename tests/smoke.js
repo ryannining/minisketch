@@ -59,6 +59,52 @@ console.log('svgPathSegments / svgSegmentsToSubpaths');
   ok(subs3[0].nodes.filter(n => !n.o).length === 6, 'line corners carry null handles (6 of 11)');
 }
 
+// --- drag-wall collision helpers --------------------------------------------
+console.log('polyBBox / segmentsIntersect / polylineIntersectsPolyline');
+{
+  const box = C.polyBBox([{ x: -2, y: 1 }, { x: 5, y: -3 }, { x: 0, y: 4 }]);
+  ok(box && box.minX === -2 && box.maxX === 5 && box.minY === -3 && box.maxY === 4,
+    'polyBBox spans the real points');
+  ok(C.bboxOverlap(box, { minX: 5, minY: -3, maxX: 8, maxY: 0 }), 'bbox overlap catches a shared edge');
+  ok(!C.bboxOverlap(box, { minX: 5.1, minY: -3, maxX: 8, maxY: 0 }), 'bbox overlap rejects a gap');
+
+  const a = { x: 0, y: 0 }, b = { x: 10, y: 0 };
+  ok(C.segmentsIntersect(a, b, { x: 5, y: -5 }, { x: 5, y: 5 }), 'crossing segments intersect');
+  ok(C.segmentsIntersect(a, b, { x: 5, y: 0 }, { x: 5, y: 5 }), 'touching at a T-junction intersects');
+  ok(C.segmentsIntersect(a, b, { x: 10, y: 0 }, { x: 10, y: 5 }), 'touching at an endpoint intersects');
+  ok(!C.segmentsIntersect(a, b, { x: 5, y: 1 }, { x: 5, y: 5 }), 'parallel-with-a-gap does not intersect');
+  ok(!C.segmentsIntersect(a, b, { x: 0, y: 1 }, { x: 10, y: 1 }), 'collinear-but-offset does not intersect');
+
+  const rect = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
+  ok(C.polylineIntersectsPolyline(rect, true, [{ x: 5, y: -1 }, { x: 5, y: 11 }], false),
+    'a line crossing a closed polygon is a hit');
+  ok(!C.polylineIntersectsPolyline(rect, true, [{ x: 2, y: 2 }, { x: 8, y: 8 }], false),
+    'a line fully inside the polygon is not a boundary hit (nesting stays legal)');
+  ok(C.polylineIntersectsPolyline(rect, true, [{ x: 10, y: 2 }, { x: 12, y: 2 }], false),
+    'touching the polygon edge is a hit');
+}
+
+
+// --- drag-wall offset direction ---------------------------------------------
+console.log('drag-wall offset grows outward');
+{
+  // wallDrag uses a POSITIVE Clipper offset. Pin the sign: a rectangle offset by
+  // +1 mm must grow, not shrink. This is the one thing a future refactor could
+  // silently flip (and a wall that shrinks would let parts overlap).
+  const ClipperLib = require('../tools/clipper.js');
+  const rect = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
+  const co = new ClipperLib.ClipperOffset(4, 0.05 * 1000);
+  co.AddPaths([rect.map(p => ({ X: Math.round(p.x * 1000), Y: Math.round(p.y * 1000) }))],
+    ClipperLib.JoinType.jtMiter, ClipperLib.EndType.etClosedPolygon);
+  const raw = new ClipperLib.Paths();
+  co.Execute(raw, 1 * 1000);
+  const out = raw.map(path => path.map(p => ({ x: p.X / 1000, y: p.Y / 1000 })));
+  const b = out[0] && C.polyBBox(out[0]);
+  ok(!!b, 'positive offset returns a contour');
+  ok(b && b.minX <= -0.999 && b.minY <= -0.999 && b.maxX >= 10.999 && b.maxY >= 10.999,
+    'a +1 mm wall offset grows the rectangle outward');
+}
+
 // --- solver ------------------------------------------------------------------
 console.log('lmSolve');
 {

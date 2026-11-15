@@ -1487,6 +1487,41 @@ details.settings-group.hidden {
 }
 .tool-btn.active .kbd-chip { color: inherit; border-color: currentColor; opacity: 0.85; }
 .rb-mini { min-width: 38px; padding: 5px 3px 4px; }
+/* Drag wall's thickness field: a compact vertical label+input beside the tool
+   button. The ribbon is a row of icon buttons; this is the one inline numeric
+   control, so it gets its own narrow column instead of pretending to be a
+   button. */
+.rb-wall {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 6px;
+  color: var(--faint);
+  font-size: 8.5px;
+  line-height: 1.1;
+  white-space: nowrap;
+  user-select: none;
+}
+.rb-wall input {
+  width: 54px;
+  padding: 3px 4px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--input);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: right;
+  min-width: 0;
+}
+.rb-wall input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
 /* Zoom preset picker (spans two grid cells), Fit sits in the next cell */
 .rb-zoom {
   grid-column: span 2;
@@ -2591,6 +2626,78 @@ body.xf-active .sidebar .panel {
   white-space: nowrap;
 }
 
+/* Drag wall mode indicator: the tool lives in the Edit ribbon, but the mode has
+   to be visible while the ribbon is on another page or the panels are hidden.
+   The pill sits top-right so it never fights the status hint. */
+.wall-indicator {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 5px 9px 5px 8px;
+  border: 1px solid rgba(245, 158, 11, 0.55);
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+.wall-indicator.hidden { display: none; }
+.wall-indicator-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18);
+}
+.wall-indicator-title { color: var(--text-2); }
+.wall-indicator-value { font-variant-numeric: tabular-nums; color: var(--ink); }
+.wall-indicator-state {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--faint);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+.wall-indicator[data-state="clear"] { border-color: rgba(22, 163, 74, 0.55); }
+.wall-indicator[data-state="clear"] .wall-indicator-dot {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.16);
+}
+.wall-indicator[data-state="clear"] .wall-indicator-state { color: #15803d; background: rgba(22, 163, 74, 0.12); }
+.wall-indicator[data-state="blocked"] { border-color: rgba(220, 38, 38, 0.65); color: #dc2626; }
+.wall-indicator[data-state="blocked"] .wall-indicator-dot {
+  background: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.18);
+}
+.wall-indicator[data-state="blocked"] .wall-indicator-state { color: #dc2626; background: rgba(220, 38, 38, 0.12); }
+.wall-indicator[data-state="disabled"] { border-color: var(--line-strong); }
+.wall-indicator[data-state="disabled"] .wall-indicator-dot { background: var(--faint); box-shadow: none; }
+.wall-indicator[data-state="disabled"] .wall-indicator-state { color: var(--faint); }
+/* A subtle amber frame on the stage itself: even with the panels hidden, the
+   active mode is obvious at a glance. A pseudo-element keeps the frame above
+   the canvas (an outline on .stage would be painted under it). */
+body.wall-drag-active .stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  border: 2px solid rgba(245, 158, 11, 0.55);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
 /* Fixed slots: the numbers change on every mouse move, so the boxes must not.
    Without this the zoom / loops / solver read-out shivers while x and y update. */
 .status-coords {
@@ -2765,3 +2872,12 @@ details.chat-think summary:hover { color: #00c96a; }
 }
 .stage-fills .stage-undo:active { background: var(--accent-soft); }
 .stage-fills .stage-undo:disabled { opacity: 0.35; cursor: default; }
+
+@media (max-width: 700px) {
+  .wall-indicator {
+    top: 34px;
+    right: 10px;
+    font-size: 10px;
+    padding: 4px 7px 4px 6px;
+  }
+}

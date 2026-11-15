@@ -218,6 +218,32 @@ measure-only.
     Clipper's: a hole path must wind opposite to its outer path or offset()
     silently unions them into one outline.
 
+## Drag wall (collision envelope)
+
+The **Drag wall** tool (`W`, Arrange ribbon) is a manual-nesting guard, not a generator.
+It borrows the whole select-mode interaction: pick, marquee, body drag, loop click.
+On the first actual pointer move it builds two caches from the **start pose**:
+
+- the dragged compound's **outermost contours** (composite loops from
+  `getLoops()`, framed-object contours from `entityWorldPolylines()`), filtered
+  by the same containment rule as `loopDepthOf()` and offset outward by
+  `settings.wallDragMm` through `offsetChains()`;
+- every other visible object: outermost loops as polygons (inner/hole loops are
+  ignored), open lines/arcs as their own polylines, and groups
+  (art/text/image/part/array/SVG group tag) as a bounding box. Non-loop geometry
+  is sampled lazily, and a uniform grid keeps a big drawing from testing every
+  obstacle on every move.
+
+The offset wall is translated with the drag delta; it is never rebuilt per frame.
+Collision is **boundary-only** (`polylineIntersectsPolyline` in `core.js`): a
+wall edge crossing an obstacle edge blocks, one contour fully inside another does
+not. That is deliberate — a part inside a sheet outline is a valid nesting layout.
+When a candidate pose collides, the drag holds the last collision-free delta; the
+wall turns red and the object stays there until the pointer finds a clear pose.
+The wall is transient: it is not saved, cut, or exported. A partial point edit has
+no wall (`wallDisabled`); a live-solve drag can deform away from the cached wall,
+so exact nesting is intended for Release/Manual solve.
+
 ## Performance contracts
 
 - Never scan all entities per point (or vice versa). The point→entities index
