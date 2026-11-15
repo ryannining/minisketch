@@ -1457,9 +1457,11 @@
       pickFilter.point = true;
       pickFilter.line = true;
       pickFilter.loop = true;
-      // F2 starts selection-based: the points of the selected object (or an
-      // explicit point selection) show. The Points menu toggle is the
-      // "show all points" override.
+      // F2 always STARTS selection-based: only the selected object's points
+      // (or an explicit point selection) show. The Points menu toggle is the
+      // temporary "show all points" override — reset on every F2 entry so a
+      // stale saved view cannot turn F2 into an all-points view.
+      ui.showPoints = false;
     }
     savePickFilter();
     syncPickFilterUI();
