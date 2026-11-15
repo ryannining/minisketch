@@ -2428,6 +2428,10 @@
         }
       }
     }
+    // Tap toggle: tapping the Drag wall button while it is already active
+    // returns to Select. On a phone the ribbon is on a different tab than
+    // Select, so without this there is no quick way back to the normal mode.
+    if (tool === 'dragwall' && ui.tool === 'dragwall') { setTool('select'); return; }
     setTool(tool);
   }
 
@@ -26389,7 +26393,9 @@ function cmdSplitCurve() {
         else setTool('circle');
         break;
       case 'r': setTool('box'); break;            // R = box (old B)
-      case 'w': setTool('dragwall'); break;        // W = drag wall (collision envelope)
+      case 'w':                                    // W = drag wall (toggle)
+        setTool(ui.tool === 'dragwall' ? 'select' : 'dragwall');
+        break;
       case '+': case '=': {                        // +/- = wall thickness (wheel is zoom/pan)
         if (ui.tool !== 'dragwall') break;
         const step = (ev.shiftKey || ui.shiftToggle) ? 0.1 : ((ev.altKey || ui.altToggle) ? 1 : 0.5);
