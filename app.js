@@ -3880,6 +3880,18 @@
     // the hitch felt while dragging a free object around a drawing that has
     // constraints somewhere else. Only a drag-carrying call pays for the
     // extra probe: everything else still probes once, as before.
+    // Drag targets for points no constraint reads are dead weight: such a
+    // point is not a solver variable, so its target residual can never pull
+    // anything — it only enlarges the Jacobian (a select-all drag carried
+    // 16k targets for 4 constraints). Hold them out before the probe so the
+    // variable set stays the constraint-read points.
+    if (opts.dragTargets && opts.dragTargets.length) {
+      gateProbe = true;
+      residual([]);
+      gateProbe = false;
+      const read = new Set(refPts);
+      opts = { ...opts, dragTargets: opts.dragTargets.filter(t => read.has(+t.p)) };
+    }
     if (opts.dragPoints) {
       gateProbe = true;
       residual([]);        // constraints only — the drag targets are held out
@@ -3901,7 +3913,7 @@
         const r = residual([]);
         for (let i = 0; i < r.length; i++) cost += r[i] * r[i];
         // Not solved, so the cost the status chip shows must not move either.
-        return { cost, iterations: 0, ok: false, skipped: true };
+        return { cost, iterations: 0, ok: false, skipped: true, moved: false };
       }
     }
 
@@ -3976,7 +3988,7 @@
     if (!vars.length) {
       const r = residual([]);
       const cost = r.reduce((s, v) => s + v * v, 0);
-      return { cost, iterations: 0, ok: cost < 1e-7 };
+      return { cost, iterations: 0, ok: cost < 1e-7, moved: false };
     }
 
     // A step cap keeps one iteration from teleporting the shape across the
@@ -3991,13 +4003,18 @@
     const stalled = !result.converged && !(result.cost < 1e-2);
     if (stalled) {
       markUnsolved();
-      return { cost: result.cost, iterations: result.iterations, ok: false, stalled: true };
+      return { cost: result.cost, iterations: result.iterations, ok: false, stalled: true, moved: false };
     }
+    let moved = false;
     for (let i = 0; i < vars.length; i++) {
       const v = vars[i];
-      if (v.k === 'px') state.points[v.id].x = result.x[i];
-      else if (v.k === 'py') state.points[v.id].y = result.x[i];
-      else {
+      if (v.k === 'px') {
+        if (Math.abs(result.x[i] - state.points[v.id].x) > 1e-9) moved = true;
+        state.points[v.id].x = result.x[i];
+      } else if (v.k === 'py') {
+        if (Math.abs(result.x[i] - state.points[v.id].y) > 1e-9) moved = true;
+        state.points[v.id].y = result.x[i];
+      } else {
         // A radius may not run away: a nearly singular system can push it to
         // absurd values, and a circle that jumps from r=3 to r=300 is never what
         // the user meant. The solve may change it by at most 2x in either
@@ -4005,10 +4022,12 @@
         const before = Math.max(0.01, state.entities[v.id].r);
         const lo = Math.max(0.01, before / RADIUS_SOLVE_LIMIT);
         const hi = before * RADIUS_SOLVE_LIMIT;
-        state.entities[v.id].r = clamp(result.x[i], lo, hi);
+        const nr = clamp(result.x[i], lo, hi);
+        if (Math.abs(nr - before) > 1e-9) moved = true;
+        state.entities[v.id].r = nr;
       }
     }
-    return { cost: result.cost, iterations: result.iterations, ok: result.cost < 1e-6 };
+    return { cost: result.cost, iterations: result.iterations, ok: result.cost < 1e-6, moved };
   }
 
 
@@ -4124,8 +4143,10 @@
         rebaseDrag(d, d.lastDx || 0, d.lastDy || 0);
         // Nothing moved (gate) or nothing is allowed to (manual): the frame
         // the pointermove scheduled is already the right one — skip the full
-        // panel rebuild and the repaint that made each slot hitch.
-        if (res == null || res.skipped) return;
+        // panel rebuild and the repaint that made each slot hitch. A solve
+        // that ran but displaced nothing (rigid drag of an already-satisfied
+        // constraint) is the same case: the geometry on screen is current.
+        if (res == null || res.skipped || res.moved === false) return;
         invalidateLoops();
         updateUI();
         scheduleRender();
@@ -5122,9 +5143,8 @@
   // entities of any art group caught this way (a group's members carry the
   // geometry, so translating the group id alone would move nothing).
   function arrangeLoopContents(loop, selEnts) {
-    const ids = [];
-    const add = (id) => { if (!ids.includes(+id)) ids.push(+id); };
-    for (const id of loopEntities(loop)) add(id);
+    const ids = new Set();
+    for (const id of loopEntities(loop)) ids.add(+id);
     // ONLY explicitly selected children travel with the parent. Whatever else
     // happens to sit inside the loop (unselected objects, geometry on other
     // layers) must stay where it is — arrange never kidnaps bystanders.
@@ -5134,11 +5154,21 @@
         const e = state.entities[id];
         return e && entityEditable(e);
       });
+    // One group index per call: the old full entity scan PER queued kid was
+    // O(kids × entities) — a whole-document selection made it ~90M iterations.
+    const byGroup = new Map();
+    for (const eid in state.entities) {
+      const m = state.entities[eid];
+      if (!m || m.group == null) continue;
+      let g = byGroup.get(m.group);
+      if (!g) byGroup.set(m.group, g = []);
+      g.push(+eid);
+    }
     const queue = kids.slice();
-    while (queue.length) {
-      const id = +queue.shift();
-      if (ids.includes(id)) continue;
-      add(id);
+    for (let qi = 0; qi < queue.length; qi++) {
+      const id = +queue[qi];
+      if (ids.has(id)) continue;
+      ids.add(id);
       const e = state.entities[id];
       if (!e) continue;
       // A selected art group travels as one: its guide points and the member
@@ -5146,15 +5176,15 @@
       if (e.type === 'art' && Array.isArray(e.guide)) {
         for (const gid of e.guide) {
           const g = state.entities[gid];
-          if (g && entityEditable(g)) add(gid);
+          if (g && entityEditable(g)) ids.add(+gid);
         }
       }
-      for (const eid in state.entities) {
-        const m = state.entities[eid];
-        if (m && m.group === id && entityEditable(m) && !ids.includes(+eid)) queue.push(+eid);
+      for (const mid of byGroup.get(id) || []) {
+        const m = state.entities[mid];
+        if (m && entityEditable(m) && !ids.has(mid)) queue.push(mid);
       }
     }
-    return ids;
+    return Array.from(ids);
   }
 
   function arrangeableUnits() {
@@ -5197,16 +5227,18 @@
     //     loop of each compound is an arrange unit — everything fully inside
     //     the loop (nested loops, lines, texts, groups, clones) travels with
     //     its parent, exactly like Drag wall treats the compound. A selected
-    //     loop fully inside another selected loop is NOT its own unit.
+    //     loop with a selected ancestor in the LoopTree is NOT its own unit.
     loops.sort((a, b2) => b2.b.maxX - b2.b.minX - (a.b.maxX - a.b.minX) ||
                           (b2.b.maxY - b2.b.minY) - (a.b.maxY - a.b.minY));
+    loopTree();
     const outer = [];
+    const outerSet = new Set();
     for (const cand of loops) {
-      const cx = (cand.b.minX + cand.b.maxX) / 2;
-      const cy = (cand.b.minY + cand.b.maxY) / 2;
-      const inside = outer.some(o =>
-        pointInPoly({ x: cx, y: cy }, o.loop.poly));
-      if (!inside) outer.push(cand);
+      let inside = false;
+      for (let p = cand.loop.parent; p; p = p.parent) {
+        if (outerSet.has(p)) { inside = true; break; }
+      }
+      if (!inside) { outer.push(cand); outerSet.add(cand.loop); }
     }
     for (const o of outer) {
       const ids = arrangeLoopContents(o.loop, selEnts);
@@ -7951,44 +7983,20 @@
     toast(count + ' loop' + (count === 1 ? '' : 's') + ' kept');
   }
 
-  // Everything a loop encloses: the entities whose nodes all sit inside its
-  // polygon. The loop's own outline is skipped — loopEntities has that.
+  // Everything a loop encloses: its subtree in the LoopTree — nested loops'
+  // outlines plus the leaf entities owned by any loop below it. The loop's own
+  // outline is skipped — loopEntities has that.
   function entitiesInsideLoop(loop) {
-    const poly = loop.poly;
-    if (!poly || poly.length < 3) return [];
+    const t = loopTree();
     const own = new Set(loopEntities(loop).map(Number));
-    const out = [];
-    for (const eid in state.entities) {
-      const id = +eid;
-      if (own.has(id)) continue;
-      const e = state.entities[eid];
-      const ids = entityPointIds(e);
-      if (!ids.length) {
-        // Point-less objects (a group/art, a clone array, a part, a picture)
-        // own no points, so the point rule below can never see them: they used
-        // to be skipped, so Ctrl+click on a loop selected the nested loops but
-        // NOT these objects sitting inside it. A container is inside the loop
-        // when its whole bounding box is.
-        const b = entityBounds(e);
-        if (!b) continue;
-        const corners = [
-          { x: b.minX, y: b.minY }, { x: b.maxX, y: b.minY },
-          { x: b.maxX, y: b.maxY }, { x: b.minX, y: b.maxY }
-        ];
-        if (corners.every(c => pointInPoly(c, poly))) out.push(id);
-        continue;
+    const out = new Set();
+    for (const L of loopSubtree(loop)) {
+      if (L !== loop) {
+        for (const id of loopEntities(L)) if (!own.has(+id)) out.add(+id);
       }
-      let any = false;
-      let all = true;
-      for (const pid of ids) {
-        const p = P(pid);
-        if (!p) continue;
-        any = true;
-        if (!pointInPoly(p, poly)) { all = false; break; }
-      }
-      if (any && all) out.push(id);
+      for (const id of t.leaves.get(L) || []) if (!own.has(+id)) out.add(+id);
     }
-    return out;
+    return Array.from(out);
   }
 
   // All loops containing the point, editable (active-layer) ones first, then
@@ -10063,45 +10071,159 @@
   let loopFillLayer = null;
   let loopFillLayerCtx = null;
   let loopFillLayerKey = null;
-
-  // Containment depth of a loop: how many other loops (strictly) contain it.
-  // This is a TOPOLOGY property, so it is cached per the EXACT loops array
-  // from getLoops() — a drag only moves vertices, it does not change who
-  // contains whom, so the O(loops²) containment pass must not rerun every
-  // drag frame. Keying by the array reference (instead of a structural string)
-  // guarantees the cache always matches the loops currently being drawn.
-  let loopDepthCache = null;
-  let loopDepthFor = null;
-  function loopDepthOf(loop) {
+  // Rigid whole-scene drag: every loop translates by the SAME delta, so the
+  // cached fill bitmap stays valid — blit it shifted instead of re-filling
+  // thousands of contours per pointermove. Base key excludes the geometry
+  // epoch; the delta the bitmap was baked at is remembered so the blit offset
+  // is (now - baked).
+  let loopFillLayerBase = null;
+  let loopFillLayerLoops = null;
+  let loopFillLayerSel = null;
+  let loopFillLayerDelta = { x: 0, y: 0 };
+  let rigidForDrag = null;
+  let rigidForLoops = null;
+  let rigidAll = false;
+  function dragRigidDelta() {
+    const d = ui.drag;
+    if (!d || d.kind !== 'entity' || !d.moved || !d.ids || !d.ids.length) return null;
     const loops = getLoops();
-    if (loopDepthFor !== loops || !loopDepthCache) {
-      loopDepthFor = loops;
-      const map = new Map();
-      const boxes = new Map();
-      for (const L of loops) boxes.set(L, loopBox(L));
+    if (!loops.length) return null;
+    if (rigidForDrag !== d || rigidForLoops !== loops) {
+      rigidForDrag = d;
+      rigidForLoops = loops;
+      rigidAll = true;
+      let common = null;
       for (const L of loops) {
-        const lb = boxes.get(L);
-        if (!lb) { map.set(L, 0); continue; }
-        let d = 0;
-        for (const O of loops) {
-          if (O === L) continue;
-          const ob = boxes.get(O);
-          if (!ob) continue;
-          // bbox quick-reject: if the outer box does not fully contain the
-          // inner box, the outer loop cannot contain the inner one — four
-          // number compares beat a polygon scan.
-          if (ob.x0 > lb.x0 || ob.y0 > lb.y0 || ob.x1 < lb.x1 || ob.y1 < lb.y1) continue;
-          if (loopContainedIn(L, O, lb, ob)) d++;
-        }
-        map.set(L, d);
+        const del = loopDragDelta(L);
+        if (!del.x && !del.y) { rigidAll = false; break; }
+        if (!common) common = del;
+        else if (Math.abs(del.x - common.x) > 1e-9 || Math.abs(del.y - common.y) > 1e-9) { rigidAll = false; break; }
       }
-      loopDepthCache = map;
     }
-    return loopDepthCache.get(loop) || 0;
+    if (!rigidAll) return null;
+    return loopDragDelta(loops[0]);
+  }
+
+  // ---- Global loop hierarchy (LoopTree) --------------------------------
+  // One tree, built once per loops-array identity (same lifetime as loopCache,
+  // frozen during drags), shared by every consumer: fill depth, selection,
+  // arrange, wall obstacles and the Object Tree panel. Only loops can be
+  // parents; every other entity is a leaf child of the smallest loop that
+  // contains it, or a root when it sits outside all loops. Groups/clone links
+  // never change the tree — they only make entities travel together.
+  let loopTreeFor = null;
+  let loopTreeData = null;
+  let loopTreeEpoch = 0;
+  function loopTree() {
+    const loops = getLoops();
+    if (loopTreeFor === loops && loopTreeData) return loopTreeData;
+    loopTreeFor = loops;
+    loopTreeEpoch++;
+    const boxes = new Map();
+    for (const L of loops) boxes.set(L, loopBox(L));
+    for (const L of loops) { L.parent = null; L.level = 0; L.children = []; }
+    // Area-descending order puts every possible container before its content,
+    // so the first container found scanning backwards IS the immediate parent
+    // (smallest area among containers) and parent links can never cycle — even
+    // for duplicate loops, where only the earlier index may adopt the later.
+    const order = loops.slice().sort((a, b) => b.area - a.area);
+    for (let i = 0; i < order.length; i++) {
+      const L = order[i];
+      const lb = boxes.get(L);
+      for (let j = i - 1; j >= 0; j--) {
+        const O = order[j];
+        const ob = boxes.get(O);
+        if (ob.x0 > lb.x0 || ob.y0 > lb.y0 || ob.x1 < lb.x1 || ob.y1 < lb.y1) continue;
+        if (!loopContainedIn(L, O, lb, ob)) continue;
+        L.parent = O;
+        L.level = O.level + 1;
+        O.children.push(L);
+        break;
+      }
+    }
+    const roots = order.filter(L => !L.parent);
+    // Leaf ownership: an entity that forms a loop's outline belongs to that
+    // loop as its boundary (loopEntities), never as a leaf. Everything else
+    // joins the smallest loop whose polygon holds ALL of its points (bbox
+    // corners for point-less containers: art, arrays, parts, pictures).
+    const boundary = new Set();
+    const boundaryLoop = new Map();
+    const leaves = new Map();
+    for (const L of loops) {
+      leaves.set(L, []);
+      for (const id of loopEntities(L)) {
+        boundary.add(+id);
+        if (!boundaryLoop.has(+id)) boundaryLoop.set(+id, L);
+      }
+    }
+    const owner = new Map();
+    const asc = order.slice().reverse();   // smallest first: first hit wins
+    for (const eid in state.entities) {
+      const id = +eid;
+      if (boundary.has(id)) continue;
+      const e = state.entities[eid];
+      const pids = entityPointIds(e);
+      let pts;
+      if (pids.length) {
+        pts = [];
+        for (const pid of pids) { const p = P(pid); if (p) pts.push(p); }
+        if (!pts.length) continue;
+      } else {
+        const b = entityBounds(e);
+        if (!b) continue;
+        pts = [
+          { x: b.minX, y: b.minY }, { x: b.maxX, y: b.minY },
+          { x: b.maxX, y: b.maxY }, { x: b.minX, y: b.maxY }
+        ];
+      }
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const p of pts) {
+        if (p.x < x0) x0 = p.x;
+        if (p.y < y0) y0 = p.y;
+        if (p.x > x1) x1 = p.x;
+        if (p.y > y1) y1 = p.y;
+      }
+      for (const L of asc) {
+        const lb = boxes.get(L);
+        if (lb.x0 > x0 || lb.y0 > y0 || lb.x1 < x1 || lb.y1 < y1) continue;
+        if (!L.poly || L.poly.length < 3) continue;
+        let all = true;
+        for (const p of pts) { if (!pointInPoly(p, L.poly)) { all = false; break; } }
+        if (all) {
+          owner.set(id, L);
+          leaves.get(L).push(id);
+          break;
+        }
+      }
+    }
+    loopTreeData = { loops, roots, leaves, owner, boxes, boundary, boundaryLoop };
+    return loopTreeData;
+  }
+
+  // The loop plus every loop nested inside it, parents before children.
+  function loopSubtree(loop) {
+    loopTree();
+    const out = [];
+    const stack = [loop];
+    while (stack.length) {
+      const L = stack.pop();
+      out.push(L);
+      const kids = L.children || [];
+      for (let i = kids.length - 1; i >= 0; i--) stack.push(kids[i]);
+    }
+    return out;
+  }
+
+  // Containment depth = the loop's level in the tree (0 = outermost).
+  function loopDepthOf(loop) {
+    loopTree();
+    return loop.level || 0;
   }
 
   function drawLoopFills() {
     const key = geometryEpoch + '|' + themeName + '|' + view.zoom + '|' + view.ox + '|' + view.oy + '|' +
+      DPR + '|' + loopFillScale + '|' + (ui.dimOthers ? 1 : 0) + '|' + ui.activeLayer + '|' + W + 'x' + H;
+    const baseKey = themeName + '|' + view.zoom + '|' + view.ox + '|' + view.oy + '|' +
       DPR + '|' + loopFillScale + '|' + (ui.dimOthers ? 1 : 0) + '|' + ui.activeLayer + '|' + W + 'x' + H;
     if (!loopFillLayer) {
       loopFillLayer = document.createElement('canvas');
@@ -10113,6 +10235,14 @@
       loopFillLayer.width = pw;
       loopFillLayer.height = ph;
       loopFillLayerKey = null;
+    }
+    const rigid = dragRigidDelta();
+    if (rigid && loopFillLayerKey !== null && loopFillLayerBase === baseKey &&
+      loopFillLayerLoops === getLoops() && loopFillLayerSel === selectionIndex()) {
+      const ox = (rigid.x - loopFillLayerDelta.x) * view.zoom;
+      const oy = (rigid.y - loopFillLayerDelta.y) * view.zoom;
+      ctx.drawImage(loopFillLayer, 0, 0, pw, ph, ox, oy, W, H);
+      return;
     }
     if (loopFillLayerKey !== key) {
       const lc = loopFillLayerCtx;
@@ -10151,6 +10281,10 @@
         lc.restore();
       }
       loopFillLayerKey = key;
+      loopFillLayerBase = baseKey;
+      loopFillLayerLoops = getLoops();
+      loopFillLayerSel = selectionIndex();
+      loopFillLayerDelta = rigid ? { x: rigid.x, y: rigid.y } : { x: 0, y: 0 };
     }
     ctx.drawImage(loopFillLayer, 0, 0, W, H);
   }
@@ -10179,16 +10313,36 @@
   // actually moving. When EVERY point of a loop is part of the drag, the loop
   // translates rigidly by the current press->now delta, and we can reuse the
   // cached polygon shifted by that delta instead of rebuilding all loops.
+  let loopDragDeltaDragIds = null;
+  let loopDragDeltaDragSet = null;
+  let loopDragPtsLoops = null;
+  let loopDragPts = new Map();
   function loopDragDelta(loop) {
     const d = ui.drag;
     if (!d || d.kind !== 'entity' || !d.ids || !d.ids.length || !d.moved) return { x: 0, y: 0 };
-    const ids = new Set();
-    const collect = (ent) => { if (ent) for (const pid of entityPointIds(ent)) ids.add(+pid); };
-    if (loop.circle) collect(state.entities[loop.entity]);
-    if (loop.splineEntity != null) collect(state.entities[loop.splineEntity]);
-    for (const st of (loop.steps || [])) collect(state.entities[st.edge.entity]);
+    // The drag id set and each loop's point ids are drag-lifetime constants:
+    // rebuilding them per loop per frame was O(loops × dragIds) — a whole-
+    // document drag spent ~10M Set insertions per frame here.
+    if (loopDragDeltaDragIds !== d.ids) {
+      loopDragDeltaDragIds = d.ids;
+      loopDragDeltaDragSet = new Set(d.ids.map(Number));
+    }
+    const dragSet = loopDragDeltaDragSet;
+    const loops = getLoops();
+    if (loopDragPtsLoops !== loops) {
+      loopDragPtsLoops = loops;
+      loopDragPts = new Map();
+    }
+    let ids = loopDragPts.get(loop);
+    if (!ids) {
+      ids = new Set();
+      const collect = (ent) => { if (ent) for (const pid of entityPointIds(ent)) ids.add(+pid); };
+      if (loop.circle) collect(state.entities[loop.entity]);
+      if (loop.splineEntity != null) collect(state.entities[loop.splineEntity]);
+      for (const st of (loop.steps || [])) collect(state.entities[st.edge.entity]);
+      loopDragPts.set(loop, ids);
+    }
     if (!ids.size) return { x: 0, y: 0 };
-    const dragSet = new Set(d.ids.map(Number));
     for (const pid of ids) if (!dragSet.has(pid)) return { x: 0, y: 0 };
     // all of the loop's points are dragged: use the first one's start->now delta
     for (const pid of ids) {
@@ -20378,6 +20532,7 @@
     updateConstraintList();
     updateArrayList();
     updatePartsList();
+    updateObjectTree();
     updateNestPanel();
     updateLayers();
     const hintEl = document.getElementById('status-hint');
@@ -20791,6 +20946,189 @@
       list.appendChild(li);
     }
     list.dataset.empty = 'No constraints on this selection — click geometry, then press a constraint key (H/V/P/Q/…)';
+  }
+
+  // Object Tree panel: a live view of the LoopTree — loop nodes badged with
+  // their level, leaf entities under the loop that owns them, loose objects
+  // (outside every loop) at the bottom. Nodes start COLLAPSED; the caret opens
+  // one level at a time so a big document stays a short list. Click a loop row
+  // to select its whole subtree (the Ctrl+click pool); click a leaf row to
+  // select that entity. Ancestors of the current selection auto-expand so the
+  // highlighted rows are never hidden inside a closed node.
+  let otSelArr = null;
+  let otSelLen = -1;
+  const otExpanded = new Set();
+  const otLoopKey = (L) => loopEntities(L).map(Number).sort((a, b) => a - b).join(',');
+  function updateObjectTree() {
+    const panel = document.getElementById('tree-panel');
+    const list = document.getElementById('object-tree');
+    if (!panel || !list) return;
+    if (!panel.__otBound) {
+      panel.__otBound = true;
+      panel.addEventListener('toggle', () => updateObjectTree());
+    }
+    const t = loopTree();
+    const countEl = document.getElementById('tree-count');
+    if (countEl) countEl.textContent = String(t.loops.length);
+    if (!panel.open) { list.__lastSig = null; return; }
+    // Rebuild only when the tree, the selection or the open/closed state
+    // changed — the tree epoch is stable during a drag (frozen loops), so drag
+    // frames cost nothing here.
+    const sig = 't' + loopTreeEpoch + '|' + Array.from(otExpanded).sort().join(',');
+    if (otSelArr === ui.selection && otSelLen === ui.selection.length && listUnchanged(list, sig)) return;
+    otSelArr = ui.selection;
+    otSelLen = ui.selection.length;
+    // The cascade (points -> entities they cover), so a marquee selection
+    // highlights and reveals exactly what the Selection panel reports.
+    const selEnts = new Set();
+    for (const e of selectedEntitiesForExport()) selEnts.add(+e.id);
+    // Effective open state = user's carets + the ancestor chains of everything
+    // selected, so a canvas selection reveals itself in the tree.
+    const eff = new Set(otExpanded);
+    const expandChain = (L, includeSelf) => {
+      for (let p = includeSelf ? L : L.parent; p; p = p.parent) eff.add(otLoopKey(p));
+    };
+    for (const L of t.loops) if (loopShapeSelected(L)) expandChain(L, false);
+    for (const id of selEnts) {
+      const own = t.owner.get(+id);
+      if (own) expandChain(own, true);
+      else {
+        const bl = t.boundaryLoop.get(+id);
+        if (bl) expandChain(bl, false);
+        else eff.add('__loose');
+      }
+    }
+    const MAX_LEAVES = 40;
+    list.innerHTML = '';
+    const caret = (key, hasKids) => {
+      const c = document.createElement('span');
+      c.className = 'ot-caret' + (hasKids ? '' : ' none');
+      c.textContent = hasKids ? (eff.has(key) ? '▾' : '▸') : '';
+      if (hasKids) {
+        c.title = eff.has(key) ? 'Collapse' : 'Expand';
+        c.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          if (otExpanded.has(key)) otExpanded.delete(key);
+          else otExpanded.add(key);
+          updateObjectTree();
+        });
+      }
+      return c;
+    };
+    const leafRow = (id) => {
+      const e = state.entities[id];
+      if (!e) return null;
+      const li = document.createElement('li');
+      const row = document.createElement('div');
+      row.className = 'ot-row' + (selEnts.has(+id) ? ' active' : '');
+      row.title = 'Click to select this object';
+      row.appendChild(caret('', false));
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = (e.name || '').trim() || (e.type + ' ' + id);
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = e.type;
+      row.appendChild(name);
+      row.appendChild(meta);
+      row.addEventListener('click', () => {
+        selectOnly('entity', +id);
+        updateUI();
+        render();
+      });
+      li.appendChild(row);
+      return li;
+    };
+    const moreRow = (n) => {
+      const li = document.createElement('li');
+      const div = document.createElement('div');
+      div.className = 'ot-more';
+      div.textContent = '+' + n + ' more…';
+      li.appendChild(div);
+      return li;
+    };
+    const loopNode = (L) => {
+      const key = otLoopKey(L);
+      const kids = L.children || [];
+      const leaves = t.leaves.get(L) || [];
+      const hasKids = !!(kids.length || leaves.length);
+      const open = eff.has(key);
+      const li = document.createElement('li');
+      const row = document.createElement('div');
+      row.className = 'ot-row' + (loopShapeSelected(L) ? ' active' : '');
+      row.title = 'Click to select this loop and everything inside it';
+      row.appendChild(caret(key, hasKids));
+      const lvl = document.createElement('span');
+      lvl.className = 'ot-lvl';
+      lvl.textContent = 'L' + (L.level || 0);
+      const name = document.createElement('span');
+      name.className = 'name';
+      const kind = L.circle ? 'Circle' : (L.splineEntity != null ? 'Curve' : 'Loop');
+      name.textContent = kind + ' ' + t.loops.indexOf(L);
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = round2(L.area) + ' mm²';
+      row.appendChild(lvl);
+      row.appendChild(name);
+      row.appendChild(meta);
+      row.addEventListener('click', () => {
+        const ids = new Set(loopEntities(L).map(Number));
+        for (const id of entitiesInsideLoop(L)) ids.add(+id);
+        const pool = Array.from(ids).filter(id => state.entities[id] && entityEditable(state.entities[id]));
+        if (!pool.length) return;
+        ui.focusLoop = t.loops.indexOf(L);
+        ui.selection = pool.map(id => ({ kind: 'entity', id }));
+        markLastPicked('entity', pool[0]);
+        updateUI();
+        render();
+      });
+      li.appendChild(row);
+      if (hasKids && open) {
+        const ul = document.createElement('ul');
+        for (const c of kids) ul.appendChild(loopNode(c));
+        for (let i = 0; i < Math.min(leaves.length, MAX_LEAVES); i++) {
+          const r = leafRow(leaves[i]);
+          if (r) ul.appendChild(r);
+        }
+        if (leaves.length > MAX_LEAVES) ul.appendChild(moreRow(leaves.length - MAX_LEAVES));
+        li.appendChild(ul);
+      }
+      return li;
+    };
+    for (const L of t.roots) list.appendChild(loopNode(L));
+    // Loose objects: no loop owns them and they form no loop outline.
+    const loose = [];
+    for (const eid in state.entities) {
+      const id = +eid;
+      if (!t.boundary.has(id) && !t.owner.has(id)) loose.push(id);
+    }
+    if (loose.length) {
+      const open = eff.has('__loose');
+      const li = document.createElement('li');
+      const row = document.createElement('div');
+      row.className = 'ot-row';
+      row.appendChild(caret('__loose', true));
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = 'Loose objects';
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = String(loose.length);
+      row.appendChild(name);
+      row.appendChild(meta);
+      li.appendChild(row);
+      if (open) {
+        const ul = document.createElement('ul');
+        for (let i = 0; i < Math.min(loose.length, MAX_LEAVES); i++) {
+          const r = leafRow(loose[i]);
+          if (r) ul.appendChild(r);
+        }
+        if (loose.length > MAX_LEAVES) ul.appendChild(moreRow(loose.length - MAX_LEAVES));
+        li.appendChild(ul);
+      }
+      list.appendChild(li);
+    }
+    list.dataset.empty = 'No loops yet — draw a closed shape to see the hierarchy';
   }
 
   // Parts panel: one row per part with select + delete, and the open mate-job
@@ -21701,23 +22039,6 @@
     });
   }
 
-  // The smallest-area loop that fully contains L (its immediate container).
-  function wallImmediateParent(L, loops, boxes) {
-    const lb = boxes.get(L);
-    if (!lb) return null;
-    let parent = null, parentArea = Infinity;
-    for (const O of loops) {
-      if (O === L) continue;
-      const ob = boxes.get(O);
-      if (!ob) continue;
-      if (ob.x0 > lb.x0 || ob.y0 > lb.y0 || ob.x1 < lb.x1 || ob.y1 < lb.y1) continue;
-      if (!loopContainedIn(L, O, lb, ob)) continue;
-      const area = Math.abs(O.area || 0);
-      if (area < parentArea) { parentArea = area; parent = O; }
-    }
-    return parent;
-  }
-
   function wallBuildObstacles(excludeIds) {
     const obstacles = [];
     const covered = new Set();
@@ -21729,22 +22050,20 @@
     // below would add the hole boundary as-is and the wall would collide with
     // the hole instead of the object's outer edge.
     const loops = getLoops();
+    loopTree();
     for (const L of loops) {
       for (const id of loopEntities(L)) loopEntityIds.add(+id);
     }
-    const loopBoxes = new Map();
-    for (const L of loops) loopBoxes.set(L, loopBox(L));
 
-    // 1) object outer boundaries: every top-level loop (depth 0), PLUS any loop
-    // sitting directly inside a sheet (depth 1, parent is the green material).
+    // 1) object outer boundaries: every top-level loop (level 0), PLUS any loop
+    // sitting directly inside a sheet (level 1, parent is the green material).
     // The latter is what lets a part dragged inside the sheet collide with the
     // other parts already placed on it. Deeper loops stay holes (not obstacles).
     for (const L of loops) {
-      const depth = loopDepthOf(L);
+      const depth = L.level || 0;
       let isBoundary = depth === 0;
       if (!isBoundary && depth === 1) {
-        const parent = wallImmediateParent(L, loops, loopBoxes);
-        isBoundary = !!(parent && wallLoopIsSheet(parent));
+        isBoundary = !!(L.parent && wallLoopIsSheet(L.parent));
       }
       if (!isBoundary) continue;
       const own = loopEntities(L).map(Number);
@@ -26789,38 +27108,18 @@ function cmdSplitCurve() {
     return true;
   }
 
-  // The loops that carry an explicit gray/yellow fill, cached per loops-array
-  // identity. loopFill's inheritance pass only needs to consider these (they
-  // are few), instead of scanning every loop — the O(loops²) cost on large
-  // files.
-  let filledLoopsCacheLoops = null;
-  let filledLoopsCache = [];
-  function filledLoopsList() {
-    const loops = getLoops();
-    if (filledLoopsCacheLoops !== loops) {
-      filledLoopsCacheLoops = loops;
-      filledLoopsCache = loops.filter(l => filledFillOf(l));
-    }
-    return filledLoopsCache;
-  }
-
   // Per-loop fill (drives the offset flip inside KaryaCNC). A loop with no
-  // fill of its own inherits the fill of the smallest filled loop that fully
-  // contains it — so a nested loop inside a filled body reads as filled too
+  // fill of its own inherits the fill of the nearest filled ancestor in the
+  // LoopTree — so a nested loop inside a filled body reads as filled too
   // instead of staying blank.
   function loopFill(loop) {
     if (!loop) return 'none';
     const own = filledFillOf(loop);
     if (own) return own;
-    if (loop.poly && loop.poly.length >= 3) {
-      let best = null, bestArea = Infinity;
-      for (const other of filledLoopsList()) {
-        if (other === loop || !(other.area > loop.area) || other.area >= bestArea) continue;
-        if (!loopContainedIn(loop, other)) continue;
-        bestArea = other.area;
-        best = filledFillOf(other);
-      }
-      if (best) return best;
+    loopTree();
+    for (let p = loop.parent; p; p = p.parent) {
+      const f = filledFillOf(p);
+      if (f) return f;
     }
     return 'none';
   }
@@ -30850,6 +31149,23 @@ function cmdSplitCurve() {
   window.MiniSketch = {
     getState: () => JSON.parse(JSON.stringify(state)),
     getLoops: () => getLoops().map(l => ({ area: l.area, circle: !!l.circle })),
+    // LoopTree debug: the global hierarchy as plain data (level, parent index,
+    // leaf counts). Pass true to include the polygons for offline checks.
+    loopTree: (withPoly) => {
+      const t = loopTree();
+      return {
+        epoch: loopTreeEpoch,
+        roots: t.roots.map(l => t.loops.indexOf(l)),
+        ownerCount: t.owner.size,
+        loops: t.loops.map((l, i) => ({
+          i, level: l.level, area: l.area,
+          parent: l.parent ? t.loops.indexOf(l.parent) : null,
+          children: l.children.map(c => t.loops.indexOf(c)),
+          leaves: (t.leaves.get(l) || []).slice(),
+          poly: withPoly ? l.poly : undefined
+        }))
+      };
+    },
     // Loop-detection debug: rebuilds from scratch and logs the raw graph the
     // extractor sees — edge count, each edge's welded node pair, and the
     // union-find roots. Paste MiniSketch.debugLoops() in the DevTools console
