@@ -21923,6 +21923,11 @@
       if (e.type === 'line' || e.type === 'arc' || e.type === 'part') continue;
       if (!wallEntityFullyDragged(e, dragSet)) continue;
       if ((e.type === 'circle' || e.type === 'spline') && loopCovered.has(+id)) continue;
+      if (e.type === 'array' && e.kind === 'clone') {
+        for (const t of cloneInstanceOffsets(e)) {
+          for (const pts of cloneInstanceLoopPolys(e, t)) out.push({ pts, closed: true });
+        }
+      }
       for (const pl of entityWorldPolylines(e)) {
         if (pl && pl.closed && pl.pts && pl.pts.length >= 3) {
           out.push({ pts: pl.pts, closed: true });
@@ -21981,6 +21986,23 @@
     list.push({ kind, box, entity: entityId == null ? null : +entityId, polys: null });
   }
 
+  // Closed contours of one clone instance, taken from the MASTER's loops.
+  // entityWorldPolylines/arrayInstancePolylines only yield closed shapes when
+  // the master itself is a closed entity (circle/spline); a master built from
+  // separate lines flattens to open segments, which left a dragged clone with
+  // no wall envelope and a clone obstacle as a mere bounding box.
+  function cloneInstanceLoopPolys(e, t) {
+    const masterSet = new Set((e.masters || []).map(Number));
+    const out = [];
+    for (const L of getLoops()) {
+      const own = loopEntities(L);
+      if (!own.length || !own.every(id => masterSet.has(+id))) continue;
+      if (!L.poly || L.poly.length < 3) continue;
+      out.push(L.poly.map(p => arrayXformPoint(t, p.x, p.y)));
+    }
+    return out;
+  }
+
   // Precise outer contours of every instance of a clone, for use as a collision
   // obstacle. A clone used to block as one coarse bounding box; the real outer
   // envelope of each instance lets the wall hug the actual shape (holes dropped,
@@ -21990,6 +22012,7 @@
     for (const t of cloneInstanceOffsets(e)) {
       const closed = arrayInstancePolylines(e, t)
         .filter(pl => pl.closed && pl.pts && pl.pts.length >= 3);
+      for (const pts of cloneInstanceLoopPolys(e, t)) closed.push({ pts, closed: true });
       if (!closed.length) continue;
       for (const c of wallOuterContours(closed)) {
         polys.push({ pts: c.pts, closed: true, box: polyBBox(c.pts) });
@@ -22302,12 +22325,18 @@
     if (hit) {
       w.blocked = true;
       w.hit = hit;
+      // remember the rejected cursor pose: the preview follows the hand while
+      // the object itself holds the last valid pose
+      w.candDx = dx;
+      w.candDy = dy;
       w.dx = w.lastDx;
       w.dy = w.lastDy;
       return { dx: w.lastDx, dy: w.lastDy, blocked: true };
     }
     w.blocked = false;
     w.hit = null;
+    w.candDx = dx;
+    w.candDy = dy;
     w.lastDx = dx;
     w.lastDy = dy;
     w.dx = dx;
@@ -22354,22 +22383,32 @@
     if (!d || !d.wall || !d.wall.polys) return;
     const w = d.wall;
     const blocked = !!w.blocked;
-    ctx.save();
-    ctx.lineWidth = 1.6;
-    ctx.strokeStyle = blocked ? '#dc2626' : '#f59e0b';
-    ctx.fillStyle = blocked ? 'rgba(220,38,38,0.07)' : 'rgba(245,158,11,0.07)';
-    ctx.setLineDash(blocked ? [] : [6, 4]);
-    for (const pts of w.polys) {
-      if (!pts || pts.length < 3) continue;
-      ctx.beginPath();
-      for (let i = 0; i < pts.length; i++) {
-        const s = w2s(pts[i].x + w.dx, pts[i].y + w.dy);
-        if (i === 0) ctx.moveTo(s.x, s.y);
-        else ctx.lineTo(s.x, s.y);
+    const pass = (dx, dy, stroke, fill, dash, width) => {
+      ctx.lineWidth = width;
+      ctx.strokeStyle = stroke;
+      ctx.fillStyle = fill;
+      ctx.setLineDash(dash);
+      for (const pts of w.polys) {
+        if (!pts || pts.length < 3) continue;
+        ctx.beginPath();
+        for (let i = 0; i < pts.length; i++) {
+          const s = w2s(pts[i].x + dx, pts[i].y + dy);
+          if (i === 0) ctx.moveTo(s.x, s.y);
+          else ctx.lineTo(s.x, s.y);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
       }
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
+    };
+    ctx.save();
+    if (blocked) {
+      // the object holds the last valid pose: show it faint and dashed so the
+      // landing spot stays readable while the red preview follows the hand
+      pass(w.dx, w.dy, 'rgba(220,38,38,0.35)', 'rgba(220,38,38,0.03)', [4, 4], 1.2);
+      pass(w.candDx || 0, w.candDy || 0, '#dc2626', 'rgba(220,38,38,0.07)', [], 1.6);
+    } else {
+      pass(w.dx, w.dy, '#f59e0b', 'rgba(245,158,11,0.07)', [6, 4], 1.6);
     }
     ctx.restore();
   }
