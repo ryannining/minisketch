@@ -15971,7 +15971,10 @@
       const a0 = Math.atan2(s.y - ad.c.y, s.x - ad.c.x);
       const a1 = Math.atan2(en.y - ad.c.y, en.x - ad.c.x);
       if (forward) segs.push({ k: 'A', c: ad.c, r: ad.r, sa: a0, ea: a0 + norm2pi(a1 - a0), ccw: true });
-      else segs.push({ k: 'A', c: ad.c, r: ad.r, sa: a1, ea: a1 - norm2pi(a0 - a1), ccw: false });
+      // backwards along the same arc = clockwise by the arc's OWN sweep
+      // (norm2pi(a1 - a0)); using norm2pi(a0 - a1) here swept the complement
+      // and landed the end point mirrored, leaving the ring open
+      else segs.push({ k: 'A', c: ad.c, r: ad.r, sa: a1, ea: a1 - norm2pi(a1 - a0), ccw: false });
       return true;
     };
     const cubicSegs = (e, forward, closed) => {
@@ -16117,7 +16120,10 @@
           Math.hypot(c2.x - lastOut.x, c2.y - lastOut.y) < 1e-9) continue;
       if (s.k === 'L') cmds.push(['L', [s.b.x, s.b.y]]);
       else if (s.k === 'C') cmds.push(['C', [s.c1.x, s.c1.y], [s.c2.x, s.c2.y], [s.b.x, s.b.y]]);
-      else cmds.push(['A', s.r, s.r, 0, Math.abs(s.ea - s.sa) > Math.PI + 1e-9, s.ccw ? 1 : 0,
+      // both flags NUMERIC: PathBool compares fA === fS strictly, so a boolean
+      // large-arc next to a numeric sweep never matches and every major arc
+      // reads as its mirrored minor
+      else cmds.push(['A', s.r, s.r, 0, Math.abs(s.ea - s.sa) > Math.PI + 1e-9 ? 1 : 0, s.ccw ? 1 : 0,
         [s.c.x + Math.cos(s.ea) * s.r, s.c.y + Math.sin(s.ea) * s.r]]);
       lastOut = end;
     }

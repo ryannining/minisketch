@@ -1105,7 +1105,10 @@ const arcSegmentToCenter = (() => {
             rx2 *= lambdaAbs;
             ry2 *= lambdaAbs;
         }
-        const sign = fA === fS ? -1 : 1;
+        // flags arrive as 0/1 or as booleans (reversePathSegment negates with
+        // !, arcSegmentFromCenter emits booleans): coerce before the strict
+        // compare or true === 1 silently picks the mirrored centre
+        const sign = (fA ? 1 : 0) === (fS ? 1 : 0) ? -1 : 1;
         const denom = rx2 * y1Prime2 + ry2 * x1Prime2;
         if (denom === 0)
             return null;
@@ -1671,8 +1674,8 @@ function segmentsEqual(seg0, seg1, eps) {
                 Math.abs(seg0[3] - seg1[3]) < eps &&
                 (Math.abs(seg0[2] - seg0[3]) < eps ||
                     Math.abs(seg0[4] - seg1[4]) < eps) && // TODO: Handle rotations by Pi/2.
-                seg0[5] === seg1[5] &&
-                seg0[6] === seg1[6] &&
+                (seg0[5] ? 1 : 0) === (seg1[5] ? 1 : 0) &&
+                (seg0[6] ? 1 : 0) === (seg1[6] ? 1 : 0) &&
                 vectorsEqual(seg0[7], seg1[7], eps));
         }
     }
