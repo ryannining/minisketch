@@ -45,7 +45,7 @@ for (const id in s.entities) {
 let dbg = null;
 const probeDbg = (d) => { dbg = d; };
 const getLoopsFn = new Function(
-  'loopsDeferred', 'loopCache', 'probeDbg', 'state', 'ui', 'P', 'JOIN_TOL', 'layerOf',
+  'loopsDeferred', 'loopCache', 'probeDbg', 'state', 'ui', 'P', 'JOIN_TOL', 'LOOP_CLOSE_TOL', 'layerOf',
   'entityPointIds', 'ensureSplineHandles', 'splineSamples', 'splineSamplesOf', 'TAU',
   slice('getLoops').replace('loopCache = loops;',
     'if (typeof probeDbg === "function") probeDbg({ edges, adj, parent });\n    loopCache = loops;') +
@@ -54,6 +54,7 @@ const getLoopsFn = new Function(
   false, null, probeDbg, state, { focusLoop: null },
   (id) => state.points[+id] || null,
   0.1,
+  0.25,
   (e) => (e && e.layer) || ((state.layers[0] || {}).id) || 1,
   (e) => {
     if (!e) return [];

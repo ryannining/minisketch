@@ -69,6 +69,7 @@
   // It decides when a selection walks on (N), when an imported path counts as
   // closed, and when two ends of a contour make a loop.
   let JOIN_TOL = 0.1;
+  let LOOP_CLOSE_TOL = 0.25;   // loop detection bridges CAD-export rounding gaps
   let NUDGE_STEP = 1;               // mm per arrow key press (Settings)
   let NOTE_SIZE = 3;                // comment text height, mm (Settings)
   let NOTE_MIN_PX = 20;             // comment text never renders smaller than this many screen px (Settings)
@@ -82,6 +83,13 @@
   const ctx = canvas.getContext('2d');
   const stage = document.getElementById('stage');
   const fileInput = document.getElementById('file-input');
+  // Base directory of THIS script, not of the document: served under a subpath
+  // (KaryaCNC /sketcher, no trailing slash) a document-relative 'tools/x.js'
+  // resolves one level too high and every Worker 404s.
+  const SCRIPT_BASE = ((document.currentScript && document.currentScript.src) || location.href).replace(/[^/]*$/, '');
+  // Set by bindUI to pickSketchFile (the handle-keeping picker). Ctrl+O /
+  // Ctrl+I route through it so keyboard and menu open the SAME dialog.
+  let pickSketchFileHook = null;
 
   // ---- Theme -------------------------------------------------------------
   // UI colours live in styles.css (--tokens per data-theme). The canvas is
@@ -156,7 +164,8 @@
     CANVAS_DARK[key.toLowerCase().replace(/\s+/g, '')] = CANVAS_DARK_RAW[key];
   }
   let themeName = 'dark';
-  let loopFillVisible = true;            // settings → Renderer → Loop fills
+  let loopFillCurrentVisible = true;     // settings → Renderer → Loop fills · current layer
+  let loopFillOthersVisible = true;      // settings → Renderer → Loop fills · other layers
   let loopFillScale = 0.5;              // settings → Renderer → Loop fill resolution
 
   function themedCanvasColor(v) {
@@ -1305,9 +1314,12 @@
       help: 'Base colour for the explicit Yellow loop fill (CNC).' },
     { group: 'Renderer', key: 'loopTintGray', label: 'Loop fill · gray', unit: '', text: true, def: '#8a94a3',
       help: 'Base colour for the explicit Gray loop fill (CNC).' },
-    { group: 'Renderer', key: 'loopFillVisible', label: 'Loop fills', unit: '',
+    { group: 'Renderer', key: 'loopFillCurrent', label: 'Loop fills · current layer', unit: '',
       def: 'on', choices: [['on', 'On'], ['off', 'Off']],
-      help: 'Draw the interior tint / gray-yellow fill of loops. Turning this off removes the largest area pass for a quick A/B of drag frame time — with it off you see what the rest of the scene alone costs.' },
+      help: 'Draw the interior tint / gray-yellow fill of loops on the ACTIVE layer. Turning this off removes the largest area pass for a quick A/B of drag frame time.' },
+    { group: 'Renderer', key: 'loopFillOthers', label: 'Loop fills · other layers', unit: '',
+      def: 'on', choices: [['on', 'On'], ['off', 'Off']],
+      help: 'Draw loop fills on layers other than the active one. Off keeps the reference layers as plain outlines while the layer you work on stays filled. Dim other layers still fades whatever fills remain visible.' },
     { group: 'Renderer', key: 'loopFillScale', label: 'Loop fill resolution', unit: '%',
       def: '50', choices: [['100', '100'], ['75', '75'], ['50', '50'], ['33', '33']],
       help: 'Resolution of the offscreen loop-fill layer relative to the canvas. Fills are flat solid areas, so 50% renders a quarter of the fill pixels and is visually indistinguishable — this is the cheapest dial for drag speed (the loop fill is the biggest pass). Strokes/markers are unaffected.' },
@@ -1317,12 +1329,15 @@
     { group: 'Geometry', key: 'joinTol', label: 'Join tolerance', unit: 'mm',
       def: 0.1, min: 0.001, max: 5, step: 0.01,
       help: 'The CNC tolerance: points closer than this count as one joint. Used when selecting connected geometry (N), when deciding whether an imported path is closed, and when building loops. Keep it below half your SHORTEST segment: a value larger than a segment welds its ends to the neighbours and the shape stops being a loop.' },
+    { group: 'Geometry', key: 'loopCloseTol', label: 'Loop closure gap', unit: 'mm',
+      def: 0.25, min: 0.01, max: 2, step: 0.01,
+      help: 'Maximum gap between segment ends that loop detection still bridges into a closed loop. Customer CAD exports round coordinates, leaving 0.1-0.2 mm cracks at junctions that the CNC join tolerance (often 0.1) refuses to close — the shape then never fills or lists as a loop. Independent of the join tolerance: it only affects loop topology, never moves a point.' },
     { group: 'Geometry', key: 'joinImportAuto', label: 'Join imported points', unit: '',
       def: 'on', choices: [['on', 'On — weld same-colour ends when importing'], ['off', 'Off — import segments exactly as-is']],
-      help: 'When On, PDF / SVG / DXF / CDR imports weld endpoints of same-colour segments that meet within the join tolerance, so contours arrive connected and machine-ready. Off keeps every imported segment exactly as the file describes it — useful for reference imports you do not want touched.' },
+      help: 'When On, PDF / SVG / DXF / CDR imports weld same-colour segment ends that meet within the join tolerance so contours arrive connected and loops close: an open end snaps onto the vertex it touches (T-junctions), otherwise the surviving point keeps its exact file position. Then simplify drops staircase noise points whose turn is below the Ctrl+K sharp-corner angle and whose chord stays within the curve fit tolerance — corners and curve nodes keep their valid positions. Off keeps every imported segment exactly as the file describes it.' },
     { group: 'Geometry', key: 'joinImportTol', label: 'Join imported distance', unit: 'mm',
       def: 0.1, min: 0.001, max: 5, step: 0.01,
-      help: 'How close two same-colour segment ends must be before an import welds them into one point. Use at least your file’s gap size, but keep it below half your shortest segment — otherwise a short segment welds its own ends and a small shape collapses.' },
+      help: 'How close two same-colour segment ends must be before an import welds them, AND the maximum chord deviation when import simplify hops staircase noise points. Ends within 20% of this distance merge as file noise without moving (loops close); across a real gap only a short segment’s open end may snap onto the other’s exact position. Ends of segments longer than 20x this distance are VALID anchors: never moved by welding, never dropped by simplify. Raise it to collapse coarser staircases; lower it to keep more of the file’s nodes.' },
     { group: 'Geometry', key: 'nudgeStep', label: 'Arrow key nudge', unit: 'mm',
       def: 1, min: 0.001, max: 50, step: 0.5,
       help: 'How far the arrow keys move the selected objects or points AT 100% ZOOM. The step follows the view: zoomed out every press covers more world (fast), zoomed in it shrinks for precision. The live value is shown under the scale bar, bottom left.' },
@@ -1580,6 +1595,7 @@
     ART_MAX_MM = settings.pasteMaxMm;
     BAKE_JOIN_TOL = settings.bakeJoinTol;
     JOIN_TOL = settings.joinTol;
+    LOOP_CLOSE_TOL = clamp(Number(settings.loopCloseTol) || 0.25, 0.01, 2);
     NUDGE_STEP = settings.nudgeStep;
     NOTE_SIZE = settings.noteSize;
     NOTE_MIN_PX = Math.max(0, +settings.noteMinPx || 0);
@@ -1592,7 +1608,11 @@
     setTint('sel', 'loopTintSel', '#2563eb');
     setTint('yellow', 'loopTintYellow', '#eab308');
     setTint('gray', 'loopTintGray', '#8a94a3');
-    loopFillVisible = settings.loopFillVisible !== 'off';
+    // The old single "Loop fills" toggle migrates to both new switches: a
+    // document saved with fills off stays off until the user says otherwise.
+    const legacyOff = settings.loopFillVisible === 'off';
+    loopFillCurrentVisible = settings.loopFillCurrent != null ? settings.loopFillCurrent !== 'off' : !legacyOff;
+    loopFillOthersVisible = settings.loopFillOthers != null ? settings.loopFillOthers !== 'off' : !legacyOff;
     loopFillScale = clamp(Number(settings.loopFillScale) || 50, 10, 100) / 100;
     SPLINE_SEG = settings.splineSeg;
     ARC_SEG = settings.arcSeg;
@@ -4897,20 +4917,29 @@
 
   // Safe arithmetic parser: numbers, + - * /, parentheses, unary sign and
   // postfix % (percent of the current value). Examples: "100*2", "150%", "(20+5)*3".
+  // Numeric field parser. `base` is the value the field currently shows.
+  //   -1100           absolute — typing over the shown value just sets it,
+  //                   no prefix needed (a bare signed number is NEVER relative)
+  //   +10             relative: base + 10 (also "+10*2", "+(3+4)")
+  //   10- / 10+       relative the other way round: base - 10 / base + 10
+  //   -1200-10        plain arithmetic on the typed numbers: -1210
+  //   150%            150% of base
+  //   =-10            "=" forces a literal reading (escape hatch)
   function evalFormula(text, base) {
-    const raw = String(text == null ? '' : text).replace(/\s+/g, '');
+    const raw0 = String(text == null ? '' : text).replace(/\s+/g, '');
     const b = isFinite(base) ? base : 0;
+    if (!raw0) return NaN;
+    const forceLiteral = raw0[0] === '=';
+    const raw = forceLiteral ? raw0.slice(1) : raw0;
     if (!raw) return NaN;
-    // A leading + / - with no left operand means "relative to the current
-    // value": +20 on a field showing 100 edits as 100+20. But a plain signed
-    // NUMBER (e.g. "-151.449", a reflex angle) must be read literally — the
-    // old rule prepended the base to any leading minus, doubling it. So: a
-    // pure "+N" is relative, a pure "-N" or "N" is literal, and a signed
-    // expression (e.g. "-5+3") keeps the relative treatment.
-    const pure = /^[+-]?[0-9]*\.?[0-9]+(?:[eE][+-]?[0-9]+)?$/.test(raw);
-    const s = pure
-      ? (raw[0] === '+' ? String(b) + raw : raw)
-      : (/^[+-]/.test(raw) && !/^\(/.test(raw) ? String(b) + raw : raw);
+    // Relative edits are the ones that cannot be a value by themselves: a
+    // leading "+" (+10) or a trailing operator (10-, 10+). A leading "-"
+    // belongs to the number or the arithmetic: "-1100" is absolute -1100,
+    // "-1200-10" is -1210 — never base-relative.
+    const trail = !forceLiteral && /^(.+?)([+-])$/.exec(raw);
+    const s = (!forceLiteral && raw[0] === '+') ? String(b) + raw
+      : trail ? String(b) + trail[2] + '(' + trail[1] + ')'
+        : raw;
     let i = 0;
     function expr() {
       let v = term();
@@ -5485,8 +5514,8 @@
     refreshSelectionDimensions(pids, eids, sx, sy);
   }
 
-  // Alt+R landing spot: focus L with its content selected, so a leading
-  // + / - edits relative to the current value (see evalFormula). Warns when
+  // Alt+R landing spot: focus L with its content selected, so typing +10 or
+  // 10- shifts relative to the current value (see evalFormula). Warns when
   // there is no selection instead of focusing a dead field.
   function focusFrameStrip() {
     updateTransformPanel(true);
@@ -5519,7 +5548,9 @@
       if (zel && (force || document.activeElement !== zel)) zel.value = '';
       return;
     }
-    const vals = [b.minX, b.maxY, b.maxX - b.minX, b.maxY - b.minY];
+    // World Y runs DOWN (canvas), so the visual top-left is (minX, minY):
+    // T edits the top edge, and W/H grow away from that corner.
+    const vals = [b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY];
     els.forEach((el, i) => {
       if (!force && document.activeElement === el) return;
       el.value = fmt(vals[i]);
@@ -5573,11 +5604,11 @@
   function applyTransformField(field, raw) {
     if (xfBlock()) return;
     if (field === 'weight') {
-      // No formula syntax here — evalFormula would treat a leading minus as
-      // "relative to current".
+      // Absolute, but arithmetic is allowed (1200+100, 50*2). The "=" prefix
+      // forces the literal reading, so "+10" is the value 10, never a shift.
       applyEntityNumber('sortWeight', raw, (txt) => {
         if (txt === '') return 0;
-        const v = parseFloat(txt);
+        const v = evalFormula(txt[0] === '=' ? txt : '=' + txt, 0);
         if (!isFinite(v)) return null;
         return Math.max(-100, Math.min(100, Math.round(v)));
       }, 'Enter a number between -100 and 100');
@@ -5588,7 +5619,7 @@
       // override": KaryaCNC then uses its global carved/zdown depth.
       applyEntityNumber('depth', raw, (txt) => {
         if (txt === '') return 0;
-        const v = parseFloat(txt);
+        const v = evalFormula(txt[0] === '=' ? txt : '=' + txt, 0);
         if (!isFinite(v) || v < 0) return null;
         return v > 0 ? Math.round(v * 100) / 100 : 0;
       }, 'Enter a depth in mm above 0 (empty = machine default)');
@@ -5600,12 +5631,12 @@
       return;
     }
     const cur = field === 'left' ? b.minX
-      : field === 'top' ? b.maxY
+      : field === 'top' ? b.minY
         : field === 'width' ? b.maxX - b.minX
           : b.maxY - b.minY;
     const target = evalFormula(raw, cur);
     if (!isFinite(target)) {
-      toast('Enter a number or a formula, e.g. 100*2 or 150%');
+      toast('Enter a number, +10 or 10- to shift from the current value, or a formula like 100*2 or 150%');
       updateTransformPanel(true);
       return;
     }
@@ -5621,7 +5652,7 @@
     if (field === 'left') {
       moveSelection(target - b.minX, 0);
     } else if (field === 'top') {
-      moveSelection(0, target - b.maxY);
+      moveSelection(0, target - b.minY);
     } else {
       const curSize = field === 'width' ? b.maxX - b.minX : b.maxY - b.minY;
       if (curSize <= 1e-9) {
@@ -5632,8 +5663,10 @@
         return;
       }
       const factor = target / curSize;
-      if (field === 'width') scaleSelection(factor, lock ? factor : 1, b.minX, b.maxY);
-      else scaleSelection(lock ? factor : 1, factor, b.minX, b.maxY);
+      // pivot = visual top-left (minX, minY): width grows rightward, height
+      // grows downward, the top-left corner never moves
+      if (field === 'width') scaleSelection(factor, lock ? factor : 1, b.minX, b.minY);
+      else scaleSelection(lock ? factor : 1, factor, b.minX, b.minY);
     }
     invalidateLoops();
     requestSolve(pinned);
@@ -5691,7 +5724,11 @@
     if (hasPart) { toast('Parts rotate with the transform tool (R) — they are pose-driven'); return; }
     pushHistory();
     const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
-    const phi = deg * Math.PI / 180;
+    // World Y runs DOWN, so the standard math rotation below turns CLOCKWISE
+    // on screen for a positive angle. `deg` is the VISUAL direction (CCW
+    // positive, matching the ↺ button, Ctrl+[ and the toast), hence the sign
+    // flip here — one place, so every caller speaks the same language.
+    const phi = -deg * Math.PI / 180;
     const c = Math.cos(phi), s = Math.sin(phi);
     let removed = 0;
     for (const cid in state.constraints) {
@@ -5744,15 +5781,15 @@
       (removed ? ' — ' + removed + ' H/V constraint(s) removed' : ''));
   }
 
-  // Ctrl+M: CAD move — click a reference point, then a destination point, then
-  // confirm (and edit) the resulting dx,dy in the prompt. Enter moves.
+  // Ctrl+Shift+M: CAD move — click a reference point, then a destination point,
+  // then confirm (and edit) the resulting dx,dy in the prompt. Enter moves.
   function startMoveJob() {
     if (xfBlock()) return;
     const pinned = selectionPointIds();
     // a parts-only selection owns no points but can still be moved by pose
     const hasMovablePart = selectedEntities().some(e => e.type === 'part' && !e.fixed);
     if (!pinned.size && !hasMovablePart) {
-      toast('Select objects first, then press Ctrl+M');
+      toast('Select objects first, then press Ctrl+Shift+M');
       return;
     }
     ui.moveJob = { stage: 'ref', ref: null };
@@ -9531,7 +9568,12 @@
       sameEnds.add(Math.min(a, b) + ':' + Math.max(a, b));
     }
     const ids = Array.from(usedPoints);
-    const cell = Math.max(JOIN_TOL, 1e-4);
+    // Loop closure gets its own, wider tolerance: CAD exports leave rounding
+    // cracks (0.1-0.2 mm) at junctions that the CNC join tolerance refuses to
+    // bridge, and the shape then never reads as a loop. Topology only — no
+    // point is moved by this weld.
+    const closeTol = Math.max(JOIN_TOL, LOOP_CLOSE_TOL || 0);
+    const cell = Math.max(closeTol, 1e-4);
     const grid = new Map();
     for (const pid of ids) {
       const p = P(pid);
@@ -9552,7 +9594,7 @@
             if (+q <= +pid) continue;
             const pq = P(q);
             if (!pq) continue;
-            if (Math.hypot(p.x - pq.x, p.y - pq.y) >= JOIN_TOL) continue;
+            if (Math.hypot(p.x - pq.x, p.y - pq.y) >= closeTol) continue;
             if (!sameLayer(pid, q)) continue;
             if (sameEnds.has(Math.min(+pid, +q) + ':' + Math.max(+pid, +q))) continue;
             union(pid, q);
@@ -10111,6 +10153,9 @@
   // parents; every other entity is a leaf child of the smallest loop that
   // contains it, or a root when it sits outside all loops. Groups/clone links
   // never change the tree — they only make entities travel together.
+  // Nesting is PER LAYER: a loop on layer 2 sitting geometrically inside a
+  // layer-1 loop is still a root of its own layer's hierarchy — layers are
+  // independent jobs, so their depth tinting must not mix.
   let loopTreeFor = null;
   let loopTreeData = null;
   let loopTreeEpoch = 0;
@@ -10120,7 +10165,19 @@
     loopTreeFor = loops;
     loopTreeEpoch++;
     const boxes = new Map();
-    for (const L of loops) boxes.set(L, loopBox(L));
+    // A loop's layer = its outline's layer. Loop detection welds points only
+    // within one layer, so an outline never spans layers; the first boundary
+    // entity decides. Null (no entities) stays layer-agnostic.
+    const loopLayer = new Map();
+    for (const L of loops) {
+      boxes.set(L, loopBox(L));
+      let ly = null;
+      for (const id of loopEntities(L)) {
+        const e = state.entities[id];
+        if (e) { ly = layerOf(e); break; }
+      }
+      loopLayer.set(L, ly);
+    }
     for (const L of loops) { L.parent = null; L.level = 0; L.children = []; }
     // Area-descending order puts every possible container before its content,
     // so the first container found scanning backwards IS the immediate parent
@@ -10130,8 +10187,10 @@
     for (let i = 0; i < order.length; i++) {
       const L = order[i];
       const lb = boxes.get(L);
+      const ll = loopLayer.get(L);
       for (let j = i - 1; j >= 0; j--) {
         const O = order[j];
+        if (ll != null && loopLayer.get(O) != null && loopLayer.get(O) !== ll) continue;
         const ob = boxes.get(O);
         if (ob.x0 > lb.x0 || ob.y0 > lb.y0 || ob.x1 < lb.x1 || ob.y1 < lb.y1) continue;
         if (!loopContainedIn(L, O, lb, ob)) continue;
@@ -10162,6 +10221,7 @@
       const id = +eid;
       if (boundary.has(id)) continue;
       const e = state.entities[eid];
+      const ely = layerOf(e);
       const pids = entityPointIds(e);
       let pts;
       if (pids.length) {
@@ -10184,6 +10244,8 @@
         if (p.y > y1) y1 = p.y;
       }
       for (const L of asc) {
+        const ll = loopLayer.get(L);
+        if (ll != null && ll !== ely) continue;
         const lb = boxes.get(L);
         if (lb.x0 > x0 || lb.y0 > y0 || lb.x1 < x1 || lb.y1 < y1) continue;
         if (!L.poly || L.poly.length < 3) continue;
@@ -10221,10 +10283,11 @@
   }
 
   function drawLoopFills() {
+    const visFlags = (loopFillCurrentVisible ? 1 : 0) + '' + (loopFillOthersVisible ? 1 : 0) + (ui.dimOthers ? 'd' : '');
     const key = geometryEpoch + '|' + themeName + '|' + view.zoom + '|' + view.ox + '|' + view.oy + '|' +
-      DPR + '|' + loopFillScale + '|' + (ui.dimOthers ? 1 : 0) + '|' + ui.activeLayer + '|' + W + 'x' + H;
+      DPR + '|' + loopFillScale + '|' + visFlags + '|' + ui.activeLayer + '|' + W + 'x' + H;
     const baseKey = themeName + '|' + view.zoom + '|' + view.ox + '|' + view.oy + '|' +
-      DPR + '|' + loopFillScale + '|' + (ui.dimOthers ? 1 : 0) + '|' + ui.activeLayer + '|' + W + 'x' + H;
+      DPR + '|' + loopFillScale + '|' + visFlags + '|' + ui.activeLayer + '|' + W + 'x' + H;
     if (!loopFillLayer) {
       loopFillLayer = document.createElement('canvas');
       loopFillLayerCtx = loopFillLayer.getContext('2d');
@@ -10252,11 +10315,15 @@
       // merging them into one path is safe (they share edges, not interiors); a
       // single opaque fill per group colours them all. Deep (brighter) groups
       // are painted after shallow ones so the inner contour covers its parent.
+      // Per-layer switches hide fills whole; Dim other layers fades the
+      // other-layer groups with alpha in the SAME pass (no extra layer/pass).
       const groups = new Map();
       for (const loop of getLoops()) {
         const d = loopFrameData(loop);
         if (d.fill === 'none' || !d.visible || !d.path) continue;
-        const fade = ui.dimOthers && loopLayerId(loop) !== ui.activeLayer;
+        const onActive = loopLayerId(loop) === ui.activeLayer;
+        if (onActive ? !loopFillCurrentVisible : !loopFillOthersVisible) continue;
+        const fade = ui.dimOthers && !onActive;
         const depth = loopDepthOf(loop);
         const style = d.fill + '|' + depth + (fade ? '|dim' : '');
         let g = groups.get(style);
@@ -10274,11 +10341,10 @@
         +a[0].split('|')[1] - +b[0].split('|')[1]
       );
       for (const [, g] of ordered) {
-        lc.save();
         if (g.fade) lc.globalAlpha = 0.5;
         lc.fillStyle = g.fill;
         lc.fill(g.path);
-        lc.restore();
+        if (g.fade) lc.globalAlpha = 1;
       }
       loopFillLayerKey = key;
       loopFillLayerBase = baseKey;
@@ -10375,14 +10441,21 @@
       const loop = loops[i];
       const d = loopFrameData(loop);
       if (!d.visible || !d.path || d.fill !== 'none') continue;
+      // Same per-layer switches as drawLoopFills: this pass paints the plain /
+      // selection tint straight onto the main canvas, so it must honour them
+      // too — otherwise "other layers off" still showed the default tint.
+      const onActive = loopLayerId(loop) === ui.activeLayer;
+      if (onActive ? !loopFillCurrentVisible : !loopFillOthersVisible) continue;
+      const fade = ui.dimOthers && !onActive;
       const depth = loopDepthOf(loop);
-      const key = (d.sel ? 'sel' : 'plain') + '|' + depth;
+      const key = (d.sel ? 'sel' : 'plain') + '|' + depth + (fade ? '|dim' : '');
       let g = groups.get(key);
       if (!g) {
         const base = loopTintBase(d.sel ? 'sel' : 'plain');
         g = {
           path: new Path2D(),
-          fill: brightenAdd(base, depth * LOOP_FILL_DEPTH_ADD)
+          fill: brightenAdd(base, depth * LOOP_FILL_DEPTH_ADD),
+          fade
         };
         groups.set(key, g);
       }
@@ -10392,8 +10465,10 @@
       +a[0].split('|')[1] - +b[0].split('|')[1]
     );
     for (const [, g] of ordered) {
+      if (g.fade) ctx.globalAlpha = 0.5;
       ctx.fillStyle = g.fill;
       ctx.fill(g.path);
+      if (g.fade) ctx.globalAlpha = 1;
     }
   }
 
@@ -12541,8 +12616,8 @@
       toast('Group broken apart \u2014 the objects stay, they just no longer select together');
       return;
     }
-    if (!ents.some(e => e.type === 'art' || e.type === 'text')) {
-      toast('Select a text or a grouped object to break apart');
+    if (!ents.some(e => e.type === 'art' || e.type === 'text' || e.type === 'array')) {
+      toast('Select a text, a grouped object or an array/clone to break apart');
       return;
     }
     cmdConvertToCurve();
@@ -12910,6 +12985,63 @@
     return out;
   }
 
+  // Explode an array/clone into independent curves: every instance becomes a
+  // real spline (Bezier handles included) with its own points. The caller
+  // removes the array entity, which is the live link to the masters — the
+  // masters themselves stay untouched.
+  function arrayMasterCurveSources(m) {
+    if (m.type === 'text') {
+      const fill = (m.fill === 'gray' || m.fill === 'yellow') ? m.fill : null;
+      if (isSingleLineFont(m)) {
+        const out = [];
+        for (const st of textStrokesWorld(m)) {
+          if (st.pts && st.pts.length >= 2) out.push({
+            closed: false, curved: false, color: colorOf(m), fill,
+            nodes: st.pts.map(p => ({ x: p.x, y: p.y, o: null, i: null }))
+          });
+        }
+        if (out.length) return out;
+      } else {
+        const exact = textExactLoopsWorld(m);
+        if (exact && exact.length) return exact.map(loop => ({
+          closed: true, curved: true, color: colorOf(m), fill, nodes: loop.nodes
+        }));
+      }
+    }
+    return collectCurveSources([m]);
+  }
+
+  function explodeArrayToCurves(e) {
+    const created = [];
+    const sources = [];
+    for (const mid of (e.masters || [])) {
+      const m = state.entities[mid];
+      if (m) for (const sub of arrayMasterCurveSources(m)) sources.push(sub);
+    }
+    if (!sources.length) return created;
+    for (const t of arrayInstanceOffsets(e)) {
+      for (const sub of sources) {
+        if (!sub.nodes || sub.nodes.length < 2) continue;
+        const nodes = sub.nodes.map(n => {
+          const p = arrayXformPoint(t, n.x, n.y);
+          return {
+            x: p.x, y: p.y,
+            o: n.o ? arrayXformPoint(t, n.o.x, n.o.y) : null,
+            i: n.i ? arrayXformPoint(t, n.i.x, n.i.y) : null
+          };
+        });
+        const nid = addFittedSpline(null, sub.color || colorOf(e), {
+          nodes, closed: !!sub.closed, fill: sub.fill
+        });
+        if (nid) {
+          state.entities[nid].layer = layerOf(e);
+          created.push(nid);
+        }
+      }
+    }
+    return created;
+  }
+
   // ---- Nesting (local GA + NFP2, output = clone) -----------------------
   // Port of KaryaCNC nestjs2/frontend (tools/nest.js). The user selects the
   // loops to nest plus ONE green (#00ff00) loop marking the sheet; Start runs
@@ -12918,7 +13050,7 @@
   // that do not fit stack to the right of the result block. Masters never
   // move; every result is a clone (`type:'array', kind:'clone'`), so undo
   // removes the whole layout in one step and edits to masters reshape it.
-  const NEST_OUT_GAP = 10; // mm between the sheet and the result block
+  const NEST_OUT_GAP = 50; // mm between the sheet and the result block
   const NEST_PREFS_KEY = 'minisketch.v1.nestPrefs';
   // Debug logging gate: set false (or strip the nestLog calls) once nesting is
   // verified end to end — the logs exist to diagnose layout bugs fast.
@@ -13897,12 +14029,23 @@
     job._prog = {};
     for (let i = 0; i < nw; i++) {
       let w;
-      try { w = new Worker('tools/nest_worker.js'); } catch (err) { break; }
+      try { w = new Worker(SCRIPT_BASE + 'tools/nest_worker.js'); } catch (err) { break; }
       job.workers.push(w);
       const wid = String(i);
       w.postMessage({ jobId: wid, input });
       w.onmessage = (e) => nestWorkerOnMessage(job, wid, e.data);
-      w.onerror = (e) => { console.error('[nest][worker] error', e); };
+      w.onerror = (e) => {
+        console.error('[nest][worker] error', e);
+        try { w.terminate(); } catch (err) { /* ignore */ }
+        const at = job.workers.indexOf(w);
+        if (at >= 0) job.workers.splice(at, 1);
+        // every worker failed to load (subpath 404, file:// policy): nest
+        // synchronously instead of hanging with zero results
+        if (!job.workers.length && !job.workerDone && !job._syncFallback) {
+          job._syncFallback = true;
+          nestRunIteration(job);
+        }
+      };
     }
     if (!job.workers.length) { nestRunIteration(job); return; }
     job.running = true;
@@ -14686,6 +14829,8 @@
     const kindEl = document.getElementById('arr-kind');
     if (kindEl) kindEl.value = ex ? (ex.kind === 'polar' ? 'guide' : ex.kind) : 'grid';
     updateArrayDialogKind();
+    const toCurveBtn = document.getElementById('arr-to-curve');
+    if (toCurveBtn) toCurveBtn.style.display = existingId ? '' : 'none';
     modal.classList.remove('hidden');
   }
 
@@ -15414,7 +15559,18 @@
   // DXF carries real coordinates (mm): keep them 1:1 and just frame the view.
   // Primitives become native objects (lines / circles / arcs / splines), so
   // they can be edited, constrained and sent to the CNC afterwards.
-  function importDxfText(text) {
+  let pendingDxf = null;
+  function openDxfImport(text, name) {
+    pendingDxf = text;
+    const modal = document.getElementById('dxf-import-modal');
+    const nameEl = document.getElementById('dxf-imp-file');
+    if (nameEl) nameEl.textContent = name || '';
+    fillJoinDefaults('dxf');
+    if (modal) modal.classList.remove('hidden');
+  }
+
+  function importDxfText(text, opts) {
+    const o = opts || {};
     const prims = parseDxf(text);
     if (!prims.length) {
       toast('No supported geometry in that DXF (binary DXF must be re-saved as ASCII DXF)');
@@ -15463,9 +15619,11 @@
       toast('No supported geometry in that DXF');
       return null;
     }
-    // connect same-colour open segments (DXF arrives as loose LINE entities;
-    // Settings > Geometry > Join imported points)
-    if (settings.joinImportAuto !== 'off' && made.length >= 2) joinImportedSegments(made, settings.joinImportTol);
+    // connect same-colour open segments (DXF arrives as loose LINE entities);
+    // the import dialog's join switch / distance override the Settings default
+    const joinOn = o.join != null ? o.join : settings.joinImportAuto !== 'off';
+    const joinTol = isFinite(+o.joinTol) && +o.joinTol > 0 ? +o.joinTol : settings.joinImportTol;
+    if (joinOn && made.length >= 2) joinImportedSegments(made, joinTol);
     if (wasEmpty) fitView();
     // commit (not just render): without scheduleSave the import vanishes on a
     // refresh before the next edit triggers an autosave
@@ -15537,6 +15695,104 @@
     };
     fit();
     return id;
+  }
+
+  // ---- multi-page import selection (PDF/CDR) ---------------------------
+  // "1-2,4" -> Set{1,2,4}; blank or "all" -> null (= keep every page).
+  // Numbers outside 1..maxPage are ignored, so an empty Set means the user
+  // asked for pages the file does not have.
+  function parsePageSpec(str, maxPage) {
+    const s = (str || '').trim();
+    if (!s || /^all$/i.test(s)) return null;
+    const set = new Set();
+    for (const part of s.split(',')) {
+      const t = part.trim();
+      const m = t.match(/^(\d+)\s*-\s*(\d+)$/);
+      if (m) {
+        let a = +m[1], b = +m[2];
+        if (a > b) { const tmp = a; a = b; b = tmp; }
+        for (let p = a; p <= b; p++) if (p >= 1 && p <= maxPage) set.add(p);
+      } else if (/^\d+$/.test(t)) {
+        const p = +t;
+        if (p >= 1 && p <= maxPage) set.add(p);
+      }
+    }
+    return set;
+  }
+
+  function importPageCount(prims) {
+    return prims.reduce((m, pr) => Math.max(m, pr.page || 0), 0);
+  }
+
+  // Keep only the selected pages and close the horizontal gaps the dropped
+  // pages left behind (gap is in the prim's own units: pt for PDF, mm for CDR).
+  function filterImportPages(prims, pages, gap) {
+    if (!pages) return prims;
+    const kept = prims.filter(pr => pages.has(pr.page));
+    const byPage = new Map();
+    for (const pr of kept) {
+      if (!byPage.has(pr.page)) byPage.set(pr.page, []);
+      byPage.get(pr.page).push(pr);
+    }
+    const shiftX = (pr, dx) => {
+      if (pr.kind === 'note') { pr.x += dx; return; }
+      if (pr.kind === 'circle') { pr.cx += dx; return; }
+      for (const nd of pr.nodes) {
+        nd.p[0] += dx;
+        if (nd.o) nd.o[0] += dx;
+        if (nd.i) nd.i[0] += dx;
+      }
+    };
+    let cursor = -Infinity;
+    for (const n of [...byPage.keys()].sort((a, b) => a - b)) {
+      const list = byPage.get(n);
+      let minX = Infinity, maxX = -Infinity;
+      for (const pr of list) {
+        if (pr.kind === 'note') {
+          if (Number.isFinite(pr.x)) { minX = Math.min(minX, pr.x); maxX = Math.max(maxX, pr.x); }
+          continue;
+        }
+        if (pr.kind === 'circle') {
+          if (Number.isFinite(pr.cx) && Number.isFinite(pr.r)) {
+            minX = Math.min(minX, pr.cx - pr.r); maxX = Math.max(maxX, pr.cx + pr.r);
+          }
+          continue;
+        }
+        for (const nd of pr.nodes) {
+          if (!Number.isFinite(nd.p[0])) continue;
+          if (nd.p[0] < minX) minX = nd.p[0];
+          if (nd.p[0] > maxX) maxX = nd.p[0];
+        }
+      }
+      if (!isFinite(minX)) continue;
+      if (isFinite(cursor)) {
+        const dx = cursor + gap - minX;
+        for (const pr of list) shiftX(pr, dx);
+        maxX += dx;
+      }
+      cursor = maxX;
+    }
+    return kept;
+  }
+
+  // Per-import join controls (PDF / CDR / DXF dialogs): the weld that chains
+  // same-colour ends is also the step that can swallow short segments when the
+  // distance is too big for the file, so it is a choice per import, not only a
+  // global setting.
+  function fillJoinDefaults(prefix) {
+    const cb = document.getElementById(prefix + '-join');
+    const tolEl = document.getElementById(prefix + '-join-tol');
+    if (cb) cb.checked = settings.joinImportAuto !== 'off';
+    if (tolEl) tolEl.value = String(settings.joinImportTol);
+  }
+  function importJoinOpts(prefix) {
+    const cb = document.getElementById(prefix + '-join');
+    const tolEl = document.getElementById(prefix + '-join-tol');
+    const t = tolEl ? parseFloat(tolEl.value) : NaN;
+    return {
+      join: cb ? cb.checked : settings.joinImportAuto !== 'off',
+      joinTol: isFinite(t) && t > 0 ? t : settings.joinImportTol
+    };
   }
 
   // Shared entity builder for vector imports (PDF, CDR): prims are
@@ -15631,9 +15887,13 @@
       }
     }
     // connect same-colour segments that meet within the join tolerance, so the
-    // imported contours arrive chained and machine-ready (Settings > Geometry >
-    // Join imported points)
-    if (settings.joinImportAuto !== 'off' && lineIds.length >= 2) joinImportedSegments(lineIds, settings.joinImportTol);
+    // imported contours arrive chained and machine-ready. The import dialog
+    // can override the Settings default per file: a tolerance above half the
+    // shortest segment welds its ends into the neighbours and LOSES segments,
+    // so a reference import may want joining off entirely.
+    const joinOn = o.join != null ? o.join : settings.joinImportAuto !== 'off';
+    const joinTol = isFinite(+o.joinTol) && +o.joinTol > 0 ? +o.joinTol : settings.joinImportTol;
+    if (joinOn && lineIds.length >= 2) joinImportedSegments(lineIds, joinTol);
     if (!made) return 0;
     if (wasEmpty) fitView();
     commit();
@@ -15704,6 +15964,9 @@
       modal.id = 'pdf-import-modal';
       modal.className = 'modal hidden';
       modal.innerHTML = '<div class="modal-box"><h3>Import PDF</h3>' +
+        '<label class="opt" id="pdf-pages-row" style="display:none">Pages ' +
+        '<input type="text" id="pdf-pages" size="12" placeholder="all"></label>' +
+        '<div class="opt-col" id="pdf-layers" style="display:none"></div>' +
         '<div class="opt-col" id="pdf-colors"></div>' +
         '<label class="opt">Text objects &rarr; ' +
         '<select id="pdf-text-mode">' +
@@ -15712,6 +15975,8 @@
         '<option value="skip">skip</option>' +
         '</select></label>' +
         '<label class="opt"><input type="checkbox" id="pdf-drop-tiny"> Drop tiny shapes (&lt; 2 mm)</label>' +
+        '<label class="opt" title="Weld same-colour segment ends into one point so contours arrive chained. Off keeps every segment exactly as the file describes it."><input type="checkbox" id="pdf-join"> Join endpoints (weld)</label>' +
+        '<label class="opt" title="Keep below half the SHORTEST segment in the file, otherwise a short segment welds its own ends into the neighbours and disappears.">Join distance (mm) <input type="number" id="pdf-join-tol" step="0.01" min="0.001" style="width:70px"></label>' +
         '<div class="modal-actions"><button class="btn" id="pdf-cancel">Cancel</button>' +
         '<button class="btn primary" id="pdf-ok">Import</button></div></div>';
       document.body.appendChild(modal);
@@ -15742,6 +16007,44 @@
     }
     const textSel = document.getElementById('pdf-text-mode');
     if (textSel) textSel.value = 'text';   // every open starts from editable text
+    // PDF layers (optional content): same visibility choice a viewer's layers
+    // panel offers — AutoCAD exports carry construction layers the reference
+    // view hides, and importing them all draws geometry nobody asked for.
+    const layers = new Map();
+    for (const pr of prims) {
+      if (!pr.ocg) continue;
+      const e = layers.get(pr.ocg) || { count: 0, off: !!pr.ocgOff };
+      e.count++;
+      layers.set(pr.ocg, e);
+    }
+    const lbox = document.getElementById('pdf-layers');
+    if (lbox) {
+      lbox.innerHTML = '';
+      lbox.style.display = layers.size ? '' : 'none';
+      if (layers.size) {
+        const head = document.createElement('div');
+        head.className = 'opt';
+        head.textContent = 'PDF layers (optional content):';
+        lbox.appendChild(head);
+      }
+      for (const [name, info] of layers) {
+        const label = document.createElement('label');
+        label.className = 'opt';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.dataset.layer = name;
+        cb.checked = !info.off;
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(' ' + name + ' \u00b7 ' + info.count + ' shapes' + (info.off ? ' \u00b7 off in file' : '')));
+        lbox.appendChild(label);
+      }
+    }
+    const maxPage = importPageCount(prims);
+    const pagesRow = document.getElementById('pdf-pages-row');
+    const pagesInp = document.getElementById('pdf-pages');
+    if (pagesRow) pagesRow.style.display = maxPage >= 2 ? '' : 'none';
+    if (pagesInp) { pagesInp.value = ''; pagesInp.placeholder = 'all (1-' + maxPage + ', e.g. 1-2,4)'; }
+    fillJoinDefaults('pdf');
     pendingPdf = prims;
     modal.classList.remove('hidden');
   }
@@ -15754,15 +16057,27 @@
 
   async function applyPdfImport() {
     const prims = pendingPdf;
+    if (!prims) { closePdfImport(); return; }
+    const pagesEl = document.getElementById('pdf-pages');
+    const pages = parsePageSpec(pagesEl ? pagesEl.value : '', importPageCount(prims));
+    if (pages && !pages.size) {
+      toast('No pages match that selection (file has pages 1-' + importPageCount(prims) + ')');
+      return;
+    }
     closePdfImport();
-    if (!prims) return;
+    const keepLayers = new Set();
+    document.querySelectorAll('#pdf-layers input[type=checkbox]').forEach(cb => {
+      if (cb.checked) keepLayers.add(cb.dataset.layer);
+    });
+    const layered = prims.filter(pr => !pr.ocg || keepLayers.has(pr.ocg));
+    const src = filterImportPages(layered, pages, 283.4646);
     const keep = new Set();
     document.querySelectorAll('#pdf-colors input[type=checkbox]').forEach(cb => {
       if (cb.checked) keep.add(cb.dataset.color);
     });
     const dropTinyEl = document.getElementById('pdf-drop-tiny');
     const dropTiny = !!(dropTinyEl && dropTinyEl.checked);
-    const kept = prims.filter(pr => {
+    const kept = src.filter(pr => {
       if (pr.kind === 'note') return true;
       const b = pdfPrimBox(pr);
       // zero-size loops (no width or no height) and fully collapsed shapes are
@@ -15781,9 +16096,10 @@
     }
     await importPrimsIntoDocument(kept, 25.4 / 72, 'PDF', {
       textMode: (document.getElementById('pdf-text-mode') || {}).value || 'text',
-      flipY: true
+      flipY: true,
+      ...importJoinOpts('pdf')
     });
-    toast('PDF: ' + kept.length + ' of ' + prims.length + ' objects imported');
+    toast('PDF: ' + kept.length + ' of ' + src.length + ' objects imported');
   }
 
   // Ctrl+Shift+A: select every object that shares the colour of the pick
@@ -16663,6 +16979,12 @@
     const modal = document.getElementById('cdr-import-modal');
     const nameEl = document.getElementById('cdr-imp-file');
     if (nameEl) nameEl.textContent = name || '';
+    const maxPage = importPageCount(prims);
+    const pagesRow = document.getElementById('cdr-pages-row');
+    const pagesInp = document.getElementById('cdr-pages');
+    if (pagesRow) pagesRow.style.display = maxPage >= 2 ? '' : 'none';
+    if (pagesInp) { pagesInp.value = ''; pagesInp.placeholder = 'all (1-' + maxPage + ', e.g. 1-2,4)'; }
+    fillJoinDefaults('cdr');
     if (modal) modal.classList.remove('hidden');
   }
 
@@ -17407,7 +17729,7 @@
       { title: { en: 'Tools', id: 'Alat' }, keys: ['Shift+B', 'B', '*', 'A', 'E', 'R', 'T', 'I', 'Shift+E', 'Ctrl+M'] },
       { title: { en: 'Dimensions', id: 'Dimensi' }, keys: ['D', 'Shift+D'] },
       { title: { en: 'Constraints', id: 'Constraint' }, keys: ['G', 'O', 'H', 'V', 'P', '[', 'Q', '.', 'M', 'F', 'J', '\\', 'Alt+T'] },
-      { title: { en: 'Edit', id: 'Edit' }, keys: ['Z', 'N', 'Ctrl+J', 'Ctrl+Shift+M', 'Ctrl+G', 'Ctrl+U', 'Ctrl+L'] },
+      { title: { en: 'Edit', id: 'Edit' }, keys: ['Z', 'N', 'Shift+L', 'Alt+W', 'Ctrl+J', 'Ctrl+K', 'Ctrl+Shift+M', 'Ctrl+G', 'Ctrl+U', 'Ctrl+L'] },
       { title: { en: 'Boolean', id: 'Boolean' }, keys: ['Ctrl++', 'Ctrl+-', 'Ctrl+0'] },
       { title: { en: 'View & solve', id: 'Tampilan' }, keys: ['#', '%', '3', 'F1', 'F2', 'F3', 'Alt+1', 'Alt+2', 'Alt+3', 'Shift+F', 'F9', '?', 'Shift+Z'] },
       { title: { en: 'Machine', id: 'Mesin' }, keys: ['Alt+Q', 'Alt+C'] },
@@ -20275,7 +20597,7 @@
     // paints large numbers of low-information pixels — loop fills/tints,
     // notes, dimension/badge annotations — the full scene follows right after
     // the window closes (see scheduleZoomSettle)
-    if (!fastMode && loopFillVisible) {
+    if (!fastMode && (loopFillCurrentVisible || loopFillOthersVisible)) {
       prof('loopfills', () => { drawLoopFills(); drawLoops(); });
     }
     prof('entities', () => drawEntities());
@@ -20647,7 +20969,7 @@
     const toCurve = document.getElementById('btn-to-curve');
     if (toCurve) {
       toCurve.disabled = !ents.some(e => e.type === 'circle' || e.type === 'arc' ||
-        e.type === 'text' || e.type === 'art');
+        e.type === 'text' || e.type === 'art' || e.type === 'array');
     }
   }
 
@@ -20965,6 +21287,11 @@
   let otSelLen = -1;
   const otExpanded = new Set();
   const otLoopKey = (L) => loopEntities(L).map(Number).sort((a, b) => a - b).join(',');
+  const OT_LAYER_KEY = 'minisketch.otCurrentLayer.v1';
+  function otCurrentLayerOnly() {
+    const cb = document.getElementById('ot-current-layer');
+    return cb ? cb.checked : true;
+  }
   function updateObjectTree() {
     const panel = document.getElementById('tree-panel');
     const list = document.getElementById('object-tree');
@@ -20972,15 +21299,29 @@
     if (!panel.__otBound) {
       panel.__otBound = true;
       panel.addEventListener('toggle', () => updateObjectTree());
+      const cb = document.getElementById('ot-current-layer');
+      if (cb) {
+        try { cb.checked = localStorage.getItem(OT_LAYER_KEY) !== '0'; } catch (err) { /* default on */ }
+        cb.addEventListener('change', () => {
+          try { localStorage.setItem(OT_LAYER_KEY, cb.checked ? '1' : '0'); } catch (err) { /* ignore */ }
+          updateObjectTree();
+        });
+      }
     }
     const t = loopTree();
+    // Layers are independent hierarchies (the tree nests per layer), so the
+    // panel can show just the active one: roots and loose objects filtered by
+    // layer, children inherit their root's layer.
+    const onlyCur = otCurrentLayerOnly();
+    const layerOk = (L) => !onlyCur || loopLayerId(L) === ui.activeLayer;
+    const roots = t.roots.filter(layerOk);
     const countEl = document.getElementById('tree-count');
-    if (countEl) countEl.textContent = String(t.loops.length);
+    if (countEl) countEl.textContent = String(onlyCur ? t.loops.filter(layerOk).length : t.loops.length);
     if (!panel.open) { list.__lastSig = null; return; }
     // Rebuild only when the tree, the selection or the open/closed state
     // changed — the tree epoch is stable during a drag (frozen loops), so drag
     // frames cost nothing here.
-    const sig = 't' + loopTreeEpoch + '|' + Array.from(otExpanded).sort().join(',');
+    const sig = 't' + loopTreeEpoch + '|' + (onlyCur ? 1 : 0) + '|' + ui.activeLayer + '|' + Array.from(otExpanded).sort().join(',');
     if (otSelArr === ui.selection && otSelLen === ui.selection.length && listUnchanged(list, sig)) return;
     otSelArr = ui.selection;
     otSelLen = ui.selection.length;
@@ -21101,12 +21442,14 @@
       }
       return li;
     };
-    for (const L of t.roots) list.appendChild(loopNode(L));
+    for (const L of roots) list.appendChild(loopNode(L));
     // Loose objects: no loop owns them and they form no loop outline.
     const loose = [];
     for (const eid in state.entities) {
       const id = +eid;
-      if (!t.boundary.has(id) && !t.owner.has(id)) loose.push(id);
+      if (t.boundary.has(id) || t.owner.has(id)) continue;
+      if (onlyCur && layerOf(state.entities[eid]) !== ui.activeLayer) continue;
+      loose.push(id);
     }
     if (loose.length) {
       const open = eff.has('__loose');
@@ -23733,9 +24076,9 @@ function cmdSplitCurve() {
   function cmdConvertToCurve() {
     if (xfBlock()) return;
     const ents = selectedEntities().filter(e => e.type === 'circle' || e.type === 'arc' ||
-      e.type === 'text' || e.type === 'art');
+      e.type === 'text' || e.type === 'art' || e.type === 'array');
     if (!ents.length) {
-      toast('Select a circle, arc, text or pasted object to convert');
+      toast('Select a circle, arc, text, pasted object or array/clone to convert');
       return;
     }
     pushHistory();
@@ -23745,6 +24088,19 @@ function cmdSplitCurve() {
     let needFuse = false;
     const sharpAngle = isFinite(+settings.curveSharpAngle) ? +settings.curveSharpAngle : 25;
     for (const e of ents) {
+      // An array/clone explodes into independent curves: one spline per
+      // instance, link to the masters severed, masters kept.
+      if (e.type === 'array') {
+        const ids = explodeArrayToCurves(e);
+        if (!ids.length) {
+          toast('That array has no geometry to convert');
+          continue;
+        }
+        removeEntity(e.id);
+        fittedCount += ids.length;
+        for (const nid of ids) created.push(nid);
+        continue;
+      }
       // Exact source FIRST, regardless of the Fit flag: the flag chooses between
       // "curves" and "one straight line per segment", and a glyph outline is a
       // curve. Only a text whose exact source is unavailable falls through to
@@ -24229,7 +24585,7 @@ function cmdSplitCurve() {
       return;
     }
 
-    // Move job (Ctrl+M): while picking the reference / destination point, the
+    // Move job (Ctrl+Shift+M): while picking the reference / destination point, the
     // cursor gets the same green point target a single-point drag shows, so an
     // exact snap is visible even when the point is selected (blue)
     if (ui.moveJob) {
@@ -25163,7 +25519,41 @@ function cmdSplitCurve() {
       lines.push(e);
     }
     if (lines.length < 2) return 0;
+    // How many segment ends sit at each (near-exact) position. An interior
+    // vertex of a dense polyline has degree 2+; only degree-1 OPEN ends may
+    // be moved by a weld. Without this rule a flattened curve's staircase of
+    // micro-segments welds across its own interior: ends redirect past each
+    // other, segments collapse, and the post-weld cleanup truncates the corner
+    // away from the file's shape.
+    const deg = new Map();
+    const dkey = (p) => (+p.x.toFixed(4)) + ',' + (+p.y.toFixed(4));
+    for (const e of lines) {
+      for (const pid of [e.a, e.b]) {
+        const p = P(pid);
+        if (!p) continue;
+        const k = dkey(p);
+        deg.set(k, (deg.get(k) || 0) + 1);
+      }
+    }
     const cell = Math.max(t, 1e-4);
+    const segLen = (e) => {
+      const a = P(e.a), b = P(e.b);
+      return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+    };
+    // which entities own each end: two ends joined by ONE segment are that
+    // segment's own ends — welding them (from either perspective) would
+    // collapse it and drag a valid chain end onto its neighbour
+    const owner = new Map();
+    for (const e of lines) {
+      for (const pid of [e.a, e.b]) {
+        const p = P(pid);
+        if (!p) continue;
+        const k = dkey(p);
+        let arr = owner.get(k);
+        if (!arr) owner.set(k, arr = []);
+        arr.push(e);
+      }
+    }
     const grid = new Map();
     const put = (pid, pt, color) => {
       const k = Math.floor(pt.x / cell) + ':' + Math.floor(pt.y / cell);
@@ -25193,20 +25583,69 @@ function cmdSplitCurve() {
               if (ent.color !== e.color) continue;
               const q = P(cid);
               if (!q) continue;
-              if (Math.hypot(pt.x - q.x, pt.y - q.y) > t) continue;
+              const d = Math.hypot(pt.x - q.x, pt.y - q.y);
+              if (d > t) continue;
               // the same entity's own ends must never weld (short-segment guard)
               const sameEnt = (+e.a === cid && +e.b === pid) || (+e.a === pid && +e.b === cid);
               if (sameEnt) continue;
               const key = pid + ':' + cid;
               if (seen.has(key)) continue;
+              // Within 20% of the tolerance the ends are one point up to file
+              // noise: merge topologically, the survivor keeps its position
+              // (this is what closes imported loops without moving anything).
+              if (d <= Math.max(1e-6, t * 0.2)) {
+                seen.add(key);
+                pairs.push([cid, pid, 0]);
+                continue;
+              }
+              // Across a real distance: never weld the two ends of ONE segment
+              // (an open end a micro-step from its own interior vertex would
+              // eat the step and drag the valid chain end onto it).
+              const oa = owner.get(dkey(pt)), ob = owner.get(dkey(q));
+              if (oa && ob && oa.some(x => ob.includes(x))) continue;
+              // At least one side must be an OPEN end, and ends of segments
+              // LONGER than 20x the tolerance are VALID anchors that never
+              // move: only a short side may snap onto the other's position.
+              const openP = deg.get(dkey(pt)) === 1;
+              const openQ = deg.get(dkey(q)) === 1;
+              if (!openP && !openQ) continue;
+              const longP = segLen(e) > 20 * t;
+              const oq = ob || [];
+              const longQ = oq.some(x => segLen(x) > 20 * t);
+              let mover = 0;
+              if (openP && openQ) {
+                if (longP && longQ) continue;
+                mover = longP ? cid : longQ ? pid
+                  : (segLen(e) <= (oq[0] ? segLen(oq[0]) : 0) ? pid : cid);
+              } else if (openP) {
+                if (longP) continue;
+                mover = pid;
+              } else {
+                if (longQ) continue;
+                mover = cid;
+              }
               seen.add(key);
-              pairs.push([cid, pid]);
+              pairs.push([mover, mover === +pid ? cid : pid, mover]);
             }
           }
         }
       }
     }
     if (!pairs.length) return 0;
+    // Position policy: keep VALID file positions. The mover (short-segment
+    // open end) takes the fixed point's exact coordinates; the survivor of a
+    // coincident merge never moves. No midpoint averaging — nothing invents a
+    // position the file never had.
+    const placed = new Set();
+    for (const [from, to, moverId] of pairs) {
+      if (!moverId || placed.has(moverId)) continue;
+      const mover = P(moverId);
+      const fixed = P(+to);
+      if (!mover || !fixed) continue;
+      mover.x = fixed.x;
+      mover.y = fixed.y;
+      placed.add(moverId);
+    }
     const welded = weldPoints(pairs, { checkDist: false }).welded;
     // Post-weld cleanup: once ends are welded together, near-duplicate
     // segments that were only slightly apart at import become exactly
@@ -25225,7 +25664,92 @@ function cmdSplitCurve() {
       if (seenPost.has(key)) { delete state.entities[e.id]; continue; }
       seenPost.add(key);
     }
-    return welded;
+    // Simplify by walking each same-colour chain end to end and hopping
+    // interior nodes whose whole span stays within the join distance of the
+    // chord between kept nodes. PDF numeric noise quantizes slanted runs into
+    // staircases of micro steps with 90-degree local turns; their deviation
+    // from the run's chord is tiny, so they collapse ("keep the valid ends,
+    // hop the small zigzags"). Nodes ending a segment longer than 20x the
+    // tolerance are VALID anchors and always survive, as do the chain ends;
+    // real corners deviate far from any chord across them and survive too.
+    // The chain is rebuilt between kept nodes, which reuse their exact file
+    // point ids — no incremental rewiring, nothing averaged or moved.
+    const simpTol = t;
+    const adj = new Map();
+    for (const e of lines) {
+      if (!state.entities[e.id]) continue;
+      for (const pid of [e.a, e.b]) {
+        const k = +pid;
+        let arr = adj.get(k);
+        if (!arr) adj.set(k, arr = []);
+        arr.push(e);
+      }
+    }
+    const visited = new Set();
+    let merged = 0;
+    const spanOk = (pts, forced, a, b) => {
+      const ax = pts[a].x, ay = pts[a].y;
+      const cx = pts[b].x - ax, cy = pts[b].y - ay;
+      const L2 = cx * cx + cy * cy;
+      if (L2 < 1e-12) return false;
+      for (let i = a + 1; i < b; i++) {
+        if (forced[i]) return false;
+        let u = ((pts[i].x - ax) * cx + (pts[i].y - ay) * cy) / L2;
+        u = Math.max(0, Math.min(1, u));
+        if (Math.hypot(pts[i].x - (ax + u * cx), pts[i].y - (ay + u * cy)) > simpTol) return false;
+      }
+      return true;
+    };
+    for (const e0 of lines) {
+      if (!state.entities[e0.id] || visited.has(e0.id)) continue;
+      const color = e0.color;
+      const seq = [+e0.a, +e0.b];
+      const chain = [e0];
+      visited.add(e0.id);
+      for (;;) {
+        const tail = seq[seq.length - 1];
+        const nx = (adj.get(tail) || []).find(e => !visited.has(e.id) && e.color === color);
+        if (!nx) break;
+        visited.add(nx.id);
+        chain.push(nx);
+        seq.push(+nx.a === tail ? +nx.b : +nx.a);
+      }
+      for (;;) {
+        const head = seq[0];
+        const nx = (adj.get(head) || []).find(e => !visited.has(e.id) && e.color === color);
+        if (!nx) break;
+        visited.add(nx.id);
+        chain.unshift(nx);
+        seq.unshift(+nx.a === head ? +nx.b : +nx.a);
+      }
+      if (seq.length < 3) continue;
+      const pts = seq.map(id => P(id));
+      if (pts.some(p => !p)) continue;
+      const lens = [];
+      for (let i = 0; i + 1 < pts.length; i++) {
+        lens.push(Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y));
+      }
+      const forced = pts.map((p, i) =>
+        (i > 0 && lens[i - 1] > 20 * t) || (i < lens.length && lens[i] > 20 * t));
+      const kept = [0];
+      for (let i = 1; i < pts.length - 1; i++) {
+        const a = kept[kept.length - 1];
+        const b = Math.min(i + 1, pts.length - 1);
+        if (forced[i] || i - a > 64 || !spanOk(pts, forced, a, b)) kept.push(i);
+      }
+      kept.push(pts.length - 1);
+      if (kept.length === seq.length) continue;
+      const keepIds = kept.map(i => seq[i]);
+      const keepSet = new Set(keepIds);
+      for (const e of chain) delete state.entities[e.id];
+      for (const id of seq) if (!keepSet.has(id)) delete state.points[id];
+      for (let i = 0; i + 1 < keepIds.length; i++) {
+        const id = newId();
+        state.entities[id] = { id, type: 'line', color, a: keepIds[i], b: keepIds[i + 1] };
+      }
+      merged += seq.length - keepIds.length;
+    }
+    return welded + merged;
   }
 
   // [Clean up loop] — per-loop weld of doubled points. At every loop junction
@@ -25268,21 +25792,142 @@ function cmdSplitCurve() {
     return weldPoints(pairs).welded;
   }
 
-  function cleanUpLoops() {
-    const pairs = loopWeldPairs(getLoops());
-    if (!pairs.length) {
-      toast('Nothing to clean up \u2014 no doubled points found');
+  // Manual weld with a per-job tolerance from the Weld dialog: the value never
+  // touches the global Settings, so a customer file's export cracks can be
+  // closed without weakening the CNC join tolerance for everything else.
+  // junctionsOnly welds just the doubled nodes around detected loops (safe);
+  // otherwise every same-colour, same-layer segment end within the distance
+  // joins, survivor keeping its exact position.
+  function weldWithTol(tol, junctionsOnly) {
+    const t = isFinite(+tol) && +tol > 0 ? +tol : JOIN_TOL;
+    const pairs = [];
+    if (junctionsOnly) {
+      for (const [from, to] of loopWeldPairs(getLoops())) {
+        const p = P(from), q = P(to);
+        if (p && q && Math.hypot(p.x - q.x, p.y - q.y) <= t) pairs.push([from, to]);
+      }
+    } else {
+      const ends = [];
+      for (const id in state.entities) {
+        const e = state.entities[id];
+        let a, b;
+        if (e.type === 'line') { a = +e.a; b = +e.b; }
+        else if (e.type === 'arc') { a = +e.s; b = +e.e; }
+        else if (e.type === 'spline') {
+          const s = entityPointIds(e).filter(pid => P(pid));
+          if (s.length < 2) continue;
+          a = +s[0]; b = +s[s.length - 1];
+        } else continue;
+        if (a === b) continue;
+        ends.push([a, e], [b, e]);
+      }
+      const cell = Math.max(t, 1e-4);
+      const grid = new Map();
+      for (const [pid, e] of ends) {
+        const p = P(pid);
+        if (!p) continue;
+        const k = Math.floor(p.x / cell) + ':' + Math.floor(p.y / cell);
+        let arr = grid.get(k);
+        if (!arr) grid.set(k, arr = []);
+        arr.push([pid, e]);
+      }
+      const seen = new Set();
+      for (const [pid, e] of ends) {
+        const p = P(pid);
+        if (!p) continue;
+        const cx = Math.floor(p.x / cell), cy = Math.floor(p.y / cell);
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            const list = grid.get((cx + dx) + ':' + (cy + dy));
+            if (!list) continue;
+            for (const [qid, e2] of list) {
+              if (qid <= pid) continue;
+              if (e2.color !== e.color || layerOf(e2) !== layerOf(e)) continue;
+              // an entity's own two ends never weld (tiny-segment guard)
+              if (+e2.a === pid || +e2.b === pid) continue;
+              const q = P(qid);
+              if (!q) continue;
+              if (Math.hypot(p.x - q.x, p.y - q.y) > t) continue;
+              const key = pid + ':' + qid;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              pairs.push([qid, pid]);
+            }
+          }
+        }
+      }
+    }
+    if (!pairs.length) return 0;
+    return weldPoints(pairs, { checkDist: false }).welded;
+  }
+
+  function openWeldDialog() {
+    const modal = document.getElementById('weld-modal');
+    if (!modal) return;
+    const tolEl = document.getElementById('weld-tol');
+    if (tolEl) tolEl.value = String(Math.max(JOIN_TOL, LOOP_CLOSE_TOL));
+    const junEl = document.getElementById('weld-junctions');
+    if (junEl) junEl.checked = true;
+    modal.classList.remove('hidden');
+    if (tolEl) { tolEl.focus(); tolEl.select(); }
+  }
+
+  function applyWeldDialog() {
+    const tolEl = document.getElementById('weld-tol');
+    const junEl = document.getElementById('weld-junctions');
+    const tol = tolEl ? parseFloat(tolEl.value) : NaN;
+    if (!isFinite(tol) || tol <= 0) {
+      toast('Enter a weld distance above 0');
       return;
     }
+    const modal = document.getElementById('weld-modal');
+    if (modal) modal.classList.add('hidden');
     pushHistory();
-    const welded = applyWeldPairs(pairs);
+    const welded = weldWithTol(tol, !junEl || junEl.checked);
     if (!welded) {
-      toast('Nothing to clean up \u2014 no doubled points found');
+      history.pop();
+      updateHistoryButtons();
+      toast('Nothing within ' + fmt(tol) + ' mm to weld');
       return;
     }
     invalidateLoops();
     commit();
-    toast('Cleaned up ' + welded + ' doubled point' + (welded === 1 ? '' : 's'));
+    toast('Welded ' + welded + ' point pair' + (welded === 1 ? '' : 's') + ' at ' + fmt(tol) + ' mm');
+  }
+
+  function cleanUpLoops() {
+    // Re-run detection first: the button doubles as "re-detect loops" after a
+    // tolerance change or a customer file whose junctions arrived cracked.
+    invalidateLoops();
+    const loops = getLoops();
+    const closeTol = Math.max(JOIN_TOL, LOOP_CLOSE_TOL || 0);
+    // loopWeldPairs also yields consecutive spline node pairs (meant for the
+    // duplicated closing node only). Without a distance filter those far-apart
+    // nodes would weld and shred the curve — so keep pairs within the closure
+    // tolerance, then weld without re-checking against the narrower JOIN_TOL.
+    const pairs = loopWeldPairs(loops).filter(([from, to]) => {
+      const p = P(from), q = P(to);
+      return p && q && Math.hypot(p.x - q.x, p.y - q.y) <= closeTol;
+    });
+    const report = loops.length + ' closed loop' + (loops.length === 1 ? '' : 's');
+    if (!pairs.length) {
+      toast('Loops re-detected: ' + report + ' — no doubled points to weld');
+      return;
+    }
+    pushHistory();
+    // Junction pairs are already bounded by the loop closure tolerance, so the
+    // weld must not re-check against the (narrower) CNC join tolerance — that
+    // check is what left customer export cracks unwelded.
+    const welded = weldPoints(pairs, { checkDist: false }).welded;
+    if (!welded) {
+      history.pop();
+      updateHistoryButtons();
+      toast('Loops re-detected: ' + report + ' — no doubled points to weld');
+      return;
+    }
+    invalidateLoops();
+    commit();
+    toast('Cleaned up ' + welded + ' doubled point' + (welded === 1 ? '' : 's') + ' · ' + report);
   }
 
   // Joining the two ends of a spline leaves a duplicate point id at the end.
@@ -26312,7 +26957,7 @@ function cmdSplitCurve() {
     { key: 'W', label: 'Drag wall', match: 'dragwall', kind: 'tool' },
     { key: 'Ctrl+M', chip: 'Ct+M', label: 'Transform', match: 'qb-transform', kind: 'cmd' },
     { key: 'D', label: 'Dimension', match: 'qb-dimension', kind: 'cmd' },
-    { key: 'Shift+D', label: 'Measure', match: 'qb-refdim', kind: 'cmd' },
+    { key: 'Shift+D', chip: 'Sh+D', label: 'Measure', match: 'qb-refdim', kind: 'cmd' },
     { key: 'F', label: 'Fillet', match: 'qb-fillet', kind: 'cmd' },
     { key: 'Shift+F', chip: 'Sh+F', label: 'Fit', match: 'qb-fit', kind: 'cmd' },
     { key: 'J', label: 'Join', match: 'qb-join', kind: 'cmd' },
@@ -26343,13 +26988,16 @@ function cmdSplitCurve() {
     { key: 'Alt+C', label: 'Biaya', match: 'qb-cost', kind: 'cmd' },
     { key: 'Alt+R', label: 'Frame L/T/W/H', match: '', kind: 'cmd' },
     { key: '?', label: 'Help', match: '', kind: 'cmd' },
-    { key: 'Shift+Z', label: 'Shortcuts', match: '', kind: 'cmd' },
+    { key: 'Shift+Z', chip: 'Sh+Z', label: 'Shortcuts', match: '', kind: 'cmd' },
+    { key: 'Shift+L', chip: 'Sh+L', label: 'Re-detect loops', match: 'btn-clean-loops', kind: 'cmd' },
+    { key: 'Alt+W', chip: 'Alt+W', label: 'Weld', match: 'qb-weld', kind: 'cmd' },
     // Ctrl chords: chip text shortened to Ct+ so wide chords fit the button.
     // Full form stays in title/tooltip/help.
     { key: 'Ctrl+J', chip: 'Ct+J', label: 'Offset', match: 'qb-offset', kind: 'cmd' },
+    { key: 'Ctrl+K', chip: 'Ct+K', label: 'Fit curve (fewer nodes)', match: '', kind: 'cmd' },
     { key: 'Ctrl+[', chip: 'Ct+[', label: 'Rotate 90 ↺', match: '', kind: 'cmd' },
     { key: 'Ctrl+]', chip: 'Ct+]', label: 'Rotate 90 ↻', match: '', kind: 'cmd' },
-    { key: 'Ctrl+M', chip: 'Ct+M', label: 'Move', match: 'qb-move', kind: 'cmd' },
+    { key: 'Ctrl+Shift+M', chip: 'Ct+Sh+M', label: 'Move', match: 'qb-move', kind: 'cmd' },
     { key: 'Ctrl+G', chip: 'Ct+G', label: 'Group', match: 'rb-group', kind: 'cmd' },
     { key: 'Ctrl+U', chip: 'Ct+U', label: 'Ungroup', match: 'rb-ungroup', kind: 'cmd' },
     { key: 'Ctrl+L', chip: 'Ct+L', label: 'Clone', match: 'rb-clone', kind: 'cmd' },
@@ -26563,6 +27211,11 @@ function cmdSplitCurve() {
       if (nudgeSelection(dx, dy)) ev.preventDefault();
       return;
     }
+    if (ev.altKey && !ev.ctrlKey && !ev.metaKey && lower === 'w') {
+      ev.preventDefault();
+      openWeldDialog();
+      return;
+    }
     if (ev.altKey && lower === 'q') {
       ev.preventDefault();
       cncQuickSend();
@@ -26673,13 +27326,15 @@ function cmdSplitCurve() {
     if ((ev.ctrlKey || ev.metaKey) && lower === 'o') {
       ev.preventDefault();
       pendingImportMode = 'replace';
-      fileInput.click();
+      if (pickSketchFileHook) pickSketchFileHook();
+      else fileInput.click();
       return;
     }
     if ((ev.ctrlKey || ev.metaKey) && lower === 'i') {
       ev.preventDefault();
       pendingImportMode = 'merge';
-      fileInput.click();
+      if (pickSketchFileHook) pickSketchFileHook();
+      else fileInput.click();
       return;
     }
     if ((ev.ctrlKey || ev.metaKey) && lower === 'e') {
@@ -26778,14 +27433,24 @@ function cmdSplitCurve() {
     // is Separate), so there is no room for a separate letter toggle.
     if (ev.shiftKey && lower === 'd') {
       const dims = selectedConstraintIds().filter(cid => isDimensionConstraint(state.constraints[cid]));
-      if (dims.length) toggleDimensionReference(dims[0]);
-      return;
+      if (dims.length) {
+        toggleDimensionReference(dims[0]);
+        return;
+      }
+      // No badge selected: fall through to case 'd', which reads ev.shiftKey
+      // and adds a Measure. (The old unconditional return swallowed this path,
+      // so Shift+D did nothing on a clean selection.)
     }
     // P0-1: Shift+Z opens the shortcut panel. Plain Z is Clean only — the old
     // "Z also selects leftovers" overload is gone; Clean with no selection
     // already covers that through selectLeftovers().
     if (ev.shiftKey && lower === 'z') {
       openHelpModal();
+      return;
+    }
+    if (ev.shiftKey && lower === 'l') {
+      ev.preventDefault();
+      cleanUpLoops();
       return;
     }
     switch (lower) {
@@ -28542,11 +29207,16 @@ function cmdSplitCurve() {
       if (!isEmbedded() && typeof window.showOpenFilePicker === 'function' &&
         window.isSecureContext && !isWailsRuntime()) {
         try {
+          // Same filter as the <input type=file> fallback, derived from its
+          // accept attribute so the menu and Ctrl+O / Ctrl+I dialogs can never
+          // drift apart (the picker used to offer .sketch/.json only).
+          const exts = String(fileInput.getAttribute('accept') || '')
+            .split(',').map(s => s.trim()).filter(s => s.startsWith('.'));
           const [handle] = await window.showOpenFilePicker({
             multiple: false,
             types: [{
-              description: 'MiniSketch drawing',
-              accept: { 'application/octet-stream': ['.sketch', '.json'] }
+              description: 'MiniSketch drawing / vector import',
+              accept: { 'application/octet-stream': exts.length ? exts : ['.sketch', '.json'] }
             }]
           });
           if (!handle) return;
@@ -28568,6 +29238,7 @@ function cmdSplitCurve() {
       pendingImportMode = 'replace';
       pickSketchFile();
     });
+    pickSketchFileHook = pickSketchFile;
     document.getElementById('btn-import').addEventListener('click', () => {
       pendingImportMode = 'merge';
       pickSketchFile();
@@ -28582,7 +29253,7 @@ function cmdSplitCurve() {
       }
       if (lower.endsWith('.dxf')) {
         try {
-          importDxfText(await file.text());
+          openDxfImport(await file.text(), file.name);
         } catch (err) {
           toast('That DXF could not be read');
         }
@@ -28663,6 +29334,25 @@ function cmdSplitCurve() {
     if (btnSplitCurve) btnSplitCurve.addEventListener('click', cmdSplitCurve);
     const btnCleanLoops = document.getElementById('btn-clean-loops');
     if (btnCleanLoops) btnCleanLoops.addEventListener('click', cleanUpLoops);
+    const btnWeld = document.getElementById('qb-weld');
+    if (btnWeld) btnWeld.addEventListener('click', openWeldDialog);
+    const weldApply = document.getElementById('weld-apply');
+    if (weldApply) weldApply.addEventListener('click', applyWeldDialog);
+    const weldCancel = document.getElementById('weld-cancel');
+    if (weldCancel) weldCancel.addEventListener('click', () => {
+      const m = document.getElementById('weld-modal');
+      if (m) m.classList.add('hidden');
+    });
+    const weldTol = document.getElementById('weld-tol');
+    if (weldTol) weldTol.addEventListener('keydown', ev => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') { ev.preventDefault(); applyWeldDialog(); }
+      else if (ev.key === 'Escape') {
+        ev.preventDefault();
+        const m = document.getElementById('weld-modal');
+        if (m) m.classList.add('hidden');
+      }
+    });
     const btnJoinPoints = document.getElementById('btn-join-points');
     if (btnJoinPoints) btnJoinPoints.addEventListener('click', cmdJoinPoints);
     const btnArray = document.getElementById('btn-array');
@@ -28756,27 +29446,68 @@ function cmdSplitCurve() {
     });
     const arrKind = document.getElementById('arr-kind');
     if (arrKind) arrKind.addEventListener('change', updateArrayDialogKind);
+    const arrToCurve = document.getElementById('arr-to-curve');
+    if (arrToCurve) arrToCurve.addEventListener('click', () => {
+      const draft = ui.arrayDraft;
+      const id = draft && draft.id != null ? +draft.id : null;
+      const m = document.getElementById('array-modal');
+      if (m) m.classList.add('hidden');
+      ui.arrayDraft = null;
+      if (id == null || !state.entities[id]) return;
+      ui.selection = [{ kind: 'entity', id }];
+      cmdConvertToCurve();
+    });
     const cdrRun = document.getElementById('cdr-imp-run');
     if (cdrRun) cdrRun.addEventListener('click', async () => {
+      const prims = pendingCdr;
+      if (!prims || !prims.length) {
+        const m = document.getElementById('cdr-import-modal');
+        if (m) m.classList.add('hidden');
+        pendingCdr = null;
+        return;
+      }
+      const pagesEl = document.getElementById('cdr-pages');
+      const pages = parsePageSpec(pagesEl ? pagesEl.value : '', importPageCount(prims));
+      if (pages && !pages.size) {
+        toast('No pages match that selection (file has pages 1-' + importPageCount(prims) + ')');
+        return;
+      }
       const modal = document.getElementById('cdr-import-modal');
       if (modal) modal.classList.add('hidden');
-      const prims = pendingCdr;
       pendingCdr = null;
-      if (prims && prims.length) {
-        const sel = document.getElementById('cdr-text-mode');
-        const keep = document.getElementById('cdr-keep-color');
-        await importPrimsIntoDocument(prims, 1, 'CDR', {
-          textMode: sel ? sel.value : 'comment',
-          keepColors: keep ? keep.checked : true,
-          flipY: true
-        });
-      }
+      const sel = document.getElementById('cdr-text-mode');
+      const keep = document.getElementById('cdr-keep-color');
+      await importPrimsIntoDocument(filterImportPages(prims, pages, 100), 1, 'CDR', {
+        textMode: sel ? sel.value : 'comment',
+        keepColors: keep ? keep.checked : true,
+        flipY: true,
+        ...importJoinOpts('cdr')
+      });
     });
     const cdrCancel = document.getElementById('cdr-imp-cancel');
     if (cdrCancel) cdrCancel.addEventListener('click', () => {
       const modal = document.getElementById('cdr-import-modal');
       if (modal) modal.classList.add('hidden');
       pendingCdr = null;
+    });
+    const dxfRun = document.getElementById('dxf-imp-run');
+    if (dxfRun) dxfRun.addEventListener('click', () => {
+      const modal = document.getElementById('dxf-import-modal');
+      if (modal) modal.classList.add('hidden');
+      const text = pendingDxf;
+      pendingDxf = null;
+      if (text == null) return;
+      try {
+        importDxfText(text, importJoinOpts('dxf'));
+      } catch (err) {
+        toast('That DXF could not be read');
+      }
+    });
+    const dxfCancel = document.getElementById('dxf-imp-cancel');
+    if (dxfCancel) dxfCancel.addEventListener('click', () => {
+      const modal = document.getElementById('dxf-import-modal');
+      if (modal) modal.classList.add('hidden');
+      pendingDxf = null;
     });
 
     document.querySelectorAll('[data-quick]').forEach(btn => {
@@ -30213,10 +30944,11 @@ function cmdSplitCurve() {
       return;
     }
     if (res === 'cancelled') return;
-    // No picker in this browser (or it was blocked): keep the old behaviour.
+    // No picker in this browser (or it was blocked): download silently under
+    // the remembered name; only an explicit Save As still asks for a name.
     const date = new Date();
     const stamp = date.toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    const written = downloadBlob('sketch-' + stamp + '.sketch', new Blob([text], { type: 'application/json' }));
+    const written = downloadBlob('sketch-' + stamp + '.sketch', new Blob([text], { type: 'application/json' }), forcePicker);
     if (written) setFileName(written);
     toast('Downloaded .sketch file');
   }
@@ -30368,7 +31100,7 @@ function cmdSplitCurve() {
     }
   }
 
-  function downloadBlob(name, blob) {
+  function downloadBlob(name, blob, askName) {
     let outName = String(name || 'download');
     if (!isWailsRuntime()) {
       const dot = outName.lastIndexOf('.');
@@ -30376,20 +31108,30 @@ function cmdSplitCurve() {
       const ext = dot > 0 ? outName.slice(dot) : '';
       let remembered = '';
       try { remembered = String(localStorage.getItem(FILENAME_KEY) || '').trim(); } catch (err) { remembered = ''; }
-      let typed = prompt('File name', remembered || base0);
-      if (typed == null) {
-        toast('Download cancelled');
-        return null;
+      // No picker in this context (insecure origin, Firefox, …): download
+      // silently under the remembered name instead of interrupting with a
+      // prompt. Only an explicit Save As (askName) still asks for a name.
+      let typed = null;
+      if (askName) {
+        typed = prompt('File name', remembered || base0);
+        if (typed == null) {
+          toast('Download cancelled');
+          return null;
+        }
+      } else if (remembered) {
+        typed = remembered;
       }
-      typed = String(typed).trim().replace(/[\\/:*?"<>|]/g, '_');
-      if (!typed) typed = base0;
-      // the extension belongs to the file type; typing it is fine too
-      let base = typed;
-      if (ext && base.toLowerCase().endsWith(ext.toLowerCase())) base = base.slice(0, base.length - ext.length);
-      base = base.replace(/[. ]+$/, '');
-      if (!base) base = base0;
-      outName = base + ext;
-      try { localStorage.setItem(FILENAME_KEY, base); } catch (err) { /* ignore */ }
+      if (typed != null) {
+        typed = String(typed).trim().replace(/[\\/:*?"<>|]/g, '_');
+        if (!typed) typed = base0;
+        // the extension belongs to the file type; typing it is fine too
+        let base = typed;
+        if (ext && base.toLowerCase().endsWith(ext.toLowerCase())) base = base.slice(0, base.length - ext.length);
+        base = base.replace(/[. ]+$/, '');
+        if (!base) base = base0;
+        outName = base + ext;
+        try { localStorage.setItem(FILENAME_KEY, base); } catch (err) { /* ignore */ }
+      }
     }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

@@ -2416,7 +2416,7 @@ function decodePdfString(s) {
 // Parse one PDF content stream into primitives:
 //   { color, closed, nodes: [{ p:[x,y], o:[x,y]|null, i:[x,y]|null }] }
 // and note primitives for text: { kind:'note', x, y, text }
-function pdfContentPrims(content, uniMap, fonts) {
+function pdfContentPrims(content, uniMap, fonts, ocg) {
   const toks = pdfTokens(String(content), uniMap);
   const out = [];
   let ctm = [1, 0, 0, 1, 0, 0];
@@ -2456,6 +2456,12 @@ function pdfContentPrims(content, uniMap, fonts) {
     const h = Math.hypot(b.x - a.x, b.y - a.y);
     return Number.isFinite(h) && h > 0 ? h : (fontSize || 10);
   };
+  // Optional-content (layer) stack: /OC <res> BDC opens a marked section, EMC
+  // closes it. Prims carry the layer name so the import dialog can offer the
+  // same layer visibility a PDF viewer's layers panel does.
+  const ocgStack = [];
+  const ocgCur = () => (ocgStack.length ? ocgStack[ocgStack.length - 1] : null);
+
   const emitNote = (str) => {
     // CID subset fonts name glyphs by arbitrary id; the ToUnicode CMap turns
     // those codes back into real text. The font's own CMap wins over the
@@ -2486,7 +2492,8 @@ function pdfContentPrims(content, uniMap, fonts) {
     const bl = Math.hypot(bx, by) || 1;
     out.push({ kind: 'note', x: p.x, y: p.y, text: s, size: h, w,
       ux: ax / al, uy: ay / al, vx: bx / bl, vy: by / bl,
-      color: null, closed: false, nodes: [] });
+      color: null, closed: false, nodes: [],
+      ocg: ocgCur() ? ocgCur().name : null, ocgOff: ocgCur() ? ocgCur().off : false });
   };
   const showStr = (v) => { if (v != null && v !== '') emitNote(v); };
 
@@ -2513,7 +2520,8 @@ function pdfContentPrims(content, uniMap, fonts) {
       // never reach the drawing: it poisons bounds and the loop weld
       if (built.nodes.length >= 2 &&
         built.nodes.every(nd => Number.isFinite(nd.p[0]) && Number.isFinite(nd.p[1]))) {
-        out.push({ color: color || null, closed: built.closed, nodes: built.nodes });
+        out.push({ color: color || null, closed: built.closed, nodes: built.nodes,
+          ocg: ocgCur() ? ocgCur().name : null, ocgOff: ocgCur() ? ocgCur().off : false });
       }
     }
     subpaths = [];
@@ -2584,6 +2592,15 @@ function pdfContentPrims(content, uniMap, fonts) {
       }
       case 'h': if (cur) cur.closed = true; break;
       case 'n': subpaths = []; cur = null; break;
+      case 'BDC': case 'BMC': {
+        // /OC <resource> BDC — a layer section; anything else (tagged PDF etc.)
+        // pushes a null frame so EMC stays balanced
+        const [kind, res] = ops.slice(-2);
+        const entry = (op === 'BDC' && kind === 'OC' && ocg) ? ocg.get(String(res)) : null;
+        ocgStack.push(entry || null);
+        break;
+      }
+      case 'EMC': if (ocgStack.length) ocgStack.pop(); break;
       case 'S': case 's': emit(stroke); break;
       case 'f': case 'F': case 'f*': emit(fill); break;
       case 'B': case 'B*': case 'b': case 'b*': emit(stroke || fill); break;
@@ -2848,6 +2865,30 @@ async function parsePdf(bytes) {
     return map;
   };
 
+  // Optional content (PDF layers): OCG object number -> name, plus the default
+  // config's /OFF list — the layers a viewer hides until the user enables them.
+  const ocgNames = new Map();
+  for (let i = 0; i < objs.length; i++) {
+    const seg = bodyOf(i);
+    if (!/\/Type\s*\/OCG\b/.test(seg)) continue;
+    const nm = /\/Name\s*\(([^)]*)\)/.exec(seg);
+    const hx = !nm && /\/Name\s*<([0-9A-Fa-f]+)>/.exec(seg);
+    let name = 'Layer ' + objs[i].num;
+    if (nm) name = decodePdfString(nm[1]);
+    else if (hx) {
+      const h = hx[1];
+      name = '';
+      for (let k = 0; k + 3 < h.length; k += 4) name += String.fromCharCode(parseInt(h.slice(k, k + 4), 16));
+    }
+    ocgNames.set(objs[i].num, name);
+  }
+  const ocgOff = new Set();
+  const ocpi = raw.indexOf('/OCProperties');
+  if (ocpi >= 0) {
+    const offm = /\/OFF\s*\[([^\]]*)\]/.exec(raw.slice(ocpi, ocpi + 2000));
+    if (offm) for (const rm of offm[1].matchAll(/(\d+)\s+\d+\s+R/g)) ocgOff.add(+rm[1]);
+  }
+
   const pages = [];
   for (let i = 0; i < objs.length; i++) {
     const seg = bodyOf(i);
@@ -2882,7 +2923,20 @@ async function parsePdf(bytes) {
         if (m) fonts.set(fm[1], m);
       }
     }
-    pages.push({ box, refs, fonts });
+    // page layer resources: /oc1 -> OCG object -> name + default visibility
+    const ocg = new Map();
+    const pd = /\/Properties\s*<<([\s\S]*?)>>/.exec(resSeg);
+    if (pd) {
+      for (const pm of pd[1].matchAll(/\/([^\s/<>\[\]()]+)\s+(\d+)\s+\d+\s+R/g)) {
+        const name = ocgNames.get(+pm[2]);
+        if (name != null) ocg.set(pm[1], { name, off: ocgOff.has(+pm[2]) });
+      }
+    }
+    // /Rotate: degrees clockwise the viewer turns the page. Ignoring it made
+    // AutoCAD exports import 90° off from every viewer.
+    const rotm = /\/Rotate\s+(-?\d+)/.exec(dict);
+    const rot = rotm ? ((+rotm[1] % 360) + 360) % 360 : 0;
+    pages.push({ box, refs, fonts, ocg, rot });
   }
 
   const out = [];
@@ -2900,8 +2954,27 @@ async function parsePdf(bytes) {
     return pr;
   };
 
+  // /Rotate applied to origin-normalized page coords (Y-up): the viewer turns
+  // the page clockwise, so 90 maps (x,y) -> (y, W-x), 270 -> (H-y, x).
+  const rotatePrim = (pr, rot, W, H) => {
+    const pt = (x, y) => rot === 90 ? [y, W - x] : rot === 180 ? [W - x, H - y] : [H - y, x];
+    const vec = (x, y) => rot === 90 ? [y, -x] : rot === 180 ? [-x, -y] : [-y, x];
+    if (pr.kind === 'note') {
+      const [x, y] = pt(pr.x, pr.y); pr.x = x; pr.y = y;
+      if (pr.ux != null) { const [a, b] = vec(pr.ux, pr.uy); pr.ux = a; pr.uy = b; }
+      if (pr.vx != null) { const [a, b] = vec(pr.vx, pr.vy); pr.vx = a; pr.vy = b; }
+      return pr;
+    }
+    for (const nd of pr.nodes) {
+      let [x, y] = pt(nd.p[0], nd.p[1]); nd.p[0] = x; nd.p[1] = y;
+      if (nd.o) { [x, y] = pt(nd.o[0], nd.o[1]); nd.o[0] = x; nd.o[1] = y; }
+      if (nd.i) { [x, y] = pt(nd.i[0], nd.i[1]); nd.i[0] = x; nd.i[1] = y; }
+    }
+    return pr;
+  };
+
   if (pages.length) {
-    const gap = 28.34646;   // 10 mm between pages, in pt
+    const gap = 283.4646;   // 100 mm between pages, in pt
     // Bounding-box driven layout: each page starts after the previous
     // page's REAL right edge (not its nominal MediaBox width), so artwork
     // narrower than the box packs tight and artwork bleeding past the box
@@ -2925,7 +2998,11 @@ async function parsePdf(bytes) {
       const dy = -box[1];
       if (content) {
         try {
-          for (const pr of pdfContentPrims(content, uniMap, pg.fonts)) out.push(shiftPrim(pr, dx, dy));
+          for (const pr of pdfContentPrims(content, uniMap, pg.fonts, pg.ocg)) { pr.page = pageNo; out.push(shiftPrim(pr, dx, dy)); }
+          if (pg.rot) {
+            const W = box[2] - box[0], H = box[3] - box[1];
+            for (let k = from; k < out.length; k++) rotatePrim(out[k], pg.rot, W, H);
+          }
         } catch (err) { /* keep going with the other pages */ }
       }
       if (out.length === from) continue;   // empty page: no slot, no marker
@@ -2968,7 +3045,7 @@ async function parsePdf(bytes) {
           }
         }
         if (!isFinite(minX)) continue;
-        out.push({ kind: 'note', x: minX, y: maxY + 34, text: '=== Page ' + spans[i].n + ' ===', pageLabel: true, color: null, closed: false, nodes: [] });
+        out.push({ kind: 'note', x: minX, y: maxY + 34, text: '=== Page ' + spans[i].n + ' ===', pageLabel: true, page: spans[i].n, color: null, closed: false, nodes: [] });
       }
     }
     return out;
@@ -2980,7 +3057,7 @@ async function parsePdf(bytes) {
     if (!t || t.length < 8) continue;
     if (!/[mnlcre]\s/.test(t)) continue;
     try {
-      for (const pr of pdfContentPrims(t, uniMap)) out.push(pr);
+      for (const pr of pdfContentPrims(t, uniMap)) { pr.page = 1; out.push(pr); }
     } catch (err) { /* not a content stream after all */ }
   }
   return out;
@@ -3602,12 +3679,12 @@ async function parseCdr(bytes) {
   }
 
   // multi-page documents lay out left to right: each page starts after
-  // the previous page's REAL right edge (page width + 10mm is only the
+  // the previous page's REAL right edge (page width + 100mm is only the
   // minimum gap), so a page whose artwork bleeds past its box — or whose
   // master-page residue sits elsewhere — never overlaps ("menumpuk")
   // the page before it. Page 0 is the master/cover residue and keeps its
   // own coordinates; content pages 1..N slot in after it.
-  const PG_GAP = 10;   // mm between pages
+  const PG_GAP = 100;   // mm between pages
 
   // X6+ chunks can be 16-byte redirect stubs into the external streams:
   // (stream number, payload length, offset in stream, 0)
@@ -3810,6 +3887,9 @@ async function parseCdr(bytes) {
     // it — recompute is unnecessary since marker code only reads bbox, but
     // spans stay valid as ranges (the prims themselves moved in place)
   }
+  for (const s of pageSpans) {
+    for (let i = s.from; i < s.to; i++) out[i].page = s.page;
+  }
   // multi-page documents get a marker comment above each page
   const maxPage = pageSpans.reduce((m, s) => Math.max(m, s.page), -1);
   if (maxPage >= 2) {
@@ -3825,7 +3905,7 @@ async function parseCdr(bytes) {
         }
       }
       if (!isFinite(minX)) continue;
-      out.push({ kind: 'note', x: minX, y: maxY + 12, text: '=== Page ' + pg + ' ===', pageLabel: true, color: null, closed: false, nodes: [] });
+      out.push({ kind: 'note', x: minX, y: maxY + 12, text: '=== Page ' + pg + ' ===', pageLabel: true, page: pg, color: null, closed: false, nodes: [] });
     }
   }
   return out;

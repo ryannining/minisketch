@@ -204,7 +204,7 @@ console.log('\n== no stale id was left behind ==');
     'nsel-save', 'nsel-name', 'nsel-list', 'btn-group', 'btn-ungroup']);
   // the PDF import dialog is built on demand (openPdfImport), never in the markup
   const builtInJs = new Set(['pdf-import-modal', 'pdf-colors', 'pdf-drop-tiny', 'pdf-cancel', 'pdf-ok',
-    'pdf-text-mode']);
+    'pdf-text-mode', 'pdf-layers', 'pdf-pages-row', 'pdf-pages']);
   // the quickbar dimension button is the live one; btn-dimension is its retired twin
   const retiredIds = new Set(['btn-dimension']);
   const missing = Array.from(wanted).filter(id => !ids.has(id) && !id.startsWith('set-') &&

@@ -16,6 +16,11 @@
 (() => {
   'use strict';
 
+  // Parse-time base: injectScript runs later, when document.currentScript is
+  // null. Under a subpath (/sketcher) a document-relative 'fonts/x.js' would
+  // resolve one level too high and 404.
+  const FONT_BASE = ((document.currentScript && document.currentScript.src) || location.href).replace(/[^/]*$/, '');
+
   const FONT_INDEX = [
     {
       "family": "Liberation Sans",
@@ -454,7 +459,7 @@
   function injectScript(file) {
     return new Promise((resolve, reject) => {
       const el = document.createElement('script');
-      el.src = 'fonts/' + file;
+      el.src = FONT_BASE + file;
       el.onload = () => resolve();
       el.onerror = () => reject(new Error('could not load ' + file));
       document.head.appendChild(el);

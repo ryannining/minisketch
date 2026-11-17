@@ -28,6 +28,11 @@
 (() => {
   'use strict';
 
+  // Captured at parse time: document.currentScript is null later, inside the
+  // async worker spawn. Subpath serving (/sketcher) breaks document-relative
+  // worker URLs, so resolve against this script's own directory.
+  const TRACE_BASE = ((document.currentScript && document.currentScript.src) || location.href).replace(/[^/]*$/, '');
+
   const NS = window.MiniSketchTrace = window.MiniSketchTrace || {};
 
   // ---- option defaults ---------------------------------------------------
@@ -211,7 +216,7 @@
     if (typeof Worker === 'undefined') return Promise.resolve(null);
     return new Promise((resolve) => {
       let w;
-      try { w = new Worker('tools/trace_worker.js'); }
+      try { w = new Worker(TRACE_BASE + 'trace_worker.js'); }
       catch (e) { return resolve(null); }
       const done = (val) => {
         try { w.terminate(); } catch (e) { /* ignore */ }

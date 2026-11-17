@@ -327,9 +327,9 @@ console.log('parseCdr');
       ok(prims.length === 3, 'three pages give three paths (got ' + prims.length + ')');
       const xs = prims.map(pr => pr.nodes[pr.nodes.length - 1].p[0]);
       ok(xs[0] === 50, 'page 1 keeps its own coordinates');
-      ok(Math.abs(xs[1] - (50 + 28.34646 + 300)) < 1e-6,
+      ok(Math.abs(xs[1] - (50 + 283.4646 + 300)) < 1e-6,
         'page 2 starts after page-1 right edge + gap (got ' + xs[1] + ')');
-      ok(Math.abs(xs[2] - (50 + 28.34646 + 300 + 28.34646 + 40)) < 1e-6,
+      ok(Math.abs(xs[2] - (50 + 283.4646 + 300 + 283.4646 + 40)) < 1e-6,
         'page 3 starts after the page-2 bleed, not the box edge (got ' + xs[2] + ')');
       const marks = all.filter(p => p.kind === 'note' && /^=== Page/.test(p.text));
       ok(marks.length === 3, 'multi-page PDF gets page marker comments (got ' + marks.length + ')');

@@ -58,7 +58,7 @@ const MiniSketchNest = loadEngine();
 // ---- slice list ------------------------------------------------------------
 // constants the sliced functions read
 const consts = `
-const NEST_OUT_GAP = 10;
+const NEST_OUT_GAP = 50;
 const NEST_SIMPLIFY_MM = 0.02;
 const NEST_MAX_COPIES = 500;
 const MiniSketchNest = globalThis.__nest;

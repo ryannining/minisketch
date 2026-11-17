@@ -58,6 +58,7 @@ const stubs = {
   OFFSET_TOL: 'var OFFSET_TOL = 0.05;',
   BAKE_JOIN_TOL: 'var BAKE_JOIN_TOL = 0.1;',
   JOIN_TOL: 'var JOIN_TOL = 0.1;',
+  LOOP_CLOSE_TOL: 'var LOOP_CLOSE_TOL = 0.1;',
   ART_TOL_MM: 'var ART_TOL_MM = 0.1;',
   TEXT_TOL_MM: 'var TEXT_TOL_MM = 0.08;'
 };

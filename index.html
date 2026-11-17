@@ -114,9 +114,9 @@
           </div>
           <div class="ribbon-page hidden" data-rpage="edit" id="rpage-edit" role="tabpanel" aria-labelledby="rtab-edit">
             <div class="rb-panel">
-              <button class="rb-btn qb-act" id="qb-transform" title="Transform (R)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="4" width="12" height="12" fill="none" stroke="currentColor" stroke-dasharray="2.5 2"/><rect x="2.6" y="2.6" width="2.8" height="2.8" fill="currentColor"/><rect x="14.6" y="14.6" width="2.8" height="2.8" fill="currentColor"/></svg><span>Transform</span></button>
+              <button class="rb-btn qb-act" id="qb-transform" title="Transform (Ctrl+M)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="4" width="12" height="12" fill="none" stroke="currentColor" stroke-dasharray="2.5 2"/><rect x="2.6" y="2.6" width="2.8" height="2.8" fill="currentColor"/><rect x="14.6" y="14.6" width="2.8" height="2.8" fill="currentColor"/></svg><span>Transform</span></button>
               <button class="rb-btn qb-act" id="qb-offset" title="Offset (Ctrl+O)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2 18 16.5H2Z" fill="none" stroke="currentColor" stroke-dasharray="2.5 2"/><path d="M10 7.5 14.4 14.8H5.6Z" fill="currentColor" opacity="0.6"/></svg><span>Offset</span></button>
-              <button class="rb-btn qb-act" id="qb-move" title="Move (Ctrl+M)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v16M2 10h16M10 2 7.5 4.5M10 2l2.5 2.5M10 18l-2.5-2.5M10 18l2.5-2.5M2 10l2.5-2.5M2 10l2.5 2.5M18 10l-2.5-2.5M18 10l-2.5 2.5" fill="none" stroke="currentColor"/></svg><span>Move</span></button>
+              <button class="rb-btn qb-act" id="qb-move" title="Move (Ctrl+Shift+M)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v16M2 10h16M10 2 7.5 4.5M10 2l2.5 2.5M10 18l-2.5-2.5M10 18l2.5-2.5M2 10l2.5-2.5M2 10l2.5 2.5M18 10l-2.5-2.5M18 10l-2.5 2.5" fill="none" stroke="currentColor"/></svg><span>Move</span></button>
               <button class="rb-btn qb-act" id="qb-array" title="Array: grid or circular clones" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="2.5" width="6" height="6" fill="none" stroke="currentColor"/><rect x="11.5" y="2.5" width="6" height="6" fill="none" stroke="currentColor"/><rect x="2.5" y="11.5" width="6" height="6" fill="none" stroke="currentColor"/><rect x="11.5" y="11.5" width="6" height="6" fill="none" stroke="currentColor" stroke-dasharray="2 1.6"/></svg><span>Array</span></button>
             </div>
             <div class="rb-panel">
@@ -136,6 +136,12 @@
               <button class="rb-btn qb-act" data-quick="union" title="Boolean union (Ctrl++ or Ctrl+=)" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9.5" cy="12" r="5.5" fill="currentColor" opacity="0.85"/><circle cx="14.5" cy="12" r="5.5" fill="currentColor"/></svg><span>Union</span></button>
               <button class="rb-btn" data-quick="cut" title="Boolean cut (Ctrl+-)" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9.5" cy="12" r="5.5" fill="currentColor"/><circle cx="14.5" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-dasharray="2.6 2"/></svg><span>Cut</span></button>
               <button class="rb-btn" data-quick="intersect" title="Boolean intersect (Ctrl+0)" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9.5" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-width="1.4" opacity="0.6"/><circle cx="14.5" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-width="1.4" opacity="0.6"/><path d="M12 8.2a5.5 5.5 0 0 1 0 7.6 5.5 5.5 0 0 1 0-7.6z" fill="currentColor"/></svg><span>Intersect</span></button>
+            </div>
+            <div class="rb-panel">
+              <button class="rb-btn qb-act" id="qb-join" title="Join points (J)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="6" cy="14" r="2.2" fill="none" stroke="currentColor"/><circle cx="14" cy="6" r="2.2" fill="none" stroke="currentColor"/><path d="M7.5 12.5 12.5 7.5" stroke="currentColor"/></svg><span>Join</span></button>
+              <button class="rb-btn" id="qb-weld" title="Weld (Alt+W): close gaps with a distance you set in the dialog — per job, without changing Settings. Loop-junction mode by default; untick to weld every same-colour, same-layer end within the distance"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="6" cy="14" r="2.2" fill="none" stroke="currentColor"/><circle cx="14" cy="6" r="2.2" fill="none" stroke="currentColor"/><path d="M7.5 12.5 12.5 7.5M10 3v3M10 14v3" stroke="currentColor"/></svg><span>Weld</span></button>
+              <button class="rb-btn qb-act" id="qb-sharp" title="Sharp / smooth point (\\)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 17c5 0 5-14 14-14" fill="none" stroke="currentColor"/><circle cx="8.6" cy="8.6" r="1.8" fill="currentColor"/></svg><span>Sharp</span></button>
+              <button class="rb-btn qb-act" id="qb-clean" title="Clean to full loops (Z)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16l5-5M9 15l6-6M11 3l6 6" fill="none" stroke="currentColor"/><circle cx="6" cy="14" r="2.2" fill="none" stroke="currentColor"/></svg><span>Clean</span></button>
             </div>
           </div>
           <div class="ribbon-page hidden" data-rpage="arrange" id="rpage-arrange" role="tabpanel" aria-labelledby="rtab-arrange">
@@ -182,9 +188,6 @@
               <button class="rb-btn" data-cmd="anchor" title="Anchor (.)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="2.5" fill="currentColor"/><path d="M10 3v3M10 14v3M3 10h3M14 10h3" stroke="currentColor"/></svg><span>Anchor</span></button>
               <button class="rb-btn" data-cmd="midpoint" title="Midpoint (M)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="3" cy="15" r="1.5"/><circle cx="17" cy="5" r="1.5"/><rect x="8" y="8" width="4" height="4" fill="currentColor"/></svg><span>Midpoint</span></button>
               <button class="rb-btn" data-cmd="tangent" title="Tangent (T)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="12" cy="12" r="5" fill="none" stroke="currentColor"/><path d="M2 5l9 5" stroke="currentColor"/></svg><span>Tangent</span></button>
-              <button class="rb-btn qb-act" id="qb-join" title="Join points (J)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="6" cy="14" r="2.2" fill="none" stroke="currentColor"/><circle cx="14" cy="6" r="2.2" fill="none" stroke="currentColor"/><path d="M7.5 12.5 12.5 7.5" stroke="currentColor"/></svg><span>Join</span></button>
-              <button class="rb-btn qb-act" id="qb-sharp" title="Sharp / smooth point (\\)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 17c5 0 5-14 14-14" fill="none" stroke="currentColor"/><circle cx="8.6" cy="8.6" r="1.8" fill="currentColor"/></svg><span>Sharp</span></button>
-              <button class="rb-btn qb-act" id="qb-clean" title="Clean to full loops (Z)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16l5-5M9 15l6-6M11 3l6 6" fill="none" stroke="currentColor"/><circle cx="6" cy="14" r="2.2" fill="none" stroke="currentColor"/></svg><span>Clean</span></button>
             </div>
           </div>
           <div class="ribbon-page hidden" data-rpage="machine" id="rpage-machine" role="tabpanel" aria-labelledby="rtab-machine">
@@ -209,7 +212,7 @@
       </div>
       <canvas id="canvas" tabindex="0" role="application" aria-label="Drawing canvas — arrow keys nudge the selection, Shift+F fits the view. All drawing commands are also reachable from the ribbon and the menus."></canvas>
 
-      <div class="stage-lth tf-strip" id="tf-strip" title="Selection bounds &mdash; type a number or a formula like 100*2 or 150%">
+      <div class="stage-lth tf-strip" id="tf-strip" title="Selection bounds &mdash; type a number to set it (absolute, negatives included). Relative: +10 or 10- / 10+ shift from the current value. Formulas: 100*2, -1200-10, 150%">
         <label class="tf"><span>L</span><input id="tf-left" type="text" inputmode="decimal" spellcheck="false" disabled></label>
         <label class="tf"><span>T</span><input id="tf-top" type="text" inputmode="decimal" spellcheck="false" disabled></label>
         <label class="tf tf-gap"><span>W</span><input id="tf-width" type="text" inputmode="decimal" spellcheck="false" disabled></label>
@@ -262,7 +265,7 @@
           <button class="btn small" id="btn-add-layer" title="Add a new layer and make it active">+</button>
           <button class="btn small" id="btn-layer-up" title="Move the highlighted layer up (draws on top)">&#8593;</button>
           <button class="btn small" id="btn-layer-down" title="Move the highlighted layer down (draws below)">&#8595;</button>
-          <button class="btn small" id="btn-dim-layers" title="Dim other layers: fade every layer but the active one">&#9680;</button>
+          <button class="btn small" id="btn-dim-layers" title="Dim other layers: fade the strokes and loop fills of every layer but the active one. To hide other-layer fills completely, use Settings &rarr; Renderer &rarr; Loop fills &middot; other layers">&#9680;</button>
         </div>
       </div>
       </div>
@@ -371,10 +374,10 @@
           <ul class="list" id="constraint-list"></ul>
           <div class="row">
             <button class="btn small" id="btn-name" title="Name the selection (Ctrl+N). A name is only a label: the geometry is not touched; leave it empty to clear">Name</button>
-            <button class="btn small" id="btn-to-curve" title="Convert the selected circle or arc to a Bézier curve, or a text object into chained editable lines (one line per outline segment)" disabled>&rarr; Curve</button>
+            <button class="btn small" id="btn-to-curve" title="Convert the object TYPE to editable curves: circle/arc to Bézier, text to glyph outlines, group to its contours, array/clone to independent splines (master link severed). Already a line or spline? Use Ctrl+K (Fit curve) to reduce its nodes instead" disabled>&rarr; Curve</button>
             <button class="btn small" id="btn-split-curve" title="Putus kurva: pilih dua titik bertetangga di satu kurva, lalu segmen di antaranya menjadi line terpisah dan kurva terbelah di situ">&rarr; Split</button>
             <button class="btn small toggle" id="btn-group-select" aria-pressed="false" title="Group select: a click takes the whole group. Alt+click always does the opposite.">Group <i class="key">Alt</i></button>
-            <button class="btn small" id="btn-clean-loops" title="Cleanup loops: iterates every closed loop and welds doubled points (two nodes on the same spot become one shared node)">Cleanup loops</button>
+            <button class="btn small" id="btn-clean-loops" title="Re-detect loops & weld junctions (Shift+L): rebuilds loop detection with the Loop closure gap tolerance, then welds the doubled points at every loop junction into shared nodes">Cleanup loops</button>
             <button class="btn small" id="btn-join-points" title="Join points: merge the selected points that touch (same spot). Uses a spatial index, so it stays fast even when the whole drawing is selected">Join points</button>
           </div>
         </div>
@@ -383,6 +386,7 @@
       <details class="panel" id="tree-panel">
         <summary class="panel-title">Object Tree <span class="count" id="tree-count">0</span></summary>
         <div class="panel-body">
+          <label class="opt" style="margin:2px 0 4px"><input type="checkbox" id="ot-current-layer" checked> Current layer only</label>
           <ul class="list object-tree" id="object-tree"></ul>
         </div>
       </details>
@@ -636,6 +640,7 @@
       <div class="cnc-status">Select a green polyline or curve as the guide alongside your master object.</div>
     </div>
     <div class="modal-actions">
+      <button class="btn small" id="arr-to-curve" title="Jadikan kurva mandiri: setiap instance array/clone menjadi spline sendiri, hubungan ke master diputus (master tetap ada)" style="display:none">&rarr; Curve</button>
       <button class="btn small" id="arr-cancel">Cancel</button>
       <button class="btn small primary" id="arr-run">OK</button>
     </div>
@@ -645,6 +650,9 @@
   <div class="modal-box">
     <h3 id="cdr-import-title">Import CDR</h3>
     <span class="imp-name" id="cdr-imp-file"></span>
+    <label class="opt" id="cdr-pages-row" style="display:none">Pages
+      <input type="text" id="cdr-pages" size="12" placeholder="all">
+    </label>
     <label class="opt">Text objects &rarr;
       <select id="cdr-text-mode">
         <option value="comment">comments</option>
@@ -653,9 +661,23 @@
       </select>
     </label>
     <label class="opt"><input type="checkbox" id="cdr-keep-color"> Keep original colours (off = snap each line to the nearest MiniSketch colour, fills dropped)</label>
+    <label class="opt" title="Weld same-colour segment ends into one point so contours arrive chained. Off keeps every segment exactly as the file describes it."><input type="checkbox" id="cdr-join"> Join endpoints (weld)</label>
+    <label class="opt" title="Keep below half the SHORTEST segment in the file, otherwise a short segment welds its own ends into the neighbours and disappears.">Join distance (mm) <input type="number" id="cdr-join-tol" step="0.01" min="0.001" style="width:70px"></label>
     <div class="modal-actions">
       <button class="btn small" id="cdr-imp-cancel">Cancel</button>
       <button class="btn small primary" id="cdr-imp-run">Import</button>
+    </div>
+  </div>
+</div>
+<div id="dxf-import-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="dxf-import-title">
+  <div class="modal-box">
+    <h3 id="dxf-import-title">Import DXF</h3>
+    <span class="imp-name" id="dxf-imp-file"></span>
+    <label class="opt" title="Weld same-colour segment ends into one point so contours arrive chained. Off keeps every segment exactly as the file describes it."><input type="checkbox" id="dxf-join"> Join endpoints (weld)</label>
+    <label class="opt" title="Keep below half the SHORTEST segment in the file, otherwise a short segment welds its own ends into the neighbours and disappears.">Join distance (mm) <input type="number" id="dxf-join-tol" step="0.01" min="0.001" style="width:70px"></label>
+    <div class="modal-actions">
+      <button class="btn small" id="dxf-imp-cancel">Cancel</button>
+      <button class="btn small primary" id="dxf-imp-run">Import</button>
     </div>
   </div>
 </div>
@@ -790,9 +812,22 @@
     </div>
   </div>
 </div>
+<div id="weld-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="weld-title">
+  <div class="modal-box">
+    <h3 id="weld-title">Weld points</h3>
+    <label class="opt">Distance (mm) <input type="number" id="weld-tol" step="0.01" min="0.001" style="width:80px"></label>
+    <label class="opt" title="Only weld the doubled nodes around detected loops — the safe choice for closing export cracks. Untick to weld every same-colour, same-layer segment end within the distance."><input type="checkbox" id="weld-junctions" checked> Only loop junctions</label>
+    <div class="cnc-status">The distance applies to this weld only — Settings stay untouched. The surviving point keeps its exact position.</div>
+    <div class="modal-actions">
+      <button class="btn small" id="weld-cancel">Cancel</button>
+      <button class="btn small primary" id="weld-apply">Weld</button>
+    </div>
+  </div>
+</div>
 <div id="fit-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="fit-title">
   <div class="modal-box fit-box">
-    <h3 id="fit-title">Fit curve</h3>
+    <h3 id="fit-title">Fit curve &mdash; fewer nodes</h3>
+    <div class="cnc-status">For lines / splines that already exist: re-fits them into smooth B&eacute;zier curves with as few nodes as the tolerance allows. (To turn a circle, text, group or array INTO curves, use &rarr; Curve instead.)</div>
     <div class="cnc-row">
       <span class="cnc-label">Tolerance</span>
       <input id="fit-tol" type="range" min="0.01" max="2" step="0.01" value="0.2">
