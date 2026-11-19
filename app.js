@@ -4881,7 +4881,10 @@
     if (!c) return null;
     if (c.type === 'distance') {
       const a = P(c.p1), b = P(c.p2);
-      return a && b ? dist(a, b) : null;
+      if (!a || !b) return null;
+      if (c.axis === 'x') return Math.abs(b.x - a.x);
+      if (c.axis === 'y') return Math.abs(b.y - a.y);
+      return dist(a, b);
     }
     if (c.type === 'radius') {
       const e = state.entities[c.entity];
@@ -19707,8 +19710,17 @@
     const sign = Math.sign(g.off) || 1;
     const nxs = g.nx * sign;
     const nys = -g.ny * sign;
-    const labelTxt = labelText || fmt(c.value);
+    const labelTxt = labelText || dimMeasureLabel(c, g);
     drawLabel(c.reference ? '(' + labelTxt + ')' : labelTxt, mx + nxs * 13, my + nys * 13, c.id, isSel);
+  }
+
+  // Label of a point-to-point measure: the axis letter (D/H/V) plus the value
+  // it measures — X span for H, Y span for V, straight distance for D.
+  function dimMeasureLabel(c, g) {
+    if (c.kind) return 'R ' + (c.reference ? '(' + fmt(c.value) + ')' : fmt(c.value));
+    if (c.axis === 'x') return 'H ' + fmt(Math.abs(g.p2.x - g.p1.x));
+    if (c.axis === 'y') return 'V ' + fmt(Math.abs(g.p2.y - g.p1.y));
+    return 'D ' + (c.reference ? '(' + fmt(c.value) + ')' : fmt(c.value));
   }
 
   function pointDimGeom(c) {
@@ -27600,6 +27612,33 @@ function cmdSplitCurve() {
       updateUI();
       render();
       return;
+    }
+    // H/V/D on a selected point-to-point measure switches the axis it reports:
+    // H = X span, V = Y span, D = diagonal. Measure dimensions never touch the
+    // solver, so this only re-labels and re-measures.
+    if (!ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey &&
+        (lower === 'h' || lower === 'v' || lower === 'd')) {
+      const dims = selectedConstraintIds().filter(cid => {
+        const c = state.constraints[cid];
+        return c && c.type === 'distance' && c.p1 != null && !c.kind;
+      });
+      if (dims.length === 1) {
+        ev.preventDefault();
+        const c = state.constraints[dims[0]];
+        const axis = lower === 'h' ? 'x' : lower === 'v' ? 'y' : null;
+        if ((c.axis || null) !== (axis || null)) {
+          const p1 = P(c.p1), p2 = P(c.p2);
+          if (p1 && p2) {
+            c.axis = axis;
+            c.value = round2(axis === 'x' ? Math.abs(p2.x - p1.x) :
+              axis === 'y' ? Math.abs(p2.y - p1.y) : dist(p1, p2));
+            refreshReferenceDimensions();
+            commit();
+            toast('Measure: ' + (axis === 'x' ? 'X (horizontal)' : axis === 'y' ? 'Y (vertical)' : 'diagonal'));
+          }
+        }
+        return;
+      }
     }
     if (key === 'Enter' && !ui.draft) {
       const dims = selectedConstraintIds().filter(cid => isDimensionConstraint(state.constraints[cid]));
