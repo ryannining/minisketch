@@ -21,8 +21,9 @@ Tables rewritten:
 Usage: python3 fonts/normalize_font.py <in.ttf|otf> <out.ttf> \
            --family "Name" [--weight 400] [--style italic] [--full "..."] [--ps "..."]
 
-The output is always TrueType-flavoured when the input is (glyf kept as is);
-a CFF input stays CFF and is refused only when the caller asks forglyf output.
+The output is always TrueType-flavoured: a glyf input keeps its glyph bytes,
+a CFF/OTF input is converted to glyf (cubic -> quadratic) so the app can read
+exact contours instead of tracing the raster.
 """
 import argparse
 import os
@@ -49,6 +50,60 @@ def set_name(name_table, name_id, value, platform=(3, 1, 0x409)):
     name_table.names = keep
 
 
+def cff_to_glyf(font):
+    """Convert CFF charstrings (cubic) to TrueType glyf (quadratic).
+
+    The app reads exact contours only from `glyf`; a CFF face would fall back
+    to the raster tracer, which merges overlapping glyphs into one silhouette
+    before contours exist. Cu2QuPen approximates each cubic with quadratics at
+    1/1000 em — far below a pixel at any text size the sketcher uses.
+    """
+    from fontTools.pens.ttGlyphPen import TTGlyphPen
+    from fontTools.pens.cu2quPen import Cu2QuPen
+    from fontTools.ttLib import newTable
+
+    order = font.getGlyphOrder()
+    glyph_set = font.getGlyphSet()
+    glyf = newTable('glyf')
+    glyf.glyphOrder = order
+    glyf.glyphs = {}
+    err = font['head'].unitsPerEm / 1000.0
+    for gname in order:
+        pen = TTGlyphPen(glyph_set)
+        glyph_set[gname].draw(Cu2QuPen(pen, err))
+        glyf[gname] = pen.glyph()
+    font['glyf'] = glyf
+    font['loca'] = newTable('loca')
+
+    def depth(gname, seen=()):
+        g = glyf[gname]
+        if not g.isComposite():
+            return 0
+        return 1 + max((depth(c.glyphName, seen + (gname,)) for c in g.components
+                        if c.glyphName not in seen), default=0)
+
+    maxp = font['maxp']
+    maxp.tableVersion = 0x00010000
+    maxp.maxZones = 2
+    maxp.maxTwilightPoints = 0
+    maxp.maxStorage = 0
+    maxp.maxFunctionDefs = 0
+    maxp.maxInstructionDefs = 0
+    maxp.maxStackElements = 0
+    maxp.maxSizeOfInstructions = 0
+    simples = [g for g in glyf.glyphs.values() if not g.isComposite()]
+    maxp.maxPoints = max((len(g.coordinates) for g in simples), default=0)
+    maxp.maxContours = max((g.numberOfContours for g in simples), default=0)
+    maxp.maxComponentElements = max((g.numberOfComponents for g in glyf.glyphs.values()
+                                     if g.isComposite()), default=0)
+    maxp.maxComponentDepth = max((depth(n) for n in order), default=0)
+    font['head'].glyphDataFormat = 0
+    font.sfntVersion = '\x00\x01\x00\x00'
+    for tag in ('CFF ', 'CFF2', 'VORG', 'DSIG'):
+        if tag in font:
+            del font[tag]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('src')
@@ -61,14 +116,16 @@ def main():
     ap.add_argument('--style', choices=['normal', 'italic'], default='normal')
     ap.add_argument('--bold', action='store_true')
     ap.add_argument('--allow-cff', action='store_true',
-                    help='keep CFF outlines (the app then traces them instead of reading glyf)')
+                    help='accept CFF/OTF input and convert its outlines to TrueType glyf')
     args = ap.parse_args()
 
     ft = TTFont(args.src)
 
-    if 'glyf' not in ft and not args.allow_cff:
-        print('refusing CFF input without --allow-cff (bundled faces need glyf)', file=sys.stderr)
-        return 2
+    if 'glyf' not in ft:
+        if not args.allow_cff:
+            print('refusing CFF input without --allow-cff (bundled faces need glyf)', file=sys.stderr)
+            return 2
+        cff_to_glyf(ft)
 
     full = args.full or f'{args.family} {args.subfamily}'.strip()
     ps = args.ps or (args.family + '-' + args.subfamily).replace(' ', '')

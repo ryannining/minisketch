@@ -352,6 +352,7 @@
     }
   ];
 ;
+;
 
   const categories = () => {
     const seen = [];

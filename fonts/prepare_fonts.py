@@ -31,10 +31,11 @@ So this rewrites only those tables — `OS/2`, `head.macStyle`, and `name` ids
 is NOT a subsetter and NOT a converter: the typeface is the same one, with the
 same character set and the same outlines.
 
-A CFF/OTF input stays CFF. `fonts.js` reads exact contours from a TrueType
-`glyf` table, so a CFF face renders correctly but has no exact outline source
-and falls back to the raster tracer when text is converted to curves. That is
-why the .ttf of a family is preferred over its .otf wherever both exist.
+A CFF/OTF input is converted to TrueType glyf (cubic -> quadratic) by
+normalize_font.py: `fonts.js` reads exact contours only from a `glyf` table,
+and a CFF face would otherwise fall back to the raster tracer when text is
+converted to curves — a trace merges overlapping glyphs before contours
+exist, so boolean union would see one pre-merged silhouette.
 
 Usage:
     python3 fonts/prepare_fonts.py            # rebuild every sourced face
