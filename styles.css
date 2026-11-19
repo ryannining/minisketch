@@ -2131,8 +2131,16 @@ body.xf-active .xf-float {
   color: var(--text-2);
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
+}
+
+/* Live bounding-box size of the selection under the pending transform */
+.xf-size {
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--text-3);
+  white-space: nowrap;
 }
 
 #transform-panel.dirty {

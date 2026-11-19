@@ -6788,6 +6788,60 @@
     if (cancel) cancel.disabled = !p;
     const lock = document.getElementById('xf-lock');
     if (lock) lock.disabled = !active;
+    // Live size of the selection's bounding box under the pending transform,
+    // next to the title: what the object will measure once Apply lands.
+    const sizeEl = document.getElementById('xf-size');
+    if (sizeEl) {
+      let text = '';
+      if (active) {
+        const src = p ? p.orig : null;
+        const pts = src ? src.points : (() => {
+          const m = {};
+          for (const id of selectionPointIds()) { const q = state.points[id]; if (q) m[id] = q; }
+          return m;
+        })();
+        const handles = src ? src.handles : (() => {
+          const m = {};
+          for (const e of selectedEntities()) {
+            if (e.type === 'spline' && e.hs) m[e.id] = e.hs;
+          }
+          return m;
+        })();
+        const radii = src ? src.radii : (() => {
+          const m = {};
+          for (const e of selectedEntities()) {
+            if (e.type === 'circle') m[e.id] = e.r;
+          }
+          return m;
+        })();
+        const map = p ? (x, y) => xfMapOriginal(x, y, p) : (x, y) => ({ x, y });
+        const rs = p ? Math.sqrt(Math.abs(p.sx * p.sy)) : 1;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        const add = (x, y) => {
+          const q = map(x, y);
+          if (q.x < minX) minX = q.x;
+          if (q.x > maxX) maxX = q.x;
+          if (q.y < minY) minY = q.y;
+          if (q.y > maxY) maxY = q.y;
+        };
+        for (const id in pts) { const o = pts[id]; add(o.x, o.y); }
+        for (const eid in handles) {
+          for (const h of (handles[eid].o || []).concat(handles[eid].i || [])) if (h) add(h.x, h.y);
+        }
+        for (const eid in radii) {
+          const e = state.entities[eid];
+          const c = e && P(e.c);
+          if (!c || radii[eid] == null) continue;
+          const q = map(c.x, c.y), r = radii[eid] * rs;
+          if (q.x - r < minX) minX = q.x - r;
+          if (q.x + r > maxX) maxX = q.x + r;
+          if (q.y - r < minY) minY = q.y - r;
+          if (q.y + r > maxY) maxY = q.y + r;
+        }
+        if (isFinite(minX)) text = fmt(maxX - minX) + ' × ' + fmt(maxY - minY);
+      }
+      sizeEl.textContent = text;
+    }
     panel.classList.toggle('inactive', !active);
     panel.classList.toggle('dirty', !!p);
   }
