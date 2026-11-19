@@ -31810,6 +31810,10 @@ function cmdSplitCurve() {
         return;
       }
       if (ev.key === 'Enter') {
+        // A multi-line editor keeps Enter as a newline; its own keydown wiring
+        // turns Ctrl+Enter into the primary action.
+        const t = ev.target;
+        if (t && (t.tagName === 'TEXTAREA' || t.isContentEditable === true)) return;
         // Enter confirms: the primary button, else the last action button
         const actions = modal.querySelectorAll('.modal-actions button');
         const primary = modal.querySelector('.modal-actions .btn.primary') ||
