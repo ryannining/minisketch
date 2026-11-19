@@ -1517,6 +1517,9 @@
   // How far above the finger a touch-dragged point is lifted so the thumb does
   // not cover it (screen px).
   const TOUCH_LIFT_PX = 70;
+  // A press shorter than this never moves geometry: a trembling click (mouse
+  // jitter at press/release) stays a selection instead of becoming a micro-drag.
+  const DRAG_GATE_MS = 50;
   // Touch "lift": for DRAFTING, steer the pointer from a virtual cursor
   // ~TOUCH_LIFT_PX above the finger so the created point is not hidden by the
   // thumb. Returns the lifted world, or null to keep the real pointer.
@@ -22946,6 +22949,7 @@
       return;
     }
     if (ev.button !== 0) return;
+    ui._downAt = performance.now();
     const pos = pointerPos(ev);
     if (ev.pointerType === 'touch') { ui._touchPress = { x: pos.x, y: pos.y }; ui._touching = true; }
     const world = s2w(pos.x, pos.y);
@@ -24753,6 +24757,24 @@ function cmdSplitCurve() {
 
     if (ui.drag) {
       const d = ui.drag;
+      // Time gate: ignore movement during the first DRAG_GATE_MS of the press.
+      // Once the gate opens, deltas are measured from startWorld, so a fast
+      // drag catches up to the cursor instead of losing the early movement.
+      // A release inside the window leaves moved=false → pointerup pops the
+      // history entry and the press behaves as a plain click.
+      if (!d.moved && ui._downAt && performance.now() - ui._downAt < DRAG_GATE_MS) {
+        // Keep the newest pointer sample and replay it when the gate opens: a
+        // fast flick that stops moving sends no later move events, and without
+        // the replay such a drag would never start at all.
+        d.gateEv = ev;
+        if (!d.gateTimer) {
+          d.gateTimer = setTimeout(() => {
+            d.gateTimer = 0;
+            if (ui.drag === d && !d.moved && d.gateEv) onPointerMove(d.gateEv);
+          }, DRAG_GATE_MS - (performance.now() - ui._downAt));
+        }
+        return;
+      }
       // Part marker drag — the bounded-correction model:
       //   dx,dy  = raw mouse delta from the press (the movement is ALWAYS
       //            this; the part never jumps to the cursor)
@@ -26323,6 +26345,7 @@ function cmdSplitCurve() {
     dragSolveSuppressed = false;
     cancelDragAutoSolve();
     ui._dragLift = false;
+    ui._downAt = 0;
     // Line draft on touch: the pending point locks on its first release, and the
     // second-and-later release commits a segment (tap = at the tapped spot,
     // drag = at the lifted tip).
