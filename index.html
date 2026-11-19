@@ -193,7 +193,6 @@
           <div class="ribbon-page hidden" data-rpage="machine" id="rpage-machine" role="tabpanel" aria-labelledby="rtab-machine">
             <div class="rb-panel">
               <button class="rb-btn" id="qb-cnc" title="Send to KaryaCNC (Alt+Q)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 12v4h14v-4M10 3v10M6.5 9.5 10 13l3.5-3.5" fill="none" stroke="currentColor"/></svg><span>Send&nbsp;CNC</span></button>
-              <button class="rb-btn" id="qb-nest" title="Nesting: upload selection / download result"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2" y="2" width="16" height="16" rx="1.5" fill="none" stroke="currentColor"/><path d="M5.5 13.5l3-7 3 5 3-3" fill="none" stroke="currentColor"/></svg><span>Nest</span></button>
               <button class="rb-btn" id="qb-cost" title="Estimasi biaya jasa cutting (Alt+C)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M12.6 7.4c-.5-.7-1.5-1.1-2.6-1.1-1.5 0-2.6.7-2.6 1.7 0 1 .9 1.4 2.6 1.7 1.9.3 2.8.8 2.8 1.9 0 1.1-1.2 1.8-2.8 1.8-1.2 0-2.2-.4-2.7-1.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M10 4.7v10.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><span>Biaya</span></button>
             </div>
           </div>
@@ -375,7 +374,7 @@
           <div class="row">
             <button class="btn small" id="btn-name" title="Name the selection (Ctrl+N). A name is only a label: the geometry is not touched; leave it empty to clear">Name</button>
             <button class="btn small" id="btn-to-curve" title="Convert the object TYPE to editable curves: circle/arc to Bézier, text to glyph outlines, group to its contours, array/clone to independent splines (master link severed). Already a line or spline? Use Ctrl+K (Fit curve) to reduce its nodes instead" disabled>&rarr; Curve</button>
-            <button class="btn small" id="btn-split-curve" title="Putus kurva: pilih dua titik bertetangga di satu kurva, lalu segmen di antaranya menjadi line terpisah dan kurva terbelah di situ">&rarr; Split</button>
+            <button class="btn small" id="btn-split-curve" title="Putus kurva: pilih run node berurutan (&ge;3) di satu kurva untuk melepas span itu jadi kurva terpisah yang bisa diganti warna; atau dua titik bertetangga untuk menjadikan segmen di antaranya line terpisah">&rarr; Split</button>
             <button class="btn small toggle" id="btn-group-select" aria-pressed="false" title="Group select: a click takes the whole group. Alt+click always does the opposite.">Group <i class="key">Alt</i></button>
             <button class="btn small" id="btn-clean-loops" title="Re-detect loops & weld junctions (Shift+L): rebuilds loop detection with the Loop closure gap tolerance, then welds the doubled points at every loop junction into shared nodes">Cleanup loops</button>
             <button class="btn small" id="btn-join-points" title="Join points: merge the selected points that touch (same spot). Uses a spatial index, so it stays fast even when the whole drawing is selected">Join points</button>
@@ -427,7 +426,6 @@
         <div class="panel-body">
           <div class="row" id="tools-row">
             <button class="btn small" id="btn-array" title="Clone array: grid or circular copies of the selection. Double click the array to edit its parameters or refresh the clones">Array</button>
-            <button class="btn small" id="btn-nest" title="Nesting: with objects selected (plus a 'nest' text/comment) it uploads them to the KaryaCNC nesting server; with only the 'nest' marker — or nothing — selected it downloads the result and asks you to click where to place it">Nest</button>
           </div>
           <div class="constraint-head">Arrays <span class="count" id="array-count">0</span></div>
           <ul class="list" id="array-list"></ul>
@@ -790,8 +788,8 @@
       </select>
     </div>
     <div class="cnc-row">
-      <span class="cnc-label">Tracking</span>
-      <input id="text-tracking" type="text" inputmode="decimal" spellcheck="false" value="0">
+      <span class="cnc-label">Letter spacing</span>
+      <input id="text-tracking" type="text" inputmode="decimal" spellcheck="false" value="0" title="Horizontal spacing between letters, % of font size. Negative values pull letters together until they overlap — handy for Text weld.">
       <span class="cnc-unit">%</span>
     </div>
     <div class="cnc-row">
@@ -897,6 +895,7 @@
 <script src="tools/flex.js"></script>
 <script src="tools/finger.js"></script>
 <script src="tools/spiral.js"></script>
+<script src="tools/textweld.js"></script>
 <script src="ai/chat.js"></script>
 <script src="core.js"></script>
 <script src="app.js"></script>

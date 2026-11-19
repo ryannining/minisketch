@@ -184,7 +184,6 @@ console.log('clone: export resolves the selection cascade');
   check('SVG export uses it', /const selectedIds = new Set\(selectedEntitiesForExport\(\)/.test(app));
   check('CNC collect uses it', /const selIds = new Set\(selectedEntitiesForExport\(\)/.test(app));
   check('CNC guard uses it', /cnc\.scope === 'selected' && !selectedEntitiesForExport\(\)\.length/.test(app));
-  check('nest uses it', /function cmdNest\(\)[\s\S]{0,120}selectedEntitiesForExport\(\)/.test(app));
 }
 
 console.log('clone: shortcuts and bulk operations');

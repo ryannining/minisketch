@@ -30,7 +30,7 @@ Plain static files, no build step, opened straight from disk
 | `index.html` | Layout, menus, modals, the bilingual Help text. |
 | `styles.css` | All styling. |
 | `tools/` | `registry.js` + one file per generator (`box.js`, `slot.js`, `gear.js`, `wall.js`, `hinge.js`, `slidetop.js`, `pulltop.js`, `paintrack.js`, `paneliklan.js`, `flex.js`, `finger.js`, `spiral.js`), the tracer (`trace.js`, our wrapper), the local nesting engine (`nest.js`, a trimmed port of KaryaCNC nestjs2's GA + NFP2 — pure, DOM-free, exports `window.MiniSketchNest`), `nest_io.js` (worker serialization), and the vendored libraries (`imagetracer.js`, `clipper.js`, `path-bool.js`). Do not edit the vendored ones. `path-bool.esm.js` was an ESM duplicate used only by Node probes; it has been unified away — probes load the classic build (global.PathBool). |
-| `fonts/` | The Text dialog's font catalogue. `fonts.js` is the registry (lazy loader, IndexedDB for imported fonts, `FONT_EPOCH`); `build.js` turns `fonts/src/*.ttf` into one generated `fonts/<slug>.js` per face (base64 bytes, registered through `FontFace` — the only route that works from `file://`); `hershey-data.js` + `hershey.js` are the public-domain single-line (stroke) fonts. Do not hand-edit the generated files or `hershey-data.js`. |
+| `fonts/` | The Text dialog's font catalogue. `catalog.json` is the manifest — **one entry per face** (family + weight + style), naming the zip and member it came from; `prepare_fonts.py` rebuilds `fonts/src/*.ttf` from it (rewriting `OS/2`/`head`/`name` so a face whose real style is spelled out only in its filename still matches the descriptor the registry asks for) and `build.js` turns each face into a generated `fonts/<slug>.js` holding its base64 bytes, registered through `FontFace` — the only route that works from `file://`. `fonts.js` is the registry (lazy loader, IndexedDB for imported fonts, `FONT_EPOCH`); `hershey-data.js` + `hershey.js` are the public-domain single-line (stroke) fonts. Do not hand-edit the generated files, `fonts.js`'s `FONT_INDEX` (build.js rewrites it) or `hershey-data.js`. |
 | `createtools.md` | The working handbook for writing a tool/plugin: the registration contract, the whole `api` surface, conventions, and testing. (`TOOLS.md` is referenced by earlier docs but does not exist yet — treat `createtools.md` as the canonical reference.) |
 | `testing/` | Standalone probes (`node testing/<name>_probe.js`). They slice functions out of the sources and run them without a DOM. `tools_probe.js` checks every registered tool against the contract. |
 | `tests/smoke.js` | `node tests/smoke.js` — regression tests for `core.js`. |
@@ -170,19 +170,46 @@ measure-only.
    hangs off a point nothing else uses. A text's height dimension is a
    `distance` between `p0` and `ph`, not a constraint on the entity, so matching
    constraints by entity id alone leaves it behind after Delete.
-10. **A text font may arrive late.** Bundled families lazy-load a `FontFace`, so
+10. **A text font may arrive late.** Bundled faces lazy-load a `FontFace`, so
    the outline trace cache keys on `FONT_EPOCH` (`fonts/fonts.js`) — never
    cache traced contours under a key that omits it, or the fallback-font outline
-   survives the load.
-11. **Single-line fonts have no contours.** Anything that walks text outlines
+   survives the load. `init()` preloads only what the open document needs
+   (`preloadFonts`: the default family plus every member the text entities
+   reference), so a restored document measures with its real fonts instead of
+   the fallback — and it does NOT preload the whole catalogue, because 41 faces
+   is ~11 MB of base64 parsed on every cold start to serve fonts the document
+   never mentions. Anything that adds a face has to keep both paths honest:
+   register per MEMBER (`family|weight|style`), because `registered()` is keyed
+   that way.
+11. **Every style a family ships is a separate member.** `Liberation Serif` is
+    four faces (Regular, Bold, Italic, Bold Italic), each its own generated file.
+    `fonts/build.js` names them `<family>[-bold][-italic].js`, with `-light` /
+    `-semibold` for other weights — with only a bold suffix, Italic and Bold
+    Italic collided on one file, and without a light suffix Cocogoose's Light
+    (300) and Regular (400) collided too. `outlines()` therefore never falls
+    back across weights or styles: a CFF Regular beside a TrueType Bold would
+    otherwise hand back the wrong design and the pen would drift off the glyphs.
+    No outline means the raster tracer, which always fits the face the canvas
+    drew.
+12. **A face's stored name table may disagree with its filename, and the
+    browser matches on the name table.** `' Mono Regular.ttf` claims weight 500,
+    `Cocogoose-Pro-Bold-trial.ttf` reports family `CocogooseProTrial Bold`, and
+    `RasleyHeights_PERSONAL_USE_ONLY.otf` reports `Rasley Heights PERSONAL USE`.
+    A `FontFace` descriptor that does not match what the file says about itself
+    fails to register, or registers the wrong member. `prepare_fonts.py` rewrites
+    `OS/2` / `head.macStyle` / `name` to agree with the catalogue — glyph bytes
+    untouched — and verifies it after writing. Adding a face by dropping a file
+    into `src/` skips that step and will look fine right up until the browser
+    refuses to match it.
+13. **Single-line fonts have no contours.** Anything that walks text outlines
     must go through `textOutlineWorld(e)` and respect its `closed` flag;
     `textContoursWorld` is empty for those fonts on purpose.
-12. **The curve fitter de-noises only what it recognises as a trace.** A dense
+14. **The curve fitter de-noises only what it recognises as a trace.** A dense
     wobbly contour (a traced glyph) is smoothed and resampled before fitting;
     a hand-drawn polyline is not. Corner detection measures direction over a
     window for the same reason. Do not lower that guard: smoothing a 4-point
     rectangle shaves its corners.
-13. **One snap switch, read everywhere.** `snapEnabled()` is `ui.snap !== ui.altDown`:
+15. **One snap switch, read everywhere.** `snapEnabled()` is `ui.snap !== ui.altDown`:
     Snap OFF means *nothing* snaps (points included — a dead snap used to look
     like a bug because endpoints still welded), and **Alt is its inverse while
     held**, so snap off + Alt borrows the snaps for a moment. `snapPoint`,
@@ -193,7 +220,7 @@ measure-only.
     zoom stays usable. A part's own baked source geometry still lives in
     `state.points` and shadows its outline — never exclude a whole bounding box
     of snaps, only points essentially coincident with the grab point.
-14. **The assembly solver never touches a spectator part.** Jitter escape for
+16. **The assembly solver never touches a spectator part.** Jitter escape for
     singular dead-points applies only to parts that carry a mate or a drag
     target; applying it to unconnected parts accumulates a free rotation each
     call and walks them off the screen. A `string` mate is display-only (a
@@ -201,12 +228,12 @@ measure-only.
     current-length + now/rest·100%): the solver has NO string residual — it
     never moves a part, and `partHasAnyMate` ignores it so a part hanging only
     on strings still drags 1:1 like a free part.
-15. **Mate picking is the one cross-layer exception.** While a mate job is
+17. **Mate picking is the one cross-layer exception.** While a mate job is
     open, `matePickable()` (visible + unlocked, any layer) replaces
     `entityEditable()` in the part hit-tests and `drawPartMarkers` shows every
     visible part's markers — an assembly spans layers. Everything else keeps
     the active-layer rule; locked still means locked even for a mate.
-16. **Local nesting never touches masters.** The whole nesting section in
+18. **Local nesting never touches masters.** The whole nesting section in
     `app.js` works on loop-polygon copies handed to `tools/nest.js` (engine
     units = mm × 1000, green `#00ff00` = sheet, exactly the KaryaCNC nestjs2
     conventions). Every result lands as a `clone` entity; a master is never

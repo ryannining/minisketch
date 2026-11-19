@@ -1,0 +1,483 @@
+{
+  "_comment": [
+    "The bundled font catalogue: one entry per FACE (family + weight + style).",
+    "build.js reads this and writes fonts/<slug>.js plus FONT_INDEX in fonts.js.",
+    "prepare_fonts.py reads the same file and rebuilds fonts/src/*.ttf from the zips.",
+    "",
+    "source is the zip and the member inside it that the face came from; a face",
+    "that was already in src/ as a clean .ttf has source: null.",
+    "",
+    "license is provenance only: it records where the face came from. Nothing in",
+    "the UI reads it, and no face is flagged or filtered on it."
+  ],
+  "fonts": [
+    {
+      "family": "Liberation Sans",
+      "file": "LiberationSans-Regular.ttf",
+      "category": "Sans",
+      "weight": 400,
+      "style": "normal",
+      "license": "SIL OFL 1.1 / GPL+exception",
+      "source": null
+    },
+    {
+      "family": "Liberation Sans",
+      "file": "LiberationSans-Bold.ttf",
+      "category": "Sans",
+      "weight": 700,
+      "style": "normal",
+      "license": "SIL OFL 1.1 / GPL+exception",
+      "source": null
+    },
+    {
+      "family": "Liberation Serif",
+      "file": "LiberationSerif-Regular.ttf",
+      "category": "Serif",
+      "weight": 400,
+      "style": "normal",
+      "license": "SIL OFL 1.1 / GPL+exception",
+      "source": null
+    },
+    {
+      "family": "Liberation Serif",
+      "file": "LiberationSerif-Italic.ttf",
+      "category": "Serif",
+      "weight": 400,
+      "style": "italic",
+      "license": "SIL OFL 1.1 / GPL+exception",
+      "source": {
+        "zip": "liberation_serif.zip",
+        "member": "LiberationSerif-Italic.ttf"
+      }
+    },
+    {
+      "family": "Liberation Serif",
+      "file": "LiberationSerif-Bold.ttf",
+      "category": "Serif",
+      "weight": 700,
+      "style": "normal",
+      "license": "SIL OFL 1.1 / GPL+exception",
+      "source": null
+    },
+    {
+      "family": "Liberation Serif",
+      "file": "LiberationSerif-BoldItalic.ttf",
+      "category": "Serif",
+      "weight": 700,
+      "style": "italic",
+      "license": "SIL OFL 1.1 / GPL+exception",
+      "source": {
+        "zip": "liberation_serif.zip",
+        "member": "LiberationSerif-BoldItalic.ttf"
+      }
+    },
+    {
+      "family": "Liberation Mono",
+      "file": "LiberationMono-Regular.ttf",
+      "category": "Monospace",
+      "weight": 400,
+      "style": "normal",
+      "license": "SIL OFL 1.1 / GPL+exception",
+      "source": null
+    },
+    {
+      "family": "Noto Sans",
+      "file": "NotoSans-Regular.ttf",
+      "category": "Sans",
+      "weight": 400,
+      "style": "normal",
+      "license": "SIL OFL 1.1",
+      "source": null
+    },
+    {
+      "family": "Noto Serif",
+      "file": "NotoSerif-Regular.ttf",
+      "category": "Serif",
+      "weight": 400,
+      "style": "normal",
+      "license": "SIL OFL 1.1",
+      "source": null
+    },
+    {
+      "family": "Carlito",
+      "file": "Carlito-Regular.ttf",
+      "category": "Sans",
+      "weight": 400,
+      "style": "normal",
+      "license": "SIL OFL 1.1",
+      "source": null
+    },
+    {
+      "family": "Anak Manja",
+      "file": "AnakManja-Regular.ttf",
+      "category": "Script",
+      "weight": 400,
+      "style": "normal",
+      "license": "Free for personal & commercial use (Khurasan)",
+      "source": {
+        "zip": "anak_manja.zip",
+        "member": "Anak Manja.ttf"
+      }
+    },
+    {
+      "family": "Matcha Style",
+      "file": "MatchaStyle-Regular.ttf",
+      "category": "Script",
+      "weight": 400,
+      "style": "normal",
+      "license": "Free for personal & commercial use (Khurasan)",
+      "source": {
+        "zip": "matcha_style.zip",
+        "member": "Matcha Style.ttf"
+      }
+    },
+    {
+      "family": "GROBOLD",
+      "file": "GROBOLD-Regular.ttf",
+      "category": "Display",
+      "weight": 400,
+      "style": "normal",
+      "license": "Free / donationware (Guy Buhry)",
+      "source": {
+        "zip": "grobold.zip",
+        "member": "GROBOLD.ttf"
+      }
+    },
+    {
+      "family": "Super Mario 256",
+      "file": "SuperMario256-Regular.ttf",
+      "category": "Display",
+      "weight": 400,
+      "style": "normal",
+      "license": "Free (fsuarez913) — lettering is a Nintendo trademark",
+      "source": {
+        "zip": "super_mario_256.zip",
+        "member": "SuperMario256.ttf"
+      }
+    },
+    {
+      "family": "Rony Mono",
+      "file": "RonyMono-Regular.ttf",
+      "category": "Monospace",
+      "weight": 400,
+      "style": "normal",
+      "license": "Free (Rony Setya Siswadi)",
+      "source": {
+        "zip": "mono_2.zip",
+        "member": "' Mono Regular.ttf"
+      }
+    },
+    {
+      "family": "Rony Mono",
+      "file": "RonyMono-Bold.ttf",
+      "category": "Monospace",
+      "weight": 700,
+      "style": "normal",
+      "license": "Free (Rony Setya Siswadi)",
+      "source": {
+        "zip": "mono_2.zip",
+        "member": "' Mono Bold.ttf"
+      }
+    },
+    {
+      "family": "Avigea",
+      "file": "Avigea-Regular.ttf",
+      "category": "Serif",
+      "weight": 400,
+      "style": "normal",
+      "license": "Personal use only (Storytype Studio)",
+      "source": {
+        "zip": "avigea.zip",
+        "member": "Avigea.ttf"
+      }
+    },
+    {
+      "family": "Avigea",
+      "file": "Avigea-Italic.ttf",
+      "category": "Serif",
+      "weight": 400,
+      "style": "italic",
+      "license": "Personal use only (Storytype Studio)",
+      "source": {
+        "zip": "avigea.zip",
+        "member": "Avigea Italic.ttf"
+      }
+    },
+    {
+      "family": "Billion Dreams",
+      "file": "BillionDreams-Regular.ttf",
+      "category": "Script",
+      "weight": 400,
+      "style": "normal",
+      "license": "Personal use only (Mans Greback)",
+      "source": {
+        "zip": "billion_dreams.zip",
+        "member": "BillionDreams_PERSONAL.ttf"
+      }
+    },
+    {
+      "family": "Birds of Paradise",
+      "file": "BirdsOfParadise-Regular.ttf",
+      "category": "Script",
+      "weight": 400,
+      "style": "normal",
+      "license": "Personal use only (Herofonts)",
+      "source": {
+        "zip": "birds_of_paradise.zip",
+        "member": "Birds of Paradise ╕ PERSONAL USE ONLY.ttf"
+      }
+    },
+    {
+      "family": "Bright Sunlist",
+      "file": "BrightSunlist-Regular.ttf",
+      "category": "Serif",
+      "weight": 400,
+      "style": "normal",
+      "license": "Personal use only (Letterena Studios)",
+      "source": {
+        "zip": "bright_sunlist.zip",
+        "member": "Bright Sunlist DEMO VERSION.ttf"
+      }
+    },
+    {
+      "family": "Bright Sunlist",
+      "file": "BrightSunlist-Italic.ttf",
+      "category": "Serif",
+      "weight": 400,
+      "style": "italic",
+      "license": "Personal use only (Letterena Studios)",
+      "source": {
+        "zip": "bright_sunlist.zip",
+        "member": "Bright Sunlist Italic DEMO VERSION.ttf"
+      }
+    },
+    {
+      "family": "Chocolate Crispy",
+      "file": "ChocolateCrispy-Regular.ttf",
+      "category": "Script",
+      "weight": 400,
+      "style": "normal",
+      "license": "Personal use only (ERGIBI Studio)",
+      "source": {
+        "zip": "chocolate_crispy.zip",
+        "member": "Chocolate Crispy.otf"
+      }
+    },
+    {
+      "family": "Darling",
+      "file": "Darling-Regular.ttf",
+      "category": "Script",
+      "weight": 400,
+      "style": "normal",
+      "license": "Personal use only (GFRcreative)",
+      "source": {
+        "zip": "darling_3.zip",
+        "member": "Darling.ttf"
+      }
+    },
+    {
+      "family": "Janda Manatee Bubble",
+      "file": "JandaManateeBubble-Regular.ttf",
+      "category": "Display",
+      "weight": 400,
+      "style": "normal",
+      "license": "Personal use only (Kimberly Geswein)",
+      "source": {
+        "zip": "janda_manatee.zip",
+        "member": "JandaManateeBubble.ttf"
+      }
+    },
+    {
+      "family": "Janda Manatee Solid",
+      "file": "JandaManateeSolid-Regular.ttf",
+      "category": "Display",
+      "weight": 400,
+      "style": "normal",
+      "license": "Personal use only (Kimberly Geswein)",
+      "source": {
+        "zip": "janda_manatee.zip",
+        "member": "JandaManateeSolid.ttf"
+      }
+    },
+    {
+      "family": "Mercy Christole",
+      "file": "MercyChristole-Regular.ttf",
+      "category": "Serif",
+      "weight": 400,
+      "style": "normal",
+      "license": "Personal use only (HansCo)",
+      "source": {
+        "zip": "mercy_christole.zip",
+        "member": "Mercy Christole.ttf"
+      }
+    },
+    {
+      "family": "Milesdane Trial",
+      "file": "Milesdane-Regular.ttf",
+      "category": "Script",
+      "weight": 400,
+      "style": "normal",
+      "license": "Personal use only (Ekobi Mantara)",
+      "source": {
+        "zip": "milesdane.zip",
+        "member": "Milesdane Trial.otf"
+      }
+    },
+    {
+      "family": "Rasley Heights",
+      "file": "RasleyHeights-Regular.ttf",
+      "category": "Script",
+      "weight": 400,
+      "style": "normal",
+      "license": "Personal use only (Mans Greback)",
+      "source": {
+        "zip": "rasley_heights.zip",
+        "member": "RasleyHeights_PERSONAL_USE_ONLY.otf"
+      }
+    },
+    {
+      "family": "Saltblack Combat",
+      "file": "SaltblackCombat-Regular.ttf",
+      "category": "Display",
+      "weight": 400,
+      "style": "normal",
+      "license": "Personal use only (Alit Design)",
+      "source": {
+        "zip": "saltblack_combat.zip",
+        "member": "Saltblackcombat-Regular.ttf"
+      }
+    },
+    {
+      "family": "Simply Olive",
+      "file": "SimplyOlive-Regular.ttf",
+      "category": "Script",
+      "weight": 400,
+      "style": "normal",
+      "license": "Personal use only (Niskala Huruf)",
+      "source": {
+        "zip": "simply_olive.zip",
+        "member": "Simply Olive DEMO.ttf"
+      }
+    },
+    {
+      "family": "Supersonic Rocketship",
+      "file": "SupersonicRocketship-Regular.ttf",
+      "category": "Display",
+      "weight": 400,
+      "style": "normal",
+      "license": "Personal use only (Imagex)",
+      "source": {
+        "zip": "supersonic_rocketship.zip",
+        "member": "Supersonic Rocketship.ttf"
+      }
+    },
+    {
+      "family": "Super Waffles",
+      "file": "SuperWaffles-Regular.ttf",
+      "category": "Display",
+      "weight": 400,
+      "style": "normal",
+      "license": "No licence text in the download",
+      "source": {
+        "zip": "super_waffles.zip",
+        "member": "Super Waffles.ttf"
+      }
+    },
+    {
+      "family": "Sweety Rasty",
+      "file": "SweetyRasty-Regular.ttf",
+      "category": "Script",
+      "weight": 400,
+      "style": "normal",
+      "license": "Personal use only (Holydie Studio)",
+      "source": {
+        "zip": "sweety_rasty.zip",
+        "member": "Sweety Rasty.otf"
+      }
+    },
+    {
+      "family": "Cocogoose Pro",
+      "file": "CocogoosePro-Regular.ttf",
+      "category": "Display",
+      "weight": 400,
+      "style": "normal",
+      "license": "CC BY-NC (Zetafonts) — credit required",
+      "source": {
+        "zip": "cocogoose.zip",
+        "member": "Cocogoose-Pro-Regular-trial.ttf"
+      }
+    },
+    {
+      "family": "Cocogoose Pro",
+      "file": "CocogoosePro-Light.ttf",
+      "category": "Display",
+      "weight": 300,
+      "style": "normal",
+      "license": "CC BY-NC (Zetafonts) — credit required",
+      "source": {
+        "zip": "cocogoose.zip",
+        "member": "Cocogoose-Pro-Light-trial.ttf"
+      }
+    },
+    {
+      "family": "Cocogoose Pro",
+      "file": "CocogoosePro-Bold.ttf",
+      "category": "Display",
+      "weight": 700,
+      "style": "normal",
+      "license": "CC BY-NC (Zetafonts) — credit required",
+      "source": {
+        "zip": "cocogoose.zip",
+        "member": "Cocogoose-Pro-Bold-trial.ttf"
+      }
+    },
+    {
+      "family": "Cocogoose Pro",
+      "file": "CocogoosePro-Italic.ttf",
+      "category": "Display",
+      "weight": 400,
+      "style": "italic",
+      "license": "CC BY-NC (Zetafonts) — credit required",
+      "source": {
+        "zip": "cocogoose.zip",
+        "member": "Cocogoose-Pro-Italic-trial.ttf"
+      }
+    },
+    {
+      "family": "Cocogoose Pro",
+      "file": "CocogoosePro-BoldItalic.ttf",
+      "category": "Display",
+      "weight": 700,
+      "style": "italic",
+      "license": "CC BY-NC (Zetafonts) — credit required",
+      "source": {
+        "zip": "cocogoose.zip",
+        "member": "Cocogoose-Pro-Bold-Italic-trial.ttf"
+      }
+    },
+    {
+      "family": "Nasalization",
+      "file": "Nasalization-Regular.ttf",
+      "category": "Display",
+      "weight": 400,
+      "style": "normal",
+      "license": "Typodermic Desktop EULA — no embedding in software",
+      "source": {
+        "zip": "nasalization.zip",
+        "member": "Nasalization Rg.otf"
+      }
+    },
+    {
+      "family": "Dealerplate California",
+      "file": "DealerplateCalifornia-Regular.ttf",
+      "category": "Display",
+      "weight": 400,
+      "style": "normal",
+      "license": "Typodermic Desktop EULA — no embedding in software",
+      "source": {
+        "zip": "dealerplate_california.zip",
+        "member": "dealerplate california.otf"
+      }
+    }
+  ]
+}

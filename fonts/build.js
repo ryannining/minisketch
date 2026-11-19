@@ -1,8 +1,15 @@
 #!/usr/bin/env node
-// Build the bundled font catalogue: fonts/src/*.ttf -> fonts/<slug>.js
-// (base64 bytes in a MiniSketchFonts.define call) + refresh fonts/fonts.js.
-// The app runs from file://, so a classic <script> with the bytes inline is
-// the one dependable way to register a FontFace (no fetch, no CORS).
+// Build the bundled font catalogue: fonts/catalog.json + fonts/src/*.ttf ->
+// one generated fonts/<slug>.js per face, plus FONT_INDEX in fonts.js.
+//
+// The app runs from file://, so a classic <script> holding the bytes inline is
+// the one dependable way to register a FontFace: fetch() is blocked, and a CSS
+// @font-face url() is CORS-checked. Every face therefore ships as its own
+// generated JS file that calls MiniSketchFonts.define({...b64}).
+//
+// The manifest is fonts/catalog.json — one entry per FACE (family + weight +
+// style). prepare_fonts.py reads the same file to rebuild fonts/src/*.ttf from
+// the zips, so the two steps cannot drift apart.
 //
 // Run: node fonts/build.js
 'use strict';
@@ -12,25 +19,34 @@ const path = require('path');
 
 const DIR = __dirname;
 const SRC = path.join(DIR, 'src');
+const CATALOG = path.join(DIR, 'catalog.json');
 
-// One entry per family member. weight/style are what the Text dialog matches;
-// category is the optgroup the family shows under. Everything here is
-// SIL OFL / GPL+exception and redistributable.
-const FONTS = [
-  { family: 'Liberation Sans', file: 'LiberationSans-Regular.ttf', category: 'Sans', weight: 400, style: 'normal', license: 'SIL OFL 1.1' },
-  { family: 'Liberation Sans', file: 'LiberationSans-Bold.ttf', category: 'Sans', weight: 700, style: 'normal', license: 'SIL OFL 1.1' },
-  { family: 'Liberation Serif', file: 'LiberationSerif-Regular.ttf', category: 'Serif', weight: 400, style: 'normal', license: 'SIL OFL 1.1' },
-  { family: 'Liberation Serif', file: 'LiberationSerif-Bold.ttf', category: 'Serif', weight: 700, style: 'normal', license: 'SIL OFL 1.1' },
-  { family: 'Liberation Mono', file: 'LiberationMono-Regular.ttf', category: 'Monospace', weight: 400, style: 'normal', license: 'SIL OFL 1.1' },
-  { family: 'Noto Sans', file: 'NotoSans-Regular.ttf', category: 'Sans', weight: 400, style: 'normal', license: 'SIL OFL 1.1' },
-  { family: 'Noto Serif', file: 'NotoSerif-Regular.ttf', category: 'Serif', weight: 400, style: 'normal', license: 'SIL OFL 1.1' },
-  { family: 'Carlito', file: 'Carlito-Regular.ttf', category: 'Sans', weight: 400, style: 'normal', license: 'SIL OFL 1.1' }
-];
+// A face's file name: the family slug plus a suffix for anything that is not
+// plain Regular upright. Regular upright keeps the bare family slug, so the
+// original file names (and any document that referenced them) still resolve.
+//
+// Every other weight needs its own suffix — Cocogoose ships a Light (300) and
+// a Regular (400), and without a suffix they collided on cocogoose-pro.js. A
+// bold member keeps '-bold' and an italic keeps '-italic', including both at
+// once: with only the bold suffix, Liberation Serif Italic and Bold Italic both
+// wanted liberation-serif-italic.js and one face silently overwrote the other.
+const WEIGHT_SUFFIX = { 300: 'light', 500: 'medium', 600: 'semibold', 700: 'bold', 800: 'extrabold', 900: 'black' };
+
+function fileBase(face) {
+  let s = slug(face.family);
+  const w = WEIGHT_SUFFIX[face.weight];
+  if (w && w !== 'bold') s += '-' + w;
+  else if (face.weight >= 700) s += '-bold';
+  if (face.style === 'italic') s += '-italic';
+  return s;
+}
 
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
+// Minimal name-table reader: family name (nameID 1), first hit wins. Used to
+// catch a src/*.ttf whose name table disagrees with the catalogue — the browser
+// would then not match the descriptor the registry asks for.
 function readTtfNameFamily(buf) {
-  // minimal TTF name table reader: family name (nameID 1), first hit wins
   try {
     const numTables = buf.readUInt16BE(4);
     let nameOff = 0;
@@ -60,53 +76,64 @@ function readTtfNameFamily(buf) {
 }
 
 function main() {
+  const catalog = JSON.parse(fs.readFileSync(CATALOG, 'utf8'));
+  const faces = catalog.fonts;
+  if (!Array.isArray(faces) || !faces.length) throw new Error('catalog.json: no fonts');
+
   const index = [];
   const seen = new Set();
-  for (const f of FONTS) {
+  for (const f of faces) {
     const file = path.join(SRC, f.file);
     if (!fs.existsSync(file)) {
-      console.error('missing: ' + f.file);
+      console.error('missing: ' + f.file + '  (run: python3 fonts/prepare_fonts.py)');
       process.exitCode = 1;
       continue;
     }
     const bytes = fs.readFileSync(file);
     const real = readTtfNameFamily(bytes);
     if (real && real.trim() && real.trim() !== f.family) {
-      console.error('family mismatch: ' + f.file + ' says "' + real.trim() + '", expected "' + f.family + '"');
+      console.error('family mismatch: ' + f.file + ' says "' + real.trim() +
+        '", expected "' + f.family + '"  (run: python3 fonts/prepare_fonts.py)');
       process.exitCode = 1;
     }
-    const slugName = slug(f.family) + (f.weight >= 700 ? '-bold' : '') + (f.style === 'italic' ? '-italic' : '');
+
+    const slugName = fileBase(f) + '.js';
     if (seen.has(slugName)) throw new Error('slug collision: ' + slugName);
     seen.add(slugName);
-    const b64 = bytes.toString('base64');
+
     const header = '// Generated by fonts/build.js from fonts/src/' + f.file +
       ' — do not edit by hand.\n' +
       '// Font: ' + f.family + ' ' + f.weight + ' ' + f.style + ' · licence: ' + f.license + '\n' +
+      '// Catalogue entry: fonts/catalog.json\n' +
       'MiniSketchFonts.define({\n' +
       '  family: ' + JSON.stringify(f.family) + ',\n' +
       '  category: ' + JSON.stringify(f.category) + ',\n' +
       '  weight: ' + f.weight + ',\n' +
       '  style: ' + JSON.stringify(f.style) + ',\n' +
-      '  license: ' + JSON.stringify(f.license) + ',\n' +
-      '  file: ' + JSON.stringify(slugName + '.js') + ',\n' +
+      (f.license ? '  license: ' + JSON.stringify(f.license) + ',\n' : '') +
+      '  file: ' + JSON.stringify(slugName) + ',\n' +
       '  b64: ';
-    // write in chunks so the file stays a valid, readable JS expression
-    fs.writeFileSync(path.join(DIR, slugName + '.js'), header + '"' + b64 + '"\n});\n');
-    index.push({ family: f.family, category: f.category, weight: f.weight, style: f.style, license: f.license, file: slugName + '.js' });
-    console.log(slugName + '.js  <-  ' + f.file + '  (' + Math.round(bytes.length / 1024) + ' KB)');
+    fs.writeFileSync(path.join(DIR, slugName), header + '"' + bytes.toString('base64') + '"\n});\n');
+
+    index.push({
+      family: f.family, category: f.category, weight: f.weight, style: f.style,
+      license: f.license, file: slugName
+    });
+    console.log(slugName + '  <-  ' + f.file + '  (' + Math.round(bytes.length / 1024) + ' KB)');
   }
 
-  // refresh fonts.js in place: keep the code, swap the FONT_INDEX data
+  // Refresh fonts.js in place: keep the code, swap the FONT_INDEX data.
   const fontsJsPath = path.join(DIR, 'fonts.js');
   let code = fs.readFileSync(fontsJsPath, 'utf8');
   const start = code.indexOf('  const FONT_INDEX = [');
   const end = code.indexOf('\n  ];', start);
   if (start < 0 || end < 0) throw new Error('fonts.js: FONT_INDEX block not found');
   code = code.slice(0, start) +
-    '  const FONT_INDEX = ' + JSON.stringify(index, null, 2).replace(/\n/g, '\n  ') +
+    '  const FONT_INDEX = ' + JSON.stringify(index, null, 2).replace(/\n/g, '\n  ') + ';\n' +
     code.slice(end + 4);
   fs.writeFileSync(fontsJsPath, code);
-  console.log('fonts.js index refreshed (' + index.length + ' entries)');
+
+  console.log('\nfonts.js index refreshed: ' + index.length + ' faces');
 }
 
 main();

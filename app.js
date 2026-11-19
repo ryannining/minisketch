@@ -6010,27 +6010,47 @@
     // frozen and the array loses its live link on purpose.
     for (const id of newEntityIds) {
       const e = state.entities[id];
-      if (!e || e.type !== 'array' || !Array.isArray(e.masters)) continue;
+      if (!e || e.type !== 'array') continue;
       // Prefer a remapped COPY when the master travelled with the payload
       // (selected together); otherwise link back to the ORIGINAL master if it
       // still exists in this document, so pasting a clone does not duplicate
       // the master's geometry. Only when the original is gone (cross-document
       // paste) fall back to a detached snapshot.
       const remapped = [];
-      let hasLive = false;
-      for (const mid of e.masters) {
+      for (const mid of (e.masters || [])) {
         const mapped = eMap[+mid];
-        if (mapped != null) { remapped.push(mapped); hasLive = true; }
-        else if (state.entities[mid]) { remapped.push(+mid); hasLive = true; }
+        if (mapped != null) remapped.push(mapped);
+        else if (state.entities[mid]) remapped.push(+mid);
       }
-      // The anchor is a WORLD position captured when the clone was made. The
-      // pasted masters moved by (offsetX, offsetY), so the anchor must move with
-      // them — otherwise cloneInstanceOffsets reads a phantom master shift and
-      // cancels it, landing the copy somewhere else entirely.
+      // Does the geometry the instance matrices act on travel by (offsetX,
+      // offsetY)? True when the anchor-providing master was copied (its points
+      // moved) or when the array is a detached snapshot (shifted below). False
+      // when the clone links back to an ORIGINAL master that stayed put.
+      let shapeMoved = !remapped.length;
+      for (const mid of (e.masters || [])) {
+        const m = state.entities[mid];
+        if (m && entityPointIds(m).length) { shapeMoved = eMap[+mid] != null; break; }
+      }
       if (Array.isArray(e.instances)) {
         for (const inst of e.instances) {
-          if (!inst || !Array.isArray(inst.a) || inst.a.length !== 2) continue;
-          inst.a = [+inst.a[0] + offsetX, +inst.a[1] + offsetY];
+          if (!inst || !Array.isArray(inst.m) || inst.m.length !== 6) continue;
+          const m = inst.m;
+          if (shapeMoved) {
+            // The matrix acts on master coords that already moved by d, so to
+            // land the copy exactly +d the translation absorbs d - M_lin*d
+            // (a plain +d scatters ROTATED clones). The anchor follows the
+            // master so cloneInstanceOffsets' pinning compensation stays
+            // neutral instead of cancelling the paste offset.
+            m[4] += offsetX - (m[0] * offsetX + m[2] * offsetY);
+            m[5] += offsetY - (m[1] * offsetX + m[3] * offsetY);
+            if (Array.isArray(inst.a) && inst.a.length === 2) {
+              inst.a = [+inst.a[0] + offsetX, +inst.a[1] + offsetY];
+            }
+          } else {
+            // master stayed: only the copy itself moves
+            m[4] += offsetX;
+            m[5] += offsetY;
+          }
         }
       }
       if (remapped.length) {
@@ -6039,6 +6059,13 @@
         e.shapesEpoch = geometryEpoch;
       } else {
         delete e.masters;   // snapshot-only: no live link to foreign masters
+        // the frozen snapshot IS the geometry now: it must travel too, or the
+        // pasted array renders back at the source document's coordinates
+        for (const s of (e.shapes || [])) {
+          if (s && Array.isArray(s.pts)) {
+            for (const p of s.pts) { p[0] += offsetX; p[1] += offsetY; }
+          }
+        }
       }
     }
     for (const source of src.constraints) {
@@ -10833,8 +10860,12 @@
   // below call ensureTextAspect again once every wanted face has landed.
   function ensureTextAspect(e, keepRatio) {
     if (!e || (e.type !== 'text' && e.type !== 'art' && e.type !== 'image')) return null;
+    // `registered` is keyed per MEMBER: a family with Regular + Bold reports
+    // false for a Bold text even when the family's Regular file is in, and the
+    // saved ratio would then never be re-measured.
     const fontPending = keepRatio && e.type === 'text' && window.MiniSketchFonts &&
-      !window.MiniSketchFonts.registered(e.font || 'sans-serif');
+      !window.MiniSketchFonts.registered(e.font || 'sans-serif', e.weight || 400,
+        e.italic ? 'italic' : 'normal');
     const ratio = fontPending ? null : framedNativeRatio(e);
     for (const cid in state.constraints) {
       const c = state.constraints[cid];
@@ -14181,250 +14212,6 @@
     if (againBtn) againBtn.disabled = !nestLastSpec;
   }
 
-  // ---- Nesting (KaryaCNC nesting server) ------------------------------
-  // Mirrors the KaryaCNC Inkscape extension protocol: POST /upload_svg with a
-  // multipart svg_data file (plus inkscape=y), GET /result_svg returns the
-  // nested SVG (404 = no result yet). A text/comment whose content is exactly
-  // "nest" or "result" is the marker: with geometry it uploads, alone it
-  // downloads; with no selection at all the download asks for a drop point.
-  const NEST_PORT = 3000;
-  function nestBaseUrl() {
-    // same host as KaryaCNC, resolved with the same rules as the WS connection
-    // (full IP, or just the last octet as typed in the KaryaCNC settings window)
-    return 'http://' + cncResolveHost(cnc && cnc.host) + ':' + NEST_PORT;
-  }
-
-  function nestMarkerOf(e) {
-    if (!e || (e.type !== 'note' && e.type !== 'text')) return null;
-    const t = String(e.text || '').trim().toLowerCase();
-    return t === 'nest' || t === 'result' ? t : null;
-  }
-
-  function nestSvgString(entities) {
-    // mm coordinates, Y-down world maps 1:1 into SVG space; colours ride
-    // along (the server reads stroke styles, green lines included).
-    //
-    // CURVES STAY CURVES: circles go as <circle>, arcs as A commands and
-    // splines as cubic Béziers — the server polygonizes for its own placement
-    // math if it must, but what comes back and what any smarter server reads
-    // is the true geometry, not a display-density polyline. Only straight-line
-    // chains are welded into one loop per shape (that IS their geometry).
-    const parts = ['<svg xmlns="http://www.w3.org/2000/svg">'];
-    const fy = (y) => y.toFixed(4);
-    const fx = (x) => x.toFixed(4);
-    const straight = [];   // line chains: entity -> polylines for loop welding
-    // owned guide lines (group/text frames) never go to the nesting server;
-    // manually drawn green lines are real marking paths and stay allowed
-    const guides = ownedGuideIds();
-    for (const e of entities) {
-      if (guides.has(+e.id)) continue;
-      const color = colorOf(e);
-      const stroke = ' fill="none" stroke="' + color + '" stroke-width="0.25" style="fill:none;stroke:' + color + ';stroke-width:0.25"';
-      if (e.type === 'circle') {
-        // the server does not know <circle>: emit it as a full-circle path of
-        // two A segments (same form the SVG export uses)
-        const cd = circleData(e);
-        if (cd && cd.r > 1e-6) {
-          const sx = (cd.c.x + cd.r).toFixed(4), sy = fy(cd.c.y);
-          const ex = (cd.c.x - cd.r).toFixed(4);
-          const d = 'M ' + sx + ' ' + sy +
-            ' A ' + cd.r.toFixed(4) + ' ' + cd.r.toFixed(4) + ' 0 1 1 ' + ex + ' ' + sy +
-            ' A ' + cd.r.toFixed(4) + ' ' + cd.r.toFixed(4) + ' 0 1 1 ' + sx + ' ' + sy + ' Z';
-          parts.push('<path d="' + d + '"' + stroke + '/>');
-        }
-        continue;
-      }
-      if (e.type === 'arc') {
-        const d = svgArcPath(e);
-        if (d) parts.push('<path d="' + d + '"' + stroke + '/>');
-        continue;
-      }
-      // Text is traced on the fly, so it goes to the nesting server as its glyph
-      // outlines — the same loops the canvas draws and the SVG export writes. A
-      // single-line font yields open strokes; a filled font yields closed
-      // contours. Without this branch text fell through to the straight-line
-      // pool, where entityWorldPolylinep produced nothing, so it never shipped.
-      if (e.type === 'text') {
-        const outline = textOutlineWorld(e);
-        for (const loop of outline.loops) {
-          if (!loop || loop.length < 2) continue;
-          let d = 'M ' + fx(loop[0].x) + ' ' + fy(loop[0].y);
-          for (let i = 1; i < loop.length; i++) {
-            d += ' L ' + fx(loop[i].x) + ' ' + fy(loop[i].y);
-          }
-          if (outline.closed) d += ' Z';
-          parts.push('<path d="' + d + '"' + stroke + '/>');
-        }
-        continue;
-      }
-      if (e.type === 'spline') {
-        // one cubic Bézier per node span: true curve data, no sampling.
-        // IMPORTANT: hs.o / hs.i are ABSOLUTE handle points (exportSVG moves
-        // them by +=dx on paste, treats them as plain points), and hs.i is
-        // indexed by the END point of the span — same convention as exportSVG.
-        ensureSplineHandles(e);
-        const cps = entityPointIds(e).map(id => P(id)).filter(Boolean);
-        if (cps.length >= 2 && e.hs) {
-          const n = cps.length;
-          const loop = !!e.closed && n >= 3;
-          const nsegs = loop ? n : n - 1;
-          let d = 'M ' + fx(cps[0].x) + ' ' + fy(cps[0].y);
-          for (let s = 0; s < nsegs; s++) {
-            const j = loop ? (s + 1) % n : s + 1;
-            const P1 = e.hs.o[s], P2 = e.hs.i[j], P3 = cps[j];
-            if (!P3) continue;
-            if (!P1 || !P2) {
-              d += ' L ' + fx(P3.x) + ' ' + fy(P3.y);
-              continue;
-            }
-            d += ' C ' + fx(P1.x) + ' ' + fy(P1.y) + ' ' + fx(P2.x) + ' ' + fy(P2.y) + ' ' + fx(P3.x) + ' ' + fy(P3.y);
-          }
-          if (loop) d += ' Z';
-          parts.push('<path d="' + d + '"' + stroke + '/>');
-        }
-        continue;
-      }
-      // A clone (array kind='clone') is real cut geometry: every instance ships
-      // as its own path, in the master's own colours. Without this branch the
-      // array fell into the straight-line pool, where entityWorldPolylines knows
-      // nothing about instances, so the clones never reached the server.
-      //
-      // IMPORTANT: the per-instance polylines must be CHAINED into loops — the
-      // same weld the straight-line pool applies — otherwise every segment of a
-      // multi-line part ships as its own <path> (a 7x5 array of 4-line
-      // rectangles became 140 loose paths and KaryaCNC reported ~2000 parts).
-      if (e.type === 'array') {
-        for (const t of arrayInstanceOffsets(e)) {
-          const byColor = new Map();
-          for (const pl of arrayInstancePolylines(e, t)) {
-            if (!pl.pts || pl.pts.length < 2) continue;
-            const c = pl.color || color;
-            if (!byColor.has(c)) byColor.set(c, []);
-            byColor.get(c).push({ pts: pl.pts.map(p => ({ x: p.x, y: p.y })), closed: !!pl.closed });
-          }
-          for (const [c, polys] of byColor) {
-            let loops;
-            try { loops = chainPolylines(polys, 0.05); } catch (err) { loops = polys; }
-            for (const loop of loops) {
-              const pts = loop.pts;
-              if (!pts || pts.length < 2) continue;
-              const st = ' fill="none" stroke="' + c + '" stroke-width="0.25" style="fill:none;stroke:' + c + ';stroke-width:0.25"';
-              let d = 'M ' + fx(pts[0].x) + ' ' + fy(pts[0].y);
-              for (let i = 1; i < pts.length; i++) {
-                d += ' L ' + fx(pts[i].x) + ' ' + fy(pts[i].y);
-              }
-              if (loop.closed) d += ' Z';
-              parts.push('<path d="' + d + '"' + st + '/>');
-            }
-          }
-        }
-        continue;
-      }
-      straight.push(e);
-    }
-    // straight-line entities: chain into real loops, one path per loop
-    const byColor = new Map();
-    for (const e of straight) {
-      const color = colorOf(e);
-      for (const pl of entityWorldPolylines(e)) {
-        if (!pl.pts || pl.pts.length < 2) continue;
-        if (!byColor.has(color)) byColor.set(color, []);
-        byColor.get(color).push({ pts: pl.pts.map(p => ({ x: p.x, y: p.y })), closed: !!pl.closed });
-      }
-    }
-    for (const [color, polys] of byColor) {
-      let loops;
-      try { loops = chainPolylines(polys, 0.05); } catch (err) { loops = polys; }
-      for (const loop of loops) {
-        const pts = loop.pts;
-        if (!pts || pts.length < 2) continue;
-        let d = 'M ' + fx(pts[0].x) + ' ' + fy(pts[0].y);
-        for (let i = 1; i < pts.length; i++) {
-          d += ' L ' + fx(pts[i].x) + ' ' + fy(pts[i].y);
-        }
-        if (loop.closed) d += ' Z';
-        parts.push('<path d="' + d + '" fill="none" stroke="' + color +
-          '" stroke-width="0.25" style="fill:none;stroke:' + color + ';stroke-width:0.25"/>');
-      }
-    }
-    parts.push('</svg>');
-    return parts.join('\n');
-  }
-
-  async function nestUpload(entities) {
-    const svg = nestSvgString(entities);
-    if (svg.indexOf('<path') < 0 && svg.indexOf('<circle') < 0) { toast('Nothing to send: the selection has no geometry'); return; }
-    // inspection hook: Shift+Nest downloads the exact payload instead of sending
-    if (ui.shiftDown) {
-      downloadBlob('nest-input.svg', new Blob([svg], { type: 'image/svg+xml' }));
-      toast('nest-input.svg downloaded · open it in the browser to check what would be sent');
-      return;
-    }
-    if (typeof console !== 'undefined' && console.log) console.log('[nest] upload SVG', svg);
-    const fd = new FormData();
-    fd.append('inkscape', 'y');
-    fd.append('svg_data', new Blob([svg], { type: 'image/svg+xml' }), 'input.svg');
-    toast('Uploading ' + entities.length + ' objects to ' + nestBaseUrl() + '…');
-    try {
-      const res = await fetch(nestBaseUrl() + '/upload_svg', { method: 'POST', body: fd });
-      if (!res.ok) { toast('Nesting upload failed · HTTP ' + res.status); return; }
-      toast('Uploaded to nesting · run it there and press "Select as Best", then Nest again to download');
-    } catch (err) {
-      toast('Nesting server unreachable at ' + nestBaseUrl() + ' (' + err.message + ')');
-    }
-  }
-
-  function nestPlaceAt(ir, pt) {
-    pushHistory();
-    svgImportInsert(ir, { center: pt });
-    commit();
-    toast('Nested result placed');
-  }
-
-  async function nestDownload(place) {
-    let res;
-    try {
-      res = await fetch(nestBaseUrl() + '/result_svg');
-    } catch (err) {
-      toast('Nesting server unreachable at ' + nestBaseUrl() + ' (' + err.message + ')');
-      return;
-    }
-    if (res.status === 404) { toast('No nesting result yet · run the nesting and press "Select as Best" first'); return; }
-    if (!res.ok) { toast('Nesting download failed · HTTP ' + res.status); return; }
-    let text = await res.text();
-    const i = text.indexOf('<');
-    if (i > 0) text = text.slice(i);
-    let ir;
-    try { ir = svgImportParse(text, {}); } catch (err) { toast('Nesting result is not valid SVG'); return; }
-    if (!ir.items || !ir.items.length) { toast('Nesting result is empty'); return; }
-    if (place) { nestPlaceAt(ir, place); return; }
-    ui.nestPlace = ir;
-    toast('Click where the nested result should be placed · right click cancels');
-  }
-
-  function cmdNest() {
-    if (xfBlock()) return;
-    const sel = selectedEntitiesForExport();
-    const markers = [];
-    const geom = [];
-    for (const e of sel) {
-      const mk = nestMarkerOf(e);
-      if (mk) { markers.push(e); continue; }
-      // A note is pure annotation and never cuts. Text, on the other hand, is
-      // real cut geometry: nestSvgString sends its glyph outlines. It used to be
-      // dropped here, which is why a selected text arrived with no data.
-      if (e.type === 'note') continue;
-      geom.push(e);
-    }
-    if (geom.length) { nestUpload(geom); return; }
-    if (markers.length) {
-      const anchor = P(markers[0].type === 'note' ? markers[0].p : markers[0].p0);
-      nestDownload(anchor ? { x: anchor.x, y: anchor.y } : null);
-      return;
-    }
-    nestDownload(null);
-  }
-
   function addPanelEntity(pts, color) {
     const clean = [];
     for (const p of pts) {
@@ -14651,14 +14438,17 @@
     const cHdim = newId();
     state.constraints[cHdim] = { id: cHdim, type: 'distance', p1: p0, p2: phId, value: thH, offset: 10 };
     const id = newId();
+    const font = typeof o.font === 'string' && o.font ? o.font : 'sans-serif';
     state.entities[id] = {
       id, type: 'text', p0, pw: pwId, ph: phId, guide: [idW, idH],
       text: t,
-      font: typeof o.font === 'string' && o.font ? o.font : 'sans-serif',
+      font,
       weight: isFinite(+o.weight) ? +o.weight : 400,
       italic: !!o.italic,
       tracking: isFinite(+o.tracking) ? clamp(+o.tracking, -30, 60) : 0,
+      leading: textStyleLeading(o.leading),
       align: o.align === 'center' || o.align === 'right' ? o.align : 'left',
+      single: HERSHEY_FAMILIES.includes(font),
       color: (o.color && /^#[0-9a-fA-F]{6}$/.test(o.color)) ? o.color : ui.color,
       fitCurve: loadTextFit()
     };
@@ -14698,7 +14488,7 @@
       // and the result can be fitted back to real curves
       pathChainsOf, flattenSpline, fitPolylineCurve, addFittedCurve: addFittedSpline,
       rdpSimplify,
-      offsetClosedChains, clipperLib, polyBoolOp, signedAreaPts, pointInPoly,
+      offsetClosedChains, clipperLib, polyBoolOp, boolLoopsExact, signedAreaPts, pointInPoly,
       offsetScale: OFFSET_SCALE,
       offsetPrecision: OFFSET_PRECISION,
       offsetMiter: () => OFFSET_MITER,
@@ -14711,7 +14501,7 @@
       addLine: toolAddLine, addCircle: toolAddCircle, addArc: toolAddArc,
       addSpline: toolAddSpline, addConstraint: toolAddConstraint,
       addNote: toolAddNote, addText: toolAddText,
-      requestSolve, solveNow, getLoops, loopEntities,
+      requestSolve, solveNow, getLoops, loopEntities, loopDepthOf,
       addPanelEntity, addPolylineEntity, cmdGroupSelection,
       watchGen: genWatchAdd,
       // SVG out, for the AI: a trained model knows SVG far better than our
@@ -16229,6 +16019,29 @@
     return picked;
   }
 
+  // pickedLoops() yields ascending loop-index order, which ignores the order
+  // the user clicked. For a boolean the FIRST picked loop is the tool and the
+  // rest are targets, so that role must follow selection order — otherwise
+  // "select the tool first" is a lie and cut/intersect feel random. Reorder by
+  // the earliest selection position of each loop's boundary entities. With no
+  // entity selection (a point marquee) there is no click order: keep loop order.
+  function orderLoopsBySelection(loops) {
+    const pos = new Map();
+    ui.selection.forEach((s, idx) => {
+      if (s && s.kind === 'entity' && !pos.has(+s.id)) pos.set(+s.id, idx);
+    });
+    if (!pos.size) return loops;
+    const key = (L) => {
+      let best = Infinity;
+      for (const eid of loopEntities(L)) {
+        const p = pos.get(+eid);
+        if (p != null && p < best) best = p;
+      }
+      return best;
+    };
+    return loops.slice().sort((a, b) => key(a) - key(b));
+  }
+
   // --- Exact bezier boolean (PathBool) ---------------------------------------
   // tools/path-bool.js (vendored, MIT — github.com/r-flash/PathBool.js) runs
   // the boolean straight on lines, arcs and cubics: no flatten to a polygon,
@@ -16633,6 +16446,119 @@
     return madeIds;
   }
 
+  // Exact boolean result paths -> curve loops ({nodes:[{x,y,o,i}], closed}),
+  // WITHOUT creating entities. Cubic/line/quadratic runs keep their true
+  // handles (curves preserved, no tessellation); arc runs become exact cubic
+  // nodes via arcCubicNodes. This is what a tool needs to emit a boolean result
+  // as smooth splines instead of a faceted polygon.
+  function boolPathsToCurveLoops(resultPaths) {
+    const loops = [];
+    const endOf = (seg) => seg[0] === 'L' ? seg[2] : seg[0] === 'C' ? seg[4] : seg[0] === 'Q' ? seg[3] : seg[7];
+    for (const path of resultPaths) {
+      const subs = [];
+      let cur = null;
+      for (const seg of path) {
+        const st = seg[1];
+        if (!cur || Math.hypot(cur.end[0] - st[0], cur.end[1] - st[1]) > BOOL_EPS) {
+          cur = { segs: [], end: st };
+          subs.push(cur);
+        }
+        cur.segs.push(seg);
+        cur.end = endOf(seg);
+      }
+      for (const sub of subs) {
+        if (sub.segs.length < 2) continue;
+        const closed = Math.hypot(sub.end[0] - sub.segs[0][1][0], sub.end[1] - sub.segs[0][1][1]) <= BOOL_EPS;
+        const nodes = [];
+        const push = (x, y, o, i) => nodes.push({ x, y, o: o || null, i: i || null });
+        for (const seg of sub.segs) {
+          const st = seg[1], k = seg[0];
+          if (!nodes.length) push(st[0], st[1], null, null);
+          const last = nodes[nodes.length - 1];
+          if (k === 'C') {
+            const en = seg[4];
+            if (Math.hypot(en[0] - last.x, en[1] - last.y) < 1e-12) continue;
+            last.o = { x: seg[2][0], y: seg[2][1] };
+            push(en[0], en[1], null, { x: seg[3][0], y: seg[3][1] });
+          } else if (k === 'Q') {
+            const en = seg[3], cp = seg[2];
+            last.o = { x: last.x + (cp[0] - last.x) * 2 / 3, y: last.y + (cp[1] - last.y) * 2 / 3 };
+            push(en[0], en[1], null, { x: en[0] + (cp[0] - en[0]) * 2 / 3, y: en[1] + (cp[1] - en[1]) * 2 / 3 });
+          } else if (k === 'L') {
+            const en = seg[2];
+            if (Math.hypot(en[0] - last.x, en[1] - last.y) < 1e-12) continue;
+            push(en[0], en[1], null, null);
+          } else {
+            const en = seg[7];
+            const cc = boolArcCenter(st[0], st[1], en[0], en[1], seg[2], seg[5], seg[6]);
+            if (!cc) { push(en[0], en[1], null, null); continue; }
+            const arc = arcCubicNodes({ x: cc.cx, y: cc.cy }, cc.r, cc.a0, cc.da, false);
+            for (let ni = 0; ni < arc.nodes.length; ni++) {
+              const nd = arc.nodes[ni];
+              if (ni === 0) { last.o = nd.o; continue; }   // first node == last, take its out handle
+              push(nd.x, nd.y, nd.o, nd.i);
+            }
+          }
+        }
+        if (nodes.length < 2) continue;
+        if (closed && nodes.length > 2) {
+          const f = nodes[0], l = nodes[nodes.length - 1];
+          if (Math.hypot(f.x - l.x, f.y - l.y) <= BOOL_EPS) { f.i = l.i || f.i; nodes.pop(); }
+        }
+        loops.push({ nodes, closed });
+      }
+    }
+    return loops;
+  }
+
+  // Exact bezier boolean on LOOPS (the Object Tree's loops), returning curve
+  // loops. Unlike api.polyBoolOp — which tessellates to polygons and is slow /
+  // fragile on dense spline outlines — this runs PathBool on the real cubic
+  // commands (loopToBoolCommands), so it is fast and keeps curves exact.
+  //   union:       fuse all subjectLoops
+  //   intersection: fuse(subjectLoops) ∩ fuse(clipLoops)
+  //   cut:         fuse(subjectLoops) − fuse(clipLoops)
+  // Returns null when the exact engine is unavailable or a loop cannot be read.
+  function boolLoopsExact(op, subjectLoops, clipLoops) {
+    const PB = pathBoolLib();
+    if (!PB) return null;
+    const inputsOf = (loops) => {
+      const out = [];
+      for (const loop of loops || []) {
+        const c = loopToBoolCommands(loop);
+        if (!c) return null;
+        out.push({ path: [...PB.pathFromCommands(c)], fillRule: PB.FillRule.NonZero });
+      }
+      return out;
+    };
+    const fuse = (inputs) => inputs && inputs.length
+      ? new PB.PathBoolean(inputs).get(PB.PathBooleanOperation.Union).flat() : [];
+    const subj = inputsOf(subjectLoops);
+    if (!subj) return null;
+    let resultPaths;
+    try {
+      if (op === 'union') {
+        resultPaths = new PB.PathBoolean(subj).get(PB.PathBooleanOperation.Union);
+      } else {
+        const clip = inputsOf(clipLoops);
+        if (!clip) return null;
+        const sU = fuse(subj), cU = fuse(clip);
+        if (!sU.length) return [];
+        if (!cU.length) return op === 'cut' ? boolPathsToCurveLoops([sU]) : [];
+        const pair = [
+          { path: sU, fillRule: PB.FillRule.NonZero },
+          { path: cU, fillRule: PB.FillRule.NonZero }
+        ];
+        resultPaths = new PB.PathBoolean(pair).get(op === 'cut'
+          ? PB.PathBooleanOperation.Difference : PB.PathBooleanOperation.Intersection);
+      }
+    } catch (err) {
+      console.warn('boolLoopsExact failed:', err);
+      return null;
+    }
+    return boolPathsToCurveLoops(resultPaths);
+  }
+
   // The exact engine: PathBoolean on the picked loops, result rebuilt as real
   // entities. Constraint triage follows the trim precedent: point-anchored
   // constraints survive through reused point ids; H/V follows a single-piece
@@ -16861,7 +16787,7 @@
   }
 
   function cmdBoolean(mode) {
-    const picked = pickedLoops();
+    const picked = orderLoopsBySelection(pickedLoops());
     const isUnion = mode === 'union';
     if (picked.length < 2) {
       toast(isUnion ? 'Select two or more loops, then press Ctrl++'
@@ -17619,6 +17545,7 @@
       o.value = value;
       o.textContent = label;
       (group || sel).appendChild(o);
+      return o;
     };
     // single-line first: it is the engrave path, not a look
     const gSingle = document.createElement('optgroup');
@@ -17626,14 +17553,20 @@
     sel.appendChild(gSingle);
     for (const f of HERSHEY_FAMILIES) addOpt(gSingle, f, f);
     if (reg) {
+      // ONE option per FAMILY, not per face. A face is (family, weight, style);
+      // listing members separately made "Liberation Serif" and
+      // "Liberation Serif · Bold" two different fonts and left Italic
+      // unreachable. Weight and Style in the row below pick the face.
       for (const cat of reg.categories()) {
         if (cat === 'Imported' && !reg.imported().length) continue;
         const g = document.createElement('optgroup');
         g.label = cat;
         sel.appendChild(g);
-        for (const f of reg.index()) {
-          if (f.category !== cat) continue;
-          addOpt(g, f.family, f.family + (f.weight >= 700 ? ' · Bold' : ''));
+        const index = reg.index();
+        const families = [];
+        for (const f of index) if (f.category === cat && !families.includes(f.family)) families.push(f.family);
+        for (const fam of families) {
+          addOpt(g, fam, fam);
         }
         if (cat === 'Imported') {
           for (const f of reg.imported()) addOpt(g, f.family, f.family);
@@ -17670,17 +17603,25 @@
   // A bundled family must have its bytes registered before the canvas may
   // trace with it (otherwise the trace caches fallback-font contours). The
   // await keeps Apply from racing the load.
-  async function ensureFontLoaded(family, btn) {
+  //
+  // `weight`/`style` matter: `registered(family)` is keyed per MEMBER, so a
+  // Bold-only check let a Regular text through while its Bold face was still
+  // missing — and the outline path then reported "no outline data" for a font
+  // the registry insisted was loaded.
+  async function ensureFontLoaded(family, btn, weight, style) {
     const reg = window.MiniSketchFonts;
-    if (!reg || reg.registered(family)) return true;
+    const w = weight || 400;
+    const st = style || 'normal';
+    if (!reg) return true;
+    if (reg.registered(family, w, st)) return true;
     const prev = btn ? btn.textContent : null;
     if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
     try {
-      await reg.load(family);
+      await reg.load(family, w, st);
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = prev; }
     }
-    return reg.registered(family);
+    return reg.registered(family, w, st);
   }
 
   const HELP_LANG_KEY = 'minisketch.help.lang';
@@ -17792,12 +17733,22 @@
   // with the last-used styling instead of the hardcoded default, so the font
   // you picked stays picked across sessions.
   const TEXT_STYLE_KEY = 'minisketch.textStyle.v1';
+  function textStyleLeading(v) {
+    return isFinite(+v) ? clamp(+v, 50, 400) : 125;
+  }
+  function textStyleAlign(v) {
+    return v === 'center' || v === 'right' ? v : 'left';
+  }
   function loadTextStyle() {
     try {
       const s = JSON.parse(localStorage.getItem(TEXT_STYLE_KEY) || 'null');
-      if (s && typeof s === 'object') return s;
+      // older stored styles lack leading/align: normalize on read so every
+      // consumer gets the defaults without repeating the validation
+      if (s && typeof s === 'object') {
+        return Object.assign({}, s, { leading: textStyleLeading(s.leading), align: textStyleAlign(s.align) });
+      }
     } catch (err) {}
-    return { font: TEXT_DEFAULT_FONT, weight: 400, italic: false, tracking: 0 };
+    return { font: TEXT_DEFAULT_FONT, weight: 400, italic: false, tracking: 0, leading: 125, align: 'left' };
   }
   function saveTextStyle(s) {
     try {
@@ -17805,7 +17756,9 @@
         font: (s.font && typeof s.font === 'string') ? s.font : TEXT_DEFAULT_FONT,
         weight: isFinite(+s.weight) ? +s.weight : 400,
         italic: !!s.italic,
-        tracking: isFinite(+s.tracking) ? clamp(+s.tracking, -30, 60) : 0
+        tracking: isFinite(+s.tracking) ? clamp(+s.tracking, -30, 60) : 0,
+        leading: textStyleLeading(s.leading),
+        align: textStyleAlign(s.align)
       }));
     } catch (err) {}
   }
@@ -17848,7 +17801,10 @@
     const wt = weight ? weight.value : '400';
     const it = italic ? italic.value : '0';
     const tr = tracking ? parseFloat(tracking.value) : 0;
-    const ld = leading ? parseFloat(leading.value) : 125;
+    const ldRaw = leading ? parseFloat(leading.value) : 125;
+    const ld = isFinite(ldRaw) ? clamp(ldRaw, 50, 400) : 125;
+    const alignEl = document.getElementById('text-align');
+    const align = alignEl && ['left', 'center', 'right'].includes(alignEl.value) ? alignEl.value : 'left';
     const single = HERSHEY_FAMILIES.includes(family);
     // The preview canvas starts from a blank state: 'currentColor' is not a
     // valid canvas fillStyle (the assignment is ignored and black is kept),
@@ -17862,12 +17818,14 @@
     ctx.fillStyle = ink;
     ctx.clearRect(0, 0, cvs.width, cvs.height);
     if (!text) return;
-    if (!single && window.MiniSketchFonts && !window.MiniSketchFonts.registered(family)) {
+    if (!single && window.MiniSketchFonts &&
+      !window.MiniSketchFonts.registered(family, +wt || 400, it === '1' ? 'italic' : 'normal')) {
       // An imported / bundled face may still be arriving: paint the fallback
       // now, then repaint once it lands. Only repaint when the load actually
       // registered the face — otherwise an unknown family would re-schedule
-      // itself forever.
-      window.MiniSketchFonts.load(family).then((ok) => {
+      // itself forever. The member matters: a Bold-only family would report
+      // itself unregistered for a Regular request and repaint in a loop.
+      window.MiniSketchFonts.load(family, +wt || 400, it === '1' ? 'italic' : 'normal').then((ok) => {
         if (!ok) return;
         const f2 = document.getElementById('text-font');
         if (f2 && f2.value === family && ui.textEdit) renderTextPreview();
@@ -17878,19 +17836,65 @@
     const boxH = cvs.height / dpr;
     ctx.save();
     ctx.scale(dpr, dpr);
-    ctx.fillStyle = ink;
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'center';
+    // Same layout rules as drawTextEntity: local box with a top-left origin,
+    // first baseline at the ascent, lines stepped by the leading, each line
+    // aligned inside the widest line's width. Fit the whole block (width AND
+    // height — two lines already overflow the fixed preview box) without ever
+    // magnifying short text.
     const size = boxH * 0.72;
-    ctx.font = (it === '1' ? 'italic ' : '') + wt + ' ' + size + 'px ' + family;
-    if ('letterSpacing' in ctx) ctx.letterSpacing = ((tr || 0) / 100) * size + 'px';
-    const measure = ctx.measureText(text);
-    const drawW = measure.width || size * text.length * 0.6;
-    const scale = Math.min(1, boxW / Math.max(drawW, 1));
-    ctx.translate(boxW / 2, boxH / 2);
+    const lineHeight = size * ld / 100;
+    const lines = text.split('\n');
+    let W = 1, H = 1, asc = size * 0.8;
+    let lay = null;
+    const widths = [];
+    if (single && window.MiniSketchHershey) {
+      lay = window.MiniSketchHershey.layout(text, size, lineHeight, align);
+      W = Math.max(1, lay.width);
+      asc = size * 0.72;
+      H = asc + size * 0.05 + lineHeight * (lines.length - 1);
+    } else {
+      ctx.font = (it === '1' ? 'italic ' : '') + wt + ' ' + size + 'px ' + family;
+      if ('letterSpacing' in ctx) ctx.letterSpacing = ((tr || 0) / 100) * size + 'px';
+      for (const line of lines) {
+        const mw = ctx.measureText(line.length ? line : 'M').width;
+        widths.push(mw);
+        if (mw > W) W = mw;
+      }
+      const probe = ctx.measureText(lines.join('') || 'M');
+      asc = probe.fontBoundingBoxAscent || probe.actualBoundingBoxAscent || size * 0.8;
+      const desc = probe.fontBoundingBoxDescent || probe.actualBoundingBoxDescent || size * 0.2;
+      H = asc + desc + lineHeight * (lines.length - 1);
+    }
+    const scale = Math.min(1, boxW / W, boxH / Math.max(1, H));
+    ctx.translate((boxW - W * scale) / 2, (boxH - H * scale) / 2);
     ctx.scale(scale, scale);
-    ctx.fillText(text, 0, 0);
-    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+    if (lay) {
+      // Hershey families are not canvas fonts: draw the real strokes, exactly
+      // as the canvas will (baseline shifted down by the ascent).
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = 1 / scale;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const st of lay.strokes) {
+        if (!st.length) continue;
+        ctx.beginPath();
+        ctx.moveTo(st[0].x, asc + st[0].y);
+        for (let i = 1; i < st.length; i++) ctx.lineTo(st[i].x, asc + st[i].y);
+        ctx.stroke();
+      }
+    } else {
+      ctx.fillStyle = ink;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      let y = asc;
+      for (let i = 0; i < lines.length; i++) {
+        const x = align === 'center' ? Math.max(0, (W - widths[i]) / 2)
+          : (align === 'right' ? Math.max(0, W - widths[i]) : 0);
+        if (lines[i].length) ctx.fillText(lines[i], x, y);
+        y += lineHeight;
+      }
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+    }
     ctx.restore();
   }
 
@@ -17995,7 +17999,8 @@
     const applyBtn = document.querySelector('#text-modal .modal-actions .btn.primary');
     const family = fontEl ? fontEl.value : (e.font || 'sans-serif');
     const single = HERSHEY_FAMILIES.includes(family);
-    if (!single) await ensureFontLoaded(family, applyBtn);
+    if (!single) await ensureFontLoaded(family, applyBtn, weightEl ? +weightEl.value || 400 : 400,
+      italicEl && italicEl.value === '1' ? 'italic' : 'normal');
     const trackRaw = trackEl ? parseFloat(trackEl.value) : 0;
     const tracking = isFinite(trackRaw) ? clamp(trackRaw, -30, 60) : 0;
     const leadRaw = leadEl ? parseFloat(leadEl.value) : 125;
@@ -18010,7 +18015,7 @@
     e.leading = leading;
     e.align = alignEl && ['left', 'center', 'right'].includes(alignEl.value) ? alignEl.value : 'left';
     // Remember the font/style so a new text opens with the same look.
-    saveTextStyle({ font: family, weight: e.weight, italic: e.italic, tracking });
+    saveTextStyle({ font: family, weight: e.weight, italic: e.italic, tracking, leading, align: e.align });
     const tolEl = document.getElementById('text-tol');
     if (tolEl) {
       const t = parseFloat(tolEl.value);
@@ -22939,14 +22944,6 @@
     const pos = pointerPos(ev);
     if (ev.pointerType === 'touch') { ui._touchPress = { x: pos.x, y: pos.y }; ui._touching = true; }
     const world = s2w(pos.x, pos.y);
-    if (ui.nestPlace) {
-      ev.preventDefault();
-      const ir = ui.nestPlace;
-      ui.nestPlace = null;
-      nestPlaceAt(ir, world);
-      render();
-      return;
-    }
     if (ui.moveJob) {
       ev.preventDefault();
       const snap = snapPoint(world, { skip: new Set() });
@@ -23489,6 +23486,7 @@
       state.entities[id] = {
         id, type: 'text', p0, pw: pwId, ph: phId, guide: [idW, idH],
         text: 'Text', font: def.font, weight: def.weight, italic: def.italic, tracking: def.tracking,
+        leading: def.leading, align: def.align, single: HERSHEY_FAMILIES.includes(def.font),
         color: ui.color, fitCurve: loadTextFit()
       };
       ensureTextAspect(state.entities[id]);
@@ -24057,14 +24055,122 @@ function splitCurveSegment(host, i, withLine) {
   return { newIds, lid };
 }
 
+// Maximal runs of consecutive indices from a sorted list; on a closed curve
+// the run touching n-1 and the run touching 0 are one cyclic run.
+function indexRuns(sorted, n, closed) {
+  const runs = [];
+  let cur = [];
+  for (const k of sorted) {
+    if (cur.length && k !== cur[cur.length - 1] + 1) { runs.push(cur); cur = []; }
+    cur.push(k);
+  }
+  if (cur.length) runs.push(cur);
+  if (closed && runs.length > 1 && runs[0][0] === 0 &&
+    runs[runs.length - 1][runs[runs.length - 1].length - 1] === n - 1) {
+    const last = runs.pop();
+    runs[0] = last.concat(runs[0]);
+  }
+  return runs;
+}
+
+// A contiguous span of >=3 selected nodes on ONE spline (the "detach this arc"
+// selection). Handles a wrapping span on a closed curve via its contiguous
+// complement. Returns null for the 2-point case, which keeps the old line path.
+function findSelectedCurveSpan() {
+  const pts = ui.selection.filter(s => s && s.kind === 'point').map(s => +s.id);
+  if (pts.length < 3) return null;
+  for (const key in state.entities) {
+    const e = state.entities[key];
+    if (!e || e.type !== 'spline' || !Array.isArray(e.pts)) continue;
+    const idx = pts.map(p => e.pts.indexOf(p));
+    if (idx.some(i => i < 0)) continue;
+    const n = e.pts.length;
+    const sel = idx.slice().sort((a, b) => a - b);
+    if (sel[sel.length - 1] - sel[0] + 1 === sel.length) {
+      const spanIdx = [];
+      for (let k = sel[0]; k <= sel[sel.length - 1]; k++) spanIdx.push(k);
+      return { host: e, spanIdx };
+    }
+    if (e.closed) {
+      const selSet = new Set(sel);
+      const rest = [];
+      for (let k = 0; k < n; k++) if (!selSet.has(k)) rest.push(k);
+      if (rest.length && rest[rest.length - 1] - rest[0] + 1 === rest.length) {
+        const a = (rest[rest.length - 1] + 1) % n;
+        const spanIdx = [];
+        for (let t = 0; t < sel.length; t++) spanIdx.push((a + t) % n);
+        return { host: e, spanIdx };
+      }
+    }
+  }
+  return null;
+}
+
+// Detach a node span as an independent spline (curvature preserved), splitting
+// the master at the span's two ends. The detached piece gets fresh copies of
+// its boundary points so recoloring / moving it never drags the master; the
+// remainder keeps the original points. The new piece is left selected.
+function splitCurveSpan(host, spanIdx) {
+  pushHistory();
+  ensureSplineHandles(host);
+  const n = host.pts.length;
+  const o = (host.hs && host.hs.o) ? host.hs.o : host.pts.map(() => null);
+  const io = (host.hs && host.hs.i) ? host.hs.i : host.pts.map(() => null);
+  const spanSet = new Set(spanIdx);
+  const dPts = [], dO = [], dI = [];
+  for (let t = 0; t < spanIdx.length; t++) {
+    const k = spanIdx[t];
+    const p = P(host.pts[k]);
+    dPts.push(privatePoint(p.x, p.y));
+    dO.push(o[k] ? { x: o[k].x, y: o[k].y } : null);
+    dI.push(io[k] ? { x: io[k].x, y: io[k].y } : null);
+  }
+  dI[0] = null;
+  dO[dO.length - 1] = null;
+  const did = newId();
+  state.entities[did] = {
+    id: did, type: 'spline', pts: dPts, hs: { o: dO, i: dI },
+    closed: false, color: host.color, layer: host.layer
+  };
+  const rest = [];
+  for (let k = 0; k < n; k++) if (!spanSet.has(k)) rest.push(k);
+  const runs = indexRuns(rest, n, !!host.closed);
+  const newIds = [];
+  for (const run of runs) {
+    if (run.length < 2) continue;
+    const rid = newId();
+    state.entities[rid] = {
+      id: rid, type: 'spline', pts: run.map(k => host.pts[k]),
+      hs: {
+        o: run.map((k, j) => (j < run.length - 1 ? (o[k] || null) : null)),
+        i: run.map((k, j) => (j > 0 ? (io[k] || null) : null))
+      },
+      closed: false, color: host.color, layer: host.layer
+    };
+    newIds.push(rid);
+  }
+  removeEntity(+host.id);
+  cleanupPoints();
+  ui.selection = [{ kind: 'entity', id: did }];
+  requestSolve();
+  commit();
+  return { did, newIds, segCount: spanIdx.length - 1 };
+}
+
 function cmdSplitCurve() {
   if (xfBlock()) return;
+  const span = findSelectedCurveSpan();
+  if (span) {
+    const res = splitCurveSpan(span.host, span.spanIdx);
+    toast('Split: ' + res.segCount + ' segmen kurva lepas jadi objek terpisah — bisa diganti warna');
+    return;
+  }
   const found = findSelectedCurveSegment();
   if (!found) {
     const pts = ui.selection.filter(s => s && s.kind === 'point').map(s => +s.id);
     toast(pts.length === 2
       ? 'Putus kurva: dua titik itu bukan sepasang titik bertetangga di satu kurva'
-      : 'Putus kurva: pilih dua titik bertetangga di satu kurva (klik segmennya)');
+      : 'Putus kurva: pilih run node berurutan (≥3) untuk melepas span, atau dua titik bertetangga untuk line');
     return;
   }
   const { host, i } = found;
@@ -25241,7 +25347,6 @@ function cmdSplitCurve() {
       for (const key in state.entities) {
         const e = state.entities[key];
         if (!e) continue;
-        if (e.type === 'note') continue;
         if (!marqueeCovers(e, w0, w1)) continue;
         kill.add('entity:' + +key);
       }
@@ -25264,13 +25369,15 @@ function cmdSplitCurve() {
     // loop could ever be reached, while a plain click still worked.
     const picked = new Map(ui.selection.map(s => [s.kind + ':' + s.id, s]));
     if (!d.additive) picked.clear();
-    // Text/picture frames are container objects: their p0/pw/ph are the frame,
-    // not marquee point targets. They are picked as whole objects below (loop
-    // filter), so dragging a marquee never grabs a text by its corner points.
+    // Text/picture frames and notes/comments are container objects: their
+    // p0/pw/ph (or a note's anchor p) are the frame, not marquee point targets.
+    // They are picked as whole objects below (loop filter), so dragging a
+    // marquee never grabs a text by its corner points or a comment by its
+    // anchor alone.
     const framePointIds = new Set();
     for (const key in state.entities) {
       const e = state.entities[key];
-      if (!e || (e.type !== 'text' && e.type !== 'image')) continue;
+      if (!e || (e.type !== 'text' && e.type !== 'image' && e.type !== 'note')) continue;
       for (const pid of entityPointIds(e)) framePointIds.add(+pid);
     }
     for (const key in state.points) {
@@ -25290,12 +25397,14 @@ function cmdSplitCurve() {
     }
     // Objects with NO points of their own (a group/art, a clone array, a part)
     // can never be caught by the point rule, so they would be invisible to the
-    // marquee even when entirely inside it. Fully contained => selected.
+    // marquee even when entirely inside it. Framed objects and comments (text,
+    // image, note) are containers too: their anchor/frame points are not point
+    // targets, so they join this pass. Fully contained => selected.
     for (const key in state.entities) {
       const e = state.entities[key];
       if (!e) continue;
       if (e.type !== 'art' && e.type !== 'array' && e.type !== 'part' &&
-        e.type !== 'text' && e.type !== 'image') continue;
+        e.type !== 'text' && e.type !== 'image' && e.type !== 'note') continue;
       if (!d.crossLayer && !entityEditable(e)) continue;
       const bb = entityBounds(e);
       if (!bb) continue;
@@ -25373,6 +25482,7 @@ function cmdSplitCurve() {
       const e = state.entities[s.id];
       if (!e) { picked.delete(key); continue; }
       if (e.type === 'part') continue;               // parts never machine
+      if (e.type === 'note') continue;               // comments are annotations: like a click, never filter-gated
       if (e.type === 'art' || e.type === 'text' || e.type === 'image' || e.type === 'array') {
         if (!pickFilter.loop) picked.delete(key);    // filter 3: containers
         continue;
@@ -27781,10 +27891,13 @@ function cmdSplitCurve() {
     return { x0, y0, x1, y1 };
   }
 
-  // True when every vertex of `inner` lies strictly inside `outer` (bbox quick
-  // reject, then a ray-cast point-in-polygon per vertex). A nested loop that is
-  // wholly inside another loop is part of the same filled body. Precomputed
-  // boxes (ib/ob) skip the per-call polygon scans.
+  // True when `inner` lies wholly inside `outer`. A closed inner loop is
+  // contained iff its bbox fits, one interior point is inside, and its boundary
+  // never crosses the outer boundary (Jordan curve theorem). The old test ray-
+  // cast EVERY inner vertex against the outer polygon — O(n*m) per pair, which
+  // dominated drag-release on dense splines (4426 verts / 14 loops). The boundary
+  // sweep below rejects almost every segment pair by bbox first, so nested loops
+  // with margin cost near O(n+m) instead of O(n*m) pointInPoly calls.
   function loopContainedIn(inner, outer, ib, ob) {
     if (!inner || !outer || inner === outer) return false;
     const ip = inner.poly, op = outer.poly;
@@ -27800,22 +27913,49 @@ function cmdSplitCurve() {
       for (const p of op) { if (p.x < ox0) ox0 = p.x; if (p.y < oy0) oy0 = p.y; if (p.x > ox1) ox1 = p.x; if (p.y > oy1) oy1 = p.y; }
     }
     if (ix0 < ox0 || iy0 < oy0 || ix1 > ox1 || iy1 > oy1) return false;
-    // Column vertices are nudged a hair toward their centroid before the
-    // point-in-polygon test, so a loop whose edge sits exactly ON the
-    // container's boundary is still read as contained (raw boundary points are
-    // ambiguous to the ray cast).
-    let ccx = 0, ccy = 0;
-    for (const p of ip) { ccx += p.x; ccy += p.y; }
-    ccx /= ip.length; ccy /= ip.length;
-    const eps = Math.max(ix1 - ix0, iy1 - iy0) * 1e-4 + 1e-9;
-    for (const p of ip) {
-      const dx = ccx - p.x, dy = ccy - p.y;
-      const L = Math.hypot(dx, dy);
-      if (!L) { if (!pointInPoly(p, op)) return false; continue; }
-      const q = { x: p.x + dx / L * eps, y: p.y + dy / L * eps };
-      if (!pointInPoly(q, op)) return false;
+    if (!pointInPoly(interiorProbe(ip), op)) return false;
+    return !polysCross(ip, op);
+  }
+
+  // Do two closed polygons' boundaries cross? Outer segments are bucketed into
+  // Y bands once, so each inner segment only tests the bands it spans (then a
+  // bbox reject before the inclusive orientation test). Nested loops with
+  // margin therefore skip nearly every pair instead of scanning all n*m — the
+  // old per-vertex ray-cast was O(n*m) pointInPoly and dominated drag-release.
+  function polysCross(ip, op) {
+    const n = ip.length, m = op.length;
+    let y0 = Infinity, y1 = -Infinity;
+    const segs = new Array(m);
+    for (let j = 0; j < m; j++) {
+      const c = op[j], d = op[(j + 1) % m];
+      const sy0 = Math.min(c.y, d.y), sy1 = Math.max(c.y, d.y);
+      segs[j] = { a: c, b: d, x0: Math.min(c.x, d.x), x1: Math.max(c.x, d.x), y0: sy0, y1: sy1 };
+      if (sy0 < y0) y0 = sy0;
+      if (sy1 > y1) y1 = sy1;
     }
-    return true;
+    const bands = Math.max(1, Math.min(256, Math.ceil(m / 4)));
+    const h = (y1 - y0) / bands || 1;
+    const grid = new Array(bands);
+    for (let b = 0; b < bands; b++) grid[b] = [];
+    for (const s of segs) {
+      const b0 = Math.max(0, Math.floor((s.y0 - y0) / h));
+      const b1 = Math.min(bands - 1, Math.floor((s.y1 - y0) / h));
+      for (let b = b0; b <= b1; b++) grid[b].push(s);
+    }
+    for (let i = 0; i < n; i++) {
+      const a = ip[i], b = ip[(i + 1) % n];
+      const ax0 = Math.min(a.x, b.x), ax1 = Math.max(a.x, b.x);
+      const ay0 = Math.min(a.y, b.y), ay1 = Math.max(a.y, b.y);
+      const b0 = Math.max(0, Math.floor((ay0 - y0) / h));
+      const b1 = Math.min(bands - 1, Math.floor((ay1 - y0) / h));
+      for (let bb = b0; bb <= b1; bb++) {
+        for (const s of grid[bb]) {
+          if (ax0 > s.x1 || ax1 < s.x0 || ay0 > s.y1 || ay1 < s.y0) continue;
+          if (segmentsIntersect(a, b, s.a, s.b)) return true;
+        }
+      }
+    }
+    return false;
   }
 
   // Per-loop fill (drives the offset flip inside KaryaCNC). A loop with no
@@ -29136,7 +29276,19 @@ function cmdSplitCurve() {
       b.style.background = c.value;
       b.addEventListener('click', () => {
         ui.color = c.value;
-        const ents = selectedEntities();
+        // A segment / node selection carries POINTS, not entities, so
+        // selectedEntities() alone is empty and the click painted nothing
+        // (the user had to press N first). Resolve the host entities of every
+        // selected point: a curve is coloured as a whole, so picking one of its
+        // segments and clicking a swatch repaints the entire curve.
+        const seen = new Set();
+        const ents = [];
+        const add = (e) => { if (e && !seen.has(+e.id)) { seen.add(+e.id); ents.push(e); } };
+        for (const e of selectedEntities()) add(e);
+        for (const s of ui.selection) {
+          if (!s || s.kind !== 'point') continue;
+          for (const e of (pointUses(+s.id) || [])) add(e);
+        }
         if (ents.length) {
           pushHistory();
           for (const e of ents) e.color = c.value;
@@ -29357,8 +29509,6 @@ function cmdSplitCurve() {
     if (btnJoinPoints) btnJoinPoints.addEventListener('click', cmdJoinPoints);
     const btnArray = document.getElementById('btn-array');
     if (btnArray) btnArray.addEventListener('click', cmdCreateArray);
-    const btnNest = document.getElementById('btn-nest');
-    if (btnNest) btnNest.addEventListener('click', cmdNest);
     // local nesting panel (GA + NFP2)
     const nestStartBtn = document.getElementById('nest-start');
     if (nestStartBtn) nestStartBtn.addEventListener('click', nestStart);
@@ -29549,7 +29699,7 @@ function cmdSplitCurve() {
 
     // quickbar action icons that mirror keyboard-only features (tablet: no
     // Ctrl key): transform / dimension / offset need a selection, array too;
-    // nest & CNC are always allowed (they also download without selection)
+    // CNC is always allowed (it also downloads without selection)
     const qbClick = (id, fn) => {
       const el = document.getElementById(id);
       // arrow wrapper: the click event must never reach fn — pasteClipboard
@@ -29560,7 +29710,6 @@ function cmdSplitCurve() {
     qbClick('qb-dimension', () => createDimension());
     qbClick('qb-offset', () => startOffset());
     qbClick('qb-array', () => { const b = document.getElementById('btn-array'); if (b) b.click(); });
-    qbClick('qb-nest', () => { const b = document.getElementById('btn-nest'); if (b) b.click(); });
     qbClick('qb-cnc', () => { const b = document.getElementById('btn-cnc'); if (b) b.click(); });
     // edit actions: every keyboard shortcut gets an icon (tablet)
     qbClick('qb-fit', () => fitView());
@@ -29886,11 +30035,31 @@ function cmdSplitCurve() {
     const textApply = document.getElementById('text-apply');
     if (textApply) textApply.addEventListener('click', applyTextEditor);
     const textPreview = document.getElementById('text-preview');
-    const previewInputs = ['text-value','text-font','text-weight','text-italic','text-tracking','text-leading'];
+    const previewInputs = ['text-value','text-font','text-weight','text-italic','text-tracking','text-leading','text-align'];
     for (const id of previewInputs) {
       const el = document.getElementById(id);
-      if (el) el.addEventListener('input', renderTextPreview);
+      if (!el) continue;
+      // 'change' as well as 'input': a <select> fires `input` in modern
+      // browsers but the change event is the one guaranteed for keyboard and
+      // assistive activation, and the preview is cheap to repaint twice.
+      el.addEventListener('input', renderTextPreview);
+      if (el.tagName === 'SELECT') el.addEventListener('change', renderTextPreview);
     }
+    // Picking a family must have that face registered before the preview
+    // paints, otherwise the canvas measures the FALLBACK and the preview shows
+    // a width the real font does not have. `registered` is keyed per member, so
+    // asking for weight 400 alone would leave a Bold-only pick unloaded.
+    const fontPick = document.getElementById('text-font');
+    if (fontPick) fontPick.addEventListener('change', () => {
+      const reg = window.MiniSketchFonts;
+      if (!reg) return renderTextPreview();
+      const weightEl = document.getElementById('text-weight');
+      const italicEl = document.getElementById('text-italic');
+      const want = weightEl ? +weightEl.value || 400 : 400;
+      const style = italicEl && italicEl.value === '1' ? 'italic' : 'normal';
+      reg.load(fontPick.value, want, style)
+        .then(() => renderTextPreview(), () => renderTextPreview());
+    });
     const btnHelp = document.getElementById('btn-help');
     if (btnHelp) btnHelp.addEventListener('click', openHelpModal);
     const langBtns = document.querySelectorAll('[data-help-lang]');
@@ -30783,11 +30952,12 @@ function cmdSplitCurve() {
     }
     // Translate the merged import so its bbox centres on the ACTIVE viewport,
     // leaving the existing sketch where it is. Points get shifted above; here
-    // the curve geometry that lives in ENTITY data (not in points) follows too:
-    // spline handles (absolute world coords) and array snapshot shapes (world
-    // coords). Art contours/curveSrc are stored in the frame's LOCAL
-    // coordinates — they follow the p0/pw/ph anchors and must NOT be shifted
-    // (shifting them turns curves into long diagonal lines).
+    // the geometry that lives in ENTITY data (not in points) follows too:
+    // spline handles, array snapshot shapes, clone placement matrices/anchors,
+    // polar centres and part poses (all absolute world coords). Art
+    // contours/curveSrc are stored in the frame's LOCAL coordinates — they
+    // follow the p0/pw/ph anchors and must NOT be shifted (shifting them turns
+    // curves into long diagonal lines).
     if (isFinite(ix0) && isFinite(ix1)) {
       const dx = prev.view.ox - (ix0 + ix1) / 2;
       const dy = prev.view.oy - (iy0 + iy1) / 2;
@@ -30801,6 +30971,34 @@ function cmdSplitCurve() {
           if (Array.isArray(e.hs.i)) e.hs.i.forEach(sh);
         } else if (e.type === 'array' && Array.isArray(e.shapes)) {
           for (const s of e.shapes) if (s && Array.isArray(s.pts)) s.pts.forEach(shXY);
+        }
+        if (e.type === 'array' && e.kind === 'clone' && Array.isArray(e.instances)) {
+          // A clone matrix acts on the master's CURRENT world coords, which
+          // just moved by (dx, dy). To land the copy exactly +d as well, the
+          // translation must absorb d minus what the linear part already
+          // contributes: t' = t + d - M_lin*d. The anchor follows the master
+          // so the pinning compensation in cloneInstanceOffsets stays neutral
+          // (a stale anchor would cancel the shift and leave the clone at its
+          // original location).
+          for (const inst of e.instances) {
+            if (!inst || !Array.isArray(inst.m) || inst.m.length !== 6) continue;
+            const m = inst.m;
+            m[4] += dx - (m[0] * dx + m[2] * dy);
+            m[5] += dy - (m[1] * dx + m[3] * dy);
+            shXY(inst.a);
+          }
+        }
+        if (e.type === 'array' && e.kind === 'polar' && e.params &&
+            (isFinite(+e.params.cx) || isFinite(+e.params.cy))) {
+          e.params = Object.assign({}, e.params, {
+            cx: (+e.params.cx || 0) + dx, cy: (+e.params.cy || 0) + dy
+          });
+        }
+        if (e.type === 'part' && e.pose) {
+          e.pose.tx += dx; e.pose.ty += dy;
+          if (e.grounded && e.groundAt && isFinite(+e.groundAt.wx)) {
+            e.groundAt.wx += dx; e.groundAt.wy += dy;
+          }
         }
       }
     }
@@ -30973,7 +31171,6 @@ function cmdSplitCurve() {
   // to the old download path, so the button never dead-ends.
   const save = {
     handle: null,          // FileSystemFileHandle from the picker
-    suggested: '',         // last name, used to prefill the dialog
     name: null,            // basename of the document on disk (null = Untitled)
     busy: false
   };
@@ -31035,8 +31232,18 @@ function cmdSplitCurve() {
   }
 
   function saveSuggestName(ext) {
+    // The ACTIVE document's name wins over the remembered one: after a reload
+    // the autosave restores the document (and its caption) but FILENAME_KEY
+    // can still hold a file opened earlier — suggesting that stale name made
+    // Save write "box.sketch" while the user was editing "senapan".
     let base = '';
-    try { base = String(localStorage.getItem(FILENAME_KEY) || '').trim(); } catch (err) { base = ''; }
+    if (save.name) {
+      const dot = save.name.lastIndexOf('.');
+      base = (dot > 0 ? save.name.slice(0, dot) : save.name).trim();
+    }
+    if (!base) {
+      try { base = String(localStorage.getItem(FILENAME_KEY) || '').trim(); } catch (err) { base = ''; }
+    }
     if (!base) base = 'sketch';
     return base.replace(/[\\/:*?"<>|]/g, '_') + ext;
   }
@@ -31044,7 +31251,6 @@ function cmdSplitCurve() {
   function saveRememberName(name) {
     const dot = name.lastIndexOf('.');
     const base = dot > 0 ? name.slice(0, dot) : name;
-    save.suggested = base;
     try { localStorage.setItem(FILENAME_KEY, base); } catch (err) { /* ignore */ }
   }
 
@@ -31083,7 +31289,7 @@ function cmdSplitCurve() {
     }
     try {
       const handle = await window.showSaveFilePicker({
-        suggestedName: save.suggested ? save.suggested + ext : saveSuggestName(ext),
+        suggestedName: saveSuggestName(ext),
         types: [{ description: desc, accept: { 'application/octet-stream': [ext] } }]
       });
       if (!handle) return 'cancelled';
@@ -31807,12 +32013,46 @@ function cmdSplitCurve() {
       invalidateLoops();
     }
 
+    // A bundled face registers only once something asks for it, and a text
+    // measured while its face was missing keeps the FALLBACK's metrics — a
+    // frame that is subtly the wrong shape, with no error anywhere. So ask for
+    // exactly the faces this document needs: the default one (a new text starts
+    // there) plus every member the restored entities actually reference.
+    //
+    // Not the whole catalogue: at 41 faces that is several megabytes of base64
+    // parsed on every cold start to serve fonts the document never mentions.
+    // Anything else still loads itself the moment it is picked, which is the
+    // point of bundling — no import step, no IndexedDB entry, no missing file.
+    const preloadFonts = () => {
+      const reg = window.MiniSketchFonts;
+      if (!reg) return Promise.resolve([]);
+      const wanted = new Set();
+      const ask = (family, weight, style) => {
+        if (!family || !reg.known(family)) return;
+        wanted.add(family + '|' + (weight || 400) + '|' + (style || 'normal'));
+      };
+      ask(TEXT_DEFAULT_FONT, 400, 'normal');
+      for (const e of Object.values(state.entities)) {
+        if (e.type === 'text' && e.font) ask(e.font, e.weight || 400, e.italic ? 'italic' : 'normal');
+      }
+      const jobs = [];
+      for (const key of wanted) {
+        const [fam, w, st] = key.split('|');
+        if (reg.registered(fam, +w, st)) continue;
+        jobs.push(reg.load(fam, +w, st));
+      }
+      return Promise.all(jobs);
+    };
+
     // Caption under the colour strip: restore the name of the document that
     // came back from storage — only when one did, a fresh demo has no file —
     // and start with no "unsaved" dot.
     let docName = null;
     try { docName = localStorage.getItem(DOCNAME_KEY); } catch (err) { docName = null; }
     setFileName(loaded ? docName : null);
+    // keep the remembered save name in step with the restored document, so a
+    // file opened in an earlier session cannot leak into the next Save dialog
+    if (loaded && docName) saveRememberName(docName);
     paintFileDirty(false);
 
     // Imported fonts register from IndexedDB; a load bumps FONT_EPOCH, which
@@ -31831,7 +32071,7 @@ function cmdSplitCurve() {
         let touched = false;
         for (const e of Object.values(state.entities)) {
           if (e.type === 'text' && e.font && !window.MiniSketchFonts.known(e.font) &&
-            window.MiniSketchFonts.registered(e.font)) {
+            window.MiniSketchFonts.registered(e.font, e.weight || 400, e.italic ? 'italic' : 'normal')) {
             ensureTextAspect(e);
             touched = true;
           }
@@ -31840,6 +32080,22 @@ function cmdSplitCurve() {
         invalidateLoops();
         render();
       });
+      preloadFonts().then(() => {
+        // The catalogue just landed. Any text that was already in the document
+        // was measured while its face was missing and carries the ratio the
+        // fallback produced; re-pin it to the real glyph metrics now.
+        let touched = false;
+        for (const e of Object.values(state.entities)) {
+          if (e.type === 'text' && e.font && window.MiniSketchFonts.known(e.font)) {
+            ensureTextAspect(e);
+            touched = true;
+          }
+        }
+        if (touched) requestSolve();
+        invalidateLoops();
+        render();
+      });
+
       // A document restored from storage keeps its text in whatever font it was
       // written in, and that face is not registered on a fresh page — fonts
       // load on demand. Until it is, the glyph outline is unavailable and the
@@ -31859,7 +32115,8 @@ function cmdSplitCurve() {
         window.MiniSketchFonts.load(fam, +w, st).then((ok) => {
           if (ok) {
             for (const e of Object.values(state.entities)) {
-              if (e.type === 'text' && e.font === fam) ensureTextAspect(e);
+              if (e.type === 'text' && e.font === fam && (e.weight || 400) === +w &&
+                (e.italic ? 'italic' : 'normal') === st) ensureTextAspect(e);
             }
             requestSolve();
           }

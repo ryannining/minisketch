@@ -115,22 +115,31 @@ function maxToSet(P, Q) {
   return worst;
 }
 
-for (const test of truth.fonts) {
-  const file = path.join(__dirname, '..', 'fonts', 'src', test.file);
+// Compare one glyph of `file` against the fontTools dump. Every bundled face
+// gets the same treatment: the probe used to check only the few families that
+// happened to be in fonts/src when the truth file was made, so a newly bundled
+// font shipped with no outline check at all.
+let glyphChecks = 0;
+function checkFace(entry) {
+  const file = path.join(__dirname, '..', 'fonts', 'src', entry.file);
+  if (!fs.existsSync(file)) {
+    check(entry.file + ' exists', false, 'missing from fonts/src');
+    return;
+  }
   const buf = fs.readFileSync(file);
   const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-  console.log('\n== ' + test.file);
-  const parsed = api.parseFont(ab, test.file);
-  if (!parsed) { check('font parsed', false); continue; }
-  check('font parsed', true);
-  check('unitsPerEm', parsed.upem === test.upem, parsed.upem + ' vs ' + test.upem);
-  check('ascent/descent', parsed.asc === test.asc && parsed.desc === test.desc,
-    parsed.asc + '/' + parsed.desc + ' vs ' + test.asc + '/' + test.desc);
-
-  for (const ch of test.chars) {
+  console.log('\n== ' + entry.file);
+  const parsed = api.parseFont(ab, entry.file);
+  if (!parsed) { check(entry.file + ' parsed (glyf outlines)', false, 'no glyf'); return; }
+  check(entry.file + ' parsed', true);
+  check(entry.file + ' unitsPerEm', parsed.upem === entry.upem, parsed.upem + ' vs ' + entry.upem);
+  check(entry.file + ' ascent/descent', parsed.asc === entry.asc && parsed.desc === entry.desc,
+    parsed.asc + '/' + parsed.desc + ' vs ' + entry.asc + '/' + entry.desc);
+  for (const ch of entry.chars) {
+    glyphChecks++;
     const key = String(ch.code);
     const mine = parsed.glyph(+key) || [];
-    check('glyph "' + ch.char + '" found', mine.length === ch.contours.length,
+    check(entry.file + ' glyph "' + ch.char + '" found', mine.length === ch.contours.length,
       mine.length + ' contours vs ' + ch.contours.length);
     let worst = 0;
     for (let ci = 0; ci < ch.contours.length; ci++) {
@@ -148,10 +157,12 @@ for (const test of truth.fonts) {
     }
     // 0.5 design units at upem 1000-2048 is ~0.03% of an em: a correct parser
     // lands far inside that; anything larger means a wrong segment or handle.
-    check('glyph "' + ch.char + '" matches the font outline', worst < 0.5,
+    check(entry.file + ' glyph "' + ch.char + '" matches the font outline', worst < 0.5,
       'worst ' + worst.toFixed(4) + ' units');
   }
 }
+
+for (const entry of truth.fonts) checkFace(entry);
 
 console.log('\n' + pass + ' pass, ' + fail + ' fail');
 process.exit(fail ? 1 : 0);

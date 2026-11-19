@@ -221,7 +221,7 @@ trying to do, because reading it alphabetically wastes time:
 
 **Constraints and solving** (§4 is the real explanation)
 * `addConstraint(c, opts)` `:11555` → `addConstraint` `:3738`.
-* `requestSolve()` `:3378`, `solveNow(fixed, 60)` `:3578`, `getLoops()` `:8080`, `loopEntities()`.
+* `requestSolve()` `:3378`, `solveNow(fixed, 60)` `:3578`, `getLoops()` `:8080`, `loopEntities()`, `loopDepthOf()` (§2b).
 * `api.state.constraints` and `api.state.points` are plain objects — you may
   write and `delete` entries directly (§4 explains when that is the right call
   instead of `api.addConstraint`).
@@ -238,6 +238,115 @@ trying to do, because reading it alphabetically wastes time:
 **Not exposed, so do not try:** the solver internals, the renderer, the event
 loop, `xf*` transform state, the file save path. If you feel you need one of
 those, the tool is shaped wrong.
+
+---
+
+## 2b. Reuse the app's own machinery — hierarchy, boolean, collision
+
+The app already solves the three hard problems a generator keeps re-inventing.
+Reach for these first; a private reimplementation is how `textweld` shipped two
+real bugs (a filled hole, and overlapping letters misread as parent/child).
+
+**Loop hierarchy — the Object Tree / LoopTree, not your own containment.**
+`toolApi()` exposes `getLoops()`, `loopEntities(L)` and `loopDepthOf(L)`; each
+loop also carries `L.poly` (world points), `L.parent`, `L.level`, `L.children`.
+The tree nests by **bbox containment + every-vertex-inside** (`loopContainedIn`,
+grep it), *not* a single interior probe. That distinction is the whole game:
+
+* Two **overlapping** letters do not contain each other's bbox → both stay
+  `level 0` (siblings). A lone interior probe falls inside the neighbour and
+  misreads one letter as the other's **hole** → you count one object instead of
+  two and refuse a valid selection. This was a real `textweld` bug.
+* A true hole (an "O" counter) has its bbox strictly inside the parent → odd
+  level, `L.parent` points at the outer loop.
+
+Read a selection through the tree, never by guessing nesting from points:
+
+```js
+const selIds = new Set(api.selectedEntities().map(e => +e.id));
+const selLoops = api.getLoops().filter(L => {
+  const own = api.loopEntities(L).map(Number);
+  return L.poly && L.poly.length >= 3 && own.length && own.every(id => selIds.has(id));
+});
+// even level = object outer; odd level = hole attached to L.parent
+```
+
+`loopDepthOf(L)` calls `loopTree()` (cached), which populates `parent`/`level`
+for every loop — so call it before reading `L.parent`.
+
+**But global depth is wrong for a selection inside an unselected container.** A
+letter sitting inside a surrounding box that is *not* selected has global depth
+1 (a "hole" of the box); filtering selected loops by `loopDepthOf % 2 === 0`
+then drops every letter and refuses "select two objects". For weld/arrange-style
+tools compute depth **relative to the selected loops** — count only selected
+containers, using the same bbox-fit + interior-probe rule (`textweld`
+`readObjects`). Weld the shallowest selected level only; deeper loops are
+ignored and left **untouched** (remove just the welded outers' entities, not the
+whole selection, or the ignored loops get deleted). The wall-drag code makes the
+same distinction for its compound.
+
+**Boolean — prefer `api.boolLoopsExact(op, subjectLoops, clipLoops)` for curve
+sources.** It runs PathBool on the *exact* cubic commands (`loopToBoolCommands`)
+and returns curve loops (`{nodes:[{x,y,o,i}], closed}`) — fast, and the result
+keeps its curves / full resolution. Emit a node loop with `api.addSpline`. It
+welds the loops you pass as solids: `textweld` selects **outer loops only** and
+lets the user keep holes out of the selection, rather than reconstructing hole
+subtraction. Mark the joint with a **flip-flop walk** on each exact lens loop, no
+tessellation and no intersection test: start at the leftmost node (or rightmost,
+a user checkbox), state = keep; walk node by node and flip keep/clean at every
+node coincident with a union-A node (a tip where the boundary switches owner).
+The kept arcs emit as open splines with the lens's own handles — pure coordinate
+comparison (`nodeKey` on a 1e-4 grid), one red line per joint, side chosen by the
+start corner.
+
+`api.polyBoolOp(op, subjectRings, clipRings)` is the *polygon* path: it
+tessellates rings to line segments. On a dense spline outline (thousands of
+vertices) it is slow **and numerically fragile** — PathBool can return an empty
+union, which then misattributes every downstream mark ("all red / all white").
+Use it only for genuinely polygonal input. Two traps still apply:
+
+* **`union` ignores `clipRings`** — pass *all* rings as the subject:
+  `polyBoolOp('union', A.concat(B), [])`. Fold to union many.
+* **Input winding is your job.** `polyBoolOp` normalises the *output* only. A
+  hole handed in with the same winding as its outer **fills** under NonZero.
+  Orient before calling: outer `signedAreaPts > 0`, each hole reversed to
+  negative. The probe caught exactly this.
+
+For a headless probe, `require('../testing/polybool_shim.js')` gives the same
+polygon `polyBoolOp` on the real engine — do not reimplement it. To probe the
+exact path, slice `loopToBoolCommands` / `boolLoopsExact` out of app.js and feed
+them the real entities (remember sketch points serialize as `[x, y]` arrays —
+`P(id)` must convert to `{x, y}`, or every coordinate reads as `NaN`).
+
+**Collision / segment primitives — core.js globals, callable at `apply()`.**
+`polyBBox`, `bboxOverlap`, `segmentsIntersect`, `polylineIntersectsPolyline`
+(also exported from `core.js` for probes). `segmentsIntersect` is **inclusive**:
+a shared endpoint and a collinear overlap both count as a hit, with an epsilon
+so a floating-point sign flip cannot miss a touch. `polylineIntersectsPolyline`
+is **boundary-only** (containment is deliberately not a hit — a part inside a
+sheet is valid nesting).
+
+The **wallDrag mode** (`wallCandidateHit`/`wallResolve`, grep them) is *not*
+exposed and is the wrong shape to copy: it answers a boolean "does this pose
+collide", holds the last valid pose, treats groups as bboxes and drops holes.
+Reuse its *primitives* for broadphase + an inclusive touch test, but for "how
+far until first contact along an axis" compute the segment-pair gap directly —
+a boolean hit-test cannot give a distance, and bisection over it is unsafe
+because contact is non-monotonic for concave outlines (touch–separate–touch).
+
+**Placement — pick the policy deliberately (§6).** A tool that keeps the
+originals (Slot) emits its result *beside* them: source bbox `maxX + gap` for
+the copy's `minX`, top edges aligned. A tool whose result *is* the edited
+object (Text weld) instead **replaces the originals in place** — remove the
+sources after `pushHistory()`, emit at the same coordinates, and let the user
+duplicate the master manually beforehand if they want a backup. Do not default
+to keeping a copy beside: for an in-place edit it only clutters the canvas
+(the user will ask you to remove it).
+
+**Let detached objects be.** Refusing a selection because one object overlaps
+nothing is usually wrong: weld what overlaps and leave the rest as their own
+pieces in the same group, reporting the piece/joint counts in the toast. The
+user arranges; the tool reports, it does not police the layout.
 
 ---
 
@@ -779,6 +888,7 @@ Beyond the checklist above, the parts that are easy to miss:
 | `tools/flex.js` | `flex` / Flex pattern | frame surgery: dropping `horizontal` + `aspect`, driving dims on both guides, pose-preserving re-edit (§4, §7) |
 | `tools/paneliklan.js` | `paneliklan` / Panel iklan | plan-then-history refusal (`:199-209`), replace-on-re-edit (`:209-218`), why holes must be splines not circles |
 | `tools/slot.js` | `slot` / Slot | reading *any* selected path at a tolerance, `stitchChains`, Clipper offset round-trip, fitting output back to curves |
+| `tools/textweld.js` | `textweld` / Text weld | reusing the LoopTree for selection hierarchy (§2b), `polyBoolOp` union + asymmetric red marking, replacing the originals in place, detached pieces kept |
 | `tools/wall.js` | `wall` / Extrude wall | rack layout beside the drawing, curvature-driven feature placement, per-sample turn maths, the living hinge this file's `flex` extracts |
 | `tools/box.js` | `box` / Box maker | inside/outside sizing conventions and finger-joint tab geometry |
 | `tools/gear.js` | `gear` / Gear | polar generative geometry (involute teeth, racks, pulleys) — everything from an angle loop |
@@ -802,5 +912,8 @@ Beyond the checklist above, the parts that are easy to miss:
 | What tolerance does grouping weld at? | `app.js:10545`, `:1173`, `:1330` |
 | How does a double click reopen a generator? | `app.js:20206-20210` → `tools/registry.js:78` |
 | How does a passive modifier follow its master? | §4b — watcher module in app.js, `tools/finger.js` (`rewatch`/`onChange`/`refitJoint`/`refitInPlace`) |
+| How do I read selected loops with their holes? | §2b — `getLoops`/`loopEntities`/`loopDepthOf`, `tools/textweld.js` `readObjects` |
+| How do I union / intersect rings safely? | §2b — `polyBoolOp` (union ignores clip; orient the input), `testing/polybool_shim.js` |
+| Which collision primitives can a tool call? | §2b — core.js `segmentsIntersect` / `polylineIntersectsPolyline` / `polyBBox` / `bboxOverlap` |
 | What does the machine enforce? | `testing/tools_probe.js` |
 | Live, small example tool? | `tools/flex.js`, then `tools/paneliklan.js` |

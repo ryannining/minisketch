@@ -80,8 +80,17 @@ for f in TARGETS:
     for ch in sorted(set(CHARS)):
         if ord(ch) not in cmap:
             continue
+        # Draw with offset=0. fontTools' glyph set shifts a glyph by
+        # `lsb - xMin` to normalise fonts whose stored bounding box disagrees
+        # with its own coordinates; fonts.js reads the coordinates as stored, so
+        # asking fontTools for the shifted outline would compare two different
+        # conventions. Mercy Christole has xMin -15 but a real minimum of -14
+        # and lsb -14, and the shift showed up as a phantom 1-unit error on
+        # exactly the two glyphs where it applies.
+        glyph = gs[cmap[ord(ch)]]
+        inner, _ = glyph._getGlyphAndOffset()
         rp = RecordingPen()
-        gs[cmap[ord(ch)]].draw(rp)
+        inner.draw(rp, font['glyf'], 0)
         entry['chars'].append({
             'char': ch,
             'code': ord(ch),

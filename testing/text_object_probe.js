@@ -110,7 +110,7 @@ console.log('\n== deleting a text removes its guides and its dimension ==');
 
   const fn = new Function('state', 'ui', 'xfBlock', 'pushHistory', 'pointUses',
     'entityPointIds', 'P', 'invalidateLoops', 'cleanupPoints', 'scheduleSave',
-    'updateUI', 'render', 'clearSelection', 'selectedEntities', 'selectedPointIds',
+    'updateUI', 'render', 'clearSelection', 'selectedEntities', 'selectedEntitiesForExport', 'selectedPointIds',
     'selectedConstraintIds', 'removeConstraint', 'removeEntity', 'removeEntities',
     `${sliceApp('deleteSelection')}
      return deleteSelection;`);
@@ -137,6 +137,7 @@ console.log('\n== deleting a text removes its guides and its dimension ==');
     render: () => {},
     clearSelection: () => { api.ui.selection = []; },
     selectedEntities: () => api.ui.selection.filter(s => s.kind === 'entity').map(s => world.entities[s.id]).filter(Boolean),
+    selectedEntitiesForExport: () => api.selectedEntities(),
     selectedPointIds: () => api.ui.selection.filter(s => s.kind === 'point').map(s => s.id),
     selectedConstraintIds: () => api.ui.selection.filter(s => s.kind === 'constraint').map(s => s.id),
     removeConstraint: (id) => { delete world.constraints[id]; },
@@ -146,7 +147,7 @@ console.log('\n== deleting a text removes its guides and its dimension ==');
 
   const del = fn(world, api.ui, api.xfBlock, api.pushHistory, api.pointUses,
     api.entityPointIds, api.P, api.invalidateLoops, api.cleanupPoints, api.scheduleSave,
-    api.updateUI, api.render, api.clearSelection, api.selectedEntities, api.selectedPointIds,
+    api.updateUI, api.render, api.clearSelection, api.selectedEntities, api.selectedEntitiesForExport, api.selectedPointIds,
     api.selectedConstraintIds, api.removeConstraint, api.removeEntity, api.removeEntities);
   del();
 
@@ -155,6 +156,105 @@ console.log('\n== deleting a text removes its guides and its dimension ==');
   check('the height dimension is gone', !world.constraints[20]);
   check('the guide constraint is gone', !world.constraints[21]);
   check('an unrelated dimension survives', !!world.constraints[22]);
+}
+
+// ---- 4. Hershey multi-line alignment -----------------------------------
+console.log('\n== Hershey align uses the slack against the widest line ==');
+{
+  const sandbox = { window: {}, console, MiniSketchHershey: { data: {} } };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'fonts', 'hershey-data.js'), 'utf8'), sandbox);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'fonts', 'hershey.js'), 'utf8'), sandbox);
+  const layout = (t, a) => vm.runInContext(
+    `MiniSketchHershey.layout(${JSON.stringify(t)}, 100, 125, ${JSON.stringify(a)})`, sandbox);
+  const minX = (strokes) => {
+    let m = Infinity;
+    for (const st of strokes) for (const p of st) if (p.x < m) m = p.x;
+    return m;
+  };
+  const maxX = (strokes) => {
+    let m = -Infinity;
+    for (const st of strokes) for (const p of st) if (p.x > m) m = p.x;
+    return m;
+  };
+
+  const two = layout('a\nbbbb', 'left');
+  const shortLeft = minX(layout('a', 'left').strokes);
+  const slack = two.width - layout('a', 'left').width;
+  // line 1 sits around baseline 0, line 2 around baseline 125
+  const line1 = two.strokes.filter(st => st.every(p => p.y < 30));
+  const line2 = two.strokes.filter(st => st.every(p => p.y > 30));
+  check('two lines are emitted', line1.length > 0 && line2.length > 0);
+  check('left: short line starts at its natural x', Math.abs(minX(line1) - shortLeft) < 1e-6, minX(line1));
+
+  // glyph ink may overhang its advance (true of the raw font too), so the
+  // invariant is per line: each line's left-layout extents shifted by its dx
+  const line1Left = { min: minX(line1), max: maxX(line1) };
+  const line2Left = { min: minX(line2), max: maxX(line2) };
+  const cen = layout('a\nbbbb', 'center');
+  const cenLine1 = cen.strokes.filter(st => st.every(p => p.y < 30));
+  check('center: short line shifted by half the slack',
+    Math.abs(minX(cenLine1) - (shortLeft + slack / 2)) < 1e-6, minX(cenLine1));
+  check('center: extents are the left extents shifted by dx',
+    Math.abs(minX(cen.strokes) - Math.min(line2Left.min, line1Left.min + slack / 2)) < 1e-6 &&
+    Math.abs(maxX(cen.strokes) - Math.max(line2Left.max, line1Left.max + slack / 2)) < 1e-6);
+
+  const right = layout('a\nbbbb', 'right');
+  const rightLine1 = right.strokes.filter(st => st.every(p => p.y < 30));
+  check('right: short line ends at the widest width',
+    Math.abs(maxX(rightLine1) - (maxX(layout('a', 'left').strokes) + slack)) < 1e-6, maxX(rightLine1));
+  check('right: extents are the left extents shifted by dx',
+    Math.abs(minX(right.strokes) - Math.min(line2Left.min, line1Left.min + slack)) < 1e-6 &&
+    Math.abs(maxX(right.strokes) - Math.max(line2Left.max, line1Left.max + slack)) < 1e-6);
+
+  check('single line: center strokes identical to left',
+    JSON.stringify(layout('x', 'center').strokes) === JSON.stringify(layout('x', 'left').strokes));
+  check('single line: right strokes identical to left',
+    JSON.stringify(layout('x', 'right').strokes) === JSON.stringify(layout('x', 'left').strokes));
+
+  const emptyMid = layout('a\n\nb', 'left');
+  check('empty middle line still counts', emptyMid.lines === 3, emptyMid.lines);
+  let maxY = -Infinity;
+  for (const st of emptyMid.strokes) for (const p of st) if (p.y > maxY) maxY = p.y;
+  check('third baseline steps by 2x leading', Math.abs(maxY - 250) < 1e-6, maxY);
+}
+
+// ---- 5. remembered text style carries leading/align ---------------------
+console.log('\n== text style persistence includes leading and align ==');
+{
+  const store = {};
+  const localStorage = {
+    getItem: k => (k in store ? store[k] : null),
+    setItem: (k, v) => { store[k] = String(v); },
+    removeItem: k => { delete store[k]; }
+  };
+  const fn = new Function('localStorage', 'TEXT_DEFAULT_FONT',
+    'function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }\n' +
+    "const TEXT_STYLE_KEY = 'minisketch.textStyle.v1';\n" +
+    sliceApp('textStyleLeading') + '\n' +
+    sliceApp('textStyleAlign') + '\n' + sliceApp('loadTextStyle') + '\n' +
+    sliceApp('saveTextStyle') + '\nreturn { loadTextStyle, saveTextStyle };');
+  const { loadTextStyle, saveTextStyle } = fn(localStorage, 'Liberation Sans');
+
+  // an OLD stored style (no leading/align) must load with the defaults
+  store['minisketch.textStyle.v1'] = JSON.stringify({ font: 'X', weight: 700, italic: true, tracking: 5 });
+  let s = loadTextStyle();
+  check('old style gains default leading', s.leading === 125, s.leading);
+  check('old style gains default align', s.align === 'left', s.align);
+
+  saveTextStyle({ font: 'X', leading: 999, align: 'bogus' });
+  s = loadTextStyle();
+  check('leading clamps to 400', s.leading === 400, s.leading);
+  check('bogus align falls back to left', s.align === 'left', s.align);
+
+  saveTextStyle({ font: 'Hershey Simplex', leading: 150, align: 'center' });
+  s = loadTextStyle();
+  check('leading/align round-trip', s.leading === 150 && s.align === 'center', JSON.stringify(s));
+
+  delete store['minisketch.textStyle.v1'];
+  s = loadTextStyle();
+  check('fresh fallback has leading/align', s.leading === 125 && s.align === 'left');
 }
 
 console.log('\n' + (fail ? fail + ' FAILED, ' : 'all ') + pass + ' checks passed');
