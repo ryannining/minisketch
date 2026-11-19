@@ -83,6 +83,11 @@ const getLoopsFn = new Function(
 
 const loops = getLoopsFn();
 console.log('loops found:', loops.length);
+const mono = loops.length === 1 && loops[0].steps.length === 8 &&
+  loops[0].steps.every(s => String((state.entities[s.edge.entity] || {}).color).toLowerCase() === '#000000');
+console.log(mono
+  ? '  PASS  one monochrome black stadium loop (colour priority holds)'
+  : '  FAIL  expected one 8-edge black loop, got ' + loops.length + ' loop(s)');
 for (const l of loops) {
   console.log('  area=' + (l.area || 0).toFixed(3),
     'poly=' + (l.poly ? l.poly.length : 0),

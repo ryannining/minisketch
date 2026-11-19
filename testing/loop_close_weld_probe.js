@@ -1,5 +1,5 @@
 // Probe: customer export cracks vs loop detection, and the per-job Weld.
-// loopfail.sketch is a real customer document whose junctions carry 0.1-0.17 mm
+// loopclose_weld.sketch is a real customer document whose junctions carry 0.1-0.17 mm
 // rounding gaps: at the CNC join tolerance (0.1) no contour closes; the wider
 // loop closure tolerance (0.2) must detect them, and the Weld dialog's per-job
 // distance must close them permanently WITHOUT touching Settings.
@@ -76,7 +76,7 @@ function harness(state, closeTol) {
 }
 
 function loadSketch() {
-  const doc = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'loopfail.sketch'), 'utf8'));
+  const doc = JSON.parse(fs.readFileSync(path.join(__dirname, 'loopclose_weld.sketch'), 'utf8'));
   const st = doc.state;
   const points = {};
   for (const id in st.points) {

@@ -9718,7 +9718,7 @@
     // colour-consistent cycle — a pure BFS would happily take the first, shortest
     // path whatever its colours, and merge e.g. a black arc with one green edge
     // into a loop, destroying the green rectangle it spans.
-    const bfs = (start, goal, skipKey, startColor) => {
+    const bfs = (start, goal, skipKey, startColor, monoOnly) => {
       const dist = {};
       const prevEdge = {};
       const prevNode = {};
@@ -9750,6 +9750,7 @@
           const ent = state.entities[eg.entity];
           const ec = normColor(ent && ent.color);
           const w = (startColor && ec && ec === startColor) ? 0 : 1;
+          if (monoOnly && w) continue;
           const nd = d + w;
           if (dist[v] === undefined || nd < dist[v]) {
             dist[v] = nd;
@@ -9781,73 +9782,82 @@
     // it can never gain one while loops are extracted (edges are only removed),
     // so failed searches are remembered instead of repeated.
     const noLoop = new Set();
-    let guardLeft = edgeKeys.length + 1;
-    for (const [, compKeys] of edgesByComp) {
-      for (const startKey of compKeys) {
-        if (guardLeft-- <= 0) break;
-        if (usedEdges.has(startKey) || noLoop.has(startKey)) continue;
-        const startEdge = edges[startKey];
-        const startEnt = state.entities[startEdge.entity];
-        const startColor = normColor(startEnt && startEnt.color);
-        const path = bfs(startEdge.bNode, startEdge.aNode, startKey, startColor);
-        if (!path) { noLoop.add(startKey); continue; }
-        const found = { key: startKey, eg: startEdge, path };
-        const steps = [];
-        let cur = found.eg.aNode;
-        steps.push({ edge: found.eg, from: cur, to: found.eg.bNode });
-        cur = found.eg.bNode;
-        for (const key of found.path) {
-          const eg = edges[key];
-          const to = eg.aNode === cur ? eg.bNode : eg.aNode;
-          steps.push({ edge: eg, from: cur, to });
-          cur = to;
-        }
-        usedEdges.add(found.key);
-        for (const key of found.path) usedEdges.add(key);
+    const noLoopMono = new Set();
+    let guardLeft = 2 * (edgeKeys.length + 1);
+    // Two passes: monochrome cycles first, mixed-colour cycles only afterwards.
+    // Colour weights alone are not enough: in one greedy pass the first edge in
+    // document order can steal edges into a mixed cycle (a green chord across a
+    // black outline consumed half the outline before the outline's own turn),
+    // so colour priority has to be a pass order as well as a path weight.
+    for (const monoOnly of [true, false]) {
+      const failed = monoOnly ? noLoopMono : noLoop;
+      for (const [, compKeys] of edgesByComp) {
+        for (const startKey of compKeys) {
+          if (guardLeft-- <= 0) break;
+          if (usedEdges.has(startKey) || failed.has(startKey)) continue;
+          const startEdge = edges[startKey];
+          const startEnt = state.entities[startEdge.entity];
+          const startColor = normColor(startEnt && startEnt.color);
+          const path = bfs(startEdge.bNode, startEdge.aNode, startKey, startColor, monoOnly);
+          if (!path) { failed.add(startKey); continue; }
+          const found = { key: startKey, eg: startEdge, path };
+          const steps = [];
+          let cur = found.eg.aNode;
+          steps.push({ edge: found.eg, from: cur, to: found.eg.bNode });
+          cur = found.eg.bNode;
+          for (const key of found.path) {
+            const eg = edges[key];
+            const to = eg.aNode === cur ? eg.bNode : eg.aNode;
+            steps.push({ edge: eg, from: cur, to });
+            cur = to;
+          }
+          usedEdges.add(found.key);
+          for (const key of found.path) usedEdges.add(key);
 
-        const poly = [];
-        for (const step of steps) {
-          const e = state.entities[step.edge.entity];
-          if (!e) continue;
-          const forward = step.from === step.edge.aNode;
-          let pts = [];
-          if (e.type === 'line') {
-            const a = P(step.edge.pa);
-            const b = P(step.edge.pb);
-            if (!a || !b) continue;
-            // copies: a live point object would follow a later drag and leave a
-            // needle sticking out of the otherwise frozen loop polygon
-            const ac = { x: a.x, y: a.y };
-            const bc = { x: b.x, y: b.y };
-            pts = forward ? [ac, bc] : [bc, ac];
-          } else if (e.type === 'arc') {
-            const ad = arcData(e);
-            if (!ad) continue;
-            pts = sampleArc(ad.c, ad.r, ad.a0, ad.sweep, !forward);
-          } else if (e.type === 'spline') {
-            pts = splineSamplesOf(e);
-            if (!forward) pts = pts.slice().reverse();
-          }
-          for (const p of pts) {
-            if (!poly.length || Math.hypot(p.x - poly[poly.length - 1].x, p.y - poly[poly.length - 1].y) > 1e-9) {
-              poly.push(p);
+          const poly = [];
+          for (const step of steps) {
+            const e = state.entities[step.edge.entity];
+            if (!e) continue;
+            const forward = step.from === step.edge.aNode;
+            let pts = [];
+            if (e.type === 'line') {
+              const a = P(step.edge.pa);
+              const b = P(step.edge.pb);
+              if (!a || !b) continue;
+              // copies: a live point object would follow a later drag and leave a
+              // needle sticking out of the otherwise frozen loop polygon
+              const ac = { x: a.x, y: a.y };
+              const bc = { x: b.x, y: b.y };
+              pts = forward ? [ac, bc] : [bc, ac];
+            } else if (e.type === 'arc') {
+              const ad = arcData(e);
+              if (!ad) continue;
+              pts = sampleArc(ad.c, ad.r, ad.a0, ad.sweep, !forward);
+            } else if (e.type === 'spline') {
+              pts = splineSamplesOf(e);
+              if (!forward) pts = pts.slice().reverse();
+            }
+            for (const p of pts) {
+              if (!poly.length || Math.hypot(p.x - poly[poly.length - 1].x, p.y - poly[poly.length - 1].y) > 1e-9) {
+                poly.push(p);
+              }
             }
           }
-        }
-        if (poly.length > 2) {
-          if (Math.hypot(poly[0].x - poly[poly.length - 1].x, poly[0].y - poly[poly.length - 1].y) < 1e-6) poly.pop();
           if (poly.length > 2) {
-            let area = 0;
-            for (let i = 0; i < poly.length; i++) {
-              const a = poly[i];
-              const b = poly[(i + 1) % poly.length];
-              area += a.x * b.y - b.x * a.y;
+            if (Math.hypot(poly[0].x - poly[poly.length - 1].x, poly[0].y - poly[poly.length - 1].y) < 1e-6) poly.pop();
+            if (poly.length > 2) {
+              let area = 0;
+              for (let i = 0; i < poly.length; i++) {
+                const a = poly[i];
+                const b = poly[(i + 1) % poly.length];
+                area += a.x * b.y - b.x * a.y;
+              }
+              loops.push({ poly, area: Math.abs(area) / 2, steps });
             }
-            loops.push({ poly, area: Math.abs(area) / 2, steps });
           }
-        }
-      }   // end: for each start edge in this component
-    }     // end: for each component
+        }   // end: for each start edge in this component
+      }     // end: for each component
+    }       // end: monochrome pass, then mixed pass
 
     loopCache = loops;
     return loops;
