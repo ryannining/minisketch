@@ -768,41 +768,34 @@
         <option value="0">Upright</option>
         <option value="1">Italic</option>
       </select>
-    </div>
-    <div class="cnc-row">
-      <span class="cnc-label">Height</span>
-      <input id="text-height" type="text" inputmode="decimal" spellcheck="false" value="20">
-      <span class="cnc-unit">mm</span>
-    </div>
-    <div class="cnc-row">
-      <span class="cnc-label">Line spacing</span>
-      <input id="text-leading" type="text" inputmode="decimal" spellcheck="false" value="125">
-      <span class="cnc-unit">%</span>
-    </div>
-    <div class="cnc-row">
-      <span class="cnc-label">Align</span>
-      <select id="text-align">
+      <select id="text-align" title="Alignment of the lines against the widest line">
         <option value="left">Left</option>
         <option value="center">Center</option>
         <option value="right">Right</option>
       </select>
     </div>
-    <div class="cnc-row">
-      <span class="cnc-label">Letter spacing</span>
-      <input id="text-tracking" type="text" inputmode="decimal" spellcheck="false" value="0" title="Horizontal spacing between letters, % of font size. Negative values pull letters together until they overlap — handy for Text weld.">
+    <div class="cnc-row text-num-row">
+      <span class="cnc-label">Height</span>
+      <input id="text-height" class="num" type="text" inputmode="decimal" spellcheck="false" value="20">
+      <span class="cnc-unit">mm</span>
+      <span class="cnc-label">Line</span>
+      <input id="text-leading" class="num" type="text" inputmode="decimal" spellcheck="false" value="125" title="Line height, % of the font size (125 = normal)">
+      <span class="cnc-unit">%</span>
+      <span class="cnc-label">Letter</span>
+      <input id="text-tracking" class="num" type="text" inputmode="decimal" spellcheck="false" value="100" title="Letter spacing, % of normal (100 = normal; lower tightens until letters overlap — handy for Text weld)">
       <span class="cnc-unit">%</span>
     </div>
     <div class="cnc-row">
-      <span class="cnc-label">Preview</span>
-      <canvas id="text-preview" width="320" height="56"></canvas>
-    </div>
-    <div class="cnc-row">
       <span class="cnc-label">Detail</span>
-      <input id="text-tol" type="text" inputmode="decimal" spellcheck="false" value="0.08">
+      <input id="text-tol" class="num" type="text" inputmode="decimal" spellcheck="false" value="0.08" title="Outline accuracy in mm (0.08 default; larger = fewer points)">
       <span class="cnc-unit">mm</span>
+      <label class="opt" title="With Fit real curves on, &#8594; Curve rebuilds the glyphs as a few real Bezier curves; with it off you get one straight line per contour segment instead."><input type="checkbox" id="text-fitcurve" checked> Fit real curves on &#8594; Curve</label>
     </div>
-    <label class="opt"><input type="checkbox" id="text-fitcurve" checked> Fit real curves on &#8594; Curve (fewer nodes, sharp corners kept)</label>
-    <div class="cnc-status">Double-click the text any time to edit. Dimension the green handles: one dimension keeps the glyph ratio, two release it. <b>Detail</b> is the outline accuracy in mm (0.08 default; larger = fewer points). Send traces the glyphs automatically. With <b>Fit real curves</b> on, &#8594; Curve rebuilds the glyphs as a few real Bezier curves; with it off you get one straight line per contour segment instead. A <b>Single-line</b> font is a stroke font: &rarr; Curve and Send produce open paths, one per stem — what engraving / V-carving wants.</div>
+    <div class="cnc-row text-row-stack">
+      <span class="cnc-label">Preview</span>
+      <canvas id="text-preview" width="440" height="132"></canvas>
+    </div>
+    <div class="cnc-status">Double-click the text to edit. Dimension the green handles to size it. Single-line fonts send open strokes for engraving.</div>
     <div class="modal-actions">
       <button class="btn small" id="text-curve" title="Replace the text object with editable geometry — closed curves per glyph outline, or open splines per stroke for a Single-line font">&#8594; Curve</button>
       <button class="btn small" id="text-cancel">Cancel</button>

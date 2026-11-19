@@ -1158,6 +1158,16 @@ details.settings-group.hidden {
 
 .text-box { width: 410px; }
 
+/* Numeric fields hold at most 4 digits: a fixed narrow box instead of the
+   input's intrinsic ~20-character width keeps three fields on one row. */
+.text-box input.num {
+  flex: 0 0 54px;
+  width: 54px;
+  text-align: right;
+}
+.text-num-row { gap: 5px; }
+.text-num-row .cnc-label { flex: 0 0 auto; }
+
 .fit-box { width: 380px; }
 
 .img-density {
@@ -1282,6 +1292,7 @@ details.settings-group.hidden {
 #text-preview {
   display: block;
   width: 100%;
+  min-width: 0;
   height: auto;
   color: var(--ink);
   border: 1px solid var(--line);

@@ -10798,7 +10798,7 @@
     const lineHeight = textLineHeightPx(e, TEXT_REF);
     let width = 1;
     for (const line of lines) {
-      const w = window.MiniSketchHershey ? window.MiniSketchHershey.layout(line, TEXT_REF, lineHeight, e.align).width : 1;
+      const w = window.MiniSketchHershey ? window.MiniSketchHershey.layout(line, TEXT_REF, lineHeight, e.align, textTrackingPx(e, TEXT_REF)).width : 1;
       if (w > width) width = w;
     }
     // ascent/descent from the cap band: caps 0.72*size above baseline, no
@@ -11383,7 +11383,7 @@
     let m = mNow || textMetricsOf(e);
     if (!m) return []; // font still loading: no stroke layout this frame
     const lay = window.MiniSketchHershey
-      ? window.MiniSketchHershey.layout(e.text, TEXT_REF, m.lineHeight, e.align)
+      ? window.MiniSketchHershey.layout(e.text, TEXT_REF, m.lineHeight, e.align, textTrackingPx(e, TEXT_REF))
       : { strokes: [], width: 1, height: m.height };
     // layout y is already down-positive with the baseline at 0 (a cap is
     // negative); the local box wants y measured from its top, so the baseline
@@ -17739,6 +17739,12 @@
   function textStyleAlign(v) {
     return v === 'center' || v === 'right' ? v : 'left';
   }
+  // The dialog shows letter spacing like leading: 100% = normal. Internally
+  // tracking stays an offset in % of the font size (0 = normal), so stored
+  // documents and the generator API keep their meaning.
+  function textTrackingFromPct(v) {
+    return (isFinite(+v) ? clamp(+v, 70, 160) : 100) - 100;
+  }
   function loadTextStyle() {
     try {
       const s = JSON.parse(localStorage.getItem(TEXT_STYLE_KEY) || 'null');
@@ -17800,7 +17806,7 @@
     const family = font ? font.value : 'sans-serif';
     const wt = weight ? weight.value : '400';
     const it = italic ? italic.value : '0';
-    const tr = tracking ? parseFloat(tracking.value) : 0;
+    const tr = textTrackingFromPct(tracking ? tracking.value : 100);
     const ldRaw = leading ? parseFloat(leading.value) : 125;
     const ld = isFinite(ldRaw) ? clamp(ldRaw, 50, 400) : 125;
     const alignEl = document.getElementById('text-align');
@@ -17848,7 +17854,7 @@
     let lay = null;
     const widths = [];
     if (single && window.MiniSketchHershey) {
-      lay = window.MiniSketchHershey.layout(text, size, lineHeight, align);
+      lay = window.MiniSketchHershey.layout(text, size, lineHeight, align, tr / 100 * size);
       W = Math.max(1, lay.width);
       asc = size * 0.72;
       H = asc + size * 0.05 + lineHeight * (lines.length - 1);
@@ -17914,7 +17920,7 @@
     const italic = document.getElementById('text-italic');
     if (italic) italic.value = e.italic ? '1' : '0';
     const track = document.getElementById('text-tracking');
-    if (track) track.value = fmt(e.tracking || 0);
+    if (track) track.value = fmt((e.tracking || 0) + 100);
     const lead = document.getElementById('text-leading');
     if (lead) lead.value = fmt(textLeadingOf(e));
     const align = document.getElementById('text-align');
@@ -18001,8 +18007,7 @@
     const single = HERSHEY_FAMILIES.includes(family);
     if (!single) await ensureFontLoaded(family, applyBtn, weightEl ? +weightEl.value || 400 : 400,
       italicEl && italicEl.value === '1' ? 'italic' : 'normal');
-    const trackRaw = trackEl ? parseFloat(trackEl.value) : 0;
-    const tracking = isFinite(trackRaw) ? clamp(trackRaw, -30, 60) : 0;
+    const tracking = textTrackingFromPct(trackEl ? trackEl.value : 100);
     const leadRaw = leadEl ? parseFloat(leadEl.value) : 125;
     const leading = isFinite(leadRaw) ? clamp(leadRaw, 50, 400) : 125;
     pushHistory();

@@ -65,6 +65,7 @@ console.log('\n== single-line glyphs are not upside down ==');
     const state = ${JSON.stringify(world)};
     const window = { MiniSketchHershey: MiniSketchHersheyRef };
     function textMetricsOf() { return { width: 100, height: 100, ascent: 72, lineHeight: 125, lines: ['Hg'] }; }
+    function textTrackingPx(e, s) { return ((e.tracking || 0) / 100) * s; }
   `;
   const fn = new Function('MiniSketchHersheyRef',
     stubs + sliceApp('textLocalStrokes') + '\nreturn textLocalStrokes;');
@@ -255,6 +256,30 @@ console.log('\n== text style persistence includes leading and align ==');
   delete store['minisketch.textStyle.v1'];
   s = loadTextStyle();
   check('fresh fallback has leading/align', s.leading === 125 && s.align === 'left');
+}
+
+// ---- 6. letter spacing is a percent of normal, like leading --------------
+console.log('\n== letter spacing: 100% = normal, and Hershey honours it ==');
+{
+  const fn = new Function('clamp',
+    sliceApp('textTrackingFromPct') + '\nreturn textTrackingFromPct;');
+  const f = fn((v, lo, hi) => v < lo ? lo : (v > hi ? hi : v));
+  check('100% is normal spacing', f(100) === 0, f(100));
+  check('110% adds a tenth of the size', f(110) === 10, f(110));
+  check('90% tightens', f(90) === -10, f(90));
+  check('clamps to the old offset range', f(500) === 60 && f(0) === -30);
+  check('garbage falls back to normal', f('x') === 0);
+
+  const sandbox = { window: {}, console, MiniSketchHershey: { data: {} } };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'fonts', 'hershey-data.js'), 'utf8'), sandbox);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'fonts', 'hershey.js'), 'utf8'), sandbox);
+  const w0 = vm.runInContext('MiniSketchHershey.layout("ii", 100, 125, "left").width', sandbox);
+  const w1 = vm.runInContext('MiniSketchHershey.layout("ii", 100, 125, "left", 10).width', sandbox);
+  check('two glyphs gain two tracking steps', Math.abs(w1 - w0 - 20) < 1e-6, w1 - w0);
+  const w2 = vm.runInContext('MiniSketchHershey.layout("ii", 100, 125, "left", -5).width', sandbox);
+  check('negative tracking tightens', Math.abs(w2 - w0 + 10) < 1e-6, w2 - w0);
 }
 
 console.log('\n' + (fail ? fail + ' FAILED, ' : 'all ') + pass + ' checks passed');

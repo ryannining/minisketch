@@ -78,9 +78,12 @@
   // line's start, x to the right, y up. Returns { strokes, width, height,
   // ascent, lineHeight } — strokes carry only geometry, no frame mapping.
   // multi-line uses the same leading rule as the outline path.
-  function layout(text, sizePx, lineHeightPx, align) {
+  function layout(text, sizePx, lineHeightPx, align, trackPx) {
     const lines = String(text == null ? '' : text).split('\n');
     const alignMode = align || 'left';
+    // pen space is reference px at size 1 (pass 2 scales by sizePx), while
+    // trackPx arrives already scaled to sizePx
+    const track = (trackPx || 0) / (sizePx || 1);
     // Pass 1: measure every line before placing any, so alignment can use the
     // slack against the WIDDEST line (the outline path's textLineOffsetX
     // convention) — shifting by a line's own width pushed centered/right
@@ -92,14 +95,14 @@
       const pen = { v: 0 };
       const lineStrokes = [];
       for (const ch of line) {
-        if (ch === ' ') { pen.v += SPACE_ADVANCE; continue; }
+        if (ch === ' ') { pen.v += SPACE_ADVANCE + track; continue; }
         const code = ch.charCodeAt(0);
         const g = glyphOf('simplex', code) || glyphOf('script', code) || null;
-        if (!g) { pen.v += SPACE_ADVANCE * 0.6; continue; }
+        if (!g) { pen.v += SPACE_ADVANCE * 0.6 + track; continue; }
         for (const stroke of g.strokes) {
           lineStrokes.push(stroke.map(p => ({ x: p.x + pen.v, y: p.y })));
         }
-        pen.v += g.advance;
+        pen.v += g.advance + track;
       }
       const lineW = Math.max(1e-6, pen.v);
       if (lineW > widest) widest = lineW;
