@@ -5988,7 +5988,7 @@
         e.pts = (e.pts || []).map(pid => pMap[pid]).filter(pid => pid != null);
       } else if (e.type === 'note') {
         e.p = pMap[e.p];
-      } else if (e.type === 'text' || e.type === 'art' || e.type === 'array') {
+      } else if (e.type === 'text' || e.type === 'art' || e.type === 'array' || e.type === 'image') {
         e.p0 = pMap[e.p0];
         e.pw = pMap[e.pw];
         e.ph = pMap[e.ph];
@@ -15309,12 +15309,27 @@
       h *= k;
     }
     const center = ui.lastWorld ? { x: ui.lastWorld.x, y: ui.lastWorld.y } : s2w(W / 2, H / 2);
+    // Re-trace of a placed picture (double-click): the new frame is the OLD
+    // picture's frame — same position, scale and rotation — so the traced
+    // geometry lands exactly where the image sits instead of at the cursor.
+    const frameFrom = o.frameFrom || null;
+    let p0, pwId, phId;
+    if (frameFrom) {
+      const q0 = P(frameFrom.p0), qw = P(frameFrom.pw), qh = P(frameFrom.ph);
+      if (q0 && qw && qh) {
+        p0 = privatePoint(q0.x, q0.y);
+        pwId = privatePoint(qw.x, qw.y);
+        phId = privatePoint(qh.x, qh.y);
+      }
+    }
     pushHistory();
-    const left = center.x - w / 2;
-    const top = center.y - h / 2;
-    const p0 = privatePoint(left, top);
-    const pwId = privatePoint(left + w, top);
-    const phId = privatePoint(left, top + h);      // height points down
+    if (!p0) {
+      const left = center.x - w / 2;
+      const top = center.y - h / 2;
+      p0 = privatePoint(left, top);
+      pwId = privatePoint(left + w, top);
+      phId = privatePoint(left, top + h);      // height points down
+    }
     const idW = newId();
     state.entities[idW] = { id: idW, type: 'line', a: p0, b: pwId, color: '#00ff00' };
     const idH = newId();
@@ -17732,17 +17747,36 @@
     }
   }
 
-  function openImageDialog(blob) {
+  function openImageDialog(blob, opts) {
+    const o = opts || {};
+    // Re-opened from an existing picture (double-click): the dialog is about
+    // tracing THAT picture, not re-importing a paste, so "Keep as image" would
+    // only create a duplicate — it stays disabled. The original frame travels
+    // along so a trace lands exactly where and how the picture sits (scale,
+    // rotation, everything the three-point frame carries).
+    const fromImage = o.fromImage || null;
     const modal = document.getElementById('image-modal');
     if (!modal) { artFromBlob(blob); return; }
+    const modeImage = document.getElementById('img-mode-image');
+    if (fromImage) {
+      if (modeImage) {
+        modeImage.disabled = true;
+        modeImage.parentElement && modeImage.parentElement.setAttribute('title',
+          'Already placed as an image: tracing only');
+      }
+      el('img-mode-trace').checked = true;
+    } else if (modeImage) {
+      modeImage.disabled = false;
+      modeImage.parentElement && modeImage.parentElement.removeAttribute('title');
+    }
     const url = URL.createObjectURL(blob);
     const img = new Image();
     img.onload = async () => {
       let saved = {};
       try { saved = JSON.parse(localStorage.getItem(IMG_OPTS_KEY) || '{}') || {}; } catch (err) { saved = {}; }
       const el = (id) => document.getElementById(id);
-      el('img-mode-trace').checked = saved.mode !== 'image';
-      el('img-mode-image').checked = saved.mode === 'image';
+      el('img-mode-trace').checked = true;
+      if (el('img-mode-image')) el('img-mode-image').checked = false;
       // the remembered settings go into BOTH the slider and its number box
       const numOr = (id, key, def) => {
         setTraceValue(id, isFinite(+saved[key]) ? +saved[key] : def, def);
@@ -17770,7 +17804,10 @@
         dpi = +saved.dpi;
         source = 'no density in the file \u2014 last used (' + Math.round(dpi) + ' dpi)';
       }
-      ui.imageDraft = { blob, iw: img.naturalWidth, ih: img.naturalHeight, dpi };
+      ui.imageDraft = {
+        blob, iw: img.naturalWidth, ih: img.naturalHeight, dpi,
+        fromImage: fromImage || null
+      };
       previewTraceCache = null;   // a new picture must not reuse the old trace
       const dpiEl = el('img-dpi');
       if (dpiEl) dpiEl.value = String(Math.round(dpi * 100) / 100);
@@ -17877,7 +17914,9 @@
       smooth: traceOpts.smooth,
       fitCurve,
       simplify: tol,
-      mmPerUnit: width / Math.max(1, d.iw)
+      mmPerUnit: width / Math.max(1, d.iw),
+      // re-trace of a placed picture: land on the picture's own frame
+      frameFrom: d.fromImage || null
     });
   }
 
@@ -27203,7 +27242,7 @@ function cmdSplitCurve() {
           ui.selection = [{ kind: 'entity', id: eh }];
           updateUI();
           render();
-          openImageDialog(blob);
+          openImageDialog(blob, { fromImage: ent });
         });
         return;
       }
