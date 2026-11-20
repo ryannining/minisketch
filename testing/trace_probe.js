@@ -37,6 +37,7 @@ const sandbox = {
   window: win,
   self: win,
   document: { createElement: () => ({ getContext: () => null }) },
+  location: { href: 'file:///probe/' },
   ImageData: function (w, h) {
     this.width = w; this.height = h;
     this.data = new Uint8ClampedArray(w * h * 4);
@@ -228,7 +229,7 @@ console.log('\n== the preview matches the import ==');
   check('insertArt uses the shared helper',
     /simplifyTracedPaths\(paths, o\.simplify, 2\)/.test(appSrc));
   check('the preview uses it too',
-    /simplifyTracedPaths\(subs, opts\.simplify \* k, 2 \* k \* k\)/.test(appSrc));
+    /simplifyTracedPaths\(subs, opts\.simplify, 2\)/.test(appSrc));
   check('the preview counts the contours it will really get',
     /info\.textContent = loops\.length \+ ' contour'/.test(appSrc));
   check('the preview reports the point count too',
@@ -263,13 +264,48 @@ console.log('\n== the panel has no wasted space ==');
     /function sizeTracePreview\(/.test(appSrc) &&
     /canvas\.style\.height = h \+ 'px'/.test(appSrc));
   check('the preview is sized when the dialog opens',
-    /sizeTracePreview\(\);\s*\n\s*drawTracePreview\(blob/.test(appSrc));
+    /sizeTracePreview\(\);\s*\n\s*resetPreviewView\(\);\s*\n\s*resetPreviewRefs\(\);[^\n]*\n\s*bindPreviewNav\(\);\s*\n\s*bindRefControls\(\);\s*\n\s*drawTracePreview\(blob/.test(appSrc));
   check('the preview follows a window resize',
     /window\.addEventListener\('resize'[\s\S]{0,300}?sizeTracePreview\(\)/.test(appSrc));
   check('the canvas is sharp on a hi-dpi screen',
     /window\.devicePixelRatio/.test(appSrc) && /ctx\.setTransform\(dpr, 0, 0, dpr, 0, 0\)/.test(appSrc));
   check('the picture keeps its aspect ratio in the box',
-    /const s = Math\.min\(cw \/ pw, ch \/ ph\)/.test(appSrc));
+    /const fit = Math\.min\(cw \/ iw, ch \/ ih\)/.test(appSrc));
+  // pan + zoom: the preview of a big picture is only inspectable zoomed in
+  check('the preview can zoom (wheel)',
+    /canvas\.addEventListener\('wheel'/.test(appSrc) && /previewView\.zoom/.test(appSrc));
+  check('the preview can pan (drag)',
+    /pointerdown/.test(appSrc) && /previewView\.px \+= dx/.test(appSrc));
+  check('double-click resets the view',
+    /dblclick/.test(appSrc) && /function resetPreviewView\(/.test(appSrc));
+  check('every traced point is drawn as a dot',
+    /every node as a dot/.test(appSrc) && /ctx\.arc\(x, y, rDot/.test(appSrc));
+  check('the view survives a setting change (redraw keeps zoom)',
+    /const view = previewView;/.test(appSrc));
+  // snap points: a hand-set corner correction, applied to the SAME loops OK imports
+  check('the preview shows the post-processed raster (threshold + blur)',
+    /T\.processedImageData\(blob, opts\)/.test(appSrc));
+  check('the tracer exposes processedImageData',
+    /NS\.processedImageData = processedImageData/.test(traceSrc));
+  check('double-click adds a snap point (single click does nothing)',
+    /double-click = ADD a snap point there/.test(appSrc) && /previewRefs\.push\(/.test(appSrc));
+  check('a snap point can be dragged (move) and its radius resized',
+    /refDrag\.mode === 'move'/.test(appSrc) && /refDrag\.mode === 'radius'/.test(appSrc));
+  check('double-click on a snap point removes it',
+    /previewRefs\.splice\(previewRefs\.indexOf\(hit\.ref\), 1\)/.test(appSrc));
+  check('a Clear button empties the snap points',
+    /id="img-refs-clear"/.test(html) && /previewRefs = \[\];/.test(appSrc));
+  check('snap points are lost when a new picture opens',
+    /resetPreviewRefs\(\);/.test(appSrc));
+  check('the snap pull is applied on the OK path too',
+    /insertArt\(applyRefsToLoops\(simplifyTracedPaths\(paths, opts\.simplify, 2\)\), opts\)/.test(appSrc));
+  // the pull must derive from the ORIGINAL points every time (dx/dy), not
+  // mutate them: a deleted reference must restore the traced shape, and a
+  // repaint must not compound the pull
+  check('applyRefsToLoops copies the points (no in-place mutation)',
+    /const out = loops\.map\(l => l\.map\(p => \[p\[0\], p\[1\]\]\)\);/.test(appSrc));
+  check('the pull is recomputed from the original position each call',
+    /pt\[0\] \+= \(ref\.x - pt\[0\]\) \* pull;/.test(appSrc) && /loops\.map\(l => l\.map/.test(appSrc));
 }
 
 // ---- duplicate contours (double outlines) are collapsed ------------------

@@ -17309,12 +17309,11 @@
   // draws the raster and the traced outline together, so the tolerance can be
   // tuned by watching it.
   //
-  // The trace runs on a downscaled copy (PREVIEW_MAX px) because a full-size
-  // raster takes seconds to trace; the OK button still traces the ORIGINAL
-  // pixels at full resolution. To keep the preview honest, the knobs that
-  // count PIXELS (speckle size) are scaled by the same factor, so what the
-  // preview shows is what the full-resolution trace will produce.
-  const PREVIEW_MAX = 320;
+  // The preview traces the SAME full-resolution pixels the OK button traces
+  // (one shared helper, one cached result per option set), so what you see is
+  // exactly what lands in the document — no downscale, no scaled speckle
+  // factor. The heavy trace runs in a Worker (traceBlobToSvg) and is cached:
+  // panning and zooming redraw from the cache instantly.
 
   // The preview canvas fills the height of the settings column, so the panel
   // has no hole under it. Measured after the dialog is shown, because a hidden
@@ -17329,41 +17328,25 @@
     canvas.style.height = h + 'px';
   }
 
+  // The trace preview and the OK button must produce THE SAME geometry, or the
+  // preview cannot be a decision tool. So the preview runs the full-resolution
+  // trace — the same traceBlobToSvg call the import makes — and caches the
+  // parsed result; redraws (pan/zoom, and even setting changes while the raster
+  // is unchanged) reuse it. The heavy part is debounced like the old preview.
+  let previewTraceCache = null;   // { blobKey, svg, loops, iw, ih }
+
   function drawTracePreview(blob, opts) {
     const canvas = document.getElementById('img-preview');
     const info = document.getElementById('img-preview-info');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const T = window.MiniSketchTrace;
-    if (!T || typeof T.blobToImage !== 'function') {
+    if (!T || typeof T.processedImageData !== 'function') {
       if (info) info.textContent = 'tracer not loaded';
       return;
     }
-    T.blobToImage(blob).then((img) => {
-      const iw = img.naturalWidth || img.width;
-      const ih = img.naturalHeight || img.height;
-      if (!iw || !ih) return;
-      // downscale for the preview
-      const k = Math.min(1, PREVIEW_MAX / Math.max(iw, ih));
-      const pw = Math.max(1, Math.round(iw * k));
-      const ph = Math.max(1, Math.round(ih * k));
-      const c = document.createElement('canvas');
-      c.width = pw; c.height = ph;
-      const cx = c.getContext('2d', { willReadFrequently: true });
-      cx.drawImage(img, 0, 0, pw, ph);
-      const raw = cx.getImageData(0, 0, pw, ph);
-      const bin = T.binarize(raw, opts.threshold);
-      // the pixel-count knobs scale with the downscale, so the preview and the
-      // full-resolution trace agree on what counts as a speckle
-      const previewOpts = {
-        detail: opts.detail,
-        curve: opts.curve,
-        threshold: opts.threshold,
-        corners: opts.corners,
-        smooth: opts.smooth,
-        blur: opts.blur,
-        speckle: Math.max(0, opts.speckle * k)
-      };
+    T.processedImageData(blob, opts).then((bin) => {
+      const iw = bin.width, ih = bin.height;
       // The canvas draws in CSS pixels; its backing store is scaled by the
       // device pixel ratio so the outline stays sharp on a hi-dpi screen.
       const dpr = Math.min(2, (window.devicePixelRatio || 1));
@@ -17373,61 +17356,325 @@
         canvas.width = Math.round(cw * dpr);
         canvas.height = Math.round(ch * dpr);
       }
+      // fit the picture into the canvas keeping its aspect ratio: a stretched
+      // preview would show a shape the machine will never cut. baseView is the
+      // fit; the user's zoom/pan multiplies on top of it (see previewView below).
+      const fit = Math.min(cw / iw, ch / ih);
+      const baseOx = (cw - iw * fit) / 2;
+      const baseOy = (ch - ih * fit) / 2;
+      // the view is remembered ACROSS redraws: tuning a slider must not snap
+      // the zoom back out. A setting change re-traces; the view stays.
+      const view = previewView;
+      const s = fit * view.zoom;
+      const ox = baseOx * view.zoom + view.px;
+      const oy = baseOy * view.zoom + view.py;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      // draw the raster dimmed, then the traced outline on top
+      // the raster shown is the POST-PROCESSED one (threshold + blur): the
+      // shape the tracer will follow, dimmed, with the outline on top
       ctx.clearRect(0, 0, cw, ch);
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, cw, ch);
-      const disp = ctx.createImageData(pw, ph);
-      for (let i = 0; i < raw.data.length; i += 4) {
-        const v = raw.data[i];
+      const disp = ctx.createImageData(iw, ih);
+      for (let i = 0; i < bin.data.length; i += 4) {
+        const v = bin.data[i];
         disp.data[i] = disp.data[i + 1] = disp.data[i + 2] = v;
-        disp.data[i + 3] = 90;
+        disp.data[i + 3] = 110;
       }
       const tmp = document.createElement('canvas');
-      tmp.width = pw; tmp.height = ph;
+      tmp.width = iw; tmp.height = ih;
       tmp.getContext('2d').putImageData(disp, 0, 0);
-      // fit the picture into the canvas keeping its aspect ratio: a stretched
-      // preview would show a shape the machine will never cut
-      const s = Math.min(cw / pw, ch / ph);
-      const ox = (cw - pw * s) / 2;
-      const oy = (ch - ph * s) / 2;
-      ctx.drawImage(tmp, ox, oy, pw * s, ph * s);
-      return T.trace(bin, previewOpts).then((r) => {
-        if (!r || !r.paths) return;
-        // The outline. The tracer emits M/L/Q/Z; the app's own SVG path
-        // parser turns those into flat point lists (curves included), so the
-        // preview shows the same geometry the import will produce — reading
-        // the numbers by hand would turn every curve control point into a
-        // corner.
-        const subs = svgTextToPaths(r.svg);
-        // Thin them the way the import thins them, so the contour count in
-        // the info line is the count that will really land in the document.
-        // Both the tolerance and the minimum area scale with the downscale.
-        const loops = simplifyTracedPaths(subs, opts.simplify * k, 2 * k * k);
-        ctx.strokeStyle = '#d92b2b';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        for (const sub of loops) {
-          if (!sub || sub.length < 2) continue;
-          ctx.moveTo(ox + sub[0][0] * s, oy + sub[0][1] * s);
-          for (let t = 1; t < sub.length; t++) {
-            ctx.lineTo(ox + sub[t][0] * s, oy + sub[t][1] * s);
+      ctx.imageSmoothingEnabled = view.zoom < 3;
+      ctx.drawImage(tmp, ox, oy, iw * s, ih * s);
+      // the traced geometry: cached per (blob, options) so a pan/zoom redraw is
+      // instant, and a setting change re-traces exactly what OK will trace.
+      // The cache holds the RAW traced loops; the reference points are applied
+      // at paint time (and again on OK), so moving or removing one redraws
+      // from the same cache without re-tracing.
+      const key = JSON.stringify([blob.size, blob.type === '' ? '' : blob.type, opts]);
+      if (!previewTraceCache || previewTraceCache.blobKey !== key) {
+        if (info) info.textContent = 'tracing…';
+        return traceBlobToSvg(blob, opts).then((svg) => {
+          if (!svg) {
+            if (info) info.textContent = 'trace failed';
+            return;
           }
-          ctx.closePath();
-        }
-        ctx.stroke();
-        // the count is the one the import will produce, and the point count
-        // says how heavy the cut will be
-        let points = 0;
-        for (const l of loops) points += l.length;
-        if (info) info.textContent = loops.length + ' contour' + (loops.length === 1 ? '' : 's') +
-          ' · ' + points + ' point' + (points === 1 ? '' : 's') +
-          ' · ' + iw + '×' + ih + ' px';
-      });
+          const subs = svgTextToPaths(svg);
+          // THE IMPORT PATH: simplifyTracedPaths with the dialog tolerance, in
+          // source pixels — exactly what insertArt will run on OK
+          const loops = simplifyTracedPaths(subs, opts.simplify, 2);
+          previewTraceCache = { blobKey: key, svg, loops, iw, ih };
+          paintTraceOverlay(ctx, applyRefsToLoops(loops), s, ox, oy, view, info, iw, ih);
+        }).catch(() => {
+          if (info) info.textContent = 'trace failed';
+        });
+      }
+      paintTraceOverlay(ctx, applyRefsToLoops(previewTraceCache.loops), s, ox, oy, view, info, iw, ih);
+      return null;
     }).catch(() => {
       if (info) info.textContent = 'that image could not be read';
     });
+  }
+
+  // The outline + node dots + reference points + the info line, over the raster
+  // already drawn. `loops` arrive already reference-adjusted (see applyRefsToLoops).
+  function paintTraceOverlay(ctx, loops, s, ox, oy, view, info, iw, ih) {
+    const canvas = ctx.canvas;
+    const cw = Math.round(canvas.clientWidth || canvas.width);
+    const ch = Math.round(canvas.clientHeight || canvas.height);
+    ctx.setTransform(Math.min(2, (window.devicePixelRatio || 1)), 0, 0,
+      Math.min(2, (window.devicePixelRatio || 1)), 0, 0);
+    if (!loops || !loops.length) {
+      if (info) info.textContent = '0 contours · ' + iw + '×' + ih + ' px';
+      return;
+    }
+    ctx.strokeStyle = '#d92b2b';
+    ctx.lineWidth = 1 / Math.sqrt(view.zoom);
+    ctx.beginPath();
+    for (const sub of loops) {
+      if (!sub || sub.length < 2) continue;
+      ctx.moveTo(ox + sub[0][0] * s, oy + sub[0][1] * s);
+      for (let t = 1; t < sub.length; t++) {
+        ctx.lineTo(ox + sub[t][0] * s, oy + sub[t][1] * s);
+      }
+      ctx.closePath();
+    }
+    ctx.stroke();
+    // every node as a dot: at zoom the wavy staircase of a coarse trace is
+    // visible point by point, so the quality can be judged before OK
+    ctx.fillStyle = '#1d4ed8';
+    const rDot = Math.max(1.2, 2 / Math.sqrt(view.zoom));
+    for (const sub of loops) {
+      if (!sub || sub.length < 2) continue;
+      ctx.beginPath();
+      for (const pt of sub) {
+        const x = ox + pt[0] * s, y = oy + pt[1] * s;
+        ctx.moveTo(x + rDot, y);
+        ctx.arc(x, y, rDot, 0, Math.PI * 2);
+      }
+      ctx.fill();
+    }
+    // the count is the one the import will produce, and the point count
+    // says how heavy the cut will be
+    let points = 0;
+    for (const l of loops) points += l.length;
+    if (info) info.textContent = loops.length + ' contour' + (loops.length === 1 ? '' : 's') +
+      ' · ' + points + ' point' + (points === 1 ? '' : 's') +
+      ' · ' + iw + '×' + ih + ' px · ' + Math.round(view.zoom * 100) + '%';
+    // the reference points, drawn last: centre dot + effect ring
+    for (const ref of previewRefs) {
+      const x = ox + ref.x * s, y = oy + ref.y * s, r = ref.r * s;
+      ctx.strokeStyle = '#7c3aed';
+      ctx.lineWidth = 1.5 / Math.sqrt(view.zoom);
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#7c3aed';
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(3, 4 / Math.sqrt(view.zoom)), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Pan/zoom state of the trace preview. zoom 1 = fit; px/py are CSS pixels of
+  // pan. Kept across redraws (a slider change re-traces but never re-frames),
+  // reset by double-click or when a new picture opens.
+  const previewView = { zoom: 1, px: 0, py: 0 };
+  function resetPreviewView() {
+    previewView.zoom = 1;
+    previewView.px = 0;
+    previewView.py = 0;
+  }
+
+  // Reference points ("snap points") in SOURCE pixel coordinates. One pulls the
+  // traced points inside its radius toward itself — the nearest point lands
+  // exactly on the reference, the rest with a quadratic falloff — so a rounded
+  // trace corner can be made sharp by hand without re-tracing. Points are lost
+  // when a new picture is pasted (they belong to that picture's pixels).
+  let previewRefs = [];   // [{ x, y, r }] in source pixels
+  function resetPreviewRefs() { previewRefs = []; }
+
+  // Apply the reference points to traced loops. Returns NEW arrays; the cached
+  // geometry stays untouched so a removed reference restores the old shape.
+  //
+  // The pull is computed from the ORIGINAL point every time (dx/dy style): each
+  // point's offset toward each reference is derived from its untouched position
+  // against ALL references, and added on top. Consequences that matter:
+  //  - deleting a reference removes its dx/dy contribution and the point snaps
+  //    back to where the tracer put it (the old code mutated the points in
+  //    place, so a deleted reference left the points stuck where they were);
+  //  - overlapping references compose instead of compounding.
+  //
+  // Gravity, not snapping: every point inside the radius feels a pull that
+  // grows as it gets closer to the reference, up to FULL strength only right
+  // at the reference itself. A point halfway out moves about a quarter of the
+  // way; the traced staircase bends toward the point smoothly and only the
+  // points essentially on top of it land on it. No point is ever yanked the
+  // whole distance just for being the nearest one.
+  function applyRefsToLoops(loops) {
+    if (!previewRefs.length || !loops || !loops.length) return loops;
+    const out = loops.map(l => l.map(p => [p[0], p[1]]));
+    for (const ref of previewRefs) {
+      for (const loop of out) {
+        for (const pt of loop) {
+          const d = Math.hypot(pt[0] - ref.x, pt[1] - ref.y);
+          if (d >= ref.r || d < 1e-9) continue;
+          // gravity falloff: full pull at the centre, fading to zero at the
+          // ring (quadratic in the remaining distance — smooth at both ends)
+          const t = 1 - d / ref.r;
+          const pull = t * t;
+          pt[0] += (ref.x - pt[0]) * pull;
+          pt[1] += (ref.y - pt[1]) * pull;
+        }
+      }
+    }
+    return out;
+  }
+
+  // Drag state of a reference point: 'move' drags the centre, 'radius' the ring.
+  let refDrag = null;
+
+  // Wheel = zoom at the cursor, drag = pan (or drag a reference point when one
+  // is under the cursor), click = add a reference, double-click on a reference
+  // = remove it, double-click elsewhere = reset the view.
+  function bindPreviewNav() {
+    const canvas = document.getElementById('img-preview');
+    if (!canvas || canvas.dataset.navBound) return;
+    canvas.dataset.navBound = '1';
+    let panning = false, lastX = 0, lastY = 0;
+    const redraw = () => {
+      if (ui.imageDraft && ui.imageDraft.blob) drawTracePreview(ui.imageDraft.blob, traceOptionsFromDialog());
+    };
+    // canvas CSS pixel -> source pixel, using the same fit the painter uses
+    const toSource = (ev) => {
+      const rect = canvas.getBoundingClientRect();
+      const d = ui.imageDraft || {};
+      const iw = d.iw || 1, ih = d.ih || 1;
+      const cw = Math.max(1, canvas.clientWidth);
+      const ch = Math.max(1, canvas.clientHeight);
+      const fit = Math.min(cw / iw, ch / ih);
+      const baseOx = (cw - iw * fit) / 2;
+      const baseOy = (ch - ih * fit) / 2;
+      const s = fit * previewView.zoom;
+      const ox = baseOx * previewView.zoom + previewView.px;
+      const oy = baseOy * previewView.zoom + previewView.py;
+      return { x: (ev.clientX - rect.left - ox) / s, y: (ev.clientY - rect.top - oy) / s, s };
+    };
+    // the reference under the cursor: 'move' when on its centre dot, 'radius'
+    // when on the ring, null otherwise
+    const refAt = (ev) => {
+      const p = toSource(ev);
+      for (let k = previewRefs.length - 1; k >= 0; k--) {
+        const ref = previewRefs[k];
+        const d = Math.hypot(p.x - ref.x, p.y - ref.y);
+        if (d * p.s < 8) return { ref, mode: 'move' };
+        if (Math.abs(d - ref.r) * p.s < 6) return { ref, mode: 'radius' };
+      }
+      return null;
+    };
+    canvas.addEventListener('wheel', (ev) => {
+      ev.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+      // hovering a reference point: the wheel sizes ITS effect area (diameter)
+      // instead of zooming the view — the ring is being tuned, the view is fine
+      const hit = refAt(ev);
+      if (hit) {
+        const factor = Math.exp(-ev.deltaY * 0.002);
+        const was = hit.ref.r;
+        hit.ref.r = Math.max(2, Math.min(400, hit.ref.r * factor));
+        if (hit.ref.r !== was) {
+          console.log('[trace-preview] ref r', was.toFixed(0), '->', hit.ref.r.toFixed(0));
+          redraw();
+        }
+        return;
+      }
+      const factor = Math.exp(-ev.deltaY * 0.0015);
+      const zoom = Math.max(1, Math.min(40, previewView.zoom * factor));
+      // keep the point under the cursor fixed: shift the pan by the zoom change
+      const k = zoom / previewView.zoom;
+      previewView.px = mx - (mx - previewView.px) * k;
+      previewView.py = my - (my - previewView.py) * k;
+      previewView.zoom = zoom;
+      redraw();
+    }, { passive: false });
+    canvas.addEventListener('pointerdown', (ev) => {
+      if (ev.button !== 0) return;
+      const hit = refAt(ev);
+      if (hit) {
+        refDrag = { ref: hit.ref, mode: hit.mode };
+        canvas.setPointerCapture(ev.pointerId);
+        ev.preventDefault();
+        console.log('[trace-preview] drag ref', hit.mode, 'at', hit.ref.x.toFixed(1), hit.ref.y.toFixed(1));
+        return;
+      }
+      panning = true;
+      lastX = ev.clientX; lastY = ev.clientY;
+      canvas.setPointerCapture(ev.pointerId);
+    });
+    canvas.addEventListener('pointermove', (ev) => {
+      if (refDrag) {
+        const p = toSource(ev);
+        if (refDrag.mode === 'move') {
+          refDrag.ref.x = Math.max(0, Math.min(ui.imageDraft ? ui.imageDraft.iw : 1e9, p.x));
+          refDrag.ref.y = Math.max(0, Math.min(ui.imageDraft ? ui.imageDraft.ih : 1e9, p.y));
+        } else if (refDrag.mode === 'radius') {
+          const d = Math.hypot(p.x - refDrag.ref.x, p.y - refDrag.ref.y);
+          refDrag.ref.r = Math.max(2, Math.min(400, d));
+        }
+        redraw();
+        return;
+      }
+      if (!panning) return;
+      const dx = ev.clientX - lastX, dy = ev.clientY - lastY;
+      lastX = ev.clientX; lastY = ev.clientY;
+      previewView.px += dx;
+      previewView.py += dy;
+      redraw();
+    });
+    const endDrag = () => { panning = false; refDrag = null; };
+    canvas.addEventListener('pointerup', endDrag);
+    canvas.addEventListener('pointercancel', endDrag);
+    // double-click = ADD a snap point there; on an existing one = REMOVE it.
+    // Single click does nothing: a click was too easy to do by accident while
+    // aiming a pan, and every stray point bends the traced outline.
+    canvas.addEventListener('dblclick', (ev) => {
+      ev.preventDefault();
+      const hit = refAt(ev);
+      if (hit) {
+        previewRefs.splice(previewRefs.indexOf(hit.ref), 1);
+        console.log('[trace-preview] removed ref, left:', previewRefs.length);
+        redraw();
+        return;
+      }
+      const p = toSource(ev);
+      const d = ui.imageDraft || {};
+      if (p.x < 0 || p.y < 0 || p.x > (d.iw || 0) || p.y > (d.ih || 0)) {
+        console.log('[trace-preview] dblclick outside the picture, ignored');
+        return;
+      }
+      const r = Math.max(10, Math.min(400, 60 / previewView.zoom));
+      previewRefs.push({ x: p.x, y: p.y, r });
+      console.log('[trace-preview] added ref at', p.x.toFixed(1), p.y.toFixed(1),
+        'r', r.toFixed(0), 'total:', previewRefs.length);
+      redraw();
+    });
+    canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
+  }
+
+  // The reference-point controls under the preview: Clear empties the list, the
+  // radius box sets the radius of the NEXT point added (and of all selected…
+  // kept simple: of every point — one knob for one idea).
+  function bindRefControls() {
+    const clear = document.getElementById('img-refs-clear');
+    if (clear && !clear.dataset.bound) {
+      clear.dataset.bound = '1';
+      clear.addEventListener('click', () => {
+        previewRefs = [];
+        if (ui.imageDraft && ui.imageDraft.blob) drawTracePreview(ui.imageDraft.blob, traceOptionsFromDialog());
+      });
+    }
   }
 
   // Debounced redraw of the preview: dragging a number field must not start a
@@ -17480,6 +17727,7 @@
         source = 'no density in the file \u2014 last used (' + Math.round(dpi) + ' dpi)';
       }
       ui.imageDraft = { blob, iw: img.naturalWidth, ih: img.naturalHeight, dpi };
+      previewTraceCache = null;   // a new picture must not reuse the old trace
       const dpiEl = el('img-dpi');
       if (dpiEl) dpiEl.value = String(Math.round(dpi * 100) / 100);
       const noteEl = el('img-dpi-note');
@@ -17490,6 +17738,10 @@
       // size the preview to the settings column, then draw the first preview
       // so the user sees the trace before touching anything
       sizeTracePreview();
+      resetPreviewView();
+      resetPreviewRefs();   // snap points belong to the old picture's pixels
+      bindPreviewNav();
+      bindRefControls();
       drawTracePreview(blob, traceOptionsFromDialog());
       const ok = el('img-ok');
       if (ok) ok.focus();
@@ -17599,7 +17851,10 @@
       toast('Could not trace that image');
       return null;
     }
-    return artFromSvgText(svg, opts);
+    // The reference points set in the preview are part of the import: the same
+    // pull the preview showed is applied to the paths before they become geometry.
+    const paths = svgTextToPaths(svg);
+    return insertArt(applyRefsToLoops(simplifyTracedPaths(paths, opts.simplify, 2)), opts);
   }
 
   // Fill the Font dropdown from the MiniSketchFonts registry: one optgroup per

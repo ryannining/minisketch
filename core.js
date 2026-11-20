@@ -974,18 +974,25 @@ function fitPolylineCurve(input, opts) {
   // already simplified polyline is left exactly as it is — smoothing would shave
   // its corners and the resample would move nodes off the geometry. Callers that
   // know the input is a trace (the glyph / picture outline path) can ask for it
-  // with opts.denoise.
+  // with opts.denoise, but even then the polyline must actually be dense: a
+  // 4-point rectangle has no noise to remove and a window spanning a quarter
+  // of the shape would round its corners off entirely.
   const spacing = avgSpacing(pts, closed);
-  const dense = o.denoise === true ? true
+  let smoothSpan = 0;               // mm covered by the denoise window (set below)
+  const dense = o.denoise === true ? (pts.length > 16 && spacing < tol * 5)
     : o.denoise === false ? false
       : (pts.length > 400 && spacing < tol * 2);
   if (dense) {
-    // Smoothing must not move the shape more than the tolerance allows, or the
+    // Smoothing must not move the shape more than the noise allows, or the
     // fit would honour `tol` on a curve that already drifted away from the
-    // geometry. Try the widest window first and back off until the displacement
-    // is inside half the tolerance (a dense trace has sub-tolerance noise, so a
-    // window of a few points is enough to remove it).
+    // geometry. Try the widest window first and back off until the
+    // displacement is inside the noise scale: a staircase trace wobbles by
+    // about half its point spacing, so a window whose worst displacement
+    // stays under 0.6 of that spacing removes the wobble without rounding
+    // real corners (a corner moves a point much further than the noise does,
+    // so a corner-shaped displacement makes the window back off by itself).
     const before = pts;
+    const noiseCap = 0.6 * Math.max(avgSpacing(before, closed), 1e-9);
     let radius = Math.max(1, Math.round(3 * tol / 0.2));
     let smoothed = before;
     while (radius > 0) {
@@ -995,9 +1002,14 @@ function fitPolylineCurve(input, opts) {
         const d = Math.hypot(cand[i].x - before[i].x, cand[i].y - before[i].y);
         if (d > worst) worst = d;
       }
-      if (worst <= tol * 0.5) { smoothed = cand; break; }
+      if (worst <= noiseCap) { smoothed = cand; break; }
       radius = Math.floor(radius / 2);
     }
+    // The resample re-spaces to tol*1.5, but the corner detector needs to
+    // measure turns across the SMOOTHING window, not across one resampled
+    // step: a radius-r window rounds a corner over r*spacing mm, and a
+    // shorter reach sees the two ends of that rounded arc as TWO corners.
+    smoothSpan = radius * avgSpacing(before, closed);
     pts = curveResample(smoothed, Math.max(0.05, tol * 1.5), closed);
   }
   const n = pts.length;
@@ -1017,7 +1029,7 @@ function fitPolylineCurve(input, opts) {
   // each side makes the wobble cancel while a real corner still turns the path
   // by its true angle. A polyline with widely spaced points keeps the old
   // one-step test: its corners ARE the geometry.
-  const reach = dense ? Math.max(2 * tol, 0) : 0;
+  const reach = dense ? Math.max(2 * tol, 3 * avgSpacing(pts, closed), smoothSpan) : 0;
   // Direction of travel AT vertex i: forwards it points away from i, backwards
   // it points INTO i (pts[i] - pts[j]), so both vectors describe the same
   // heading and a straight stretch turns by 0, not 180.

@@ -493,6 +493,37 @@ console.log('parseCdr');
     ok(dr.nodes.length === 4, 'a densely traced rectangle also collapses to 4 nodes (got ' + dr.nodes.length + ')');
     ok(dr.nodes.every(n => !n.o && !n.i), 'and stays perfectly straight');
 
+    // a STAIRCASE trace (the real output of the raster tracer: every boundary
+    // point on the 0.5 px grid) used to come back wavy: the turn detector saw
+    // a 45-90° flip at every step and marked ~every vertex a corner, and the
+    // smoothing backed off because its displacement budget was the FIT
+    // tolerance, tighter than the noise it was removing. A staircase circle
+    // must still fit as a circle, a staircase rectangle keep its corners.
+    const stair = (cx, cy, r, n) => {
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        const a = Math.PI * 2 * i / n;
+        out.push({ x: Math.round((cx + r * Math.cos(a)) * 2) / 2, y: Math.round((cy + r * Math.sin(a)) * 2) / 2 });
+      }
+      return out;
+    };
+    const sc = fit(stair(60, 60, 11, 140), { tol: 0.2, sharpAngle: 25, closed: true, denoise: true });
+    ok(sc && sc.nodes.length <= 8, 'a staircase circle fits in a few nodes (got ' + (sc ? sc.nodes.length : 'null') + ')');
+    ok(sc && sc.corners.length === 0, 'a staircase circle has no corners (got ' + (sc ? sc.corners.length : '-') + ')');
+    const sq2 = [];
+    for (let i = 0; i < 25; i++) sq2.push({ x: i, y: 0 });
+    for (let i = 0; i < 25; i++) sq2.push({ x: 25, y: i });
+    for (let i = 0; i < 25; i++) sq2.push({ x: 25 - i, y: 25 });
+    for (let i = 0; i < 25; i++) sq2.push({ x: 0, y: 25 - i });
+    const ss = fit(sq2, { tol: 0.2, sharpAngle: 25, closed: true, denoise: true });
+    ok(ss && ss.corners.length === 4, 'a staircase rectangle keeps exactly 4 corners (got ' + (ss ? ss.corners.length : '-') + ')');
+    // denoise never fires on a sparse polyline even when requested: a 4-point
+    // rectangle has no noise, and a quarter-shape window would round it away
+    const sparse = fit([{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 30 }, { x: 0, y: 30 }],
+      { tol: 0.2, sharpAngle: 25, closed: true, denoise: true });
+    ok(sparse && sparse.nodes.length === 4 && sparse.corners.length === 4,
+      'denoise on a sparse rectangle changes nothing (got ' + (sparse ? sparse.nodes.length + '/' + sparse.corners.length : 'null') + ')');
+
     // corner threshold: 0 keeps every vertex, 180 rounds everything
     const arcPts = [];
     for (let i = 0; i <= 20; i++) {

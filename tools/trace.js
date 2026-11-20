@@ -128,6 +128,13 @@
   // Binarise into a fresh ImageData: pixels at or above the threshold become
   // white (background), the rest become black (shape). Working on a copy
   // keeps the caller's ImageData untouched.
+  //
+  // Alpha is part of the decision: a mostly-transparent pixel is background no
+  // matter how dark its RGB is. Without this, a PNG with a transparent page
+  // decodes to rgba(0,0,0,0) on the canvas — luma 0, deep in "shape" territory —
+  // and the whole empty sheet came back as one giant traced rectangle. The
+  // effective luma is scaled by the alpha coverage, so a semi-transparent black
+  // pixel fades toward background the same way it looks on a white page.
   function binarize(src, threshold) {
     const w = src.width, h = src.height;
     const out = new ImageData(w, h);
@@ -135,8 +142,11 @@
     const cut = clampNum(threshold, 0, 255, 128);
     for (let i = 0; i < sd.length; i += 4) {
       // Rec. 601 luma — the same weighting the eye uses, so a saturated blue
-      // counts as dark even when its green+blue channels are high.
-      const luma = 0.299 * sd[i] + 0.587 * sd[i + 1] + 0.114 * sd[i + 2];
+      // counts as dark even when its green+blue channels are high. The pixel is
+      // composited over white first, so an empty transparent pixel reads as
+      // paper (255), not as the black its empty RGB channels decode to.
+      const a = sd[i + 3] / 255;
+      const luma = (0.299 * sd[i] + 0.587 * sd[i + 1] + 0.114 * sd[i + 2]) * a + 255 * (1 - a);
       const dark = luma < cut ? 0 : 255;
       od[i] = dark; od[i + 1] = dark; od[i + 2] = dark; od[i + 3] = 255;
     }
@@ -324,4 +334,30 @@
   NS.contourSignature = contourSignature;
   NS.similarContour = similarContour;
   NS.dedupeContours = dedupeContours;
+
+  // The post-processed raster the tracer actually sees: decoded, blurred when
+  // the dialog asks for it, then binarised at the threshold. The preview draws
+  // THIS, not the original picture — the decision the tolerance knobs drive is
+  // about the binarised shape, so the preview must show the binarised shape.
+  async function processedImageData(blob, opts) {
+    const o = normalizeOptions(opts);
+    const img = await blobToImage(blob);
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    if (!w || !h) throw new Error('image has no size');
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0);
+    let raw = ctx.getImageData(0, 0, w, h);
+    // the same selective blur the tracer runs inside colorquantization, so the
+    // preview's soft edges are the ones the trace will follow
+    if (o.blur > 0 && typeof self !== 'undefined' && self.ImageTracer &&
+      typeof self.ImageTracer.blur === 'function') {
+      raw = self.ImageTracer.blur(raw, o.blur, 20);
+    }
+    return binarize(raw, o.threshold);
+  }
+  NS.processedImageData = processedImageData;
 })();

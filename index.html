@@ -566,8 +566,9 @@
     <h3 id="image-title">Paste image</h3>
     <div class="modal-cols">
       <div class="trace-preview">
-        <canvas id="img-preview" width="260" height="180"></canvas>
+        <canvas id="img-preview" width="260" height="180" title="Double-click = add snap point (on a point = remove), scroll = zoom, drag = pan / move point / resize radius"></canvas>
         <div class="trace-preview-info" id="img-preview-info">&mdash;</div>
+        <button class="btn small" id="img-refs-clear" type="button">Clear snap points</button>
       </div>
       <div class="opt-col trace-opts">
         <label class="opt"><input type="radio" name="img-mode" id="img-mode-trace" checked> Trace to geometry</label>
