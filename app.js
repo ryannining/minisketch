@@ -15334,15 +15334,15 @@
     state.entities[idW] = { id: idW, type: 'line', a: p0, b: pwId, color: '#00ff00' };
     const idH = newId();
     state.entities[idH] = { id: idH, type: 'line', a: p0, b: phId, color: '#00ff00' };
-    // The H + perpendicular pair only makes sense on a fresh axis-aligned
-    // frame. A re-trace lands on the source picture's ROTATED frame — adding
-    // them here would have the solver rotate the frame straight back and the
-    // trace would lose the picture's rotation.
+    // Perpendicular ALWAYS: the frame must stay a rectangle, or the trace comes
+    // out skewed. Horizontal only on a FRESH frame: a re-trace lands on the
+    // source picture's ROTATED frame, and forcing the width line horizontal
+    // would rotate the whole trace back to 0° and lose the picture's rotation.
+    const cPerp = newId();
+    state.constraints[cPerp] = { id: cPerp, type: 'perpendicular', line1: idW, line2: idH };
     if (!frameFrom) {
       const cH = newId();
       state.constraints[cH] = { id: cH, type: 'horizontal', entity: idW };
-      const cPerp = newId();
-      state.constraints[cPerp] = { id: cPerp, type: 'perpendicular', line1: idW, line2: idH };
     }
     const contours = loops.map(loop => loop.map(pt => [(pt[0] - minX) / srcW, (pt[1] - minY) / srcH]));
     const id = newId();
