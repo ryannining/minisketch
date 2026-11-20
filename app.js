@@ -17705,6 +17705,33 @@
     }, 180);
   }
 
+  // A stored picture (data URL) back into a Blob, so double-clicking a
+  // kept-as-image re-opens the trace dialog with the same pixels. Modern
+  // browsers do this with one fetch; a manual atob fallback covers file://
+  // views where fetch on a data URL can be blocked.
+  function dataUrlToBlob(dataUrl) {
+    const src = String(dataUrl || '');
+    const comma = src.indexOf('base64,');
+    if (comma < 0) return Promise.resolve(null);
+    const mime = /^data:([^;]+)/.exec(src);
+    const type = mime ? mime[1] : 'image/png';
+    const b64 = src.slice(comma + 7);
+    if (typeof fetch === 'function') {
+      return fetch(src).then(r => r.blob()).catch(() => dataUrlToBlobManual(b64, type));
+    }
+    return Promise.resolve(dataUrlToBlobManual(b64, type));
+  }
+  function dataUrlToBlobManual(b64, type) {
+    try {
+      const bin = atob(b64);
+      const buf = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+      return new Blob([buf], { type });
+    } catch (err) {
+      return null;
+    }
+  }
+
   function openImageDialog(blob) {
     const modal = document.getElementById('image-modal');
     if (!modal) { artFromBlob(blob); return; }
@@ -27162,6 +27189,22 @@ function cmdSplitCurve() {
         updateUI();
         render();
         openArrayDialog(eh, ent.masters);
+        return;
+      }
+      // A kept-as-image picture re-opens its import dialog: the same blob that
+      // was pasted, with the settings remembered, so Trace can be chosen (or
+      // the size / dpi corrected) without pasting the picture again.
+      if (ent && ent.type === 'image' && typeof ent.src === 'string' && ent.src.indexOf('base64,') >= 0) {
+        dataUrlToBlob(ent.src).then((blob) => {
+          if (!blob) {
+            toast('The picture data is no longer readable');
+            return;
+          }
+          ui.selection = [{ kind: 'entity', id: eh }];
+          updateUI();
+          render();
+          openImageDialog(blob);
+        });
         return;
       }
       // a generated group remembers its generator and parameters
