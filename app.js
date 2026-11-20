@@ -17764,7 +17764,7 @@
         modeImage.parentElement && modeImage.parentElement.setAttribute('title',
           'Already placed as an image: tracing only');
       }
-      el('img-mode-trace').checked = true;
+      document.getElementById('img-mode-trace').checked = true;
     } else if (modeImage) {
       modeImage.disabled = false;
       modeImage.parentElement && modeImage.parentElement.removeAttribute('title');
