@@ -5049,8 +5049,12 @@
         if (!e) continue;
         for (const pid of entityPointIds(e)) ids.add(+pid);
         // framed objects own their guides: arrow-key / dialog moves must move
-        // the masters too, or the release refit snaps the shape back home
-        if ((e.type === 'art' || e.type === 'text') && Array.isArray(e.guide)) {
+        // the masters too, or the release refit snaps the shape back home.
+        // IMAGE is a framed object like art / text — leaving it out meant a
+        // transform moved the picture but the solver still saw only the old
+        // guide geometry, and the H + perpendicular + aspect constraints
+        // rotated the frame straight back on the release solve.
+        if ((e.type === 'art' || e.type === 'text' || e.type === 'image') && Array.isArray(e.guide)) {
           for (const gid of e.guide) {
             const g = state.entities[gid];
             if (g) for (const pid of entityPointIds(g)) ids.add(+pid);
@@ -5742,7 +5746,12 @@
       const drop =
         ((con.type === 'horizontal' || con.type === 'vertical') && eids.has(+con.entity)) ||
         ((con.type === 'horizontalPoints' || con.type === 'verticalPoints') &&
-          pids.has(+con.p1) && pids.has(+con.p2));
+          pids.has(+con.p1) && pids.has(+con.p2)) ||
+        // same rule as xfCommit: a rotated guide pair cannot stay perpendicular,
+        // and the aspect lock would scale the rotation away
+        ((con.type === 'perpendicular' || con.type === 'parallel') &&
+          (eids.has(+con.line1) || eids.has(+con.line2))) ||
+        (con.type === 'aspect' && eids.has(+con.entity));
       if (drop) { delete state.constraints[cid]; removed++; }
     }
     const rot = (x, y) => {
@@ -6599,7 +6608,15 @@
         const drop =
           ((c.type === 'horizontal' || c.type === 'vertical') && eids.has(+c.entity)) ||
           ((c.type === 'horizontalPoints' || c.type === 'verticalPoints') &&
-            pids.has(+c.p1) && pids.has(+c.p2));
+            pids.has(+c.p1) && pids.has(+c.p2)) ||
+          // the guide pair of a framed object is held perpendicular (and some
+          // generators add parallel); after a rotation that relation is a lie
+          // the solver enforces by rotating the frame straight back
+          ((c.type === 'perpendicular' || c.type === 'parallel') &&
+            (eids.has(+c.line1) || eids.has(+c.line2))) ||
+          // the aspect lock rescales the frame back to its stored w/h ratio,
+          // which after a rotation means un-rotating it
+          (c.type === 'aspect' && eids.has(+c.entity));
         if (drop) {
           delete state.constraints[cid];
           removed++;
