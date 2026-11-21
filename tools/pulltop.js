@@ -257,6 +257,14 @@
     label: 'Pull top duo',
     title: 'Pull top duo: base, four walls and two sliding tops you pull apart, with clips that carry them and finger handles. The red marks show where the clips and handles are glued. Double click the result to edit its parameters',
     modalId: 'pulltopduo-modal',
+    guide: {
+      en: {
+        main: '<b>Base</b>, four walls and two sliding <b>pulls</b> with their clips and handles. <b>Red lines</b> mark glue spots — everything else cuts. Double click the result to edit.'
+      },
+      id: {
+        main: '<b>Base</b>, empat dinding dan dua <b>pull</b> yang diselipkan beserta clip dan handlenya. <b>Garis merah</b> menandai tempat lem — sisanya potong. Dobel-klik hasil untuk mengubah.'
+      }
+    },
     modal: `
 <div id="pulltopduo-modal" class="modal hidden">
   <div class="modal-box wide-cols">
@@ -268,7 +276,7 @@
       <label class="opt">Height (mm) <input type="number" id="pt-h" value="50" step="1" min="20"></label>
       <label class="opt">Material thickness (mm) <input type="number" id="pt-t" value="3" step="0.1" min="0.5"></label>
     </div>
-    <div class="cnc-status"><b>Base</b>, two <b>walls</b>, two <b>side</b> walls, two sliding <b>pulls</b>, two <b>clips</b> and two <b>handles</b>. Red lines mark glue spots &mdash; everything else cuts. Double click the result to edit.</div>
+    <div class="cnc-status" data-guide="main"></div>
     </div>
     <div class="modal-actions">
       <button class="btn" id="pt-cancel">Cancel</button>

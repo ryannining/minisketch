@@ -69,6 +69,14 @@
     label: 'Box maker',
     title: 'Box maker: generate a finger joint box (panels laid out flat, ready to cut)',
     modalId: 'box-modal',
+    guide: {
+      en: {
+        main: 'A finger-joint box laid out flat, ready to cut: <b>Outside</b> sizes the outer walls, <b>Inside</b> the cavity. Double click the result to edit.'
+      },
+      id: {
+        main: 'Kotak finger joint ditata rata, siap potong: <b>Outside</b> mengukur dinding luarnya, <b>Inside</b> rongga dalamnya. Dobel-klik hasil untuk mengubah.'
+      }
+    },
     modal: `
 <div id="box-modal" class="modal hidden">
   <div class="modal-box">
@@ -87,6 +95,7 @@
       </label>
       <label class="opt"><input type="checkbox" id="box-lid" checked> Include lid (closed box)</label>
     </div>
+    <div class="cnc-status" data-guide="main"></div>
     <div class="modal-actions">
       <button class="btn" id="box-cancel">Cancel</button>
       <button class="btn primary" id="box-ok">Create</button>

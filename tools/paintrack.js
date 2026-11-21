@@ -135,6 +135,14 @@
     label: 'Paint rack',
     title: 'Paint storage rack: tiered shelves drilled with a hole grid, slotted into two side walls (flat, ready to cut)',
     modalId: 'paintrack-modal',
+    guide: {
+      en: {
+        main: 'Two side walls with fingered slots, one drilled shelf per tier. Shelves follow the hole grid (edge margin = spacing); joints follow the thickness. Double click the result to edit.'
+      },
+      id: {
+        main: 'Dua dinding samping berslot finger, satu rak berlubang per tingkat. Rak mengikuti kisi lubang (jarak tepi = spacing); sambungan mengikuti tebal bahan. Dobel-klik hasil untuk mengubah.'
+      }
+    },
     modal: `
 <div id="paintrack-modal" class="modal hidden">
   <div class="modal-box wide-cols">
@@ -150,7 +158,7 @@
       <label class="opt">Material thickness (mm) <input type="number" id="ps-t" value="4" step="0.1" min="0.5"></label>
       <label class="opt">Finger width (mm) <input type="number" id="ps-fw" value="10" step="1" min="1"></label>
     </div>
-    <div class="cnc-status">Two side walls with fingered slots, one drilled shelf per tier. Shelf size follows the hole grid (edge margin = spacing); every joint follows the thickness. Double click the result to edit.</div>
+    <div class="cnc-status" data-guide="main"></div>
     </div>
     <div class="modal-actions">
       <button class="btn" id="ps-cancel">Cancel</button>

@@ -111,23 +111,31 @@
     label: 'Spiral',
     title: 'Spiral Archimedes: mulai dari lingkaran dalam (bukan titik tengah), melebar tiap lilitan sampai diameter luar; bisa 2 start atau lebih (lengan berselang-seling yang tidak saling memotong). Klik ganda hasilnya untuk mengubah parameter',
     modalId: 'spiral-modal',
+    guide: {
+      en: {
+        main: 'Archimedean spiral from the <b>inner diameter</b> to the outer one; each arm grows <b>pitch &times; starts</b> per turn, so multiple arms never touch. Turns per arm stay whole — the pitch is adjusted and reported. Double click to edit (don\'t drag the frame: the pattern stretches with it).'
+      },
+      id: {
+        main: 'Spiral Archimedes dari <b>diameter dalam</b> ke diameter luar; tiap lengan melebar <b>pitch &times; jumlah start</b> per putaran, jadi banyak lengan tidak pernah bersentuhan. Lilitan tiap lengan selalu bulat — pitch disesuaikan dan dilaporkan. Dobel-klik untuk mengubah (jangan tarik bingkainya: polanya ikut terulur).'
+      }
+    },
     modal: `
 <div id="spiral-modal" class="modal hidden">
   <div class="modal-box">
     <h3>Spiral</h3>
     <div class="opt-col">
-      <label class="opt" title="Diameter lingkaran tempat spiral dimulai — titik pertama ada di radius ini, bukan di tengah.">Diameter dalam (mm) <input type="number" id="sp-di" value="20" step="1" min="0.5"></label>
-      <label class="opt">Diameter luar (mm) <input type="number" id="sp-do" value="80" step="1" min="1"></label>
-      <label class="opt" title="Banyaknya lengan spiral identik yang diputar 360°/jumlah start. 2 = dua lengan berselang-seling kiri-kanan (180°); 4 = empat lengan tiap 90°. Jarak antar lengan yang bersebelahan tetap sebesar pitch, jadi lengan tidak pernah saling memotong.">Jumlah start <input type="number" id="sp-starts" value="1" step="1" min="1" max="8"></label>
-      <label class="opt">Ditentukan oleh
+      <label class="opt" title="Diameter of the circle the spiral starts on — the first point sits at this radius, not at the centre.">Inner diameter (mm) <input type="number" id="sp-di" value="20" step="1" min="0.5"></label>
+      <label class="opt">Outer diameter (mm) <input type="number" id="sp-do" value="80" step="1" min="1"></label>
+      <label class="opt" title="How many identical spiral arms, rotated by 360&deg;/count. 2 = two arms interleaved left-right (180&deg;); 4 = four arms every 90&deg;. Adjacent arms always keep exactly one pitch apart, so arms never cross.">Starts <input type="number" id="sp-starts" value="1" step="1" min="1" max="8"></label>
+      <label class="opt">Driven by
         <select id="sp-mode">
-          <option value="pitch">Pitch (jarak antar lengan)</option>
-          <option value="loops">Jumlah lilitan</option>
+          <option value="pitch">Pitch (arm spacing)</option>
+          <option value="loops">Turns</option>
         </select>
       </label>
-      <label class="opt" title="Jarak antar lengan yang bersebelahan. Tiap lengan sendiri melebar pitch × jumlah start per putaran penuh.">Pitch (mm) <input type="number" id="sp-pitch" value="3" step="0.5" min="0.05"></label>
-      <label class="opt">Jumlah lilitan tiap lengan <input type="number" id="sp-loops" value="6" step="1" min="1"></label>
-      <div class="cnc-status">Spiral Archimedes mulai dari <b>diameter dalam</b>, tiap lengan bertambah <b>pitch &times; jumlah start</b> per putaran sampai <b>diameter luar</b>. Dengan 2 start dua lengan berselang 180&deg; berjarak pitch &mdash; tidak pernah memotong. Lilitan per lengan selalu bulat: pitch disesuaikan dan dilaporkan. Jangan menarik bingkainya (pola ikut terulur) &mdash; klik ganda untuk mengubah parameter.</div>
+      <label class="opt" title="Distance between adjacent arms. Each arm itself grows pitch &times; starts per full turn.">Pitch (mm) <input type="number" id="sp-pitch" value="3" step="0.5" min="0.05"></label>
+      <label class="opt">Turns per arm <input type="number" id="sp-loops" value="6" step="1" min="1"></label>
+      <div class="cnc-status" data-guide="main"></div>
     </div>
     <div class="modal-actions">
       <button class="btn" id="spiral-cancel">Cancel</button>

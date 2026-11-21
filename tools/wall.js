@@ -449,6 +449,14 @@
     label: 'Extrude wall',
     title: 'Extrude wall: turn the selected closed loops into a flat-pack set — base with finger joint notches, bendable wall strip (hinge cuts only where the outline curves), lid and lid plug. Double click the result to edit its parameters',
     modalId: 'wall-modal',
+    guide: {
+      en: {
+        main: 'Each selected loop becomes a flat-pack set: <b>base</b> with finger notches, engraved <b>lid</b> + plug, and a bendable <b>wall</b> strip. Joints follow the thickness; fingers need a bend radius of at least 25&nbsp;mm. Double click the result to edit.'
+      },
+      id: {
+        main: 'Tiap loop terpilih jadi satu set flat-pack: <b>base</b> bermues finger, <b>lid</b> bergaris pandu + plug-nya, dan strip <b>dinding</b> yang bisa dibengkokkan. Sambungan mengikuti tebal bahan; finger butuh radius belok minimal 25&nbsp;mm. Dobel-klik hasil untuk mengubah.'
+      }
+    },
     modal: `
 <div id="wall-modal" class="modal hidden">
   <div class="modal-box wide-cols">
@@ -464,7 +472,7 @@
       <label class="opt">Curve threshold (&times; thickness) <input type="number" id="wall-plainrk" value="60" step="5" min="2"></label>
       <label class="opt">Laser kerf (mm) <input type="number" id="wall-kerf" value="0.4" step="0.05" min="0"></label>
     </div>
-    <div class="cnc-status">Per selection: <b>Base</b> with finger notches, <b>Lid</b> with an engraved guide, <b>Lid plug</b> offset inward, and the <b>Wall</b> strip &mdash; fingers plus a living hinge only where the outline curves. Joints follow the stock thickness; fingers need a bend radius of at least 25&nbsp;mm, tighter bends butt-join. Double click the result to edit.</div>
+    <div class="cnc-status" data-guide="main"></div>
     </div>
     <div class="modal-actions">
       <button class="btn" id="wall-cancel">Cancel</button>

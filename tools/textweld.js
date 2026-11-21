@@ -262,16 +262,28 @@
     label: 'Text weld',
     title: 'Text weld: weld the selected outer loops into one connected cut piece in place — exact boolean, curves preserved, the right object\'s overlap edge marked red. Replaces the originals. Double click to edit',
     modalId: 'tw-modal',
+    guide: {
+      en: {
+        ttl: 'Text weld &middot; join into one',
+        hint: 'Arrange the objects to <b>overlap</b>, select the <b>outers</b>, then Create. Text letters: <b>Convert to Curve</b> / ungroup first so they can be moved.',
+        main: 'Welds the selection <b>in place</b> into one piece: the union becomes the <b>black cut outline</b> and each joint keeps one <b>red marking</b> arc (<b>Start from right</b> picks its side). <b>Replaces the originals.</b> Double click the result to edit.'
+      },
+      id: {
+        ttl: 'Text weld &middot; sambung jadi satu',
+        hint: 'Susun objek sampai saling <b>overlap</b>, select <b>outer</b>-nya, lalu Create. Huruf teks: <b>Convert to Curve</b> / ungroup dulu agar bisa digeser.',
+        main: 'Me-weld pilihan <b>di posisinya</b> jadi satu bagian: union jadi <b>outline potong hitam</b> dan tiap sambungan menyisakan satu busur <b>marking merah</b> (sisinya lewat <b>Start from right</b>). <b>Menggantikan objek asli.</b> Dobel-klik hasil untuk mengubah.'
+      }
+    },
     modal: `
 <div id="tw-modal" class="modal hidden">
   <div class="modal-box wide-cols">
-    <h3>Text weld &middot; sambung jadi satu</h3>
+    <h3><span data-guide="ttl">Text weld &middot; join into one</span></h3>
     <div class="modal-cols">
     <div class="opt-col">
-      <label class="opt" title="Pilih busur sambungan mana yang jadi garis merah: mulai dari kiri (busur objek kanan) atau kanan (busur objek kiri)."><input type="checkbox" id="tw-fromright"> Mulai dari kanan</label>
-      <div class="opt">Susun objek sampai saling <b>overlap</b>, select <b>outer</b>-nya, lalu Create. Huruf dari teks: <b>Convert to Curve</b> / ungroup dulu agar bisa digeser.</div>
+      <label class="opt" title="Pick which joint arc becomes the red marking line: starting from the left keeps the right object's arc, from the right keeps the left object's arc."><input type="checkbox" id="tw-fromright"> Start from right</label>
+      <div class="opt" data-guide="hint"></div>
     </div>
-    <div class="cnc-status">Tool meng-weld pada posisinya memakai <b>boolean exact</b> (kurva &amp; resolusi dipertahankan): union jadi <b>satu outline cut hitam</b>. Di tiap sambungan, satu busur jadi <b>merah marking</b> (tidak memutus material, kurva mulus) dan busur lainnya ditiadakan &mdash; sisi merah ditentukan checkbox <b>Mulai dari kanan</b>. <b>Menggantikan objek asli</b> di tempat; duplikat master dulu secara manual bila ingin menyimpannya. Objek yang tidak overlap siapa pun tetap jadi bagian sendiri. Dobel-klik group untuk membangun ulang.</div>
+    <div class="cnc-status" data-guide="main"></div>
     </div>
     <div class="modal-actions">
       <button class="btn" id="tw-cancel">Cancel</button>

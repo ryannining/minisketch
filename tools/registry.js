@@ -5,6 +5,10 @@
 //   label    button text in the Tools panel
 //   title    button tooltip
 //   modal    the dialog markup, injected into <body> once
+//   guide    optional { en: {...}, id: {...} } of guide texts: every key maps
+//            to the element in the modal carrying data-guide="key". File → Lang
+//            switches which language is painted into those placeholders, so
+//            every tool window reads in ONE language instead of a mix.
 //   open     fill the dialog (api, params from a re-edited group or null)
 //   apply    run the generator (api)
 //   wire     optional, run once at mount for dialog listeners beyond Create /
@@ -20,7 +24,37 @@ window.MiniSketchTools = (() => {
   NS.list = [];
   NS.api = null;
 
+  // Same key the Help window's EN / Indonesia switch uses, so File → Lang
+  // moves the tool guides and the Help panes together.
+  const LANG_KEY = 'minisketch.help.lang';
+
+  const readLang = () => {
+    try { return localStorage.getItem(LANG_KEY) === 'id' ? 'id' : 'en'; }
+    catch (err) { return 'en'; }
+  };
+  NS.lang = readLang();
+
   const modalOf = (tool) => document.getElementById(tool.modalId);
+
+  // Paint one tool's guide placeholders in the current language. Missing
+  // translations fall back to English; a tool without a guide is skipped.
+  function applyToolLang(tool) {
+    const modal = modalOf(tool);
+    if (!modal || !tool.guide) return;
+    const g = tool.guide[NS.lang] || tool.guide.en;
+    if (!g) return;
+    for (const k of Object.keys(g)) {
+      const el = modal.querySelector('[data-guide="' + k + '"]');
+      if (el) el.innerHTML = g[k];
+    }
+  }
+
+  // File → Lang: store the choice and repaint every open dialog's guides.
+  NS.setLang = (lang) => {
+    NS.lang = lang === 'id' ? 'id' : 'en';
+    try { localStorage.setItem(LANG_KEY, NS.lang); } catch (err) { /* private mode */ }
+    for (const tool of NS.list) applyToolLang(tool);
+  };
 
   NS.register = (tool) => {
     if (!tool || !tool.id || !tool.apply) return;
@@ -42,6 +76,7 @@ window.MiniSketchTools = (() => {
     for (const tool of NS.list) {
       const modal = modalOf(tool);
       if (modal) {
+        applyToolLang(tool);
         const ok = modal.querySelector('.modal-actions .btn.primary');
         if (ok) ok.addEventListener('click', () => tool.apply(NS.api));
         const cancel = modal.querySelector('[id$="-cancel"]');

@@ -30815,9 +30815,34 @@ function cmdSplitCurve() {
     });
     const btnHelp = document.getElementById('btn-help');
     if (btnHelp) btnHelp.addEventListener('click', openHelpModal);
+    // File → Lang: ONE switch for the guide texts of the tool windows and the
+    // Help panes. The registry stores the choice under the Help window's own
+    // key (minisketch.help.lang), so both stay in sync across sessions.
+    const langEn = document.getElementById('menu-lang-en');
+    const langId = document.getElementById('menu-lang-id');
+    function syncGuideLangMenu() {
+      const want = (window.MiniSketchTools && window.MiniSketchTools.lang) || helpLang();
+      for (const pair of [[langEn, want === 'en'], [langId, want === 'id']]) {
+        const el = pair[0], on = pair[1];
+        if (!el) continue;
+        el.classList.toggle('is-on', on);
+        el.setAttribute('aria-checked', on ? 'true' : 'false');
+        const chk = el.querySelector('input[type="checkbox"]');
+        if (chk) chk.checked = on;
+      }
+    }
+    function setGuideLang(lang) {
+      const want = lang === 'id' ? 'id' : 'en';
+      if (window.MiniSketchTools && window.MiniSketchTools.setLang) window.MiniSketchTools.setLang(want);
+      setHelpLang(want);
+      syncGuideLangMenu();
+    }
+    if (langEn) langEn.addEventListener('click', () => setGuideLang('en'));
+    if (langId) langId.addEventListener('click', () => setGuideLang('id'));
+    syncGuideLangMenu();
     const langBtns = document.querySelectorAll('[data-help-lang]');
     for (const b of langBtns) {
-      b.addEventListener('click', () => setHelpLang(b.getAttribute('data-help-lang')));
+      b.addEventListener('click', () => setGuideLang(b.getAttribute('data-help-lang')));
     }
 
     const btnConnected = document.getElementById('btn-connected');

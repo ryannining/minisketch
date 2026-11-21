@@ -119,6 +119,14 @@
     label: 'Gear',
     title: 'Gear maker: spur gear, rack, or a pulley / 3D gear cut from flat stock with flanges',
     modalId: 'gear-modal',
+    guide: {
+      en: {
+        main: 'Spur gear, rack or pulley from flat stock: <b>Module</b> and <b>Teeth</b> size the gear; a pulley stacks body layers between two flanges. Double click the result to edit.'
+      },
+      id: {
+        main: 'Spur gear, rack atau pulley dari lembaran: <b>Module</b> dan <b>Teeth</b> menentukan ukuran gear; pulley menumpuk lapisan body di antara dua flange. Dobel-klik hasil untuk mengubah.'
+      }
+    },
     modal: `
 <div id="gear-modal" class="modal hidden">
   <div class="modal-box">
@@ -153,6 +161,7 @@
         <label class="opt">Flange diameter (mm, 0 = none) <input type="number" id="gear-flange" value="60" step="1" min="0"></label>
       </div>
     </div>
+    <div class="cnc-status" data-guide="main"></div>
     <div class="modal-actions">
       <button class="btn" id="gear-cancel">Cancel</button>
       <button class="btn primary" id="gear-ok">Create</button>

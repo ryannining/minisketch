@@ -313,6 +313,14 @@
     label: 'Hinge box',
     title: 'Hinge box: six panels with round knuckle corners — walls carry finger-joint tabs into the base and lid, the side walls hook round a barrel instead of being finger jointed. Double click the result to edit its parameters',
     modalId: 'hinge-modal',
+    guide: {
+      en: {
+        main: 'Six panels: <b>Base</b> and <b>Lid</b> take the wall tabs; the two <b>side</b> walls hook round the knuckle corners. Every joint follows the stock thickness. Double click the result to edit.'
+      },
+      id: {
+        main: 'Enam panel: <b>Base</b> dan <b>Lid</b> memakai tab dinding; dua dinding <b>samping</b> menggulung di sudut knuckle. Semua sambungan mengikuti tebal bahan. Dobel-klik hasil untuk mengubah.'
+      }
+    },
     modal: `
 <div id="hinge-modal" class="modal hidden">
   <div class="modal-box wide-cols">
@@ -324,7 +332,7 @@
       <label class="opt">Height (mm) <input type="number" id="hg-h" value="60" step="1" min="10"></label>
       <label class="opt">Material thickness (mm) <input type="number" id="hg-t" value="3" step="0.1" min="0.5"></label>
     </div>
-    <div class="cnc-status">Six panels: <b>Base</b> and <b>Lid</b> take the wall tabs; the two <b>side</b> walls hook round the knuckles. Every size follows the stock thickness. Double click the result to edit.</div>
+    <div class="cnc-status" data-guide="main"></div>
     </div>
     <div class="modal-actions">
       <button class="btn" id="hg-cancel">Cancel</button>

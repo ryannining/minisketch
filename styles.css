@@ -697,6 +697,11 @@ button {
   padding: 16px 18px;
   width: 260px;
   box-shadow: 0 16px 48px var(--shadow-modal-color);
+  /* a dialog must never grow past the screen (hape especially): scroll inside
+     the box instead of spilling under the keyboard / off the viewport */
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
 }
 
 /* generator dialogs: parameters left, help right — keeps the window one
@@ -719,7 +724,10 @@ button {
   .modal-cols .opt { white-space: normal; }
   .modal-cols .opt input[type="number"],
   .modal-cols .opt select { width: 100%; max-width: 92px; }
-  .modal-cols .cnc-status { flex: 1 1 45%; font-size: 10px; }
+  /* panduan pendek, tetap dua kolom: basis 45% TANPA shrink supaya kolom
+     input tak memerasnya jadi garis sempit; bila tetap panjang, ia menggulung
+     di kolomnya sendiri — bukan memenuhi layar ke bawah */
+  .modal-cols .cnc-status { flex: 0 0 45%; min-width: 0; font-size: 10px; max-height: 55vh; overflow-y: auto; }
 }
 
 .modal-box h3 {

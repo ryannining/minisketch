@@ -227,6 +227,14 @@
     label: 'Slide top',
     title: 'Slide top: base, four walls and a sliding lid with two rails — the lid runs in a groove the rails make against the side walls, and the red line marks where they are glued. Double click the result to edit its parameters',
     modalId: 'slidetop-modal',
+    guide: {
+      en: {
+        main: '<b>Base</b>, four walls, the sliding <b>lid</b> (bowed edge + tongue) and two <b>rails</b>; red lines mark where the rails glue. Double click the result to edit.'
+      },
+      id: {
+        main: '<b>Base</b>, empat dinding, <b>lid</b> yang diselipkan (tepi melengkung + lidah) dan dua <b>rail</b>; garis merah menandai tempat rail dilem. Dobel-klik hasil untuk mengubah.'
+      }
+    },
     modal: `
 <div id="slidetop-modal" class="modal hidden">
   <div class="modal-box wide-cols">
@@ -238,7 +246,7 @@
       <label class="opt">Height (mm) <input type="number" id="st-h" value="120" step="1" min="30"></label>
       <label class="opt">Material thickness (mm) <input type="number" id="st-t" value="3" step="0.1" min="0.5"></label>
     </div>
-    <div class="cnc-status"><b>Base</b>, <b>front</b>, shorter <b>back</b>, two <b>side</b> walls, the sliding <b>lid</b> (bowed edge, tongue) and two <b>rails</b>. Red lines mark where the rails glue &mdash; a marking pass for KaryaCNC. Double click the result to edit.</div>
+    <div class="cnc-status" data-guide="main"></div>
     </div>
     <div class="modal-actions">
       <button class="btn" id="st-cancel">Cancel</button>

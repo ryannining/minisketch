@@ -197,6 +197,14 @@
     label: 'Flex pattern',
     title: 'Flex pattern: living hinge mandiri — kolom slit dengan dua pola bridge interlocking; Length arah tekuk, Width panjang slit. Dobel-klik hasilnya untuk mengubah parameter',
     modalId: 'flex-modal',
+    guide: {
+      en: {
+        main: '<b>Length</b> bends, <b>Width</b> is one slit. Bridges break the slits; two interlocked columns bend both ways (comb = one fold line). The pitch is nominal — snapped to end on the edges, the real pitch is reported. Double click the result to edit.'
+      },
+      id: {
+        main: '<b>Panjang</b> yang menekuk, <b>Lebar</b> satu garis potong. Bridge memutus tiap garis; dua kolom saling mengunci menekuk dua arah (sisir = satu garis lipat). Pitch nominal — disesuaikan agar berakhir di tepi, pitch aslinya dilaporkan. Dobel-klik hasil untuk mengubah.'
+      }
+    },
     modal: `
 <div id="flex-modal" class="modal hidden">
   <div class="modal-box wide-cols">
@@ -218,7 +226,7 @@
       </label>
       <label class="opt"><input type="checkbox" id="flex-outline"> Cut the outline rectangle</label>
     </div>
-    <div class="cnc-status"><b>Length</b> bends, <b>Width</b> is one slit. Solid <b>bridges</b> break each slit; two interlocking columns let the strip bend both ways (comb = one column, one fold line). The pitch is nominal &mdash; snapped so the columns start and end on the edges, the real pitch is reported. <b>End margin</b> applies with the outline only. Double click the result to edit.</div>
+    <div class="cnc-status" data-guide="main"></div>
     </div>
     <div class="modal-actions">
       <button class="btn" id="flex-cancel">Cancel</button>

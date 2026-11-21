@@ -142,25 +142,33 @@
     label: 'Panel iklan',
     title: 'Panel iklan: bidang bersudut membulat dengan lubang pen — 4 di sudut, 2 kiri-kanan atau 2 atas-bawah. Klik ganda hasilnya untuk mengubah parameter',
     modalId: 'pi-modal',
+    guide: {
+      en: {
+        main: 'One panel <b>W &times; H</b> with corner <b>radius</b> and pen-hole &oslash; <b>d</b>: <b>4 corners</b> keeps the hole-edge margin to the two nearest sides equal; <b>2</b> places holes mid-side. Holes off the panel or overlapping are refused. Double click the result to edit.'
+      },
+      id: {
+        main: 'Satu panel <b>L &times; T</b> bersudut <b>radius</b> dengan lubang pena &oslash; <b>d</b>: <b>4 di sudut</b> menjaga jarak tepi lubang ke dua sisi terdekat sama; <b>2</b> menaruh lubang di tengah sisi. Lubang keluar bidang atau bertumpuk ditolak. Dobel-klik hasil untuk mengubah.'
+      }
+    },
     modal: `
 <div id="pi-modal" class="modal hidden">
   <div class="modal-box">
     <h3>Panel iklan</h3>
     <div class="opt-col">
-      <label class="opt">Lebar (mm) <input type="number" id="pi-w" value="400" step="1" min="10"></label>
-      <label class="opt">Tinggi (mm) <input type="number" id="pi-h" value="300" step="1" min="10"></label>
-      <label class="opt">Diameter lubang pen (mm) <input type="number" id="pi-dia" value="6" step="0.5" min="0.5"></label>
-      <label class="opt">Radius sudut (mm) <input type="number" id="pi-r" value="10" step="1" min="0"></label>
-      <label class="opt" title="Sisa material: jarak dari tepi lubang ke tepi panel. Pusat lubang berada inset + setengah diameter dari tepi.">Jarak lubang ke pinggir (mm) <input type="number" id="pi-inset" value="10" step="1" min="0"></label>
-      <label class="opt">Lubang
+      <label class="opt">Width (mm) <input type="number" id="pi-w" value="400" step="1" min="10"></label>
+      <label class="opt">Height (mm) <input type="number" id="pi-h" value="300" step="1" min="10"></label>
+      <label class="opt">Pen-hole diameter (mm) <input type="number" id="pi-dia" value="6" step="0.5" min="0.5"></label>
+      <label class="opt">Corner radius (mm) <input type="number" id="pi-r" value="10" step="1" min="0"></label>
+      <label class="opt" title="Leftover material: distance from the hole edge to the panel edge. The hole centre sits at inset + half the diameter from the edge.">Hole edge margin (mm) <input type="number" id="pi-inset" value="10" step="1" min="0"></label>
+      <label class="opt">Holes
         <select id="pi-mode">
-          <option value="corners">4 di sudut</option>
-          <option value="leftright">2 kiri &amp; kanan</option>
-          <option value="topbottom">2 atas &amp; bawah</option>
+          <option value="corners">4 in the corners</option>
+          <option value="leftright">2 left &amp; right</option>
+          <option value="topbottom">2 top &amp; bottom</option>
         </select>
       </label>
     </div>
-    <div class="cnc-status">Satu panel <b>lebar &times; tinggi</b> bersudut <b>radius</b> plus lubang &oslash; <b>diameter lubang pen</b>: <b>4 di sudut</b> = jarak tepi lubang ke dua sisi terdekat sama dengan <b>jarak lubang ke pinggir</b>; <b>2 kiri &amp; kanan</b> / <b>2 atas &amp; bawah</b> = di tengah sisi. Lubang keluar bidang atau bertumpuk ditolak. Klik ganda hasil untuk mengubah parameter.</div>
+    <div class="cnc-status" data-guide="main"></div>
     <div class="modal-actions">
       <button class="btn" id="pi-cancel">Cancel</button>
       <button class="btn primary" id="pi-ok">Create</button>

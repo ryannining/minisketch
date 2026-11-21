@@ -168,6 +168,14 @@
     label: 'Slot',
     title: 'Slot: turn the selected lines, curves, arcs or circles into a slot outline with the given end diameter. Curved input is followed exactly and the result is fitted back to smooth curves. Double click the result to edit its parameters',
     modalId: 'slot-modal',
+    guide: {
+      en: {
+        main: 'The selected path becomes one slot outline: offset both sides by half the end diameter, round ends. A closed path becomes a groove. Originals are kept. Double click the result to edit.'
+      },
+      id: {
+        main: 'Path terpilih jadi satu outline slot: digeser ke dua sisi setengah diameter ujung, ujung membulat. Path tertutup jadi alur (groove). Objek asli disimpan. Dobel-klik hasil untuk mengubah.'
+      }
+    },
     modal: `
 <div id="slot-modal" class="modal hidden">
   <div class="modal-box wide-cols">
@@ -183,7 +191,7 @@
       </label>
       <label class="opt">Detail (mm) <input type="number" id="slot-detail" value="0.05" step="0.01" min="0.005"></label>
     </div>
-    <div class="cnc-status">The selected path becomes one slot outline: offset both sides by half the end diameter, round ends. Lines, curves, arcs and circles all work &mdash; a closed path becomes a groove. Originals are kept; double click the result to edit.</div>
+    <div class="cnc-status" data-guide="main"></div>
     </div>
     <div class="modal-actions">
       <button class="btn" id="slot-cancel">Cancel</button>

@@ -516,30 +516,38 @@ function lineEnds(api, id) {
   NS.register({
     id: 'finger',
     label: 'Finger joint',
-    title: 'Finger joint: pilih garis, Create — deretan finger jadi modifier garis itu: ikut bergerak, dan dihitung ulang otomatis tiap solve menggerakkannya. Dobel-klik hasilnya untuk mengubah parameter',
+    title: 'Finger joint: select line(s), Create — the finger row becomes a modifier of that line: it follows moves, and is re-derived automatically whenever a solve moves the line. Double click the result to edit its parameters',
     modalId: 'finger-modal',
+    guide: {
+      en: {
+        main: 'Select line(s) and Create: each line becomes <b>one finger-joint cut path</b> — <b>finger width</b> along the line, <b>thickness</b> across it. The line stays the <b>master</b>: move it and the row follows (after solve). male/female share one grid, so boards on the same edge interlock. Double click the group to edit.'
+      },
+      id: {
+        main: 'Pilih garis lalu Create: tiap garis jadi <b>satu jalur potong finger joint</b> — <b>finger width</b> searah garis, <b>thickness</b> melintangnya. Garisnya tetap jadi <b>master</b>: geser garisnya dan barisan ikut (setelah solve). male/female memakai kisi yang sama, jadi dua papan di tepi yang sama saling menyilang. Dobel-klik grup untuk mengubah.'
+      }
+    },
     modal: `
 <div id="finger-modal" class="modal hidden">
   <div class="modal-box wide-cols">
     <h3>Finger joint</h3>
     <div class="modal-cols">
     <div class="opt-col">
-      <label class="opt">Tebal bahan (mm) <input type="number" id="fg-t" value="3" step="0.1" min="0.2"></label>
-      <label class="opt">Lebar finger (mm) <input type="number" id="fg-fw" value="6" step="0.5" min="0.2"></label>
-      <label class="opt" title="male: kolom pertama menonjol. female: kolom pertama adalah coakan.">Mulai
+      <label class="opt">Material thickness (mm) <input type="number" id="fg-t" value="3" step="0.1" min="0.2"></label>
+      <label class="opt">Finger width (mm) <input type="number" id="fg-fw" value="6" step="0.5" min="0.2"></label>
+      <label class="opt" title="male: the first column protrudes. female: the first column is a socket.">Start
         <select id="fg-mode">
-          <option value="male">male &mdash; tonjolan lebih dulu</option>
-          <option value="female">female &mdash; coakan lebih dulu</option>
+          <option value="male">male &mdash; tab first</option>
+          <option value="female">female &mdash; socket first</option>
         </select>
       </label>
-      <label class="opt">Offset pinggir (mm) <input type="number" id="fg-margin" value="0" step="0.5" min="0"></label>
-      <label class="opt">Bentuk <select id="fg-shape">
-        <option value="zigzag">Zig-zag (jalur potong)</option>
-        <option value="box">Kotak lubang, center di garis</option>
+      <label class="opt">Edge offset (mm) <input type="number" id="fg-margin" value="0" step="0.5" min="0"></label>
+      <label class="opt">Shape <select id="fg-shape">
+        <option value="zigzag">Zig-zag (cut path)</option>
+        <option value="box">Hole squares, centered on the line</option>
       </select></label>
-      <label class="opt"><input type="checkbox" id="fg-flip"> Balik arah tonjolan</label>
+      <label class="opt"><input type="checkbox" id="fg-flip"> Flip tab direction</label>
     </div>
-    <div class="cnc-status">Pilih <b>minimal satu garis</b> (garis biasa, bukan tepi milik grup), lalu Create: tiap garis jadi SATU jalur potong finger joint lengkap dari ujung ke ujung garis &mdash; naik-turun membentuk tab, bukan kotak terpisah &mdash; set garis masternya hijau (konstruksi) agar tidak ikut dipotong &mdash; <b>lebar finger</b> searah garis, <b>tebal bahan</b> tegak lurusnya. Tonjolan tumbuh ke kanan arah garis (ke luar untuk loop CCW); centang <b>balik arah</b> kalau masuk ke dalam.<br><br>Hasilnya murni <b>modifier garis master</b>: geser/putar/panjangkan garisnya dan baris mengikuti <b>otomatis setelah solve</b> &mdash; jumlah finger ikut dihitung ulang; tarik handle grup sampai salah bentuk, lepas, baris kembali ke ukuran garis. Baris terlalu pendek untuk satu finger pun ditolak dengan pesan.<br><br><b>male</b> &amp; <b>female</b> memakai kisi kolom ganjil yang sama, jadi dua papan di tepi yang sama saling menyilang &mdash; female satu finger lebih sedikit. Lebar finger bersifat nominal: yang tercapai dilaporkan di toast. Dobel-klik grup untuk mengubah parameter.</div>
+    <div class="cnc-status" data-guide="main"></div>
     </div>
     <div class="modal-actions">
       <button class="btn" id="finger-cancel">Cancel</button>
