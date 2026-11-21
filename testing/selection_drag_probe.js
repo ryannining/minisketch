@@ -108,7 +108,7 @@ console.log('selection drag: a click on a fully point-selected line DRAGS');
   check('it compares every point against the point-selection index',
     /const sel = selectionIndex\(\)\.point;/.test(body) &&
     /if \(!sel\.has\(\+pid\)\) return false;/.test(body));
-  const click = app.indexOf('// Alt always means the opposite of the Group button');
+  const click = app.indexOf('// A click on a line whose points are ALL already selected');
   const clickBody = app.slice(click, click + 1400);
   check('the entity-click branch checks the helper BEFORE re-selecting',
     /entityFullySelectedByPoints\(eh\) && selectionBodyDragFor\(world\)/.test(clickBody));

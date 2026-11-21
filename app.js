@@ -1520,6 +1520,15 @@
   // A press shorter than this never moves geometry: a trembling click (mouse
   // jitter at press/release) stays a selection instead of becoming a micro-drag.
   const DRAG_GATE_MS = 50;
+  // Press-and-hold disambiguation (mouse/pen) for a press ON an object:
+  // dragging away within PRESS_DWELL_MS reads as "start a marquee here";
+  // holding the press first arms the object drag — select + move, exactly
+  // like the old immediate press. A release without movement stays a plain
+  // click. The same dwell decides a press INSIDE a loop: quick drag stays the
+  // rectangle, a held drag selects the loop (the click selection) and moves
+  // it.
+  const PRESS_DWELL_MS = 200;
+  const PRESS_SLOP_PX = 4;      // movement under this is jitter, not a drag
   // Touch "lift": for DRAFTING, steer the pointer from a virtual cursor
   // ~TOUCH_LIFT_PX above the finger so the created point is not hidden by the
   // thumb. Returns the lifted world, or null to keep the real pointer.
@@ -5065,6 +5074,32 @@
     return ids;
   }
 
+  // Entity ids of the selection, plus the guide lines a framed object owns.
+  //
+  // The framed kinds (text / art / image) hold their frame together with
+  // constraints that live on the GUIDES, not on the framed entity itself:
+  // `horizontal` names a guide line (c.entity = guide id) and `perpendicular`
+  // names the guide pair (c.line1 / c.line2). An ownership test against the
+  // selected ids alone therefore never sees them — rotating a picture via the
+  // transform gizmo left the H constraint behind and the release solve rotated
+  // the frame straight back. selectionPointIds already extends to the guides
+  // for points; this is the same ownership rule for entity ids.
+  function selectionEntityIds() {
+    const ids = new Set();
+    for (const s of ui.selection) {
+      if (s.kind !== 'entity') continue;
+      const e = state.entities[s.id];
+      if (!e) continue;
+      ids.add(+e.id);
+      if ((e.type === 'art' || e.type === 'text' || e.type === 'image') && Array.isArray(e.guide)) {
+        for (const gid of e.guide) {
+          if (state.entities[gid]) ids.add(+gid);
+        }
+      }
+    }
+    return ids;
+  }
+
   function constraintInsideSet(c, pids, eids) {
     const hasP = id => id != null && pids.has(+id);
     const hasE = id => id != null && eids.has(+id);
@@ -5729,7 +5764,7 @@
     const b = selectionBounds();
     if (!b) { toast('Select objects first'); return; }
     const pids = selectionPointIds();
-    const eids = new Set(selectedEntities().map(e => +e.id));
+    const eids = selectionEntityIds();
     const hasPart = selectedEntities().some(e => e.type === 'part');
     if (hasPart) { toast('Parts rotate with the transform tool (R) — they are pose-driven'); return; }
     pushHistory();
@@ -5898,6 +5933,67 @@
     setTimeout(() => { clipCopyRequested = false; }, 800);
     toast('Copied ' + (payload.count ? payload.count + (payload.count === 1 ? ' object' : ' objects')
       : payload.pointCount + ' point(s)'));
+  }
+
+  // Ctrl+Shift+C: the selection onto the OS clipboard as an SVG document, so
+  // Inkscape / Illustrator / any vector editor takes it with a plain Ctrl+V —
+  // the same markup File > Export writes, and neither carries a background
+  // sheet: a pasted white rect would sit in front of the geometry and catch
+  // the clicks.
+  // The in-memory MiniSketch clipboard is untouched: Ctrl+V here still pastes
+  // the last Ctrl+C payload, and an SVG arriving through the paste event is
+  // imported by the existing SVG route (so the copy also round-trips into
+  // another MiniSketch tab as editable geometry).
+  function copySelectionAsSvg() {
+    if (xfBlock()) return;
+    const svg = exportSVG({
+      returnString: true, onlySelected: true, onlyVisible: true
+    });
+    if (!svg) {
+      toast('Select objects to copy as SVG');
+      return;
+    }
+    const count = selectedEntitiesForExport().length;
+    const done = () => toast('Copied ' + count + ' object' + (count === 1 ? '' : 's') +
+      ' as SVG \u00b7 paste in Inkscape with Ctrl+V');
+    // Route 1 — a real copy event: synchronous, works everywhere, and the
+    // listener can set both flavours (plain text is what Inkscape parses;
+    // the HTML flavour carries the same markup for HTML-aware apps).
+    let wrote = false;
+    const onTempCopy = (ev) => {
+      if (!ev.clipboardData) return;
+      ev.preventDefault();
+      ev.clipboardData.setData('text/plain', svg);
+      try { ev.clipboardData.setData('text/html', svg); } catch (err) { /* flavour optional */ }
+      wrote = true;
+    };
+    document.addEventListener('copy', onTempCopy, { capture: true, once: true });
+    const ta = document.createElement('textarea');
+    ta.value = svg;                       // a selection must exist; setData overrides it
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+    document.removeEventListener('copy', onTempCopy, { capture: true });
+    ta.remove();
+    if (ok && wrote) { done(); return; }
+    // Route 2 — the async clipboard API (execCommand refused, e.g. the
+    // document lost focus mid-gesture). Needs a secure context.
+    let item = null;
+    try {
+      item = new ClipboardItem({
+        'text/plain': new Blob([svg], { type: 'text/plain' }),
+        'text/html': new Blob([svg], { type: 'text/html' })
+      });
+    } catch (err) { item = null; }
+    if (item && navigator.clipboard && typeof navigator.clipboard.write === 'function') {
+      navigator.clipboard.write([item]).then(done, () =>
+        toast('The clipboard is blocked — use Ctrl+C instead'));
+      return;
+    }
+    toast('The clipboard is blocked — use Ctrl+C instead');
   }
 
   function clipboardBounds(payload) {
@@ -6600,7 +6696,7 @@
       if (xfPivotCache.size > 64) xfPivotCache.delete(xfPivotCache.keys().next().value);
     }
     const pids = selectionPointIds();
-    const eids = new Set(selectedEntities().map(e => +e.id));
+    const eids = selectionEntityIds();
     let removed = 0;
     if (Math.abs(p.angle) > 1e-9) {
       for (const cid in state.constraints) {
@@ -15314,12 +15410,21 @@
     // geometry lands exactly where the image sits instead of at the cursor.
     const frameFrom = o.frameFrom || null;
     let p0, pwId, phId;
+    // Retrace bookkeeping: the source bitmap's pixel size (the tracer's SVG is
+    // in full bitmap pixels, see tools/trace.js — canvas = natural size,
+    // scale 1) and the side ratio the copied frame actually has.
+    let srcMapW = 0, srcMapH = 0, frameRatio = 0;
     if (frameFrom) {
       const q0 = P(frameFrom.p0), qw = P(frameFrom.pw), qh = P(frameFrom.ph);
       if (q0 && qw && qh) {
         p0 = privatePoint(q0.x, q0.y);
         pwId = privatePoint(qw.x, qw.y);
         phId = privatePoint(qh.x, qh.y);
+        srcMapW = +frameFrom.iw || 0;
+        srcMapH = +frameFrom.ih || 0;
+        const sideW = Math.hypot(qw.x - q0.x, qw.y - q0.y);
+        const sideH = Math.hypot(qh.x - q0.x, qh.y - q0.y);
+        if (sideW > 1e-9 && sideH > 1e-9) frameRatio = sideW / sideH;
       }
     }
     pushHistory();
@@ -15344,12 +15449,28 @@
       const cH = newId();
       state.constraints[cH] = { id: cH, type: 'horizontal', entity: idW };
     }
-    const contours = loops.map(loop => loop.map(pt => [(pt[0] - minX) / srcW, (pt[1] - minY) / srcH]));
+    // Fresh paste: the contours' own bounding box becomes the unit square and
+    // the frame is built around it, so the two agree by construction.
+    // Re-trace: normalise in BITMAP space instead. The picture renders every
+    // pixel through world = p0 + (px/iw)·A + (py/ih)·B, so dividing by the
+    // bitmap size puts each traced point exactly where its pixel sits in the
+    // picture — margins kept, nothing stretched. (The old bounding-box
+    // normalisation magnified the artwork across the whole frame and handed
+    // the solver a bbox ratio the copied frame could not satisfy: the solve
+    // then slid/turned the unanchored frame and the trace came out skewed.)
+    const isRetrace = frameRatio > 0 && srcMapW > 0 && srcMapH > 0;
+    const contours = isRetrace
+      ? loops.map(loop => loop.map(pt => [pt[0] / srcMapW, pt[1] / srcMapH]))
+      : loops.map(loop => loop.map(pt => [(pt[0] - minX) / srcW, (pt[1] - minY) / srcH]));
     const id = newId();
     state.entities[id] = {
       id, type: 'art', p0, pw: pwId, ph: phId, guide: [idW, idH],
       contours, closed: contours.map(() => true),
-      ratio: srcW / srcH,
+      // Retrace: the frame's OWN side ratio. The perpendicular + aspect pair
+      // is then satisfied exactly by the copied frame — zero residual — so the
+      // solver has nothing to reconcile and leaves the frame (and the trace
+      // drawn across it) precisely where the picture sits.
+      ratio: isRetrace ? frameRatio : srcW / srcH,
       color: o.color || ui.color
     };
     // the trace dialog's choice: -> Curve gives fitted splines, not lines
@@ -23214,6 +23335,60 @@
     return out;
   }
 
+  // The press on a plain object: the selection rules and — when wantDrag is
+  // set — the body drag that follows. Called once the press-and-hold gesture
+  // is decided: the dwell elapsed on the first real move (an object drag), or
+  // the release without movement (a plain click, selection only, no history
+  // entry). Until then the press waits as kind 'pressEntity' and the
+  // selection is untouched, so an early drag can still become a marquee.
+  function beginEntityPress(d, pos, world, wantDrag) {
+    const eh = d.eid;
+    const addMod = d.mods.add;
+    const subMod = d.mods.sub;
+    // Alt always means the opposite of the Group button
+    const wantGroup = ui.groupSelect ? !d.mods.alt : d.mods.alt;
+    if (addMod || subMod) {
+      toggleSelect('entity', eh, !wantGroup);
+    } else if (wantGroup) {
+      selectOnly('entity', eh);
+    } else if (!selected('entity', eh)) {
+      selectOnlySingle('entity', eh);
+    }
+    if (wantDrag && selected('entity', eh)) {
+      const e = state.entities[eh];
+      // A generated object (finger joint, slot, box panel, ...) used to be
+      // a passive modifier: selectable, but its body never dragged — the
+      // release refit then snapped it back onto its unmoved masters, which
+      // FELT like "cannot drag". Now the body drag translates the whole
+      // object: the frame points AND every master guide endpoint together,
+      // so the contours follow the frame live and the release refit
+      // recomputes the same shape at the new place. No snap-back, no skew
+      // (skew only happened when a single master line moved alone).
+      const dragIds = new Set(entityPointIds(e));
+      if (e.type === 'art' && Array.isArray(e.guide)) {
+        for (const gid of e.guide) {
+          const g = state.entities[gid];
+          if (g) for (const pid of entityPointIds(g)) dragIds.add(+pid);
+        }
+      }
+      pushHistory();
+      if (e.type === 'circle') {
+        ui.drag = bodyDragFor(e, pos, world, [e.c]);
+      } else {
+        ui.drag = bodyDragFor(e, pos, world, Array.from(dragIds));
+      }
+      // A multi-point selection (a whole loop, several objects) drags with
+      // the parts-style bounded snap: t1 = its own vertex nearest the
+      // press, the move is the raw delta, snaps shift it the small way.
+      if (ui.drag && ui.drag.ids && ui.drag.ids.length > 1) {
+        const sel = selectionBodyDragFor(world);
+        if (sel) ui.drag = sel;
+      }
+    }
+    updateUI();
+    render();
+  }
+
   // Body drag of a MULTI-point selection (a selected loop, several objects):
   // the same bounded-snap model the parts use. t1 = the selection's own vertex
   // nearest the press (frozen), the drag is always the raw mouse delta, and a
@@ -23285,7 +23460,12 @@
 
   // The selection a plain (or modifier) click inside a loop performs. Shared by
   // the deferred loop click and the Alt (loop below) variant.
-  function applyLoopClick(loop, addMod, subMod, altMod) {
+  //
+  // `forceSelect` is the DOUBLE-click variant: the first click of the pair
+  // already selected the loop, so the add-branch toggle ("all selected ->
+  // take them out") would read the double click as a DESELECT on any loop
+  // without children. A double click always selects.
+  function applyLoopClick(loop, addMod, subMod, altMod, forceSelect) {
     const loopIdx = getLoops().indexOf(loop);
     if (loopIdx >= 0) ui.focusLoop = loopIdx;
     const own = loopEntities(loop).filter(eid => state.entities[eid] && entityEditable(state.entities[eid]));
@@ -23303,16 +23483,21 @@
     } else {
       // Ctrl+click takes the loop and everything it encloses (its holes /
       // children too), a plain click only the loop's own shape.
-      const pool = addMod
+      const pool = (addMod || forceSelect)
         ? Array.from(new Set(own.concat(entitiesInsideLoop(loop))))
           .filter(eid => state.entities[eid] && entityEditable(state.entities[eid]))
         : own;
       if (pool.length) {
         const poolSet = new Set(pool.map(Number));
         const outside = ui.selection.filter(s => !(s.kind === 'entity' && poolSet.has(+s.id)));
-        if (addMod) {
+        if (addMod && !forceSelect) {
           const allIn = pool.every(eid => selected('entity', eid));
           ui.selection = allIn ? outside : outside.concat(pool.map(eid => ({ kind: 'entity', id: eid })));
+        } else if (forceSelect) {
+          // double click: keep whatever else was selected, take the loop and
+          // its contents in, never toggle back out
+          ui.selection = outside.concat(pool.map(eid => ({ kind: 'entity', id: eid })));
+          markLastPicked('entity', pool[0]);
         } else {
           ui.selection = pool.map(eid => ({ kind: 'entity', id: eid }));
           markLastPicked('entity', pool[0]);
@@ -23712,12 +23897,16 @@
             return;
           }
         }
+        // Alt always means the opposite of the Group button. The whole
+        // selection+drag step lives in beginEntityPress now.
         // Alt always means the opposite of the Group button
         const wantGroup = ui.groupSelect ? !ev.altKey : ev.altKey;
         // A click on a line whose points are ALL already selected (the state a
         // marquee leaves) drags the whole selection instead of collapsing it to
         // this one line — re-selecting here threw the marquee's work away, and
-        // then only the clicked line moved.
+        // then only the clicked line moved. This is a "move my selection"
+        // press, so it stays IMMEDIATE: no dwell, like pressing inside a
+        // selected loop.
         if (!addMod && !subMod && !wantGroup &&
           entityFullySelectedByPoints(eh) && selectionBodyDragFor(world)) {
           pushHistory();
@@ -23726,45 +23915,28 @@
           render();
           return;
         }
-        if (addMod || subMod) {
-          toggleSelect('entity', eh, !wantGroup);
-        } else if (wantGroup) {
-          selectOnly('entity', eh);
-        } else if (!selected('entity', eh)) {
-          selectOnlySingle('entity', eh);
+        // THE GESTURE IS DECIDED BY TIME AND MOVEMENT (mouse/pen): a drag
+        // that starts within PRESS_DWELL_MS of the press becomes a marquee —
+        // pressing ON a line no longer blocks starting a rectangle there.
+        // Holding the press past the dwell arms the object drag: the object
+        // is selected at that moment and the drag moves it, exactly like the
+        // old press. A release without movement stays a plain click. Touch
+        // keeps the immediate drag (it has its own gestures).
+        if (ev.pointerType === 'touch') {
+          beginEntityPress({ eid: eh, mods: { add: addMod, sub: subMod, alt: ev.altKey } }, pos, world, true);
+          return;
         }
-        if (selected('entity', eh)) {
-          const e = state.entities[eh];
-          // A generated object (finger joint, slot, box panel, ...) used to be
-          // a passive modifier: selectable, but its body never dragged — the
-          // release refit then snapped it back onto its unmoved masters, which
-          // FELT like "cannot drag". Now the body drag translates the whole
-          // object: the frame points AND every master guide endpoint together,
-          // so the contours follow the frame live and the release refit
-          // recomputes the same shape at the new place. No snap-back, no skew
-          // (skew only happened when a single master line moved alone).
-          const dragIds = new Set(entityPointIds(e));
-          if (e.type === 'art' && Array.isArray(e.guide)) {
-            for (const gid of e.guide) {
-              const g = state.entities[gid];
-              if (g) for (const pid of entityPointIds(g)) dragIds.add(+pid);
-            }
-          }
-          pushHistory();
-          if (e.type === 'circle') {
-            ui.drag = bodyDragFor(e, pos, world, [e.c]);
-          } else {
-            ui.drag = bodyDragFor(e, pos, world, Array.from(dragIds));
-          }
-          // A multi-point selection (a whole loop, several objects) drags with
-          // the parts-style bounded snap: t1 = its own vertex nearest the
-          // press, the move is the raw delta, snaps shift it the small way.
-          if (ui.drag && ui.drag.ids && ui.drag.ids.length > 1) {
-            const sel = selectionBodyDragFor(world);
-            if (sel) ui.drag = sel;
-          }
-        }
-        updateUI();
+        ui.drag = {
+          kind: 'pressEntity',
+          eid: eh,
+          start: pos,
+          downAt: ui._downAt,
+          mods: {
+            add: addMod, sub: subMod, alt: ev.altKey,
+            cross: !!(ev.ctrlKey && ev.shiftKey)
+          },
+          moved: false
+        };
         render();
         return;
       }
@@ -23799,16 +23971,23 @@
         }
       }
       if (loop) {
-        // A press inside a loop is not a selection yet: holding and dragging is
-        // the rectangle selection — a big loop must not swallow it on mouse
-        // down. The click (no movement) selects the loop, as it always did.
+        // A press inside a loop is not a selection yet: a drag that starts
+        // within PRESS_DWELL_MS is the rectangle selection — a big loop must
+        // not swallow it on mouse down. Holding the press past the dwell and
+        // THEN dragging selects the loop (the click selection, modifiers
+        // included) and moves it. The click (no movement) selects the loop,
+        // as it always did. Touch keeps the old rule: any drag is the
+        // rectangle.
         ui.drag = {
           kind: 'rubber',
           start: pos,
           additive: addMod || subMod,
           subtract: ev.altKey || ui.altToggle,
           deferredLoop: loop,
-          deferredMods: { add: addMod, sub: subMod, alt: ev.altKey || ui.altToggle }
+          deferredMods: { add: addMod, sub: subMod, alt: ev.altKey || ui.altToggle },
+          downAt: ui._downAt,
+          mouse: ev.pointerType !== 'touch',
+          crossLayer: !!(ev.ctrlKey && ev.shiftKey)
         };
         render();
         return;
@@ -25177,6 +25356,37 @@ function cmdSplitCurve() {
 
     if (ui.drag) {
       const d = ui.drag;
+      // Press-and-hold disambiguation: a press on an object waits. The first
+      // real movement decides — inside PRESS_DWELL_MS it turns into a marquee
+      // (the selection is still untouched, so nothing to undo); past the
+      // dwell it arms the object drag and this same event replays into it.
+      if (d.kind === 'pressEntity') {
+        if (Math.abs(pos.x - d.start.x) <= PRESS_SLOP_PX &&
+            Math.abs(pos.y - d.start.y) <= PRESS_SLOP_PX) return;
+        if (performance.now() - d.downAt < PRESS_DWELL_MS) {
+          // Same modifier language as a press on empty space: Ctrl or Shift
+          // adds to the marquee, Alt takes the rectangle's contents out.
+          ui.drag = {
+            kind: 'rubber',
+            start: d.start,
+            additive: d.mods.add || d.mods.sub,
+            subtract: d.mods.alt,
+            crossLayer: d.mods.cross
+          };
+          ui.rubber = {
+            x0: Math.min(d.start.x, pos.x), y0: Math.min(d.start.y, pos.y),
+            x1: Math.max(d.start.x, pos.x), y1: Math.max(d.start.y, pos.y)
+          };
+          scheduleRender();
+          return;
+        }
+        // Dwell served: select the object and arm its drag, then let this
+        // event drive the (now real) drag one step, so a flick does not lose
+        // the movement that triggered the activation.
+        beginEntityPress(d, pos, s2w(pos.x, pos.y), true);
+        if (ui.drag) onPointerMove(ev);
+        return;
+      }
       // Time gate: ignore movement during the first DRAG_GATE_MS of the press.
       // Once the gate opens, deltas are measured from startWorld, so a fast
       // drag catches up to the cursor instead of losing the early movement.
@@ -25637,6 +25847,30 @@ function cmdSplitCurve() {
         return;
       }
       if (d.kind === 'rubber') {
+        // A press inside a loop waits for the same decision: movement inside
+        // PRESS_DWELL_MS stays the rectangle, a held press (past the dwell)
+        // selects the loop — the selection the click would have made — and
+        // the drag moves it. This event replays into the new drag like the
+        // object press above.
+        if (d.deferredLoop && d.mouse && !d.dwellDecided) {
+          if (Math.abs(pos.x - d.start.x) > PRESS_SLOP_PX ||
+              Math.abs(pos.y - d.start.y) > PRESS_SLOP_PX) {
+            if (performance.now() - (d.downAt || 0) >= PRESS_DWELL_MS) {
+              const m = d.deferredMods || {};
+              applyLoopClick(d.deferredLoop, !!m.add, !!m.sub, !!m.alt);
+              const at = selectionBodyDragFor(world);
+              if (at) {
+                // The undo step of the whole gesture: taken before the drag
+                // moves anything, exactly like beginEntityPress does.
+                pushHistory();
+                ui.drag = at;
+                onPointerMove(ev);
+                return;
+              }
+            }
+            d.dwellDecided = true;   // moved: this press is a rectangle
+          }
+        }
         ui.rubber = {
           x0: Math.min(d.start.x, pos.x), y0: Math.min(d.start.y, pos.y),
           x1: Math.max(d.start.x, pos.x), y1: Math.max(d.start.y, pos.y)
@@ -26806,6 +27040,23 @@ function cmdSplitCurve() {
       render();
       return;
     }
+    if (ui.drag && ui.drag.kind === 'pressEntity') {
+      const d = ui.drag;
+      ui.drag = null;
+      const p = pointerPos(ev);
+      const movedFar = Math.abs(p.x - d.start.x) > PRESS_SLOP_PX ||
+        Math.abs(p.y - d.start.y) > PRESS_SLOP_PX;
+      if (!movedFar) {
+        // Released without a real move: a plain click. The selection the
+        // press always performed happens here — no drag, no history entry.
+        beginEntityPress(d, p, s2w(p.x, p.y), false);
+      }
+      // (A quick-drag press never reaches pointerup as pressEntity: the move
+      // already turned it into a rubber or an object drag.)
+      updateCanvasCursor();
+      render();
+      return;
+    }
     if (ui.drag && ui.drag.kind === 'rubber') {
       const d = ui.drag;
       ui.drag = null;
@@ -27264,12 +27515,14 @@ function cmdSplitCurve() {
       return;
     }
     // Double-click on a loop: select the loop and everything it encloses —
-    // the same selection a Ctrl+click on the loop performs.
+    // the same pool a Ctrl+click takes, but NEVER the toggle: the first
+    // click of the pair already selected the loop, so the toggle read every
+    // childless loop's double click as a deselect (selected, then gone).
     if (isSelectLikeTool()) {
       const world = s2w(pos.x, pos.y);
       const loop = pickLoopAt(world, false);
       if (loop) {
-        applyLoopClick(loop, true, false, false);
+        applyLoopClick(loop, false, false, false, true);
         return;
       }
     }
@@ -27832,6 +28085,15 @@ function cmdSplitCurve() {
     if ((ev.ctrlKey || ev.metaKey) && lower === 'u') {
       ev.preventDefault();
       cmdUngroupSelection();
+      return;
+    }
+    if ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && lower === 'c') {
+      // Ctrl+Shift+C is the browser's DevTools-inspect shortcut: claim it.
+      // The selection goes to the OS clipboard as an SVG document, so a plain
+      // Ctrl+V pastes it into Inkscape / Illustrator. The in-memory MiniSketch
+      // clipboard is left alone — Ctrl+V here still pastes the last Ctrl+C.
+      ev.preventDefault();
+      copySelectionAsSvg();
       return;
     }
     if ((ev.ctrlKey || ev.metaKey) && lower === 'c') {
@@ -32007,7 +32269,9 @@ function cmdSplitCurve() {
     parts.push('<?xml version="1.0" encoding="UTF-8"?>');
     parts.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + fmt(vx) + ' ' + fmt(vy) + ' ' + fmt(vw) + ' ' + fmt(vh) + '" width="' + fmt(vw) + 'mm" height="' + fmt(vh) + 'mm">');
     parts.push('<style>line, path, circle { -inkscape-stroke: hairline; }</style>');
-    parts.push('<rect x="' + vx + '" y="' + vy + '" width="' + vw + '" height="' + vh + '" fill="#ffffff"/>');
+    // No background sheet: the geometry is the point. A white rect would ride
+    // along as a real object — in Inkscape it lands in front of the shapes and
+    // catches every click, and a laser/CAM import would try to cut it.
     parts.push('<g fill="none" stroke-linecap="round" stroke-linejoin="round" style="-inkscape-stroke: hairline;">');
 
     // lines are chained first (per colour): a loop drawn as four lines must
