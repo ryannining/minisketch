@@ -100,6 +100,7 @@ console.log('\n== copySelection: Route A (async ClipboardItem) when available ==
   const toasts = [];
   const exportCalls = [];
   const writeCalls = [];
+  let timerScheduled = false;
   const copyFn = fn(
     CLIP_MARK, Date,
     () => false,                          // xfBlock
@@ -109,7 +110,7 @@ console.log('\n== copySelection: Route A (async ClipboardItem) when available ==
     (m) => toasts.push(m),
     () => true,                           // canWriteAsyncClipboard
     async (...args) => { writeCalls.push(args); return true; },
-    () => { throw new Error('legacy route must NOT be armed when Route A works'); },
+    () => { timerScheduled = true; },
     '', '', false, null,
     () => Promise.resolve('stub-png'),     // viewportCropToPngBlob
     () => 'fallback-svg'                   // pointsFallbackSvg
@@ -129,6 +130,8 @@ console.log('\n== copySelection: Route A (async ClipboardItem) when available ==
     parsed && parsed.entities && parsed.entities.length === 2);
   check('the PNG promise (viewport crop) rides along',
     writeCalls.length === 1 && writeCalls[0][3] && typeof writeCalls[0][3].then === 'function');
+  check('the copy-event route is armed synchronously as the fallback',
+    timerScheduled === true);
   check('the success toast names the count and the three flavours',
     /Copied 2 objects/.test(toasts[0]) &&
     /SVG/.test(toasts[0]) && /PNG/.test(toasts[0]) && /sketch/.test(toasts[0]),
@@ -139,6 +142,7 @@ console.log('\n== copySelection: Route A (async ClipboardItem) when available ==
   exportCalls.length = 0;
   writeCalls.length = 0;
   toasts.length = 0;
+  timerScheduled = false;
   const copyFnPoints = fn(
     CLIP_MARK, Date,
     () => false,
@@ -149,7 +153,7 @@ console.log('\n== copySelection: Route A (async ClipboardItem) when available ==
     (m) => toasts.push(m),
     () => true,
     async (...args) => { writeCalls.push(args); return true; },
-    () => { throw new Error('legacy must not arm'); },
+    () => { timerScheduled = true; },
     '', '', false, null,
     () => Promise.resolve('stub-png'),
     (payload) => 'points-svg:' + payload.points.length
@@ -186,10 +190,30 @@ console.log('\n== copySelection: Route B (copy event) when async is unavailable 
     () => Promise.resolve('stub-png')
   );
   copyFn();
-  check('the legacy route was armed (timer scheduled), not the async write',
+  check('the legacy route was armed, not the async write',
     timerScheduled === true && writeCalled === false);
   check('the toast still reports the copied count and the three flavours',
     /Copied 1 object/.test(toasts[0]) && /SVG/.test(toasts[0]), toasts[0]);
+}
+
+console.log('\n== canWriteAsyncClipboard respects the Permissions Policy ==');
+{
+  const fn = new Function(
+    'ClipboardItem', 'navigator', 'window', 'document',
+    slice('canWriteAsyncClipboard') + '\nreturn canWriteAsyncClipboard;');
+  const base = {
+    ClipboardItem: function () {},
+    navigator: { clipboard: { write() {} } },
+    window: { isSecureContext: true },
+    document: { featurePolicy: { allowsFeature: (f) => f !== 'clipboard-write' } }
+  };
+  check('policy denying clipboard-write disables the async route',
+    fn(base.ClipboardItem, base.navigator, base.window, base.document)() === false);
+  const allow = { ...base, document: { featurePolicy: { allowsFeature: () => true } } };
+  check('policy allowing clipboard-write keeps the async route',
+    fn(allow.ClipboardItem, allow.navigator, allow.window, allow.document)() === true);
+  check('no sharedPolicy object does not break the check',
+    fn(base.ClipboardItem, base.navigator, base.window, {})() === true);
 }
 
 console.log('\n== onCopyEvent (Route B): SVG in text/plain, JSON in text/html ==');

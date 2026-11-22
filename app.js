@@ -5976,28 +5976,50 @@
     const done = () => toast('Copied ' + countTxt +
       ' \u00b7 SVG, PNG & sketch on the clipboard');
     const armLegacy = () => {
-      // the copy event fires right after Ctrl+C; if it never comes (browser
-      // blocked it) do not hijack some later, unrelated copy
+      // the copy event fires right after Ctrl+C (or any native copy gesture);
+      // it must be armed SYNCHRONOUSLY, inside the keydown handler, or the
+      // event passes us by and the OS clipboard is never touched — this is
+      // what happens when the async Clipboard API is blocked by a permissions
+      // policy (e.g. MiniSketch embedded in KaryaCNC): the async write fails
+      // asynchronously, after the copy event is gone.
       clipCopyRequested = true;
       setTimeout(() => { clipCopyRequested = false; }, 800);
     };
+    // Always arm the legacy copy-event route first: it is not affected by the
+    // Clipboard API permissions policy and guarantees the OS clipboard still
+    // receives the SVG (text/plain + image/svg+xml) and the sketch payload
+    // (text/html). The async route is then attempted as an UPGRADE that adds
+    // the PNG flavour — if it succeeds it replaces the copy-event payload with
+    // the full set; if it fails (policy, focus, …) the copy-event payload
+    // already written stands.
+    armLegacy();
     if (canWriteAsyncClipboard()) {
       writeMultiFormatClipboard(clipboard, svg, json, pngPromise)
-        .then(ok => { if (!ok) armLegacy(); done(); })
-        .catch(() => { armLegacy(); done(); });
+        .then(() => done())
+        .catch(() => done());
     } else {
-      armLegacy();
       done();
     }
   }
 
-  // True when the async clipboard API is present on a secure context. The
-  // keydown handler runs inside the user gesture, so the write inherits the
-  // activation that the API requires.
+  // True when the async clipboard API is present on a secure context and not
+  // blocked by a permissions policy. The keydown handler runs inside the user
+  // gesture, so the write inherits the activation that the API requires.
+  // When the current document is embedded (iframe) the host can deny
+  // "clipboard-write" via Permissions Policy — the async API then violates on
+  // every call, so prefer the copy-event route there.
   function canWriteAsyncClipboard() {
-    return typeof ClipboardItem === 'function' &&
-      navigator.clipboard && typeof navigator.clipboard.write === 'function' &&
-      (typeof window === 'undefined' || window.isSecureContext !== false);
+    if (typeof ClipboardItem !== 'function' ||
+        !navigator.clipboard || typeof navigator.clipboard.write !== 'function') {
+      return false;
+    }
+    if (typeof window !== 'undefined' && window.isSecureContext === false) return false;
+    try {
+      if (document.featurePolicy && typeof document.featurePolicy.allowsFeature === 'function') {
+        if (!document.featurePolicy.allowsFeature('clipboard-write')) return false;
+      }
+    } catch (err) { /* policy introspection unavailable — allow the attempt */ }
+    return true;
   }
 
   // A minimal SVG for a point-only selection (exportSVG draws nothing for
