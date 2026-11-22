@@ -18378,6 +18378,7 @@
       // unreachable. Weight and Style in the row below pick the face.
       for (const cat of reg.categories()) {
         if (cat === 'Imported' && !reg.imported().length) continue;
+        if (cat === 'System' && !(reg.systemList && reg.systemList().length)) continue;
         const g = document.createElement('optgroup');
         g.label = cat;
         sel.appendChild(g);
@@ -18389,6 +18390,11 @@
         }
         if (cat === 'Imported') {
           for (const f of reg.imported()) addOpt(g, f.family, f.family);
+        }
+        if (cat === 'System') {
+          // remembered family names from the Local Font Access scan; the bytes
+          // of one are read the moment it is applied
+          for (const f of reg.systemList()) addOpt(g, f.family, f.family);
         }
       }
     } else {
@@ -18440,7 +18446,14 @@
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = prev; }
     }
-    return reg.registered(family, w, st);
+    const ok = reg.registered(family, w, st);
+    // An installed family whose bytes were never read (permission not granted
+    // this session) cannot load from here: say what unlocks it instead of
+    // failing silently into a fallback-font trace.
+    if (!ok && reg.systemList && reg.systemList().some(f => f.family === family)) {
+      toast('Installed font "' + family + '" needs access — press "System fonts\u2026" once');
+    }
+    return ok;
   }
 
   const HELP_LANG_KEY = 'minisketch.help.lang';
@@ -31179,6 +31192,34 @@ function cmdSplitCurve() {
     if (textImport) textImport.addEventListener('click', () => {
       const input = document.getElementById('text-font-input');
       if (input) input.click();
+    });
+    // System fonts… — every family installed on this computer, through
+    // Chromium's Local Font Access. One permission dialog per origin; the
+    // family names land in the dropdown, a chosen family's bytes are read on
+    // demand (exact outlines included), so nothing needs importing by hand.
+    const textSystem = document.getElementById('text-system-fonts');
+    if (textSystem) textSystem.addEventListener('click', async () => {
+      const reg = window.MiniSketchFonts;
+      if (!reg || typeof reg.importSystemFonts !== 'function') {
+        toast('System fonts need Chrome or Edge (Local Font Access)');
+        return;
+      }
+      const prev = textSystem.textContent;
+      textSystem.disabled = true;
+      textSystem.textContent = 'Reading\u2026';
+      try {
+        const n = await reg.importSystemFonts();
+        toast(n ? n + ' system famil' + (n === 1 ? 'y' : 'ies') + ' listed'
+                : 'No system fonts found');
+        const fontSel = document.getElementById('text-font');
+        fillTextFonts(fontSel ? fontSel.value : null);
+        render();
+      } catch (err) {
+        toast('System fonts unavailable: ' + (err && err.message ? err.message : err));
+      } finally {
+        textSystem.disabled = false;
+        textSystem.textContent = prev;
+      }
     });
     const fontInput = document.getElementById('text-font-input');
     if (fontInput) fontInput.addEventListener('change', async () => {

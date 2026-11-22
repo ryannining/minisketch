@@ -360,6 +360,7 @@
       if (f.category && !seen.includes(f.category)) seen.push(f.category);
     }
     if (imported.length && !seen.includes('Imported')) seen.push('Imported');
+    if (systemStored().length && !seen.includes('System')) seen.push('System');
     return seen;
   };
 
@@ -757,6 +758,9 @@
     const st = style || 'normal';
     const key = faceKey(family, w, st);
     if (registered.has(key)) return Promise.resolve(true);
+    // an installed (system) family is not in the bundled index: its names live
+    // in localStorage and its bytes come from the Local Font Access permission
+    if (systemStored().some(f => f.family === family)) return loadSystem(family, w, st);
     if (!known(family)) return Promise.resolve(false);
     if (loading.has(key)) return loading.get(key).then(() => registered.has(key));
     // an italic request without an italic member falls back to upright
@@ -916,6 +920,124 @@
     }).catch(() => { /* no IndexedDB (private mode): imports just do not persist */ });
   }
 
+  // ---- System fonts (Local Font Access API — Chrome / Edge) ---------------
+  // Windows ships hundreds of installed families. Chromium hands them to the
+  // page through window.queryLocalFonts(): one permission dialog per origin,
+  // then every FontData names its family and offers blob() — the REAL font
+  // bytes. A system family can therefore register exactly like an imported
+  // one, exact glyf outlines included, with no file to pick by hand.
+  //
+  // Names and bytes are kept apart on purpose: a granted permission lists
+  // 1000+ fonts, and reading + parsing all of them up front would take
+  // minutes. The button only remembers FAMILY NAMES (localStorage); the
+  // dropdown lists them, and a family's bytes are read the moment it is
+  // chosen — silently while the permission is still granted, never from a
+  // background load (the picker needs a user gesture).
+  const SYSTEM_KEY = 'minisketch.systemFonts.v1';
+  let system = [];   // faces actually registered this session
+
+  function systemStored() {
+    try { return JSON.parse(localStorage.getItem(SYSTEM_KEY) || '[]'); }
+    catch (err) { return []; }
+  }
+
+  function rememberSystemFamily(family, weight, style) {
+    const list = systemStored();
+    const cur = list.find(f => f.family === family);
+    if (cur) {
+      // keep the richest style hint seen (a Bold-only family lists weight 700)
+      if ((cur.weight || 400) === 400 && (weight || 400) !== 400) cur.weight = weight;
+      if ((cur.style || 'normal') === 'normal' && (style || 'normal') !== 'normal') cur.style = style;
+    } else {
+      list.push({ family, weight: weight || 400, style: style || 'normal' });
+    }
+    try { localStorage.setItem(SYSTEM_KEY, JSON.stringify(list)); } catch (err) { /* private mode */ }
+  }
+
+  function styleFromFontData(st) {
+    const s = String(st || '').toLowerCase();
+    const italic = s.indexOf('italic') >= 0 || s.indexOf('oblique') >= 0;
+    const bold = s.indexOf('bold') >= 0 || s.indexOf('black') >= 0 || s.indexOf('heavy') >= 0;
+    return { weight: bold ? 700 : 400, style: italic ? 'italic' : 'normal' };
+  }
+
+  // One permission dialog per origin: the first call shows Chromium's font
+  // picker; once granted, calls return the whole installed set.
+  function querySystemFonts() {
+    if (typeof window.queryLocalFonts !== 'function') {
+      return Promise.reject(new Error('this browser has no Local Font Access — use Chrome or Edge'));
+    }
+    return window.queryLocalFonts();
+  }
+
+  async function registerSystemFace(fd) {
+    const { weight, style } = styleFromFontData(fd.style);
+    const key = faceKey(fd.family, weight, style);
+    if (registered.has(key)) return true;
+    if (!fd.blob) return false;
+    // FontData.blob() resolves to a Blob; FontFace needs raw bytes, and so
+    // does the glyf parser that keeps the exact outline source.
+    const buffer = await (await fd.blob()).arrayBuffer();
+    buffers.set(key, buffer);
+    await registerFace(fd.family, weight, style, buffer.slice(0), fd.fullName || fd.family);
+    registered.add(key);
+    if (!system.some(f => f.family === fd.family)) {
+      system.push({ family: fd.family, category: 'System', weight, style });
+    }
+    rememberSystemFamily(fd.family, weight, style);
+    bumpEpoch();
+    return true;
+  }
+
+  // Button entry: list every installed family in the dropdown. Names only —
+  // a family's bytes are read when it is chosen.
+  async function importSystemFonts() {
+    const fonts = await querySystemFonts();
+    const seen = new Set();
+    for (const fd of fonts) {
+      if (!fd || !fd.family || seen.has(fd.family)) continue;
+      seen.add(fd.family);
+      rememberSystemFamily(fd.family, 400, 'normal');
+    }
+    if (seen.size) bumpEpoch();
+    return seen.size;
+  }
+
+  const systemLoading = new Map();
+  function loadSystem(family, weight, style) {
+    const w = weight || 400;
+    const st = style || 'normal';
+    const key = faceKey(family, w, st);
+    if (registered.has(key)) return Promise.resolve(true);
+    if (systemLoading.has(key)) return systemLoading.get(key);
+    const task = (async () => {
+      // A picker cannot be shown from a background load: register silently
+      // only when the permission is already granted, else report unavailable.
+      if (!navigator.permissions || typeof navigator.permissions.query !== 'function') return false;
+      const status = await navigator.permissions.query({ name: 'local-fonts' }).catch(() => null);
+      if (!status || status.state !== 'granted') return false;
+      const fonts = await querySystemFonts();
+      const members = fonts.filter(fd => fd && fd.family === family);
+      if (!members.length) return false;
+      // the requested member first, then the closest weight/style
+      const scored = members
+        .map(fd => Object.assign(styleFromFontData(fd.style), { fd }))
+        .sort((a, b) => (Math.abs(a.weight - w) + (a.style !== st ? 2 : 0))
+                      - (Math.abs(b.weight - w) + (b.style !== st ? 2 : 0)));
+      const ok = await registerSystemFace(scored[0].fd);
+      return !!ok && (registered.has(key) || registered.has(faceKey(family, scored[0].weight, scored[0].style)));
+    })();
+    const tracked = task
+      .then(v => { systemLoading.delete(key); return v; })
+      .catch(err => {
+        systemLoading.delete(key);
+        if (typeof console !== 'undefined' && console.warn) console.warn('[fonts]', err);
+        return false;
+      });
+    systemLoading.set(key, tracked);
+    return tracked;
+  }
+
   window.MiniSketchFonts = {
     define,
     load,
@@ -924,6 +1046,9 @@
     removeImported,
     familyFromBytes,
     known,
+    querySystemFonts,
+    importSystemFonts,
+    systemList: () => systemStored(),
     // Exact `glyf` outline data for one member of a family (see parseFont), or
     // null when that member has no TrueType outlines. Font units, y up.
     outlines: (family, weight, style) => {
