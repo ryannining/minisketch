@@ -5953,12 +5953,19 @@
     // The SVG rendering is computed up front so both routes can share it; the
     // PNG is a screenshot of the current frame cropped to the selection —
     // captured NOW (inside the gesture, frame current), resolved later by the
-    // async route. A point-only selection has a bounds (the points), so it
-    // still gets a PNG.
+    // async route.
     let svg = null;
     try {
       svg = exportSVG({ returnString: true, onlySelected: true, onlyVisible: true });
     } catch (err) { svg = null; }
+    // exportSVG only draws ENTITIES — a point-only selection (no objects)
+    // yields null, and then both external routes would write plain JSON to
+    // the OS clipboard, so Inkscape complains and WhatsApp shows the JSON.
+    // Give point selections a minimal real SVG (dots at each point) so the
+    // text/plain and image/svg+xml flavours always carry markup.
+    if (!svg && payload.points && payload.points.length) {
+      svg = pointsFallbackSvg(payload);
+    }
     clipSvgText = svg || '';
     const pngPromise = payload.bounds
       ? viewportCropToPngBlob(payload.bounds)
@@ -5993,6 +6000,36 @@
       (typeof window === 'undefined' || window.isSecureContext !== false);
   }
 
+  // A minimal SVG for a point-only selection (exportSVG draws nothing for
+  // bare points): one dot per point, same 96dpi px page scheme as exportSVG,
+  // so external apps get a valid vector document instead of raw JSON text.
+  function pointsFallbackSvg(payload) {
+    const pts = (payload.points || []).filter(p => isFinite(p.x) && isFinite(p.y));
+    if (!pts.length) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of pts) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+    const pad = 10;
+    const vx = minX - pad, vy = minY - pad;
+    const vw = (maxX - minX) + pad * 2, vh = (maxY - minY) + pad * 2;
+    const k = 96 / 25.4;
+    const px = (n) => fmt(n * k);
+    const parts = [];
+    parts.push('<?xml version="1.0" encoding="UTF-8"?>');
+    parts.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + px(vx) + ' ' + px(vy) + ' ' + px(vw) + ' ' + px(vh) + '" width="' + px(vw) + 'px" height="' + px(vh) + 'px">');
+    parts.push('<g transform="scale(' + String(k) + ')" fill="none" stroke-linecap="round" stroke-linejoin="round">');
+    for (const p of pts) {
+      parts.push('<circle cx="' + fmt(p.x) + '" cy="' + fmt(p.y) + '" r="0.5" stroke="#000000" stroke-width="0.3"/>');
+    }
+    parts.push('</g>');
+    parts.push('</svg>');
+    return parts.join('');
+  }
+
   // Route A — the async, multi-format write. Resolves true when the clipboard
   // took the payload; false (or rejects) when the caller should arm the copy
   // event route instead. pngPromise may be a promise for the PNG blob (from
@@ -6007,7 +6044,14 @@
     if (!canWriteAsyncClipboard()) return false;
     let png = null;
     if (pngPromise) {
-      try { png = await pngPromise; } catch (err) { png = null; }
+      try {
+        // The rasterization must never be able to stall the clipboard write:
+        // if it has not settled quickly, proceed without the PNG.
+        png = await Promise.race([
+          pngPromise,
+          new Promise(res => setTimeout(() => res(null), 1200))
+        ]);
+      } catch (err) { png = null; }
     }
     const textFlavours = {
       'text/plain': new Blob([svg || json], { type: 'text/plain' }),

@@ -94,7 +94,7 @@ console.log('\n== copySelection: Route A (async ClipboardItem) when available ==
     'CLIP_MARK', 'Date', 'xfBlock', 'clipboardPayload', 'exportSVG', 'toast',
     'canWriteAsyncClipboard', 'writeMultiFormatClipboard', 'setTimeout',
     'clipPayloadText', 'clipSvgText', 'clipCopyRequested', 'clipboard',
-    'viewportCropToPngBlob',
+    'viewportCropToPngBlob', 'pointsFallbackSvg',
     slice('copySelection') + '\nreturn copySelection;');
 
   const toasts = [];
@@ -111,7 +111,8 @@ console.log('\n== copySelection: Route A (async ClipboardItem) when available ==
     async (...args) => { writeCalls.push(args); return true; },
     () => { throw new Error('legacy route must NOT be armed when Route A works'); },
     '', '', false, null,
-    () => Promise.resolve('stub-png')     // viewportCropToPngBlob
+    () => Promise.resolve('stub-png'),     // viewportCropToPngBlob
+    () => 'fallback-svg'                   // pointsFallbackSvg
   );
   copyFn();
   await new Promise(r => setTimeout(r, 0));
@@ -132,6 +133,31 @@ console.log('\n== copySelection: Route A (async ClipboardItem) when available ==
     /Copied 2 objects/.test(toasts[0]) &&
     /SVG/.test(toasts[0]) && /PNG/.test(toasts[0]) && /sketch/.test(toasts[0]),
     toasts[0]);
+
+  // A point-only selection has no entities to export: exportSVG returns null,
+  // and the points fallback must provide the SVG instead.
+  exportCalls.length = 0;
+  writeCalls.length = 0;
+  toasts.length = 0;
+  const copyFnPoints = fn(
+    CLIP_MARK, Date,
+    () => false,
+    () => ({ count: 0, pointCount: 3, entities: [],
+      points: [{ id: 1, x: 1, y: 2 }, { id: 2, x: 3, y: 4 }, { id: 3, x: 5, y: 6 }],
+      bounds: { minX: 1, minY: 2, maxX: 5, maxY: 6 } }),
+    () => null,                          // exportSVG: nothing selected, no entities
+    (m) => toasts.push(m),
+    () => true,
+    async (...args) => { writeCalls.push(args); return true; },
+    () => { throw new Error('legacy must not arm'); },
+    '', '', false, null,
+    () => Promise.resolve('stub-png'),
+    (payload) => 'points-svg:' + payload.points.length
+  );
+  copyFnPoints();
+  await new Promise(r => setTimeout(r, 0));
+  check('a point-only selection gets the points-fallback SVG',
+    writeCalls.length === 1 && writeCalls[0][1] === 'points-svg:3');
 }
 
 console.log('\n== copySelection: Route B (copy event) when async is unavailable ==');
@@ -336,6 +362,23 @@ console.log('\n== the async multi-format write (writeMultiFormatClipboard) ==');
     { clipboard: { write() { return Promise.reject(new Error('permission')); } } }
   )({ points: [], entities: [] }, SVG, JSON_MSG, Promise.resolve(pngBlob));
   check('a refused write resolves false', refuseOk === false && attempts4.length === 3);
+
+  // a rasterization that never settles must not stall the write: the timeout
+  // gives up on the PNG and the text flavours still land. The probe compresses
+  // the 1200ms timeout to 30ms via a patched global setTimeout.
+  const attempts5 = [];
+  const origSetTimeout = global.setTimeout;
+  global.setTimeout = (fn, ms) => origSetTimeout(fn, Math.min(ms, 30));
+  try {
+    const hangOk = await makeImpl(
+      recordItem(attempts5),
+      { clipboard: { write(items) { return Promise.resolve(items); } } }
+    )({ points: [], entities: [] }, SVG, JSON_MSG, new Promise(() => {}));
+    check('a hanging PNG crop times out and still writes the text flavours',
+      hangOk === true && attempts5[0]['image/svg+xml'] && !attempts5[0]['image/png']);
+  } finally {
+    global.setTimeout = origSetTimeout;
+  }
 }
 
 console.log('\n== viewportCropRect: selection bbox -> screen crop + 20px margin ==');
