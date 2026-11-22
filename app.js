@@ -18667,14 +18667,24 @@
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = prev; }
     }
-    const ok = reg.registered(family, w, st);
-    // An installed family whose bytes were never read (permission not granted
-    // this session) cannot load from here: say what unlocks it instead of
-    // failing silently into a fallback-font trace.
-    if (!ok && reg.systemList && reg.systemList().some(f => f.family === family)) {
+    // A system family may only ship ONE member (e.g. Arial Bold with no
+    // Regular): loadSystem then registers the closest member, keyed by ITS
+    // weight/style. Accept any registered member of the family as a success —
+    // the outline store falls back by family (outlines() walks the faces map),
+    // so the text still converts from real glyph data instead of failing.
+    if (reg.registered(family, w, st)) return true;
+    if (reg.systemList && reg.systemList().some(f => f.family === family)) {
+      const any = reg.systemList().filter(f => f.family === family);
+      for (const f of any) {
+        if (reg.registered(f.family, f.weight, f.style)) return true;
+      }
+      // family known to be installed but nothing registered: the bytes were
+      // never read this session — say what unlocks it instead of failing
+      // silently into a fallback-font trace.
       toast('Installed font "' + family + '" needs access — press "System fonts\u2026" once');
+      return false;
     }
-    return ok;
+    return false;
   }
 
   const HELP_LANG_KEY = 'minisketch.help.lang';
