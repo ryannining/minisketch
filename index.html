@@ -754,7 +754,12 @@
     </div>
     <div class="cnc-row">
       <span class="cnc-label">Font</span>
-      <select id="text-font"></select>
+      <select id="text-font" hidden></select>
+      <div class="font-pick" id="font-pick">
+        <input type="text" id="font-pick-box" autocomplete="off" spellcheck="false" placeholder="Type to filter fonts">
+        <label class="font-pick-sys" title="Include the fonts installed on this computer in the list"><input type="checkbox" id="font-pick-system" checked> System</label>
+        <div class="font-pick-list" id="font-pick-list" hidden></div>
+      </div>
       <button class="btn small" id="text-system-fonts" title="List the fonts installed on this computer (Windows fonts) — Chromium asks for permission once, then a chosen family's real font file is read on demand. Chrome / Edge only">System fonts&hellip;</button>
       <button class="btn small" id="text-import" title="Add a font file (.ttf / .otf / .woff) from disk — it is stored in this browser and shows up under Imported">Import font&hellip;</button>
       <input type="file" id="text-font-input" accept=".ttf,.otf,.woff,.woff2" multiple hidden>

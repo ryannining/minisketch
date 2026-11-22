@@ -18406,6 +18406,7 @@
       for (const f of ['sans-serif', 'serif', 'monospace']) addOpt(g, f, f);
     }
     if (selValue != null) setTextFontValue(sel, selValue);
+    fontPickSync();
   }
 
   function setTextFontValue(sel, want) {
@@ -18423,6 +18424,194 @@
       group.appendChild(o);
     }
     sel.value = want;
+    fontPickSync();
+  }
+
+  // ---- Font picker: a filterable list over the #text-font state holder ----
+  // Hundreds of installed families do not fit the dialog, and a native select
+  // popup can neither be filtered nor scrolled comfortably. The <select> stays
+  // the STATE HOLDER (hidden): preview wiring, Apply and the lazy face load
+  // all keep reading it; the picker renders its options as a searchable panel
+  // and writes the choice back through the select's own change event, so no
+  // existing consumer changes.
+  const FONT_PICK_MAX_ROWS = 400;
+  let fontPickBound = false;
+  let fontPickKb = -1;   // keyboard-highlighted row index over the visible rows
+
+  // The rows the panel should show right now: filter by the typed name, drop
+  // the System group when the checkbox says so, and always keep the applied
+  // family reachable even when its group is filtered off.
+  function fontPickVisibleRows() {
+    const sel = document.getElementById('text-font');
+    if (!sel) return [];
+    const box = document.getElementById('font-pick-box');
+    const q = (box && box.value || '').trim().toLowerCase();
+    const sysEl = document.getElementById('font-pick-system');
+    const sysOn = !sysEl || sysEl.checked;
+    const current = sel.value;
+    const rows = [];
+    let seenCurrent = false;
+    for (const node of sel.children) {
+      const isGroup = node.tagName === 'OPTGROUP';
+      const group = isGroup ? (node.label || '') : '';
+      if (isGroup && group === 'System' && !sysOn) continue;
+      const opts = isGroup ? node.querySelectorAll('option') : [node];
+      for (const o of opts) {
+        const v = o.value || o.textContent;
+        if (v === current) seenCurrent = true;
+        if (q && v.toLowerCase().indexOf(q) < 0) continue;
+        rows.push({ group, value: v });
+      }
+    }
+    if (current && !seenCurrent) rows.unshift({ group: '', value: current, pinned: true });
+    return rows;
+  }
+
+  function fontPickRender() {
+    const list = document.getElementById('font-pick-list');
+    const sel = document.getElementById('text-font');
+    if (!list || list.hidden || !sel) return;
+    const rows = fontPickVisibleRows();
+    const curIdx = rows.findIndex(r => r.value === sel.value);
+    if (fontPickKb < 0 || fontPickKb >= rows.length) fontPickKb = curIdx >= 0 ? curIdx : (rows.length ? 0 : -1);
+    list.innerHTML = '';
+    let lastGroup = null;
+    let shown = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (shown >= FONT_PICK_MAX_ROWS) {
+        const more = document.createElement('div');
+        more.className = 'font-pick-empty';
+        more.textContent = '+' + (rows.length - shown) + ' more \u2014 keep typing';
+        list.appendChild(more);
+        break;
+      }
+      shown++;
+      if ((r.group || '') !== lastGroup) {
+        lastGroup = r.group || '';
+        const head = document.createElement('div');
+        head.className = 'font-pick-head';
+        head.textContent = r.pinned ? 'current' : (lastGroup || 'Fonts');
+        list.appendChild(head);
+      }
+      const row = document.createElement('div');
+      row.className = 'font-pick-row' +
+        (r.value === sel.value ? ' active' : '') +
+        (i === fontPickKb ? ' kb' : '');
+      row.textContent = r.value;
+      row.title = r.value;
+      row.addEventListener('click', () => fontPickChoose(r.value));
+      list.appendChild(row);
+    }
+    if (!rows.length) {
+      const empty = document.createElement('div');
+      empty.className = 'font-pick-empty';
+      empty.textContent = 'No font matches';
+      list.appendChild(empty);
+    }
+  }
+
+  function fontPickChoose(value) {
+    const sel = document.getElementById('text-font');
+    const box = document.getElementById('font-pick-box');
+    if (!sel) return;
+    if (sel.value !== value) {
+      sel.value = value;
+      // the select's own input/change listeners repaint the preview and lazy-
+      // load the face — dispatching keeps that plumbing untouched
+      sel.dispatchEvent(new Event('input', { bubbles: true }));
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if (box) box.value = value;
+    fontPickOpen(false);
+  }
+
+  // position: fixed escapes the modal's overflow-y clipping; re-anchored to
+  // the input box every time it opens (and while the dialog scrolls)
+  function fontPickPosition() {
+    const list = document.getElementById('font-pick-list');
+    const box = document.getElementById('font-pick-box');
+    if (!list || list.hidden || !box) return;
+    const r = box.getBoundingClientRect();
+    list.style.left = r.left + 'px';
+    list.style.top = (r.bottom + 4) + 'px';
+    list.style.width = Math.max(r.width, 230) + 'px';
+  }
+
+  function fontPickOpen(open) {
+    const list = document.getElementById('font-pick-list');
+    if (!list) return;
+    if (open) {
+      list.hidden = false;
+      fontPickRender();
+      fontPickPosition();
+    } else {
+      list.hidden = true;
+      fontPickKb = -1;
+    }
+  }
+
+  // keep the input display and (open) panel in step with the select — called
+  // wherever the select's options or value are rebuilt
+  function fontPickSync() {
+    const sel = document.getElementById('text-font');
+    const box = document.getElementById('font-pick-box');
+    if (sel && box) box.value = sel.value || '';
+    const list = document.getElementById('font-pick-list');
+    if (list && !list.hidden) fontPickRender();
+  }
+
+  function fontPickInit() {
+    if (fontPickBound) return;
+    const box = document.getElementById('font-pick-box');
+    const sys = document.getElementById('font-pick-system');
+    const pick = document.getElementById('font-pick');
+    if (!box || !sys || !pick) return;
+    fontPickBound = true;
+    box.addEventListener('focus', () => fontPickOpen(true));
+    box.addEventListener('input', () => { fontPickKb = -1; fontPickOpen(true); });
+    box.addEventListener('keydown', (ev) => {
+      const list = document.getElementById('font-pick-list');
+      if (ev.key === 'Escape') {
+        // Escape closes the panel first; only a second Escape reaches the
+        // dialog's own cancel path
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (list && !list.hidden) fontPickOpen(false);
+        else box.blur();
+        return;
+      }
+      const rows = fontPickVisibleRows();
+      if (!rows.length) return;
+      // a stored highlight indexes the PREVIOUS row set: clamp it before use
+      // or Enter could resolve to nothing after the filter changed the list
+      fontPickKb = Math.min(fontPickKb, rows.length - 1);
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        ev.preventDefault();
+        if (!list || list.hidden) fontPickOpen(true);
+        const delta = ev.key === 'ArrowDown' ? 1 : -1;
+        fontPickKb = fontPickKb < 0
+          ? (delta > 0 ? 0 : rows.length - 1)
+          : Math.max(0, Math.min(rows.length - 1, fontPickKb + delta));
+        fontPickRender();
+        const kb = list && list.querySelector('.font-pick-row.kb');
+        if (kb) kb.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        const pick0 = rows[fontPickKb];
+        if (pick0) fontPickChoose(pick0.value);
+      }
+    });
+    sys.addEventListener('change', () => { fontPickKb = -1; fontPickOpen(true); });
+    document.addEventListener('pointerdown', (ev) => {
+      if (pick.contains(ev.target)) return;
+      fontPickOpen(false);
+    });
+    window.addEventListener('resize', fontPickPosition);
+    const modal = document.getElementById('text-modal');
+    if (modal) modal.addEventListener('scroll', fontPickPosition, true);
   }
 
   // A bundled family must have its bytes registered before the canvas may
@@ -31051,6 +31240,7 @@ function cmdSplitCurve() {
     const textApply = document.getElementById('text-apply');
     if (textApply) textApply.addEventListener('click', applyTextEditor);
     const textPreview = document.getElementById('text-preview');
+    fontPickInit();
     const previewInputs = ['text-value','text-font','text-weight','text-italic','text-tracking','text-leading','text-align'];
     for (const id of previewInputs) {
       const el = document.getElementById(id);
