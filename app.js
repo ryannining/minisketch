@@ -21697,7 +21697,6 @@
     updateConstraintButtons();
     bindConstraintTools();
     updateConstraintList();
-    updateArrayList();
     updatePartsList();
     updateObjectTree();
     updateNestPanel();
@@ -22211,10 +22210,12 @@
       row.appendChild(caret('', false));
       const name = document.createElement('span');
       name.className = 'name';
-      name.textContent = (e.name || '').trim() || (e.type + ' ' + id);
+      // A clone is its own thing, not "array": name and type label say Clone.
+      const otLabel = e.type === 'array' ? (e.kind === 'clone' ? 'clone' : 'array') : e.type;
+      name.textContent = (e.name || '').trim() || (otLabel + ' ' + id);
       const meta = document.createElement('span');
       meta.className = 'meta';
-      meta.textContent = e.type;
+      meta.textContent = otLabel;
       row.appendChild(name);
       row.appendChild(meta);
       row.addEventListener('click', () => {
@@ -22475,59 +22476,6 @@
         : 'Mate: click a marker or an edge midpoint of the second part\u2026';
       list.appendChild(li);
     }
-  }
-
-  function updateArrayList() {
-    const list = document.getElementById('array-list');
-    if (!list) return;
-    const rows = [];
-    for (const id in state.entities) {
-      const e = state.entities[id];
-      if (e.type === 'array') rows.push(e);
-    }
-    const countEl = document.getElementById('array-count');
-    if (countEl) countEl.textContent = String(rows.length);
-    const arrSig = 'a' + geometryEpoch + '|' +
-      rows.map(e => e.id + (selected('entity', +e.id) ? 'S' : '') + JSON.stringify(e.params || null) + (e.kind || '')).join(',');
-    if (listUnchanged(list, arrSig)) return;
-    list.innerHTML = '';
-    for (const e of rows) {
-      const li = document.createElement('li');
-      li.className = 'clickable' + (selected('entity', +e.id) ? ' active' : '');
-      li.dataset.array = e.id;
-      li.title = 'Click to edit the array parameters and refresh the clones';
-      const name = document.createElement('span');
-      name.className = 'name';
-      const kinds = (e.masters || [])
-        .map(mid => state.entities[mid])
-        .filter(Boolean)
-        .map(m => m.type === 'art' ? 'group' : m.type);
-      const kindTag = kinds.length === 1 ? kinds[0] : kinds.length + ' objects';
-      name.textContent = 'Array ' + e.id + ' \u00b7 ' + kindTag;
-      const meta = document.createElement('span');
-      meta.className = 'meta';
-      const p = e.params || {};
-      meta.textContent = (e.kind === 'polar' || e.kind === 'guide')
-        ? Math.round(+p.count || 0) + ' \u00d7 ' + (e.kind === 'guide' && p.rotate ? 'rotated' : 'on guide')
-        : Math.round(+p.rows || 1) + '\u00d7' + Math.round(+p.cols || 1) +
-          ' \u00b7 ' + round2(isFinite(+p.dx) ? +p.dx : 0) + ', ' + round2(isFinite(+p.dy) ? +p.dy : 0);
-      li.appendChild(name);
-      li.appendChild(meta);
-      const del = document.createElement('button');
-      del.className = 'mini-del';
-      del.title = 'Delete this array';
-      del.textContent = '\u00d7';
-      del.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        pushHistory();
-        removeEntities([+e.id]);
-        commit();
-        toast('Array deleted');
-      });
-      li.appendChild(del);
-      list.appendChild(li);
-    }
-    list.dataset.empty = 'No clone arrays yet';
   }
 
   function updateLoopFillRow() {
@@ -27783,6 +27731,11 @@ function cmdSplitCurve() {
         return;
       }
       if (ent && ent.type === 'array') {
+        // A CLONE stays silent on double-click: its parameters are empty on
+        // purpose (the instance matrix IS the placement), so the array dialog
+        // would only offer rows/cols fields that mean nothing here. Only a
+        // real array (grid / polar / guide) re-opens its dialog.
+        if (ent.kind === 'clone') return;
         ui.selection = [{ kind: 'entity', id: eh }];
         updateUI();
         render();
@@ -30929,17 +30882,11 @@ function cmdSplitCurve() {
       render();
     });
 
-    const arrayList = document.getElementById('array-list');
-    if (arrayList) arrayList.addEventListener('click', ev => {
-      const li = ev.target.closest('[data-array]');
-      if (!li) return;
-      const ent = state.entities[+li.dataset.array];
-      if (!ent) return;
-      ui.selection = [{ kind: 'entity', id: +ent.id }];
-      updateUI();
-      render();
-      openArrayDialog(ent.id, ent.masters);
-    });
+    // (The old "Arrays" side list is gone: the Object Tree already lists every
+    // array and clone, and with clone-split producing many clones the duplicate
+    // list was dead weight. Double-clicking an array on the canvas still opens
+    // this dialog.)
+
     document.querySelectorAll('[data-cmd]').forEach(btn => {
       btn.addEventListener('click', () => {
         const cmd = btn.dataset.cmd;
