@@ -2977,22 +2977,27 @@ details.chat-think summary:hover { color: #00c96a; }
    The hidden #text-font select stays the state holder; this panel lists its
    options with a name filter. position: fixed keeps the modal's own
    overflow-y from ever clipping the list, and z-index 70 rides above the
-   .modal (z-index 60) it lives in. */
-.font-pick { position: relative; flex: 1 1 auto; min-width: 0; display: flex; gap: 6px; align-items: center; }
+   .modal (z-index 60) it lives in. The row stacks vertically: the filter box
+   gets the full width, the checkbox + scan/import buttons sit on their own
+   line — one 410px row could not hold them without overlapping. */
+.font-row { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-bottom: 10px; }
+.font-row .cnc-label { flex: 0 0 auto; }
+.font-pick { position: relative; flex: 1 1 auto; min-width: 0; }
 .font-pick-box {
-  flex: 1 1 auto; min-width: 0;
+  width: 100%; box-sizing: border-box;
   background: var(--input); color: var(--ink);
   border: 1px solid var(--line-strong); border-radius: 7px;
   padding: 5px 8px; font-size: 12px;
 }
 .font-pick-box:focus { border-color: var(--accent); outline: none; background: var(--input-focus); }
+.font-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .font-pick-sys {
-  flex: 0 0 auto; display: flex; align-items: center; gap: 4px;
+  display: inline-flex; align-items: center; gap: 4px;
   font-size: 11px; color: var(--text-2); cursor: pointer; white-space: nowrap;
 }
 .font-pick-list {
   position: fixed; z-index: 70;
-  min-width: 220px; max-width: 360px;
+  min-width: 230px; max-width: 380px;
   max-height: 240px; overflow-y: auto;
   background: var(--panel); border: 1px solid var(--line-strong);
   border-radius: 9px; box-shadow: 0 12px 32px var(--shadow-modal-color);

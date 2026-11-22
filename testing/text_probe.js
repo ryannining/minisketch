@@ -164,5 +164,31 @@ console.log('\n== a selected text drags from its whole frame, no dwell ==');
     /isSel \? SEL_WIDTH : 1/.test(dtail));
 }
 
+// ---- draft: a new text appears only when Apply is pressed ----------------
+console.log('\n== a new text is a hidden draft until Apply ==');
+{
+  const p = appSrc.indexOf("if (ui.tool === 'text') {");
+  const place = appSrc.slice(p, appSrc.indexOf("\n    if (ui.tool === 'line')", p));
+  check('placement creates the text as a hidden draft (no guides, no commit)',
+    /_draft: true/.test(place) && /guide: \[\]/.test(place) &&
+    !/commit\(\)/.test(place) && !/state\.entities\[idW\]/.test(place));
+  const a = appSrc.indexOf('async function applyTextEditor(');
+  const apply = appSrc.slice(a, appSrc.indexOf('\n  function ', a));
+  check('Apply clears the draft flag and attaches the guide frame',
+    /delete e\._draft;/.test(apply) && /attachTextGuides\(e\)/.test(apply));
+  check('drawOneEntity skips drafts (nothing on the workspace before Apply)',
+    /function drawOneEntity\([\s\S]{0,300}if \(e\._draft\) return;/.test(appSrc));
+  check('hit tests ignore drafts',
+    /function entityScreenDistance\([\s\S]{0,220}if \(e\._draft\) return Infinity;/.test(appSrc));
+  check('guides + horizontal + perpendicular attach once at Apply',
+    /function attachTextGuides\(/.test(appSrc) &&
+    /type: 'horizontal', entity: idW/.test(appSrc) &&
+    /type: 'perpendicular', line1: idW, line2: idH/.test(appSrc));
+  const d0 = appSrc.indexOf('function discardNewText(');
+  const drop = appSrc.slice(d0, appSrc.indexOf('\n  function ', d0));
+  check('Cancel still pops the placement snapshot (workspace stays clean)',
+    /history\.pop\(\)/.test(drop));
+}
+
 console.log('\n' + (fail ? (fail + ' FAILED, ' + pass + ' passed') : ('all ' + pass + ' checks passed')));
 process.exit(fail ? 1 : 0);

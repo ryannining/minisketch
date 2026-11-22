@@ -8890,6 +8890,7 @@
 
   function entityScreenDistance(e, sx, sy) {
     if (!layerVisible(e) || !entityEditable(e)) return Infinity;
+    if (e._draft) return Infinity;   // a text draft is not on the canvas yet
     if (e.type === 'note') {
       const p = P(e.p);
       if (!p) return Infinity;
@@ -18527,27 +18528,44 @@
   }
 
   // position: fixed escapes the modal's overflow-y clipping; re-anchored to
-  // the input box every time it opens (and while the dialog scrolls)
+  // the input box every time it opens (and while the dialog scrolls). It
+  // drops below the box by default and flips ABOVE it when the viewport has
+  // no room left underneath.
   function fontPickPosition() {
     const list = document.getElementById('font-pick-list');
     const box = document.getElementById('font-pick-box');
     if (!list || list.hidden || !box) return;
     const r = box.getBoundingClientRect();
-    list.style.left = r.left + 'px';
-    list.style.top = (r.bottom + 4) + 'px';
     list.style.width = Math.max(r.width, 230) + 'px';
+    const spaceBelow = window.innerHeight - r.bottom;
+    const spaceAbove = r.top;
+    if (spaceBelow < 250 && spaceAbove > spaceBelow) {
+      list.style.top = '';
+      list.style.bottom = (window.innerHeight - r.top + 4) + 'px';
+    } else {
+      list.style.bottom = '';
+      list.style.top = (r.bottom + 4) + 'px';
+    }
+    list.style.left = r.left + 'px';
   }
 
   function fontPickOpen(open) {
     const list = document.getElementById('font-pick-list');
+    const box = document.getElementById('font-pick-box');
     if (!list) return;
     if (open) {
+      // a fresh open shows the WHOLE catalogue with the applied family
+      // highlighted; the filter starts empty and narrows only when typing
+      if (box) box.value = '';
+      fontPickKb = -1;
       list.hidden = false;
       fontPickRender();
       fontPickPosition();
     } else {
       list.hidden = true;
       fontPickKb = -1;
+      // without a choice the box goes back to showing the applied family
+      fontPickSync();
     }
   }
 
@@ -18568,8 +18586,22 @@
     const pick = document.getElementById('font-pick');
     if (!box || !sys || !pick) return;
     fontPickBound = true;
-    box.addEventListener('focus', () => fontPickOpen(true));
-    box.addEventListener('input', () => { fontPickKb = -1; fontPickOpen(true); });
+    // click, not just focus: .focus() does NOT fire again on an already
+    // focused field, so re-opening the panel by clicking the box would break.
+    // Both must NOT re-open while the panel is already open — fontPickOpen
+    // clears the box, which would wipe a half-typed filter.
+    const reopenIfClosed = () => {
+      const l = document.getElementById('font-pick-list');
+      if (l && l.hidden) { fontPickKb = -1; fontPickOpen(true); }
+    };
+    box.addEventListener('click', reopenIfClosed);
+    box.addEventListener('focus', reopenIfClosed);
+    box.addEventListener('input', () => {
+      fontPickKb = -1;
+      const l = document.getElementById('font-pick-list');
+      if (l && l.hidden) fontPickOpen(true);
+      else fontPickRender();
+    });
     box.addEventListener('keydown', (ev) => {
       const list = document.getElementById('font-pick-list');
       if (ev.key === 'Escape') {
@@ -18811,6 +18843,28 @@
     const c = { type: 'distance', p1: +e.p0, p2: +e.ph, value: hMm, offset: 10 };
     c.id = newId();
     state.constraints[c.id] = c;
+  }
+
+  // Two real guide lines: they carry the H/V/angle/tangent constraints and are
+  // green, which KaryaCNC reads as "do not machine this path". Attached at
+  // APPLY, not at placement — a pending draft must draw nothing at all, so the
+  // guides and their horizontal / perpendicular constraints only exist once
+  // the text does.
+  function attachTextGuides(e) {
+    if (Array.isArray(e.guide) && e.guide.length) return;   // already attached
+    const p0 = P(e.p0), pw = P(e.pw), ph = P(e.ph);
+    if (!p0 || !pw || !ph) return;
+    const idW = newId();
+    state.entities[idW] = { id: idW, type: 'line', a: e.p0, b: e.pw, color: '#00ff00' };
+    const idH = newId();
+    state.entities[idH] = { id: idH, type: 'line', a: e.p0, b: e.ph, color: '#00ff00' };
+    // The two guides start horizontal + perpendicular, so a fresh text sits
+    // level and square; both are ordinary constraints (H / [ remove them).
+    const cH = newId();
+    state.constraints[cH] = { id: cH, type: 'horizontal', entity: idW };
+    const cPerp = newId();
+    state.constraints[cPerp] = { id: cPerp, type: 'perpendicular', line1: idW, line2: idH };
+    e.guide = [idW, idH];
   }
 
   function renderTextPreview() {
@@ -19063,6 +19117,10 @@
         applyTextHeightDimension(e, hMm);
       }
     }
+    // the draft becomes a real object here: from this moment it draws on the
+    // workspace, hits, saves and undoes as one step back to the pre-text state
+    delete e._draft;
+    attachTextGuides(e);
     ensureTextAspect(e);
     requestSolve();
     commit();
@@ -19182,6 +19240,9 @@
 
   function drawOneEntity(e, bulk, manySelected, lw, selLw, selBatch, batch) {
     if (!layerVisible(e)) return;
+    // a text draft (dialog open, Apply pending) exists in state but must not
+    // show on the workspace until the user commits it
+    if (e._draft) return;
     if (!entityOnScreen(e)) return;
     if (e.type === 'text') {
       drawTextEntity(e);
@@ -22489,6 +22550,7 @@
     const loose = [];
     for (const eid in state.entities) {
       const id = +eid;
+      if (state.entities[eid]._draft) continue;   // a pending text draft is not an object yet
       if (t.boundary.has(id) || t.owner.has(id)) continue;
       if (onlyCur && layerOf(state.entities[eid]) !== ui.activeLayer) continue;
       loose.push(id);
@@ -24524,36 +24586,22 @@
       const p0 = materializePoint(snap);
       const pwId = privatePoint(snap.x + 60, snap.y);
       const phId = privatePoint(snap.x, snap.y + thH);
-      // Two real guide lines: they carry the H/V/angle/tangent constraints and
-      // are green, which KaryaCNC reads as "do not machine this path".
-      const idW = newId();
-      state.entities[idW] = { id: idW, type: 'line', a: p0, b: pwId, color: '#00ff00' };
-      const idH = newId();
-      state.entities[idH] = { id: idH, type: 'line', a: p0, b: phId, color: '#00ff00' };
-      // The two guides start horizontal + perpendicular, so a fresh text sits
-      // level and square; both are ordinary constraints (H / [ remove them).
-      const cH = newId();
-      state.constraints[cH] = { id: cH, type: 'horizontal', entity: idW };
-      const cPerp = newId();
-      state.constraints[cPerp] = { id: cPerp, type: 'perpendicular', line1: idW, line2: idH };
-      // The vertical guide is born dimensioned to the remembered text height
-      const cHdim = newId();
-      state.constraints[cHdim] = {
-        id: cHdim, type: 'distance', p1: p0, p2: phId, value: thH, offset: 10
-      };
       const id = newId();
       const def = loadTextStyle();
       state.entities[id] = {
-        id, type: 'text', p0, pw: pwId, ph: phId, guide: [idW, idH],
+        id, type: 'text', p0, pw: pwId, ph: phId, guide: [],
         text: 'Text', font: def.font, weight: def.weight, italic: def.italic, tracking: def.tracking,
         leading: def.leading, align: def.align, single: HERSHEY_FAMILIES.includes(def.font),
-        color: ui.color, fitCurve: loadTextFit()
+        color: ui.color, fitCurve: loadTextFit(),
+        // DRAFT: the object exists only so the editor and its live preview have
+        // something to read. It draws nowhere and hits nothing until Apply
+        // clears the flag, attaches the green guide frame and commits; Cancel
+        // pops the history entry above and the workspace never showed it.
+        _draft: true
       };
       ensureTextAspect(state.entities[id]);
       ui.selection = [{ kind: 'entity', id }];
       setTool('select');
-      requestSolve();
-      commit();
       openTextEditor(id, true);
       return;
     }
