@@ -36,9 +36,12 @@ geometry solves; drag a corner and everything that depends on it follows.
   two-column layout, autosave included.
 - **Local-first and private.** Documents autosave to the browser (with
   crash-recovery from a `.bak`), save as readable JSON (`.sketch`), export SVG,
-  and `Ctrl+Shift+C` copies the selection to the OS clipboard as SVG for
-  Inkscape / Illustrator. The optional AI chat is **bring-your-own-key**: no
-  API key ships in the repo, and the bridge never stores yours.
+  and `Ctrl+C` / `Ctrl+Shift+C` copies the selection to the OS clipboard in
+  three flavours at once — the MiniSketch JSON payload, the SVG document for
+  Inkscape / Illustrator, and a PNG screenshot of the visible frame cropped to
+  the selection. The optional AI chat is
+  **bring-your-own-key**: no API key ships in the repo, and the bridge never
+  stores yours.
 - **Zero build.** Plain `<script>` tags, static files, works straight from
   disk via `file://`. Clone it, open it, draw.
 

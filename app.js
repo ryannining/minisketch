@@ -2013,6 +2013,12 @@
   // a marker, so any MiniSketch window can pick it up from the OS clipboard.
   const CLIP_MARK = 'MINISKETCH-CLIP:1:';
   let clipPayloadText = '';
+
+  // The SVG rendering of the selection, staged for the copy event route: the
+  // OS clipboard's text/plain slot is what Inkscape/Illustrator parse on
+  // paste, so when the async write is unavailable the SVG takes that slot and
+  // the MiniSketch JSON payload moves to text/html.
+  let clipSvgText = '';
   let clipCopyRequested = false;
   // Every native paste event bumps this. Ctrl+V waits one tick to see whether
   // the browser delivered a paste event: the OS clipboard may hold something
@@ -5917,6 +5923,22 @@
     };
   }
 
+  // Ctrl+C / Ctrl+Shift+C: the selection onto the OS clipboard in THREE
+  // flavours at once —
+  //   • text/plain — the SVG document (same markup File > Export writes), so
+  //     Inkscape / Illustrator / any vector editor takes it with a plain Ctrl+V;
+  //   • text/html   — the MiniSketch JSON payload (CLIP_MARK), so another
+  //     MiniSketch tab pastes it back with full fidelity — constraints included;
+  //   • image/png   — a screenshot of the visible frame CROPPED to the
+  //     selection's bounding box plus a 20px margin, at the canvas backing
+  //     resolution. The picture is meant for a customer: they get exactly the
+  //     part as it looks on screen, not a bare vector re-render.
+  // Neither text flavour carries a background sheet: a pasted white rect would
+  // sit in front of the geometry and catch the clicks.
+  // Route A is the async clipboard API (ClipboardItem + navigator.clipboard):
+  // it is the only route that can carry the PNG. If it is unavailable or
+  // blocked, Route B falls back to the copy event, exactly like the old code —
+  // text/plain takes the SVG and the JSON payload rides in text/html.
   function copySelection() {
     if (xfBlock()) return;
     const payload = clipboardPayload();
@@ -5926,74 +5948,127 @@
     }
     clipboard = payload;
     clipboard.t = Date.now();
-    clipPayloadText = CLIP_MARK + JSON.stringify(clipboard);
-    clipCopyRequested = true;
-    // the copy event fires right after Ctrl+C; if it never comes (browser
-    // blocked it) do not hijack some later, unrelated copy
-    setTimeout(() => { clipCopyRequested = false; }, 800);
-    toast('Copied ' + (payload.count ? payload.count + (payload.count === 1 ? ' object' : ' objects')
-      : payload.pointCount + ' point(s)'));
+    const json = CLIP_MARK + JSON.stringify(clipboard);
+    clipPayloadText = json;
+    // The SVG rendering is computed up front so both routes can share it; the
+    // PNG is a screenshot of the current frame cropped to the selection —
+    // captured NOW (inside the gesture, frame current), resolved later by the
+    // async route. A point-only selection has a bounds (the points), so it
+    // still gets a PNG.
+    let svg = null;
+    try {
+      svg = exportSVG({ returnString: true, onlySelected: true, onlyVisible: true });
+    } catch (err) { svg = null; }
+    clipSvgText = svg || '';
+    const pngPromise = payload.bounds
+      ? viewportCropToPngBlob(payload.bounds)
+      : Promise.resolve(null);
+    const countTxt = payload.count
+      ? payload.count + (payload.count === 1 ? ' object' : ' objects')
+      : payload.pointCount + ' point(s)';
+    const done = () => toast('Copied ' + countTxt +
+      ' \u00b7 SVG, PNG & sketch on the clipboard');
+    const armLegacy = () => {
+      // the copy event fires right after Ctrl+C; if it never comes (browser
+      // blocked it) do not hijack some later, unrelated copy
+      clipCopyRequested = true;
+      setTimeout(() => { clipCopyRequested = false; }, 800);
+    };
+    if (canWriteAsyncClipboard()) {
+      writeMultiFormatClipboard(clipboard, svg, json, pngPromise)
+        .then(ok => { if (!ok) armLegacy(); done(); })
+        .catch(() => { armLegacy(); done(); });
+    } else {
+      armLegacy();
+      done();
+    }
   }
 
-  // Ctrl+Shift+C: the selection onto the OS clipboard as an SVG document, so
-  // Inkscape / Illustrator / any vector editor takes it with a plain Ctrl+V —
-  // the same markup File > Export writes, and neither carries a background
-  // sheet: a pasted white rect would sit in front of the geometry and catch
-  // the clicks.
-  // The in-memory MiniSketch clipboard is untouched: Ctrl+V here still pastes
-  // the last Ctrl+C payload, and an SVG arriving through the paste event is
-  // imported by the existing SVG route (so the copy also round-trips into
-  // another MiniSketch tab as editable geometry).
-  function copySelectionAsSvg() {
-    if (xfBlock()) return;
-    const svg = exportSVG({
-      returnString: true, onlySelected: true, onlyVisible: true
-    });
-    if (!svg) {
-      toast('Select objects to copy as SVG');
-      return;
+  // True when the async clipboard API is present on a secure context. The
+  // keydown handler runs inside the user gesture, so the write inherits the
+  // activation that the API requires.
+  function canWriteAsyncClipboard() {
+    return typeof ClipboardItem === 'function' &&
+      navigator.clipboard && typeof navigator.clipboard.write === 'function' &&
+      (typeof window === 'undefined' || window.isSecureContext !== false);
+  }
+
+  // Route A — the async, multi-format write. Resolves true when the clipboard
+  // took the payload; false (or rejects) when the caller should arm the copy
+  // event route instead. pngPromise may be a promise for the PNG blob (from
+  // viewportCropToPngBlob) or null when there is nothing to rasterize.
+  //
+  // Inkscape / Illustrator ask the clipboard for their own SVG target
+  // ("image/svg+xml") before they look at bitmaps, so the SVG is written under
+  // that dedicated flavour too — otherwise a paste into Inkscape would pick up
+  // the PNG instead of the vectors. Some browsers reject less-common MIME
+  // types in ClipboardItem, so the write is retried with fewer flavours.
+  async function writeMultiFormatClipboard(payload, svg, json, pngPromise) {
+    if (!canWriteAsyncClipboard()) return false;
+    let png = null;
+    if (pngPromise) {
+      try { png = await pngPromise; } catch (err) { png = null; }
     }
-    const count = selectedEntitiesForExport().length;
-    const done = () => toast('Copied ' + count + ' object' + (count === 1 ? '' : 's') +
-      ' as SVG \u00b7 paste in Inkscape with Ctrl+V');
-    // Route 1 — a real copy event: synchronous, works everywhere, and the
-    // listener can set both flavours (plain text is what Inkscape parses;
-    // the HTML flavour carries the same markup for HTML-aware apps).
-    let wrote = false;
-    const onTempCopy = (ev) => {
-      if (!ev.clipboardData) return;
-      ev.preventDefault();
-      ev.clipboardData.setData('text/plain', svg);
-      try { ev.clipboardData.setData('text/html', svg); } catch (err) { /* flavour optional */ }
-      wrote = true;
+    const textFlavours = {
+      'text/plain': new Blob([svg || json], { type: 'text/plain' }),
+      'text/html': new Blob([json], { type: 'text/html' })
     };
-    document.addEventListener('copy', onTempCopy, { capture: true, once: true });
-    const ta = document.createElement('textarea');
-    ta.value = svg;                       // a selection must exist; setData overrides it
-    ta.setAttribute('readonly', '');
-    ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
-    document.body.appendChild(ta);
-    ta.select();
-    let ok = false;
-    try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
-    document.removeEventListener('copy', onTempCopy, { capture: true });
-    ta.remove();
-    if (ok && wrote) { done(); return; }
-    // Route 2 — the async clipboard API (execCommand refused, e.g. the
-    // document lost focus mid-gesture). Needs a secure context.
-    let item = null;
-    try {
-      item = new ClipboardItem({
-        'text/plain': new Blob([svg], { type: 'text/plain' }),
-        'text/html': new Blob([svg], { type: 'text/html' })
-      });
-    } catch (err) { item = null; }
-    if (item && navigator.clipboard && typeof navigator.clipboard.write === 'function') {
-      navigator.clipboard.write([item]).then(done, () =>
-        toast('The clipboard is blocked — use Ctrl+C instead'));
-      return;
+    const full = { ...textFlavours };
+    if (png) full['image/png'] = png;
+    if (svg) full['image/svg+xml'] = new Blob([svg], { type: 'image/svg+xml' });
+    const withPng = { ...textFlavours };
+    if (png) withPng['image/png'] = png;
+    const writeItem = async (flavours) => {
+      const item = new ClipboardItem(flavours);
+      await navigator.clipboard.write([item]);
+      return true;
+    };
+    for (const flavours of [full, withPng, textFlavours]) {
+      try {
+        return await writeItem(flavours);
+      } catch (err) { /* try the next, slimmer set */ }
     }
-    toast('The clipboard is blocked — use Ctrl+C instead');
+    return false;
+  }
+
+  // The crop rectangle (backing pixels) for the PNG flavour: the selection's
+  // bounding box mapped to screen space plus a 20px margin on each side,
+  // clamped to the canvas. Returns null when the selection is entirely off
+  // screen or the crop collapses (nothing useful to hand a customer).
+  function viewportCropRect(bounds) {
+    if (!bounds) return null;
+    const m = 20 * DPR;
+    let x = Math.max(0, Math.round((bounds.minX * view.zoom + view.ox) * DPR) - m);
+    let y = Math.max(0, Math.round((bounds.minY * view.zoom + view.oy) * DPR) - m);
+    const right = Math.min(canvas.width, Math.round((bounds.maxX * view.zoom + view.ox) * DPR) + m);
+    const bottom = Math.min(canvas.height, Math.round((bounds.maxY * view.zoom + view.oy) * DPR) + m);
+    const w = right - x, h = bottom - y;
+    if (w < 8 || h < 8) return null;
+    return { x, y, w, h };
+  }
+
+  // Rasterize the PNG flavour from the live frame: a snapshot of the visible
+  // canvas cropped to the selection plus the 20px margin (backing resolution,
+  // so it stays crisp on hiDPI displays). Rejects when the crop is empty or
+  // rasterization is impossible — the caller treats that as a bonus flavour
+  // missing.
+  function viewportCropToPngBlob(bounds) {
+    const rect = viewportCropRect(bounds);
+    if (!rect) return Promise.reject(new Error('selection off-screen'));
+    const snap = frameSnapshot();
+    if (!snap) return Promise.reject(new Error('no frame'));
+    const out = document.createElement('canvas');
+    out.width = rect.w; out.height = rect.h;
+    const octx = out.getContext('2d');
+    octx.drawImage(snap, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
+    if (typeof out.toBlob !== 'function') return Promise.reject(new Error('toBlob unavailable'));
+    return new Promise((resolve, reject) => {
+      try {
+        out.toBlob((b) => b ? resolve(b) : reject(new Error('png encode failed')), 'image/png');
+      } catch (err) {
+        reject(err);
+      }
+    });
   }
 
   function clipboardBounds(payload) {
@@ -17169,11 +17244,25 @@
 
   function onCopyEvent(ev) {
     if (clipboardEventInTextWidget(ev)) return;
-    if (!clipCopyRequested || !clipPayloadText) return;
+    if (!clipCopyRequested || (!clipPayloadText && !clipSvgText)) return;
     clipCopyRequested = false;
     if (!ev.clipboardData) return;
     try {
-      ev.clipboardData.setData('text/plain', clipPayloadText);
+      // text/plain is what Inkscape/Illustrator parse on paste, so the SVG
+      // markup gets that slot; the MiniSketch JSON payload moves to text/html
+      // (every browser round-trips text/html on paste, so cross-tab copies
+      // keep full fidelity). The dedicated "image/svg+xml" target is written
+      // as well so Inkscape's paste finds the vectors before the raster.
+      // Without an SVG rendering the JSON fills both text slots.
+      ev.clipboardData.setData('text/plain', clipSvgText || clipPayloadText);
+      try {
+        ev.clipboardData.setData('text/html', clipPayloadText);
+      } catch (err) { /* flavour optional */ }
+      if (clipSvgText) {
+        try {
+          ev.clipboardData.setData('image/svg+xml', clipSvgText);
+        } catch (err) { /* flavour optional */ }
+      }
       ev.preventDefault();
     } catch (err) { /* clipboard blocked: the in-memory copy still works */ }
   }
@@ -17206,22 +17295,41 @@
     try {
       text = dt.getData('text/plain') || '';
     } catch (err) { text = ''; }
+    let html = '';
+    try {
+      html = dt.getData('text/html') || '';
+    } catch (err) { html = ''; }
     pasteTrace('event', ev.type, {
       types: dt.types ? Array.from(dt.types) : null,
       items: dt.items ? Array.from(dt.items).map(i => i.kind + ' ' + i.type) : null,
       textChars: text.length,
-      textHead: text.slice(0, 70)
+      textHead: text.slice(0, 70),
+      htmlChars: html.length,
+      htmlHead: html.slice(0, 70)
     });
+
+    // The payload can sit anywhere in a slot — some platforms wrap/reflow the
+    // HTML flavour (BOM, fragment markers) which would hide a payload that does
+    // not start at offset 0. Locate the marker and slice from there.
+    const clipFrom = (s) => {
+      if (!s) return null;
+      const i = s.indexOf(CLIP_MARK);
+      return i >= 0 ? s.slice(i) : null;
+    };
+    let clipText = clipFrom(text) || clipFrom(html);
 
     // A paste already happened for this keystroke and the event arrived late
     // without a MiniSketch payload: skip, so nothing is pasted twice.
-    if (Date.now() - fallbackPasteAt < 400 && text.indexOf(CLIP_MARK) !== 0) {
+    if (clipText === null && Date.now() - fallbackPasteAt < 400) {
       pasteTrace('ignored: a paste for this keystroke already ran');
       return;
     }
 
-    // 1. objects copied in another MiniSketch window
-    if (text.indexOf(CLIP_MARK) === 0) {
+    // 1. objects copied in another MiniSketch window. The JSON payload travels
+    // in text/html (the SVG holds the text/plain slot for vector editors),
+    // but older tabs and older builds still put it in text/plain — accept
+    // either slot, plain text first.
+    const pasteSketchPayload = () => {
       ev.preventDefault();
       // The OS clipboard may hold a STALE MiniSketch payload: this tab's copy
       // write is async and can be blocked, so right after Ctrl+C the OS
@@ -17231,21 +17339,53 @@
       const hasMemFresh = !!(clipboard && clipboard.t && Date.now() - clipboard.t < 1500);
       let osNewer = false;
       try {
-        const parsed = JSON.parse(text.slice(CLIP_MARK.length));
+        const parsed = JSON.parse(clipText.slice(CLIP_MARK.length));
         osNewer = !!(parsed && parsed.t != null && clipboard && clipboard.t != null && parsed.t > clipboard.t);
       } catch (err) { /* not parseable: treat as unknown age */ }
       if (hasMemFresh && !osNewer && clipboard && (clipboard.entities.length || clipboard.points.length)) {
         pasteClipboard();
-      } else if (importClipboardText(text)) {
+      } else if (importClipboardText(clipText)) {
         pasteClipboard();
       } else {
         toast('That clipboard payload could not be read');
       }
+    };
+    if (clipText !== null) {
+      pasteTrace('route: sketch payload from the', clipFrom(text) ? 'text/plain' : 'text/html', 'slot');
+      pasteSketchPayload();
       return;
     }
 
+    // Some platforms advertise a text/html item but answer empty to getData
+    // (the format list lies). Probe the item before falling into the SVG
+    // routes — otherwise our own multi-format copy would lose the sketch and
+    // paste as bare vectors.
     const items = dt.items ? Array.from(dt.items) : [];
+    if (!html && items.some(i => i.kind === 'string' && i.type === 'text/html')) {
+      for (const item of items) {
+        if (item.kind === 'string' && item.type === 'text/html') {
+          item.getAsString((s) => {
+            const c = clipFrom(s);
+            if (c) {
+              clipText = c;
+              pasteTrace('route: sketch payload from the text/html item');
+              pasteSketchPayload();
+            } else {
+              pasteTrace('route: text/html item held no sketch payload');
+              routeSvgAndRaster(ev, dt, text, html, items);
+            }
+          });
+          return;
+        }
+      }
+    }
+    routeSvgAndRaster(ev, dt, text, html, items);
+  }
 
+  // The SVG / raster / fallback routes of a paste that carried no MiniSketch
+  // payload. Separated so the text/html item probe above can re-enter them
+  // after its async read.
+  function routeSvgAndRaster(ev, dt, text, html, items) {
     // 2. SVG on the clipboard (Inkscape, Illustrator, another CAD). The type
     // is matched loosely: Inkscape on macOS advertises the misspelled
     // "image/svg-xml", and some browsers hand the markup over as a file.
@@ -28089,11 +28229,10 @@ function cmdSplitCurve() {
     }
     if ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && lower === 'c') {
       // Ctrl+Shift+C is the browser's DevTools-inspect shortcut: claim it.
-      // The selection goes to the OS clipboard as an SVG document, so a plain
-      // Ctrl+V pastes it into Inkscape / Illustrator. The in-memory MiniSketch
-      // clipboard is left alone — Ctrl+V here still pastes the last Ctrl+C.
+      // It is the same multi-format copy as Ctrl+C (sketch JSON + SVG + PNG),
+      // kept as a memorable alias for the vector-editor workflow.
       ev.preventDefault();
-      copySelectionAsSvg();
+      copySelection();
       return;
     }
     if ((ev.ctrlKey || ev.metaKey) && lower === 'c') {
@@ -32290,14 +32429,23 @@ function cmdSplitCurve() {
     const vy = b.minY - pad;
     const vw = (b.maxX - b.minX) + pad * 2;
     const vh = (b.maxY - b.minY) + pad * 2;
+    // The document is sized in PIXELS at 96 dpi so that 1 px maps to 1/96 in.
+    // Inkscape reads a root viewBox's numbers as pixels and sizes its page
+    // from them (ignoring the mm units on width/height), which shrank a
+    // pasted design by 96/25.4. The geometry keeps drawing in world
+    // millimetres and is scaled up by k through the group transform, so both
+    // the page AND the shapes land on the exact millimetre dimensions shown in
+    // MiniSketch.
+    const k = 96 / 25.4;
+    const px = (n) => fmt(n * k);
     const parts = [];
     parts.push('<?xml version="1.0" encoding="UTF-8"?>');
-    parts.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + fmt(vx) + ' ' + fmt(vy) + ' ' + fmt(vw) + ' ' + fmt(vh) + '" width="' + fmt(vw) + 'mm" height="' + fmt(vh) + 'mm">');
+    parts.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + px(vx) + ' ' + px(vy) + ' ' + px(vw) + ' ' + px(vh) + '" width="' + px(vw) + 'px" height="' + px(vh) + 'px">');
     parts.push('<style>line, path, circle { -inkscape-stroke: hairline; }</style>');
     // No background sheet: the geometry is the point. A white rect would ride
     // along as a real object — in Inkscape it lands in front of the shapes and
     // catches every click, and a laser/CAM import would try to cut it.
-    parts.push('<g fill="none" stroke-linecap="round" stroke-linejoin="round" style="-inkscape-stroke: hairline;">');
+    parts.push('<g transform="scale(' + String(k) + ')" fill="none" stroke-linecap="round" stroke-linejoin="round" style="-inkscape-stroke: hairline;">');
 
     // lines are chained first (per colour): a loop drawn as four lines must
     // arrive in Inkscape as ONE closed path, not four separate segments

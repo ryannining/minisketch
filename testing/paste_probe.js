@@ -39,7 +39,8 @@ const code = [
   'let clipboard = null;',
   sliceApp('clipboardEventInTextWidget'),
   sliceApp('looksLikeSvgDoc'),
-  sliceApp('onPasteEvent')
+  sliceApp('onPasteEvent'),
+  sliceApp('routeSvgAndRaster')
 ].join('\n');
 
 const make = () => {
