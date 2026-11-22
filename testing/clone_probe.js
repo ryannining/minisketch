@@ -39,7 +39,9 @@ check('the command always creates a fresh entity',
 
 console.log('clone: it owns no points (cannot drag the shared master)');
 {
-  const i = app.indexOf('function entityPointIds(');
+  // entityPointIds is a memoising wrapper since the epi cache landed; the
+  // branches this section pins live in entityPointIdsBuild
+  const i = app.indexOf('function entityPointIdsBuild(');
   const body = app.slice(i, app.indexOf('\n  function ', i));
   check('arrays branch exists', /if \(e\.type === 'array'\)/.test(body));
   check('a clone short-circuits to an empty list',
@@ -188,6 +190,10 @@ console.log('clone: export resolves the selection cascade');
 
 console.log('clone: shortcuts and bulk operations');
 check('Ctrl+L runs Clone', /\(ev\.ctrlKey \|\| ev\.metaKey\) && lower === 'l'[\s\S]{0,200}cmdClone\(\)/.test(app));
+check('Ctrl+Shift+L runs the clone-split instead',
+  /\(ev\.ctrlKey \|\| ev\.metaKey\) && lower === 'l'[\s\S]{0,200}if \(ev\.shiftKey\) cmdCloneSplit\(\);[\s\S]{0,20}else cmdClone\(\)/.test(app));
+check('the clone-split creates one live clone per nest part',
+  /function cmdCloneSplit\(\)/.test(app) && /ONE live clone per compound part/.test(app));
 check('Ctrl+D duplicates a selected clone as a clone',
   /cloneSel\.length && cloneSel\.length === ui\.selection\.length[\s\S]{0,600}kind: 'clone'/.test(app));
 

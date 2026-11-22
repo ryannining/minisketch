@@ -101,6 +101,16 @@ function makeWorld() {
   world.selectedEntities = () => world.ui.selection
     .filter(s => s.kind === 'entity' && world.state.entities[s.id])
     .map(s => world.state.entities[s.id]);
+  // cmdCloneSplit dependencies: real loopEntities/loopShapeSelected run against
+  // these stand-ins
+  world.selected = (kind, id) =>
+    world.ui.selection.some(s => s.kind === kind && +s.id === +id);
+  world.entityEditable = () => true;
+  world.entityFullySelectedByPoints = () => false;
+  world.getLoops = () => world._docLoops || [];
+  world.selectionBounds = () => ({ minX: 0, minY: 0, maxX: 100, maxY: 30 });
+  world.invalidateLoops = () => {};
+  world._docLoops = [];
   world.groupableEntities = (ents) => {
     // mirrors the real rule: construction-coloured entities are not grouped
     const kept = [];
@@ -132,7 +142,17 @@ function build(world) {
     // belong to a frame; a stub made every green line look foreign and the
     // guide test failed for the wrong reason.
     slice('ownedGuideIds'),
-    slice('cmdCreateArray')
+    slice('cmdCreateArray'),
+    // clone-split (Ctrl+Shift+L) reuses the nest input stage directly:
+    // nestCollectLoops -> nestGroupParts -> one live clone per part
+    slice('loopEntities'),
+    slice('loopShapeSelected'),
+    slice('nestHull'),
+    slice('nestTextRec'),
+    slice('nestCollectLoops'),
+    slice('nestGroupParts'),
+    slice('nestAnchorOf'),
+    slice('cmdCloneSplit')
   ].join('\n');
   return new Function(
     'state', 'ui', 'settings', 'newId', 'P', 'privatePoint', 'toast', 'round2',
@@ -142,11 +162,15 @@ function build(world) {
     'textGeom', 'artClosedFlags',
     'selectedEntities', 'groupableEntities', 'openArrayDialog', 'isConstructionColor',
     'selectionIndex', 'containerOf', 'getLayer',
+    'getLoops', 'selectionBounds',
+    'pointInPoly', 'signedAreaPts', 'invalidateLoops',
+    'selected', 'entityEditable', 'entityFullySelectedByPoints',
     `let geometryEpoch = 0;
      ${body}
      return {
        cmdCreateArray, arrayShapesOf, arrayBuildShapes,
        arrayInstancePolylines, arrayInstanceOffsets,
+       cmdCloneSplit,
        bumpGeometry: () => { geometryEpoch++; },
        getEpoch: () => geometryEpoch
      };`
@@ -168,7 +192,12 @@ function build(world) {
     (c) => c === '#00ff00',
     () => ({ point: new Set(), entity: new Set() }),
     () => null,
-    (id) => (id === 1 ? world.state.layers[0] : null)
+    (id) => (id === 1 ? world.state.layers[0] : null),
+    world.getLoops,
+    world.selectionBounds,
+    C.pointInPoly, C.signedAreaPts,
+    world.invalidateLoops,
+    world.selected, world.entityEditable, world.entityFullySelectedByPoints
   );
 }
 
@@ -476,15 +505,16 @@ console.log('\n== the guide stays glued to the master top-left ==');
   const arrId = grid1(world, [artId]);
   const arr = world.state.entities[arrId];
   // give the array the guide points a real createArrayGuides() would have made:
-  // p0 at the master's top-left (minX, maxY) and pw/ph as the spacing vectors
-  // (the group's world bbox is 0..40 x 0..30, so its top-left is 0,30)
-  const p0 = world.privatePoint(0, 30);
-  const pw = world.privatePoint(100, 30);
-  const ph = world.privatePoint(0, 130);
+  // p0 at the master's top-left (minX, minY — world Y runs down, so minY is the
+  // top edge) and pw/ph as the spacing vectors
+  // (the group's world bbox is 0..40 x 0..30, so its top-left is 0,0)
+  const p0 = world.privatePoint(0, 0);
+  const pw = world.privatePoint(100, 0);
+  const ph = world.privatePoint(0, 100);
   arr.p0 = p0; arr.pw = pw; arr.ph = ph;
 
   // a geometry change that shifts the master by +10 in both axes — its top-left
-  // moves from (0,30) to (10,40)
+  // moves from (0,0) to (10,10)
   const art = world.state.entities[artId];
   art.contours = art.contours.map(loop =>
     loop.map(([u, v]) => [u + 10 / 50, v + 10 / 50]));
@@ -496,13 +526,97 @@ console.log('\n== the guide stays glued to the master top-left ==');
   api.arrayInstancePolylines(arr, { dx: 100, dy: 0 });  // triggers arrayEnsureShapes
 
   check('the guide anchor follows the master top-left',
-    world.P(p0).x === 10 && world.P(p0).y === 40,
-    world.P(p0).x + ',' + world.P(p0).y + ' vs 10,40');
+    world.P(p0).x === 10 && world.P(p0).y === 10,
+    world.P(p0).x + ',' + world.P(p0).y + ' vs 10,10');
   check('the spacing vectors are preserved (clones do not move)',
     world.P(pw).x - world.P(p0).x === 100 &&
     world.P(ph).y - world.P(p0).y === 100,
     (world.P(pw).x - world.P(p0).x) + ',' +
     (world.P(ph).y - world.P(p0).y));
+}
+
+// ---- 10. Ctrl+Shift+L = manual nesting parts (the nest input stage) ----
+console.log('\n== clone-split: one live clone per nest part ==');
+{
+  const world = makeWorld();
+  const api = build(world);
+
+  // two ungrouped "letters", each a closed-spline ring with a hole (the state
+  // after the user ungroups a text before arranging parts manually)
+  const mkRing = (x0, x1, y0, y1, color) => {
+    const pts = [
+      world.privatePoint(x0, y0), world.privatePoint((x0 + x1) / 2, y0),
+      world.privatePoint(x1, y0), world.privatePoint(x1, (y0 + y1) / 2),
+      world.privatePoint(x1, y1), world.privatePoint((x0 + x1) / 2, y1),
+      world.privatePoint(x0, y1), world.privatePoint(x0, (y0 + y1) / 2)
+    ];
+    const id = world.newId();
+    world.state.entities[id] = { id, type: 'spline', pts, closed: true, color, layer: 1 };
+    return { id, pts };
+  };
+  const mkLoop = (spline) => {
+    // the closed-spline loop getLoops() reports for it
+    const poly = spline.pts.map(pid => {
+      const p = world.P(pid);
+      return { x: p.x, y: p.y };
+    });
+    world._docLoops.push({ poly, area: Math.abs(C.signedAreaPts(poly)), steps: [], splineEntity: spline.id });
+  };
+  const aOuter = mkRing(0, 30, 0, 20, '#111111');
+  const aHole = mkRing(5, 15, 5, 15, '#111111');
+  const bOuter = mkRing(100, 130, 0, 20, '#222222');
+  const bHole = mkRing(105, 115, 5, 15, '#222222');
+  mkLoop(aOuter); mkLoop(aHole); mkLoop(bOuter); mkLoop(bHole);
+  world.ui.selection = [aOuter, aHole, bOuter, bHole]
+    .map(s => ({ kind: 'entity', id: s.id }));
+  api.cmdCloneSplit();
+
+  const created = Object.values(world.state.entities).filter(e => e.type === 'array' && e.kind === 'clone');
+  check('two ungrouped letters yield TWO parts', created.length === 2, created.length);
+  check('the parts keep the selection', world.ui.selection.length === 2);
+  check('each part is a LIVE clone carrying outer + hole as masters',
+    created.every(e => e.masters.length === 2), created.map(e => e.masters.length).join(','));
+  check('a hole never leaks into the other letter\'s masters',
+    created.every(e => new Set(e.masters).size === 2));
+  // placement: stubbed selection bounds are 100 wide, gap 10 -> tx = 110
+  check('the parts land one selection-width to the right (tx 110)',
+    created.every(e => e.instances.length === 1 && e.instances[0].m[4] === 110),
+    created.map(e => e.instances[0].m[4]).join(','));
+  check('every part carries an anchor (stays put when the master moves)',
+    created.every(e => Array.isArray(e.instances[0].a)));
+  const placed = created.map(e => api.arrayInstancePolylines(e, { dx: 0, dy: 0 }));
+  check('each part draws outer + hole from its masters',
+    placed.every(pl => pl.length === 2), placed.map(pl => pl.length).join(','));
+
+  // green sheet loops are the nest input's OTHER half: never parts
+  world.state.entities = {};
+  world.ui.selection = [];
+  world._docLoops = [];
+  const sheet = mkRing(0, 200, 0, 100, '#00ff00');
+  mkLoop(sheet);
+  world.ui.selection = [{ kind: 'entity', id: sheet.id }];
+  api.cmdCloneSplit();
+  check('a green sheet loop alone clones nothing (it is the sheet, not a part)',
+    !Object.values(world.state.entities).some(e => e.type === 'array' && e.kind === 'clone'),
+    world.toasts.join(' | '));
+  check('and it says so', world.toasts.some(t => /sheet \(green\) loops/.test(t)),
+    world.toasts.join(' | '));
+}
+
+console.log('\n== clone-split: a not-yet-ungrouped text stays one atomic part ==');
+{
+  const world = makeWorld();
+  const api = build(world);
+  const textId = makeText(world, 'O');
+  world.ui.selection = [{ kind: 'entity', id: textId }];
+  api.cmdCloneSplit();
+  const created = Object.values(world.state.entities).filter(e => e.type === 'array' && e.kind === 'clone');
+  check('the text (not ungrouped) is ONE part, like nesting treats it',
+    created.length === 1, created.length);
+  check('the part\'s master is the text entity itself',
+    created.length === 1 && created[0].masters.length === 1 && created[0].masters[0] === textId);
+  const placed = created.length === 1 ? api.arrayInstancePolylines(created[0], { dx: 0, dy: 0 }) : [];
+  check('the part draws the glyphs from the text master', placed.length === 2, placed.length);
 }
 
 console.log('\n' + (fail ? fail + ' FAILED, ' : 'all ') + pass + ' checks passed');

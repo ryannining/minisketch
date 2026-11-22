@@ -124,5 +124,45 @@ console.log('\n== textContoursWorld maps outlines through the affine frame ==');
   check('corner 3 follows the height line', Math.abs(loop[3].x - 10) < 1e-9 && Math.abs(loop[3].y - 70) < 1e-9);
 }
 
+// ---- undo: one draw-text = one history step ------------------------------
+console.log('\n== a new text applies without a second history push ==');
+{
+  const i = appSrc.indexOf('async function applyTextEditor(');
+  const body = appSrc.slice(i, appSrc.indexOf('\n  function ', i));
+  check('Apply pushes only for an EXISTING text (the placement snapshot stays the new text\'s undo target)',
+    /if \(!ed\.isNew\) pushHistory\(\);/.test(body));
+  check('and there is no unconditional push left in Apply',
+    !/\n\s*pushHistory\(\);\s*\n/.test(body));
+  const p = appSrc.indexOf("if (ui.tool === 'text') {");
+  const place = appSrc.slice(p, p + 900);
+  check('placement still pushes once — the snapshot Cancel pops',
+    /pushHistory\(\);/.test(place));
+  const d = appSrc.indexOf('function discardNewText(');
+  const drop = appSrc.slice(d, appSrc.indexOf('\n  function ', d));
+  check('Cancel still pops that snapshot (no phantom undo step)',
+    /history\.pop\(\)/.test(drop));
+}
+
+// ---- dragging a text: press on the selected frame drags immediately ------
+console.log('\n== a selected text drags from its whole frame, no dwell ==');
+{
+  const p = appSrc.indexOf('function onPointerDown(');
+  const press = appSrc.slice(p, appSrc.indexOf('\n  function ', p));
+  check('a press inside a selected framed object is an immediate body drag',
+    /selected\('entity', eh\) &&\s*\(hitEnt\.type === 'text' \|\| hitEnt\.type === 'image' \|\| hitEnt\.type === 'art'\)[\s\S]{0,120}selectionBodyDragFor\(world\)/.test(press));
+  check('modifier clicks still go through the dwell path (add / sub / Alt group)',
+    press.indexOf("!addMod && !subMod && !wantGroup && selected('entity', eh)") <
+    press.indexOf("hitEnt.type === 'text'"));
+  check('the hit area is the whole frame (textInBox inside = hit)',
+    /if \(textInBox\(world, gg\)\) return 3;/.test(appSrc));
+  // selection must be visible on the GLYPHS themselves: a themed white glyph
+  // cannot brighten, so a picked text takes the amber selection mix instead
+  const dtx = appSrc.indexOf('function drawTextEntity(');
+  const dtail = appSrc.slice(dtx, appSrc.indexOf('\n  function ', dtx));
+  check('a selected text draws its glyphs in the amber selection mix + Selected width',
+    /strokeStyle = isSel \? selectMixColor\(themedCanvasColor\(colorOf\(e\)\)\) : colorOf\(e\)/.test(dtail) &&
+    /isSel \? SEL_WIDTH : 1/.test(dtail));
+}
+
 console.log('\n' + (fail ? (fail + ' FAILED, ' + pass + ' passed') : ('all ' + pass + ' checks passed')));
 process.exit(fail ? 1 : 0);
