@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Solver — Mode Penyelesaian | Bantuan MiniSketch</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<div class="help-shell">
+
+  <header class="help-header">
+    <div class="help-brand">
+      <div class="help-mark">M</div>
+      <div>
+        <div class="help-title">Solver — Mode Penyelesaian</div>
+        <div class="help-subtitle">On release, manual (F9), dan live — serta dimensi belum terpenuhi (amber)</div>
+      </div>
+    </div>
+    <div class="help-spacer"></div>
+    <div class="help-search">
+      <span class="search-icon" aria-hidden="true">&#128269;</span>
+      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
+      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+    </div>
+    <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+  </header>
+
+  <div class="help-body">
+    <nav class="help-nav">
+      <div class="help-nav-title">Topik</div>
+      <div class="help-nav-list">
+        <a href="index.html" class="help-nav-item">Beranda &amp; Quick Start<span class="nav-kbd">?</span></a>
+        <a href="draw.html" class="help-nav-item">Draw — Menggambar<span class="nav-kbd">L · B · R</span></a>
+        <a href="edit.html" class="help-nav-item">Edit — Mengubah Objek<span class="nav-kbd">Ctrl+Z · Ctrl+G</span></a>
+        <a href="arrange.html" class="help-nav-item">Arrange — Susun Objek<span class="nav-kbd">Distribusi</span></a>
+        <a href="constrain.html" class="help-nav-item">Constrain — Batasan &amp; Dimensi<span class="nav-kbd">D · O · H/V</span></a>
+        <a href="parts.html" class="help-nav-item">Parts — Part &amp; Assembly<span class="nav-kbd">Alt+T</span></a>
+        <a href="karyacnc.html" class="help-nav-item">KaryaCNC — Kirim ke Mesin<span class="nav-kbd">Alt+Q</span></a>
+        <a href="files.html" class="help-nav-item">Berkas — Open / Import / Save / Export<span class="nav-kbd">Ctrl+O · Ctrl+I · Ctrl+S · Ctrl+E</span></a>
+        <a href="import.html" class="help-nav-item">Import — SVG / PDF / CDR / DXF</a>
+        <a href="text.html" class="help-nav-item">Teks &amp; Font<span class="nav-kbd">W</span></a>
+        <a href="trace.html" class="help-nav-item">Image Trace — Jejak Gambar<span class="nav-kbd">Ctrl+V</span></a>
+        <a href="nesting.html" class="help-nav-item">Nesting — Tata Letak Potongan</a>
+        <a href="layers.html" class="help-nav-item">Layers &amp; Pick Filter</a>
+        <a href="settings.html" class="help-nav-item">Settings — Pengaturan</a>
+        <a href="solver.html" class="help-nav-item active">Solver — Mode Penyelesaian<span class="nav-kbd">F9</span></a>
+        <a href="shortcuts.html" class="help-nav-item">Pintasan Keyboard Lengkap</a>
+        <a href="ai.html" class="help-nav-item">AI Chat (Bawa Kunci Sendiri)</a>
+      </div>
+    </nav>
+
+    <main class="help-content">
+      <div class="help-page">
+        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Solver — Mode Penyelesaian</div>
+
+        <h1>Solver — Mode Penyelesaian</h1>
+        <p class="help-lead">Solver adalah mesin yang menerapkan dimensi penggerak dan constraint ke geometri. Ada tiga mode yang bisa diubah melalui chip solver di baris status ribbon.</p>
+
+        <div class="screenshot">
+          <img src="img/screenshots/status-solver.png" alt="Chip solver di baris status ribbon">
+          <figcaption>Chip solver di baris status ribbon menampilkan mode aktif: "unsolved · F9 · release" (amber saat ada dimensi belum terpenuhi). Klik chip untuk mengganti mode release → manual → live.</figcaption>
+        </div>
+
+        <h2>1. Tiga mode solver</h2>
+        <table class="kb">
+          <thead>
+            <tr><th style="width:22%">Mode</th><th>Keterangan</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>On release</b> (default)</td><td>Drag tidak memicu solve. Satu solve dijalankan saat mouse dilepas. Mengedit tetap ringan walau geometri banyak.</td></tr>
+            <tr><td><b>Manual</b></td><td>Hanya <kbd>F9</kbd> yang menjalankan solve. Cocok untuk nesting manual atau saat ingin mengontrol kapan geometri diselesaikan.</td></tr>
+            <tr><td><b>Live</b></td><td>Solve setiap gerakan (perilaku lama). Lebih responsif tapi lebih berat pada file besar.</td></tr>
+          </tbody>
+        </table>
+        <div class="callout info"><kbd>F9</kbd> selalu solve segera, apa pun mode yang dipilih.</div>
+
+        <h2>2. Mengubah mode</h2>
+        <ol>
+          <li>Klik chip <b>solver</b> di baris status ribbon (status tulisan "solver idle" / "solver ok").</li>
+          <li>Pilih mode: on release → manual → live.</li>
+          <li>Mode baru langsung berlaku.</li>
+        </ol>
+
+        <h2>3. Dimensi belum terpenuhi (amber)</h2>
+        <p>Dimensi penggerak yang nilainya belum terpenuhi oleh geometri saat ini digambar dengan <b>warna amber</b>. Jendela KaryaCNC juga memperingatkan sebelum mengirim jika ada dimensi amber.</p>
+        <ul>
+          <li>Tekan <kbd>F9</kbd> untuk menyelesaikan sketsa setelah mengubah dimensi.</li>
+          <li>Pilih dimensi lalu tekan <kbd>Enter</kbd> untuk mengedit nilainya.</li>
+          <li>Tekan <kbd>Shift+E</kbd> pada dimensi untuk berpindah antara penggerak dan referensi.</li>
+        </ul>
+
+        <div class="callout warn"><b>Sebaiknya:</b> gunakan mode On release saat menggambar banyak geometri, lalu tekan <kbd>F9</kbd> sekali selesai. Hindari mode Live pada file besar karena solve berulang akan menguras performa.</div>
+
+        <h2>4. Hubungan dengan fitur lain</h2>
+        <ul>
+          <li><b>Drag wall (W):</b> gunakan mode Release/Manual untuk nesting yang tepat, karena drag dengan live-solve dapat merusak cached wall.</li>
+          <li><b>Constraint:</b> sebelum constraint dipasang, sketsa diperiksa (duplikasi atau konstrikasi ditolak).</li>
+          <li><b>Auto solve (Settings ▸ Geometry):</b> jika nyala, drag menjalankan solve penuh secara teratur tanpa menunggu mouse dilepas.</li>
+        </ul>
+
+        <div class="help-footer">
+          <span>Solver — Mode Penyelesaian</span>
+          <span>Sebelumnya: <a href="settings.html">Settings — Pengaturan</a> &nbsp;•&nbsp; Selanjutnya: <a href="shortcuts.html">Pintasan Keyboard Lengkap</a></span>
+        </div>
+      </div>
+    </main>
+  </div>
+
+</div>
+<script src="search-data.js"></script>
+<script src="help.js"></script>
+</body>
+</html>

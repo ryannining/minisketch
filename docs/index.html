@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Bantuan MiniSketch — Panduan Lengkap</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<div class="help-shell">
+
+  <!-- ---------- Header ---------- -->
+  <header class="help-header">
+    <div class="help-brand">
+      <div class="help-mark">M</div>
+      <div>
+        <div class="help-title">Bantuan MiniSketch</div>
+        <div class="help-subtitle">Panduan lengkap semua fitur sketsa 2D constraint — bahasa Indonesia</div>
+      </div>
+    </div>
+
+    <div class="help-spacer"></div>
+
+    <div class="help-search">
+      <span class="search-icon" aria-hidden="true">&#128269;</span>
+      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
+      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+    </div>
+    <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+  </header>
+
+  <!-- ---------- Body: nav + content ---------- -->
+  <div class="help-body">
+    <nav class="help-nav">
+      <div class="help-nav-title">Topik</div>
+      <div class="help-nav-list">
+        <a href="index.html" class="help-nav-item active">Beranda &amp; Quick Start<span class="nav-kbd">?</span></a>
+
+        <div class="help-nav-group">
+          <div class="nav-sub">Gambar &amp; Edit</div>
+          <a href="draw.html" class="help-nav-item nav-sub-item">Draw — Menggambar<span class="nav-kbd">L · B · R</span></a>
+          <a href="edit.html" class="help-nav-item nav-sub-item">Edit — Mengubah Objek<span class="nav-kbd">Ctrl+Z · Ctrl+G</span></a>
+          <a href="arrange.html" class="help-nav-item nav-sub-item">Arrange — Susun Objek<span class="nav-kbd">Distribusi</span></a>
+          <a href="constrain.html" class="help-nav-item nav-sub-item">Constrain — Batasan &amp; Dimensi<span class="nav-kbd">D · O · H/V</span></a>
+        </div>
+
+        <div class="help-nav-group">
+          <div class="nav-sub">Part &amp; Mesin</div>
+          <a href="parts.html" class="help-nav-item nav-sub-item">Parts — Part &amp; Assembly<span class="nav-kbd">Alt+T</span></a>
+          <a href="karyacnc.html" class="help-nav-item nav-sub-item">KaryaCNC — Kirim ke Mesin<span class="nav-kbd">Alt+Q</span></a>
+        </div>
+
+        <div class="help-nav-group">
+          <div class="nav-sub">Berkas &amp; Data</div>
+          <a href="files.html" class="help-nav-item nav-sub-item">Berkas — Open / Import / Save / Export<span class="nav-kbd">Ctrl+O · Ctrl+I · Ctrl+S · Ctrl+E</span></a>
+          <a href="import.html" class="help-nav-item nav-sub-item">Import — SVG / PDF / CDR / DXF</a>
+          <a href="text.html" class="help-nav-item nav-sub-item">Teks &amp; Font<span class="nav-kbd">W</span></a>
+          <a href="trace.html" class="help-nav-item nav-sub-item">Image Trace — Jejak Gambar<span class="nav-kbd">Ctrl+V</span></a>
+          <a href="nesting.html" class="help-nav-item nav-sub-item">Nesting — Tata Letak Potongan</a>
+          <a href="layers.html" class="help-nav-item nav-sub-item">Layers &amp; Pick Filter</a>
+        </div>
+
+        <div class="help-nav-group">
+          <div class="nav-sub">Pengaturan &amp; Lainnya</div>
+          <a href="settings.html" class="help-nav-item nav-sub-item">Settings — Pengaturan</a>
+          <a href="solver.html" class="help-nav-item nav-sub-item">Solver — Mode Penyelesaian<span class="nav-kbd">F9</span></a>
+          <a href="shortcuts.html" class="help-nav-item nav-sub-item">Pintasan Keyboard Lengkap</a>
+          <a href="ai.html" class="help-nav-item nav-sub-item">AI Chat (Bawa Kunci Sendiri)</a>
+        </div>
+      </div>
+    </nav>
+
+    <main class="help-content">
+      <div class="help-page">
+        <div class="breadcrumb"><a href="index.html">Beranda</a></div>
+
+        <h1>Selamat datang di Bantuan MiniSketch</h1>
+        <p class="help-lead">MiniSketch adalah <b>sketsa 2D berbasis batasan (constraint sketcher)</b> yang berjalan di browser — tanpa instalasi, tanpa build step. Gambar dengan dimensi nyata (mm), tambahkan batasan geometri, buat bagian CNC dengan alat generator, susun pada lembar (nesting), dan kirim ke mesin KaryaCNC — semuanya dalam satu tab.</p>
+
+        <div class="callout info"><b>Pintasan terpenting:</b> tekan <kbd>?</kbd> di aplikasi untuk membuka jendela Help bawaan (bilingual: English / Indonesia). Dokumentasi di sini adalah versi web yang lebih detail, dibuka per fitur.</div>
+
+        <!-- Quick start -->
+        <h2>1. Mulai cepat (Quick Start)</h2>
+        <ol>
+          <li>Buka <code>index.html</code> di browser — disarankan melalui HTTP (<code>http://localhost:8090</code>) agar akses dari ponsel dan AI chat aktif, atau langsung dari disk (<code>file://</code>).</li>
+          <li>Lembar gambar kosong akan muncul dengan tema gelap. Ribbon atas berisi menu <b>File</b> dan <b>Tool</b> serta tab kerja: Draw, Edit, Arrange, Parts, Constrain, KaryaCNC.</li>
+          <li>Pilih alat gambar di tab <b>Draw</b> (mis. <kbd>L</b> garis, <kbd>B</b> kurva, <kbd>R</b> kotak, <kbd>C</b> lingkaran, <kbd>W</b> teks) lalu klik di kanvas.</li>
+          <li>Tekan <kbd>F9</kbd> untuk menyelesaikan (solve) sketsa sehingga dimensi dan batasan terapkan.</li>
+          <li>Simpan dengan <kbd>Ctrl+S</kbd> atau unduh sebagai <code>.sketch</code> dengan <kbd>Ctrl+Shift+S</kbd>.</li>
+        </ol>
+
+        <div class="screenshot-wrap">
+          <div class="screenshot">
+            <img src="img/screenshots/app-beranda.png" alt="Tampilan awal MiniSketch">
+            <figcaption>Tampilan awal: ribbon atas (File, Tool, tab Draw–KaryaCNC), kanvas kosong, panel kanan (AI Chat, Selection, Object Tree, Parts, Nesting, Tools).</figcaption>
+          </div>
+          <div class="screenshot">
+            <img src="img/screenshots/draw-contoh.png" alt="Contoh menggambar kotak dan garis">
+            <figcaption>Contoh menggambar: alat Line aktif menggambar garis horizontal di bawah kotak.</figcaption>
+          </div>
+        </div>
+
+        <!-- Feature grid -->
+        <h2>2. Semua fitur secara singkat</h2>
+        <p>Setiap kartu di bawah membuka halaman penjelasan detail per fitur.</p>
+        <div class="feature-grid">
+          <a href="draw.html" class="feature-card">
+            <span class="card-icon">✏️</span>
+            <h3>Draw — Menggambar</h3>
+            <p>Garis, kurva Bézier, busur, lingkaran, kotak, poligon/bintang, teks, potong dan pisah.</p>
+          </a>
+          <a href="edit.html" class="feature-card">
+            <span class="card-icon">🛠️</span>
+            <h3>Edit — Mengubah Objek</h3>
+            <p>Transformasi, offset, geser, array, grup, boolean, join, fillet, bersihkan loop.</p>
+          </a>
+          <a href="arrange.html" class="feature-card">
+            <span class="card-icon">📐</span>
+            <h3>Arrange — Susun Objek</h3>
+            <p>Rata, tengah, distribusi, dan drag wall untuk nesting manual.</p>
+          </a>
+          <a href="constrain.html" class="feature-card">
+            <span class="card-icon">🔗</span>
+            <h3>Constrain — Batasan &amp; Dimensi</h3>
+            <p>Coincident, horizontal/vertikal, sejajar, tegak lurus, sama panjang, dimensi penggerak.</p>
+          </a>
+          <a href="parts.html" class="feature-card">
+            <span class="card-icon">🧩</span>
+            <h3>Parts — Part &amp; Assembly</h3>
+            <p>Buat part kaku dan gabungkan dengan mate (pin, slider, string, arc).</p>
+          </a>
+          <a href="karyacnc.html" class="feature-card">
+            <span class="card-icon">🖥️</span>
+            <h3>KaryaCNC — Kirim ke Mesin</h3>
+            <p>Dialog kirim, estimasi biaya, dan warna operasi (hitam potong, merah gores, dll).</p>
+          </a>
+          <a href="files.html" class="feature-card">
+            <span class="card-icon">📁</span>
+            <h3>Berkas — Open / Import / Save / Export</h3>
+            <p>Buka <code>.sketch</code> / <code>.json</code>, impor gabung, simpan, ekspor SVG.</p>
+          </a>
+          <a href="import.html" class="feature-card">
+            <span class="card-icon">📥</span>
+            <h3>Import — SVG / PDF / CDR / DXF</h3>
+            <p>Impor file vektor dengan pengaturan grup, warna, teks, dan clipping path.</p>
+          </a>
+          <a href="text.html" class="feature-card">
+            <span class="card-icon">🔤</span>
+            <h3>Teks &amp; Font</h3>
+            <p>Objek teks, font single-line / system / imported, ukuran, jarak huruf, dan fit ke kurva.</p>
+          </a>
+          <a href="trace.html" class="feature-card">
+            <span class="card-icon">🖼️</span>
+            <h3>Image Trace — Jejak Gambar</h3>
+            <p>Jejakkan gambar hasil paste atau seretan menjadi kurva yang bisa diedit.</p>
+          </a>
+          <a href="nesting.html" class="feature-card">
+            <span class="card-icon">🧮</span>
+            <h3>Nesting — Tata Letak Potongan</h3>
+            <p>Susun loop tertutup di lembar dengan algoritma genetika + NFP di browser.</p>
+          </a>
+          <a href="settings.html" class="feature-card">
+            <span class="card-icon">⚙️</span>
+            <h3>Settings — Pengaturan</h3>
+            <p>Renderer, Geometry, Comments, Curves, Text, Paste, CNC, dan AI chat.</p>
+          </a>
+          <a href="shortcuts.html" class="feature-card">
+            <span class="card-icon">⌨️</span>
+            <h3>Pintasan Keyboard</h3>
+            <p>Semua tombol pintas berkas, alat, edit, constraint, tampilan, dan mesin.</p>
+          </a>
+        </div>
+
+        <!-- Bahan teknis singkat -->
+        <h2>3. Tentang aplikasi ini</h2>
+        <ul>
+          <li><b>Constraint solver nyata</b> — coincidance, horizontal/vertikal, midpoint/on-line, perpendicular, parallel, angle, aspect; tiga mode solve (saat dilepas, live saat drag, manual <kbd>F9</kbd>).</li>
+          <li><b>Boolean eksak pada Bézier asli</b> — union / intersect / subtract dijalankan pada geometri kubik asli, kurva tetap kurva (tidak disegi poligon).</li>
+          <li><b>Tiga belas alat generator parametrik</b> — kotak, gear, finger joint, living hinge, spiral, slot, dan lain-lain. Double-click hasil untuk membuka dialog parameternya kembali dan rebuild di tempat.</li>
+          <li><b>Nesting dan image tracing bawaan</b> — mesin nest GA + NFP lokal (port KaryaCNC nestjs2) dan tracer raster→kurva dengan pengaturan yang bisa dibuka kembali.</li>
+          <li><b>Dua bahasa, satu saklar</b> — File → Lang: English / Indonesia menuliskan ulang panduan dan Help.</li>
+          <li><b>Local-first dan pribadi</b> — autosave ke browser (dengan crash-recovery <code>.bak</code>), simpan JSON <code>.sketch</code> yang dapat dibaca, ekspor SVG, dan <kbd>Ctrl+C</kbd> / <kbd>Ctrl+Shift+C</kbd> menyalin ke clipboard dalam tiga bentuk sekaligus. AI chat adalah bring-your-own-key; tidak ada kunci yang dikirim bersama repositori.</li>
+          <li><b>Zero build</b> — tag <code>&lt;script&gt;</code> biasa, berkas statis, bekerja langsung dari disk.</li>
+        </ul>
+
+        <div class="callout tip"><b>Butuh ilustrasi?</b> Setiap halaman fitur dilengkapi screenshot langsung dari aplikasi. Jika ingin mencoba aplikasi itu sendiri, buka <a href="http://127.0.0.1:8090/index.html" target="_blank" rel="noopener">http://127.0.0.1:8090/index.html</a> (server MiniSketch sudah berjalan).</div>
+
+        <div class="help-footer">
+          <span>MiniSketch Help — dokumentasi fitur lengkap</span>
+          <span>Ketik kata kunci di kotak pencarian di atas untuk mencari topik.</span>
+        </div>
+      </div>
+    </main>
+  </div>
+
+</div>
+<script src="search-data.js"></script>
+<script src="help.js"></script>
+</body>
+</html>

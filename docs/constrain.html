@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Constrain — Batasan &amp; Dimensi | Bantuan MiniSketch</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<div class="help-shell">
+
+  <header class="help-header">
+    <div class="help-brand">
+      <div class="help-mark">M</div>
+      <div>
+        <div class="help-title">Constrain — Batasan &amp; Dimensi</div>
+        <div class="help-subtitle">Coincident, horizontal/vertikal, sejajar, tegak lurus, sama panjang, dimensi penggerak &amp; referensi</div>
+      </div>
+    </div>
+    <div class="help-spacer"></div>
+    <div class="help-search">
+      <span class="search-icon" aria-hidden="true">&#128269;</span>
+      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
+      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+    </div>
+    <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+  </header>
+
+  <div class="help-body">
+    <nav class="help-nav">
+      <div class="help-nav-title">Topik</div>
+      <div class="help-nav-list">
+        <a href="index.html" class="help-nav-item">Beranda &amp; Quick Start<span class="nav-kbd">?</span></a>
+        <a href="draw.html" class="help-nav-item">Draw — Menggambar<span class="nav-kbd">L · B · R</span></a>
+        <a href="edit.html" class="help-nav-item">Edit — Mengubah Objek<span class="nav-kbd">Ctrl+Z · Ctrl+G</span></a>
+        <a href="arrange.html" class="help-nav-item">Arrange — Susun Objek<span class="nav-kbd">Distribusi</span></a>
+        <a href="constrain.html" class="help-nav-item active">Constrain — Batasan &amp; Dimensi<span class="nav-kbd">D · O · H/V</span></a>
+        <a href="parts.html" class="help-nav-item">Parts — Part &amp; Assembly<span class="nav-kbd">Alt+T</span></a>
+        <a href="karyacnc.html" class="help-nav-item">KaryaCNC — Kirim ke Mesin<span class="nav-kbd">Alt+Q</span></a>
+        <a href="files.html" class="help-nav-item">Berkas — Open / Import / Save / Export<span class="nav-kbd">Ctrl+O · Ctrl+I · Ctrl+S · Ctrl+E</span></a>
+        <a href="import.html" class="help-nav-item">Import — SVG / PDF / CDR / DXF</a>
+        <a href="text.html" class="help-nav-item">Teks &amp; Font<span class="nav-kbd">W</span></a>
+        <a href="trace.html" class="help-nav-item">Image Trace — Jejak Gambar<span class="nav-kbd">Ctrl+V</span></a>
+        <a href="nesting.html" class="help-nav-item">Nesting — Tata Letak Potongan</a>
+        <a href="layers.html" class="help-nav-item">Layers &amp; Pick Filter</a>
+        <a href="settings.html" class="help-nav-item">Settings — Pengaturan</a>
+        <a href="solver.html" class="help-nav-item">Solver — Mode Penyelesaian<span class="nav-kbd">F9</span></a>
+        <a href="shortcuts.html" class="help-nav-item">Pintasan Keyboard Lengkap</a>
+        <a href="ai.html" class="help-nav-item">AI Chat (Bawa Kunci Sendiri)</a>
+      </div>
+    </nav>
+
+    <main class="help-content">
+      <div class="help-page">
+        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Constrain — Batasan &amp; Dimensi</div>
+
+        <h1>Tab Constrain — Batasan &amp; Dimensi</h1>
+        <p class="help-lead">Pilih geometri atau titik, lalu terapkan batasan (constraint) agar geometri mematuhi aturan tertentu. Dimensi menggerakkan sketsa agar sesuai nilai yang diinginkan.</p>
+
+        <div class="screenshot">
+          <img src="img/screenshots/constrain-ribbon.png" alt="Tab Constrain aktif di ribbon">
+          <figcaption>Tab Constrain aktif: Fillet, Dim, Measure, Coincident, Horizontal, Vertical, Parallel, Perp, Equal, Anchor, Midpoint, Tangent — dengan contoh dimensi Ø100 di kanvas.</figcaption>
+        </div>
+
+        <h2>1. Constraint geometri</h2>
+        <table class="kb">
+          <thead>
+            <tr><th style="width:22%">Pintasan</th><th style="width:24%">Constraint</th><th>Keterangan</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><kbd>O</kbd></td><td>Coincident / Berimpit</td><td>Dua titik menjadi satu lokasi.</td></tr>
+            <tr><td><kbd>H</kbd> / <kbd>V</kbd></td><td>Horizontal / Vertikal</td><td>Garis atau pasangan titik sejajar sumbu X/Y.</td></tr>
+            <tr><td><kbd>P</kbd></td><td>Parallel / Sejajar</td><td>Dua garis sejajar.</td></tr>
+            <tr><td><kbd>[</kbd></td><td>Perpendicular / Tegak lurus</td><td>Dua garis bersudut 90°.</td></tr>
+            <tr><td><kbd>Q</kbd></td><td>Equal / Sama panjang</td><td>Dua objek sama panjang.</td></tr>
+            <tr><td><kbd>.</kbd></td><td>Anchor / Jangkar</td><td>Titik tidak dapat bergerak (dikunci ke dunia).</td></tr>
+            <tr><td><kbd>M</kbd></td><td>Midpoint / Titik tengah</td><td>Titik berada di tengah segmen.</td></tr>
+            <tr><td><kbd>T</kbd></td><td>Tangent / Menyinggung</td><td>Garis/busur menyentuh lengkungan tanpa memotong.</td></tr>
+            <tr><td><kbd>F</kbd></td><td>Fillet</td><td>Membuat sudut melengkung.</td></tr>
+            <tr><td><kbd>J</kbd></td><td>Join points</td><td>Menyambung titik yang bersentuh.</td></tr>
+            <tr><td><kbd>Alt+T</kbd></td><td>Mate part (perakitan)</td><td>Gabungkan dua part (lihat halaman Parts).</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout info"><b>Menghapus constraint:</b> tekan tombol constraint yang sama lagi untuk menghapusnya dari pilihan. Klik badge constraint untuk memilihnya; double-click badge untuk menghapus constraint itu (bisa dibatalkan dengan <kbd>Ctrl+Z</kbd>).</div>
+
+        <div class="callout warn"><b>Pemeriksaan sebelum dipasang:</b> sebelum constraint ditambahkan, sketsa diperiksa. Constraint duplikat atau bertentangan (mis. horizontal + vertikal pada satu garis, sejajar + tegak lurus sekaligus, dua jarak berbeda pada pasangan yang sama) ditolak beserta alasan, bukan dipasang diam-diam. Jika perintah menyentuh lebih dari tiga objek sekaligus, aplikasi meminta konfirmasi dulu.</div>
+
+        <h2>2. Dimensi</h2>
+        <h3>Dimensi penggerak (D)</h3>
+        <p>Menambah dimensi yang meminta nilai. Sketsa kemudian diselesaikan agar sesuai. Ketik angka atau rumus (<code>100*2</code>, <code>150%</code>). Pilih dimensi lalu tekan <kbd>Enter</kbd> untuk mengedit.</p>
+
+        <h3>Measure / Referensi (Shift+D)</h3>
+        <p>Hanya mengukur, tidak menggerakkan apa pun. Nilai ditampilkan dalam tanda kurung. Cocok untuk cek ukuran tanpa mengubah geometri.</p>
+
+        <p>Pilih dimensi lalu tekan <kbd>Shift+E</kbd> untuk berpindah antara penggerak dan referensi.</p>
+
+        <h3>Strip L / T / W / H</h3>
+        <p>Strip mengambang di atas kanvas langsung mengatur batas (left, top, width, height) dari pilihan. Klik ikon gembok kecil di sebelahnya untuk menjaga proporsi saat diubah ukuran.</p>
+
+        <div class="callout warn"><b>Dimensi belum terpenuhi</b> digambar warna amber, dan jendela KaryaCNC memperingatkannya sebelum mengirim. Tekan <kbd>F9</kbd> untuk solve segera setelah mengubah dimensi.</div>
+
+        <h2>3. Solver mode</h2>
+        <p>Default solver berjalan <b>saat dilepas</b> (on release): drag tidak memicu solve, satu solve dijalankan saat mouse dilepas. Ubah mode dengan klik chip solver di baris status ribbon:</p>
+        <ul>
+          <li><b>Manual</b>: hanya <kbd>F9</kbd> yang solve.</li>
+          <li><b>Live</b>: solve setiap gerakan (perilaku lama).</li>
+          <li><kbd>F9</kbd> selalu solve segera, apa pun mode.</li>
+        </ul>
+        <p><a href="solver.html">Baca selengkapnya di halaman Solver &rarr;</a></p>
+
+        <div class="help-footer">
+          <span>Constrain — Batasan &amp; Dimensi</span>
+          <span>Selanjutnya: <a href="parts.html">Parts — Part &amp; Assembly</a></span>
+        </div>
+      </div>
+    </main>
+  </div>
+
+</div>
+<script src="search-data.js"></script>
+<script src="help.js"></script>
+</body>
+</html>
