@@ -16197,7 +16197,10 @@
     pushHistory();
     let made = 0;
     const lineIds = [];
-    const imageIds = [];   // placed pictures — they take the focus after the import
+    // snapshot of what the document already owned — everything NOT in this
+    // set after the loop is import output, and the whole output takes the
+    // focus (selected + fit view) when the import lands
+    const hadIds = new Set(Object.keys(state.entities));
     for (const pr of prims) {
       if (pr.kind === 'note') {
         // page markers ("=== Page N ===") are importer annotation, not page
@@ -16233,7 +16236,7 @@
         const vx = pr.v[0] * scale, vy = pr.v[1] * scale * sy;
         const imgId = placeImageEntity(pr.src, pr.iw, pr.ih,
           { x, y }, { x: x + ux, y: y + uy }, { x: x + vx, y: y + vy });
-        if (imgId) { made++; imageIds.push(imgId); }
+        if (imgId) made++;
         continue;
       }
       // keep-original off: every line snaps to the nearest MiniSketch (KaryaCNC
@@ -16282,12 +16285,17 @@
     const joinTol = isFinite(+o.joinTol) && +o.joinTol > 0 ? +o.joinTol : settings.joinImportTol;
     if (joinOn && lineIds.length >= 2) joinImportedSegments(lineIds, joinTol);
     if (!made) return 0;
-    // placed pictures take the focus: they arrive selected and the view zooms
-    // to them, the same way a pasted picture is born selected — so a bitmap
-    // that lands away from the vectors (or alone on the sheet) is seen right
-    // away instead of hiding off-view. No pictures: keep the old framing.
-    if (imageIds.length) {
-      ui.selection = imageIds.map(id => ({ kind: 'entity', id }));
+    // the WHOLE import takes the focus: every entity the import created is
+    // selected and the view frames to their combined bounds — so whatever the
+    // file contained (vectors, texts, a bitmap placed at its file position)
+    // is on screen and picked right away, not hiding off-view. An import that
+    // somehow produced no entities keeps the old framing (fit an empty sheet).
+    const newIds = [];
+    for (const eid in state.entities) {
+      if (!hadIds.has(eid)) newIds.push(+eid);
+    }
+    if (newIds.length) {
+      ui.selection = newIds.map(id => ({ kind: 'entity', id }));
       fitSelection();
     } else if (wasEmpty) {
       fitView();
