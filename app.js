@@ -935,6 +935,46 @@
   }
 
   // Insert the parsed items into the sketch. One undo step, called by the dialog.
+  // ---- Import placement ------------------------------------------------------
+  // When the workspace already holds geometry, an import is placed directly to
+  // the RIGHT of the existing content's bounding box with a 50 mm clearance,
+  // top edges aligned — so repeated imports tile side by side and nothing lands
+  // on top of what is already drawn. An empty workspace keeps the natural
+  // position (viewport centre for SVG, the file's own coordinates for
+  // DXF/PDF/CDR).
+  const IMPORT_PLACE_GAP = 50;
+
+  function docGeometryBounds() {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const notePts = new Set();
+    for (const eid in state.entities) {
+      const ent = state.entities[eid];
+      if (ent && ent.type === 'note') notePts.add(+ent.p);
+    }
+    for (const pid in state.points) {
+      if (notePts.has(+pid)) continue;
+      const p = state.points[pid];
+      if (!p || !isFinite(p.x) || !isFinite(p.y)) continue;
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+    return isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+  }
+
+  // Translation that puts the import box [impMinX..impMaxX] ×
+  // [impMinY..impMaxY] to the right of the workspace, 50 mm clear, with its
+  // top edge aligned to the workspace's top. Returns {dx, dy} in world mm.
+  function importClearanceOffset(impMinX, impMinY, impMaxX, impMaxY) {
+    const doc = docGeometryBounds();
+    if (!doc) return { dx: 0, dy: 0 };
+    return {
+      dx: doc.maxX + IMPORT_PLACE_GAP - impMinX,
+      dy: doc.minY - impMinY        // top edges align
+    };
+  }
+
   function svgImportInsert(ir, opts) {
     const o = opts || {};
     const fillMode = o.fillMode || 'gray';
@@ -943,6 +983,12 @@
     const target = o.center || s2w(W / 2, H / 2);
     const bb = ir.bounds || { minX: 0, minY: 0, maxX: 0, maxY: 0 };
     const off = { x: target.x - (bb.minX + bb.maxX) / 2, y: target.y - (bb.minY + bb.maxY) / 2 };
+    if (o.avoidExisting) {
+      const cl = importClearanceOffset(
+        bb.minX + off.x, bb.minY + off.y, bb.maxX + off.x, bb.maxY + off.y);
+      off.x += cl.dx;
+      off.y += cl.dy;
+    }
 
     const cache = new Map();
     const mkPoint = (x, y) => {
@@ -1230,7 +1276,7 @@
     pushHistory();
     let made = null;
     try {
-      made = svgImportInsert(job.ir, { keepGroups, fillMode, colorMap, textMode });
+      made = svgImportInsert(job.ir, { keepGroups, fillMode, colorMap, textMode, avoidExisting: true });
     } catch (err) {
       history.pop();
       updateHistoryButtons();
@@ -15843,9 +15889,29 @@
     const wasEmpty = !Object.keys(state.entities).length;
     // DXF is AutoCAD Y-up: mirror Y (and swap the arc endpoints, since the
     // sketch arc runs the other way) so the drawing arrives upright.
+    // The file's coordinates are kept 1:1, but when the workspace already has
+    // content the drawing must land clear of it (50 mm gap).
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const hit = (x, y) => {
+      if (!isFinite(x) || !isFinite(y)) return;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    };
+    for (const pr of prims) {
+      if (pr.type === 'line') { hit(pr.x1, -pr.y1); hit(pr.x2, -pr.y2); }
+      else if (pr.type === 'circle' || pr.type === 'arc') {
+        hit(pr.cx - pr.r, -pr.cy); hit(pr.cx + pr.r, -pr.cy);
+        hit(pr.cx, -pr.cy - pr.r); hit(pr.cx, -pr.cy + pr.r);
+      } else if (pr.type === 'spline') {
+        for (const p of pr.pts) hit(p[0], -p[1]);
+      }
+    }
+    const cl = importClearanceOffset(minX, minY, maxX, maxY);
     const addPoint = (x, y) => {
       const id = newId();
-      state.points[id] = { id, x, y: -y };
+      state.points[id] = { id, x: x + cl.dx, y: -y + cl.dy };
       return id;
     };
     const made = [];
@@ -15853,21 +15919,21 @@
       const id = newId();
       if (pr.type === 'line') {
         state.entities[id] = {
-          id, type: 'line', color: ui.color,
+          id, type: 'line', color: pr.color || ui.color,
           a: addPoint(pr.x1, pr.y1), b: addPoint(pr.x2, pr.y2)
         };
       } else if (pr.type === 'circle') {
-        state.entities[id] = { id, type: 'circle', color: ui.color, c: addPoint(pr.cx, pr.cy), r: pr.r };
+        state.entities[id] = { id, type: 'circle', color: pr.color || ui.color, c: addPoint(pr.cx, pr.cy), r: pr.r };
       } else if (pr.type === 'arc') {
         state.entities[id] = {
-          id, type: 'arc', color: ui.color,
+          id, type: 'arc', color: pr.color || ui.color,
           c: addPoint(pr.cx, pr.cy),
           s: addPoint(pr.cx + pr.r * Math.cos(pr.a1), pr.cy + pr.r * Math.sin(pr.a1)),
           e: addPoint(pr.cx + pr.r * Math.cos(pr.a0), pr.cy + pr.r * Math.sin(pr.a0))
         };
       } else if (pr.type === 'spline') {
         const pts = pr.pts.map(p => addPoint(p[0], p[1]));
-        const ent = { id, type: 'spline', color: ui.color, pts, closed: !!pr.closed };
+        const ent = { id, type: 'spline', color: pr.color || ui.color, pts, closed: !!pr.closed };
         if (pts.length >= 2) ent.hs = autoHandles(pts.map(p => state.points[p]), !!pr.closed);
         state.entities[id] = ent;
       } else {
@@ -16062,6 +16128,45 @@
     };
   }
 
+  // World-mm bounding box of a raw prim set, then the clearance offset that
+  // keeps it outside the existing workspace (50 mm gap). `sy` is the Y mirror
+  // the insert is about to apply, so the box is measured in final coordinates.
+  function primsClearanceOffset(prims, scale, sy) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const hit = (x, y) => {
+      if (!isFinite(x) || !isFinite(y)) return;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    };
+    for (const pr of prims) {
+      if (pr.kind === 'note') { hit(pr.x * scale, pr.y * scale * sy); continue; }
+      if (pr.kind === 'image') {
+        const ux = pr.u[0] * scale, uy = pr.u[1] * scale * sy;
+        const vx = pr.v[0] * scale, vy = pr.v[1] * scale * sy;
+        hit(pr.x * scale, pr.y * scale * sy);
+        hit(pr.x * scale + ux, pr.y * scale * sy + uy);
+        hit(pr.x * scale + vx, pr.y * scale * sy + vy);
+        hit(pr.x * scale + ux + vx, pr.y * scale * sy + uy + vy);
+        continue;
+      }
+      if (pr.kind === 'circle') {
+        const cx = pr.cx * scale, cy = pr.cy * scale * sy;
+        const r = (pr.r || 0) * scale;
+        hit(cx - r, cy); hit(cx + r, cy); hit(cx, cy - r); hit(cx, cy + r);
+        continue;
+      }
+      for (const nd of pr.nodes || []) {
+        hit(nd.p[0] * scale, nd.p[1] * scale * sy);
+        if (nd.o) hit(nd.o[0] * scale, nd.o[1] * scale * sy);
+        if (nd.i) hit(nd.i[0] * scale, nd.i[1] * scale * sy);
+      }
+    }
+    if (!isFinite(minX)) return { dx: 0, dy: 0 };
+    return importClearanceOffset(minX, minY, maxX, maxY);
+  }
+
   // Shared entity builder for vector imports (PDF, CDR): prims are
   // { color, closed, nodes } with coordinates in `scale` mm per unit. Straight
   // paths become line chains, anything with a curve becomes a spline with
@@ -16081,14 +16186,18 @@
     // source formats (PDF/CDR) are Y-up; o.flipY mirrors them into the Y-down
     // sketch so vector imports and editable text arrive upright
     const sy = o.flipY ? -1 : 1;
+    // When the workspace already has content, the drawing must land clear of it
+    // (50 mm gap) instead of overlapping what is already there.
+    const cl = o.avoidExisting ? primsClearanceOffset(prims, scale, sy) : { dx: 0, dy: 0 };
     const addPoint = (p) => {
       const id = newId();
-      state.points[id] = { id, x: p[0] * scale, y: p[1] * scale * sy };
+      state.points[id] = { id, x: p[0] * scale + cl.dx, y: p[1] * scale * sy + cl.dy };
       return id;
     };
     pushHistory();
     let made = 0;
     const lineIds = [];
+    const imageIds = [];   // placed pictures — they take the focus after the import
     for (const pr of prims) {
       if (pr.kind === 'note') {
         // page markers ("=== Page N ===") are importer annotation, not page
@@ -16104,14 +16213,14 @@
           const vx = isFinite(pr.vx) ? pr.vx : 0;
           const vy = isFinite(pr.vy) ? -pr.vy : -1;
           const sizeMm = (isFinite(pr.size) && pr.size > 0 ? pr.size : 10) * scale;
-          addImportedTextObject(pr.x * scale, pr.y * scale * sy, text, sizeMm, { ux, uy, vx, vy });
+          addImportedTextObject(pr.x * scale + cl.dx, pr.y * scale * sy + cl.dy, text, sizeMm, { ux, uy, vx, vy });
           made++;
           continue;
         }
         // default: a comment at the anchor
         const id = newId();
         const pid = newId();
-        state.points[pid] = { id: pid, x: pr.x * scale, y: pr.y * scale * sy };
+        state.points[pid] = { id: pid, x: pr.x * scale + cl.dx, y: pr.y * scale * sy + cl.dy };
         state.entities[id] = { id, type: 'note', p: pid, text };
         made++;
         continue;
@@ -16119,11 +16228,12 @@
       // embedded bitmap (PDF image XObject): a reference picture at its file
       // position — double-click it to trace, like a pasted picture
       if (pr.kind === 'image') {
-        const x = pr.x * scale, y = pr.y * scale * sy;
+        const x = pr.x * scale + cl.dx, y = pr.y * scale * sy + cl.dy;
         const ux = pr.u[0] * scale, uy = pr.u[1] * scale * sy;
         const vx = pr.v[0] * scale, vy = pr.v[1] * scale * sy;
-        if (placeImageEntity(pr.src, pr.iw, pr.ih,
-          { x, y }, { x: x + ux, y: y + uy }, { x: x + vx, y: y + vy })) made++;
+        const imgId = placeImageEntity(pr.src, pr.iw, pr.ih,
+          { x, y }, { x: x + ux, y: y + uy }, { x: x + vx, y: y + vy });
+        if (imgId) { made++; imageIds.push(imgId); }
         continue;
       }
       // keep-original off: every line snaps to the nearest MiniSketch (KaryaCNC
@@ -16154,8 +16264,8 @@
         const ent = {
           id, type: 'spline', pts: ids, color,
           hs: {
-            o: pr.nodes.map(nd => (nd.o ? { x: nd.o[0] * scale, y: nd.o[1] * scale * sy } : null)),
-            i: pr.nodes.map(nd => (nd.i ? { x: nd.i[0] * scale, y: nd.i[1] * scale * sy } : null))
+            o: pr.nodes.map(nd => (nd.o ? { x: nd.o[0] * scale + cl.dx, y: nd.o[1] * scale * sy + cl.dy } : null)),
+            i: pr.nodes.map(nd => (nd.i ? { x: nd.i[0] * scale + cl.dx, y: nd.i[1] * scale * sy + cl.dy } : null))
           }
         };
         if (pr.closed && ids.length >= 2) ent.closed = true;
@@ -16172,7 +16282,16 @@
     const joinTol = isFinite(+o.joinTol) && +o.joinTol > 0 ? +o.joinTol : settings.joinImportTol;
     if (joinOn && lineIds.length >= 2) joinImportedSegments(lineIds, joinTol);
     if (!made) return 0;
-    if (wasEmpty) fitView();
+    // placed pictures take the focus: they arrive selected and the view zooms
+    // to them, the same way a pasted picture is born selected — so a bitmap
+    // that lands away from the vectors (or alone on the sheet) is seen right
+    // away instead of hiding off-view. No pictures: keep the old framing.
+    if (imageIds.length) {
+      ui.selection = imageIds.map(id => ({ kind: 'entity', id }));
+      fitSelection();
+    } else if (wasEmpty) {
+      fitView();
+    }
     commit();
     // measure the points that really exist in the document (ground truth, not
     // a running tally): the size in the toast is the health check. Comments
@@ -16396,6 +16515,7 @@
     await importPrimsIntoDocument(kept, 25.4 / 72, 'PDF', {
       textMode: (document.getElementById('pdf-text-mode') || {}).value || 'text',
       flipY: true,
+      avoidExisting: true,
       ...importJoinOpts('pdf')
     });
     toast('PDF: ' + kept.length + ' of ' + src.length + ' objects imported');
@@ -30992,6 +31112,7 @@ function cmdSplitCurve() {
         textMode: sel ? sel.value : 'comment',
         keepColors: keep ? keep.checked : true,
         flipY: true,
+        avoidExisting: true,
         ...importJoinOpts('cdr')
       });
     });
