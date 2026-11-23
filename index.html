@@ -46,6 +46,7 @@
           <label class="menu-item check" id="menu-lang-id" role="menuitemcheckbox" aria-checked="false" title="Panduan jendela tools + Help dalam bahasa Indonesia"><input type="checkbox" id="tgl-lang-id">Lang: Indonesia<span class="menu-key">ID</span></label>
           <div class="menu-sep"></div>
           <button class="menu-item" id="btn-help" role="menuitem">Help<span class="menu-key">?</span></button>
+          <button class="menu-item" id="btn-docs" role="menuitem">Dokumentasi lengkap&hellip;<span class="menu-key">docs/</span></button>
         </div>
       </div>
       <div class="menu" data-menu="tool">
@@ -731,6 +732,7 @@
         <button type="button" class="btn small is-on" data-help-lang="en">English</button>
         <button type="button" class="btn small" data-help-lang="id">Bahasa Indonesia</button>
       </div>
+      <button type="button" class="btn small" id="help-open-docs" title="Buka buku panduan lengkap per fitur (dokumentasi HTML)">Panduan lengkap&hellip;</button>
     </div>
     <div class="help-body" id="help-body">
       <div class="help-pane" data-help-pane="en">
@@ -744,6 +746,19 @@
     </div>
   </div>
 </div>
+</div>
+<div id="docs-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="docs-title">
+  <div class="modal-box docs-box">
+    <div class="docs-head">
+      <h3 id="docs-title">Dokumentasi MiniSketch</h3>
+      <div class="docs-actions">
+        <button type="button" class="btn small" id="docs-open-tab" title="Buka dokumentasi di tab browser baru">Buka di tab baru</button>
+        <button class="btn small" id="docs-close">Close</button>
+      </div>
+    </div>
+    <!-- src diatur openDocsModal() agar tautan per topik bisa dibuka langsung -->
+    <iframe id="docs-frame" src="docs/index.html" title="Dokumentasi MiniSketch"></iframe>
+  </div>
 </div>
 <div id="text-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="text-title">
   <div class="modal-box text-box">

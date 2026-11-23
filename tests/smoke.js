@@ -298,7 +298,7 @@ console.log('parseCdr');
       const bytes = new Uint8Array(fs.readFileSync(path.join(__dirname, '..', 'testimport', name)));
       const prims = await C.parsePdf(bytes);
       ok(prims.length > 0, name + ' yields vector primitives (got ' + prims.length + ')');
-      ok(prims.every(pr => pr.nodes.length >= 2), name + ' primitives carry nodes');
+      ok(prims.every(pr => pr.kind === 'image' || pr.nodes.length >= 2), name + ' primitives carry nodes');
       ok(prims.every(pr => pr.nodes.every(nd => Number.isFinite(nd.p[0]) && Number.isFinite(nd.p[1]))),
         name + ' has only finite coordinates (no NaN from stray streams)');
     } catch (err) {
@@ -335,6 +335,78 @@ console.log('parseCdr');
       ok(marks.length === 3, 'multi-page PDF gets page marker comments (got ' + marks.length + ')');
     } catch (err) {
       ok(false, 'multi-page layout parses without throwing (' + err + ')');
+    }
+  }
+
+  // --- embedded bitmaps: image XObject + SMask + form placement -------------
+  // A page paints a form (/Fm0 Do); the form carries /Matrix [2 0 0 2 0 0] and
+  // paints a 2x2 RGB bitmap (/Im0 Do) with a DeviceGray SMask over the whole
+  // 100x50 page. Exercises: resource resolution, form matrix composition, the
+  // image-space convention (row 0 at T(0,0), +v down the rows), SMask alpha,
+  // and the hand-rolled PNG encoder.
+  {
+    const zlib = require('zlib');
+    const mkStream = (dictTail, data) => {
+      const z = zlib.deflateSync(Buffer.from(data, 'latin1'));
+      return '<< ' + dictTail + ' /Length ' + z.length + ' /Filter /FlateDecode >>\nstream\n' + z.toString('latin1') + '\nendstream';
+    };
+    const bodies = [
+      '<< /Type /Catalog /Pages 2 0 R >>',                                                    // 1
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',                                            // 2
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 50] /Contents 4 0 R ' +
+        '/Resources << /XObject << /Fm0 7 0 R >> >> >>',                                      // 3
+      mkStream('', 'q /Fm0 Do Q'),                                                            // 4
+      mkStream('/Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceRGB ' +
+        '/BitsPerComponent 8 /SMask 6 0 R', '\xff\x00\x00\x00\xff\x00\x00\x00\xff\xff\xff\x00'),  // 5
+      mkStream('/Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceGray ' +
+        '/BitsPerComponent 8', '\xff\x80\x00\xff'),                                           // 6
+      mkStream('/Type /XObject /Subtype /Form /BBox [0 0 50 25] /Matrix [2 0 0 2 0 0] ' +
+        '/Resources << /XObject << /Im0 5 0 R >> >>', 'q 50 0 0 -25 0 25 cm /Im0 Do Q')       // 7
+    ];
+    let pdfText = '%PDF-1.7\n';
+    bodies.forEach((body, i) => { pdfText += (i + 1) + ' 0 obj\n' + body + '\nendobj\n'; });
+    const b = new Uint8Array(pdfText.length);
+    for (let i = 0; i < pdfText.length; i++) b[i] = pdfText.charCodeAt(i) & 0xff;
+    try {
+      const all = await C.parsePdf(b);
+      const imgs = all.filter(p => p.kind === 'image');
+      ok(imgs.length === 1, 'form-painted bitmap yields one image primitive (got ' + imgs.length + ')');
+      if (imgs.length === 1) {
+        const im = imgs[0];
+        close(im.x, 0, 1e-6, 'image top-left x (page space)');
+        // row 0 (the bitmap's top scanline) maps to v=1: with the flipped
+        // placement cm, that corner is T(0,1) = (0, 0) — the region's bottom
+        // in PDF space, which the reference render (poppler) confirms
+        close(im.y, 0, 1e-6, 'image top-left y: row 0 sits at T(0,1)');
+        ok(Math.abs(im.u[0] - 100) < 1e-6 && Math.abs(im.u[1]) < 1e-6, 'image width vector = (100, 0)');
+        ok(Math.abs(im.v[0]) < 1e-6 && Math.abs(im.v[1] - 50) < 1e-6, 'image height vector = (0, 50): v runs from the bitmap top toward row 0 at T(0,0)');
+        ok(im.iw === 2 && im.ih === 2, 'image carries its pixel dimensions');
+        ok(typeof im.src === 'string' && im.src.startsWith('data:image/png;base64,'), 'decoded bitmap arrives as a PNG data URL');
+        // read the PNG back: signature + chunk walk + inflate, scanline filter 0
+        const bin = Buffer.from(im.src.slice(im.src.indexOf(',') + 1), 'base64');
+        let off = 8;
+        const idats = [];
+        while (off + 8 <= bin.length) {
+          const len = bin.readUInt32BE(off);
+          const type = bin.toString('latin1', off + 4, off + 8);
+          if (type === 'IDAT') idats.push(bin.subarray(off + 8, off + 8 + len));
+          off += 12 + len;
+          if (type === 'IEND') break;
+        }
+        const raw = zlib.inflateSync(Buffer.concat(idats));
+        const stride = 2 * 4 + 1;
+        const px = (x, y) => {
+          const s = y * stride + 1 + x * 4;
+          return [raw[s], raw[s + 1], raw[s + 2], raw[s + 3]];
+        };
+        ok(raw[0] === 0, 'scanlines carry filter type 0');
+        ok(px(0, 0).join() === '255,0,0,255', 'pixel (0,0) = red, SMask 255 keeps it opaque (got ' + px(0, 0).join() + ')');
+        ok(px(1, 0).join() === '0,255,0,128', 'pixel (1,0) keeps the SMask 128 as its alpha (got ' + px(1, 0).join() + ')');
+        ok(px(0, 1).join() === '0,0,255,0', 'pixel (0,1) is fully transparent where the SMask is 0 (got ' + px(0, 1).join() + ')');
+        ok(px(1, 1).join() === '255,255,0,255', 'pixel (1,1) = yellow, opaque (got ' + px(1, 1).join() + ')');
+      }
+    } catch (err) {
+      ok(false, 'embedded-bitmap PDF parses without throwing (' + err + ')');
     }
   }
 

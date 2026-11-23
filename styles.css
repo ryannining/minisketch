@@ -709,6 +709,35 @@ button {
 .modal-box.wide-cols {
   width: min(560px, calc(100vw - 32px));
 }
+
+/* ---- Dokumentasi lengkap (iframe ke docs/index.html) -------------
+   Satu kotak besar: header dengan judul + tombol, iframe mengisi sisa
+   tinggi. Iframe memuat help HTML di docs/ yang punya stylesheet
+   sendiri (docs/help.css), jadi di sini cukup kerangkanya saja. */
+.modal-box.docs-box {
+  width: min(1100px, calc(100vw - 40px));
+  height: min(880px, calc(100dvh - 40px));
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  overflow: hidden; /* iframe yang menggulung, bukan kotaknya */
+}
+.docs-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.docs-head h3 { margin: 0; }
+.docs-actions { margin-left: auto; display: flex; gap: 8px; }
+.docs-box iframe {
+  flex: 1 1 auto;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
 .modal-cols {
   display: flex;
   gap: 16px;

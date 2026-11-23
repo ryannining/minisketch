@@ -204,7 +204,7 @@ console.log('\n== no stale id was left behind ==');
     'nsel-save', 'nsel-name', 'nsel-list', 'btn-group', 'btn-ungroup']);
   // the PDF import dialog is built on demand (openPdfImport), never in the markup
   const builtInJs = new Set(['pdf-import-modal', 'pdf-colors', 'pdf-drop-tiny', 'pdf-cancel', 'pdf-ok',
-    'pdf-text-mode', 'pdf-layers', 'pdf-pages-row', 'pdf-pages']);
+    'pdf-text-mode', 'pdf-layers', 'pdf-pages-row', 'pdf-pages', 'pdf-images']);
   // the quickbar dimension button is the live one; btn-dimension is its retired twin
   const retiredIds = new Set(['btn-dimension']);
   const missing = Array.from(wanted).filter(id => !ids.has(id) && !id.startsWith('set-') &&
@@ -228,7 +228,10 @@ console.log('\n== wiring ==');
   check('Escape dismisses it', /help-modal[\s\S]{0,200}closeHelpModal/.test(appSrc));
   check('? opens it', /openHelpModal\(\)/.test(appSrc) && /key === '\?'/.test(appSrc));
   check('opening applies the remembered language', /function openHelpModal\(\) \{\s*setHelpLang\(helpLang\(\)\)/.test(appSrc));
-  check('the language buttons are wired', /data-help-lang[\s\S]{0,160}setHelpLang/.test(appSrc));
+  // the buttons wire through setGuideLang (which calls setHelpLang) in init()
+  check('the language buttons are wired',
+    /data-help-lang[\s\S]{0,200}setGuideLang/.test(appSrc) &&
+    /function setGuideLang[\s\S]{0,300}setHelpLang/.test(appSrc));
 }
 
 console.log('\n' + (fail ? (fail + ' FAILED, ' + pass + ' passed') : ('all ' + pass + ' checks passed')));

@@ -167,6 +167,8 @@
   let loopFillCurrentVisible = true;     // settings → Renderer → Loop fills · current layer
   let loopFillOthersVisible = true;      // settings → Renderer → Loop fills · other layers
   let loopFillScale = 0.5;              // settings → Renderer → Loop fill resolution
+  let loopFillTempOff = false;          // L: temporary loop-fill hide — a session toggle,
+                                        // never written to the saved settings
 
   function themedCanvasColor(v) {
     if (themeName !== 'dark') return v;
@@ -11306,6 +11308,43 @@
     ctx.restore();
   }
 
+  // The shared picture builder: three frame points, two green guide lines and
+  // the aspect constraint — no history, commit, selection or toast. `at`
+  // carries the frame corners in world mm (p0 top-left, pw top-right, ph
+  // bottom-left, both handle vectors included) so a PDF image can land in its
+  // file position and even keep a rotated / skewed placement. An axis-aligned
+  // frame gets the same horizontal + perpendicular pins a pasted picture
+  // owns; a rotated one keeps only the aspect, which must not fight the pose.
+  function placeImageEntity(src, iw, ih, p0xy, pwxy, phxy) {
+    if (!src) return null;
+    const p0 = privatePoint(p0xy.x, p0xy.y);
+    const pwId = privatePoint(pwxy.x, pwxy.y);
+    const phId = privatePoint(phxy.x, phxy.y);
+    const idW = newId();
+    state.entities[idW] = { id: idW, type: 'line', a: p0, b: pwId, color: '#00ff00', layer: ui.activeLayer };
+    const idH = newId();
+    state.entities[idH] = { id: idH, type: 'line', a: p0, b: phId, color: '#00ff00', layer: ui.activeLayer };
+    const ux = pwxy.x - p0xy.x, uy = pwxy.y - p0xy.y;
+    const vx = phxy.x - p0xy.x, vy = phxy.y - p0xy.y;
+    if ((Math.abs(ux) < 1e-9 || Math.abs(uy) < 1e-9) && (Math.abs(vx) < 1e-9 || Math.abs(vy) < 1e-9)) {
+      const cH = newId();
+      state.constraints[cH] = { id: cH, type: 'horizontal', entity: idW };
+      const cPerp = newId();
+      state.constraints[cPerp] = { id: cPerp, type: 'perpendicular', line1: idW, line2: idH };
+    }
+    const id = newId();
+    state.entities[id] = {
+      id, type: 'image', p0, pw: pwId, ph: phId, guide: [idW, idH],
+      src: String(src), iw: +iw || 0, ih: +ih || 0,
+      // the frame's own ratio, not the pixel ratio: a PDF may place its bitmap
+      // anisotropically, and the drawn frame is the truth to keep
+      ratio: Math.hypot(ux, uy) / Math.max(1e-9, Math.hypot(vx, vy)),
+      color: ui.color, layer: ui.activeLayer
+    };
+    ensureTextAspect(state.entities[id]);
+    return id;
+  }
+
   function addImageEntity(src, iw, ih, mmW) {
     const w = clamp(isFinite(+mmW) && +mmW > 0 ? +mmW : Math.max(1, iw * 25.4 / IMAGE_DEFAULT_DPI), 1, 5000);
     const h = w * (ih / Math.max(1, iw));
@@ -11313,25 +11352,8 @@
     pushHistory();
     const left = center.x - w / 2;
     const top = center.y - h / 2;
-    const p0 = privatePoint(left, top);
-    const pwId = privatePoint(left + w, top);
-    const phId = privatePoint(left, top + h);
-    const idW = newId();
-    state.entities[idW] = { id: idW, type: 'line', a: p0, b: pwId, color: '#00ff00', layer: ui.activeLayer };
-    const idH = newId();
-    state.entities[idH] = { id: idH, type: 'line', a: p0, b: phId, color: '#00ff00', layer: ui.activeLayer };
-    const cH = newId();
-    state.constraints[cH] = { id: cH, type: 'horizontal', entity: idW };
-    const cPerp = newId();
-    state.constraints[cPerp] = { id: cPerp, type: 'perpendicular', line1: idW, line2: idH };
-    const id = newId();
-    state.entities[id] = {
-      id, type: 'image', p0, pw: pwId, ph: phId, guide: [idW, idH],
-      src: String(src), iw: +iw || 0, ih: +ih || 0,
-      ratio: iw / Math.max(1, ih),
-      color: ui.color, layer: ui.activeLayer
-    };
-    ensureTextAspect(state.entities[id]);
+    const id = placeImageEntity(src, iw, ih,
+      { x: left, y: top }, { x: left + w, y: top }, { x: left, y: top + h });
     ui.selection = [{ kind: 'entity', id }];
     commit();
     toast('Image placed · ' + fmt(w) + ' × ' + fmt(h) + ' mm');
@@ -15975,6 +15997,7 @@
     }
     const shiftX = (pr, dx) => {
       if (pr.kind === 'note') { pr.x += dx; return; }
+      if (pr.kind === 'image') { pr.x += dx; return; }
       if (pr.kind === 'circle') { pr.cx += dx; return; }
       for (const nd of pr.nodes) {
         nd.p[0] += dx;
@@ -15989,6 +16012,11 @@
       for (const pr of list) {
         if (pr.kind === 'note') {
           if (Number.isFinite(pr.x)) { minX = Math.min(minX, pr.x); maxX = Math.max(maxX, pr.x); }
+          continue;
+        }
+        if (pr.kind === 'image') {
+          const xs = [pr.x, pr.x + pr.u[0], pr.x + pr.v[0], pr.x + pr.u[0] + pr.v[0]];
+          for (const x of xs) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); }
           continue;
         }
         if (pr.kind === 'circle') {
@@ -16088,6 +16116,16 @@
         made++;
         continue;
       }
+      // embedded bitmap (PDF image XObject): a reference picture at its file
+      // position — double-click it to trace, like a pasted picture
+      if (pr.kind === 'image') {
+        const x = pr.x * scale, y = pr.y * scale * sy;
+        const ux = pr.u[0] * scale, uy = pr.u[1] * scale * sy;
+        const vx = pr.v[0] * scale, vy = pr.v[1] * scale * sy;
+        if (placeImageEntity(pr.src, pr.iw, pr.ih,
+          { x, y }, { x: x + ux, y: y + uy }, { x: x + vx, y: y + vy })) made++;
+        continue;
+      }
       // keep-original off: every line snaps to the nearest MiniSketch (KaryaCNC
       // operation) colour and nothing keeps a fill — same shape, machine ready
       const color = o.keepColors === false
@@ -16172,9 +16210,10 @@
     } catch (err) {
       prims = [];
     }
-    prims = (prims || []).filter(pr => pr.nodes.every(nd => Number.isFinite(nd.p[0]) && Number.isFinite(nd.p[1])));
+    prims = (prims || []).filter(pr => pr.kind === 'image' ||
+      pr.nodes.every(nd => Number.isFinite(nd.p[0]) && Number.isFinite(nd.p[1])));
     if (!prims.length) {
-      toast('No vector paths found in that PDF');
+      toast('No vector paths or pictures found in that PDF');
       return null;
     }
     // PDF import asks first: hatch layers (thousands of tiny shapes) come
@@ -16214,6 +16253,7 @@
         '<option value="skip">skip</option>' +
         '</select></label>' +
         '<label class="opt"><input type="checkbox" id="pdf-drop-tiny"> Drop tiny shapes (&lt; 2 mm)</label>' +
+        '<div class="opt" id="pdf-images" style="display:none;color:#15803d;font-weight:600"></div>' +
         '<label class="opt" title="Weld same-colour segment ends into one point so contours arrive chained. Off keeps every segment exactly as the file describes it."><input type="checkbox" id="pdf-join"> Join endpoints (weld)</label>' +
         '<label class="opt" title="Keep below half the SHORTEST segment in the file, otherwise a short segment welds its own ends into the neighbours and disappears.">Join distance (mm) <input type="number" id="pdf-join-tol" step="0.01" min="0.001" style="width:70px"></label>' +
         '<div class="modal-actions"><button class="btn" id="pdf-cancel">Cancel</button>' +
@@ -16223,14 +16263,25 @@
       modal.querySelector('#pdf-ok').addEventListener('click', applyPdfImport);
     }
     const byColor = new Map();
+    let imgCount = 0;
     for (const pr of prims) {
       if (pr.kind === 'note') continue;
+      if (pr.kind === 'image') { imgCount++; continue; }   // pictures: no colour row
       const k = pr.color || '#000000';
       const e = byColor.get(k) || { count: 0, small: 0 };
       e.count++;
       const b = pdfPrimBox(pr);
       if (Math.max(b.w, b.h) < 5) e.small++;
       byColor.set(k, e);
+    }
+    const imgRow = document.getElementById('pdf-images');
+    if (imgRow) {
+      imgRow.style.display = imgCount ? '' : 'none';
+      if (imgCount) {
+        imgRow.textContent = imgCount + ' embedded picture' + (imgCount > 1 ? 's' : '') +
+          ' import' + (imgCount > 1 ? '' : 's') + ' as reference image' + (imgCount > 1 ? 's' : '') +
+          ' \u2014 double-click one to trace it';
+      }
     }
     const box = document.getElementById('pdf-colors');
     box.innerHTML = '';
@@ -16318,6 +16369,15 @@
     const dropTiny = !!(dropTinyEl && dropTinyEl.checked);
     const kept = src.filter(pr => {
       if (pr.kind === 'note') return true;
+      // pictures answer to the page / layer / size filters only — colour does
+      // not apply to a bitmap
+      if (pr.kind === 'image') {
+        const bw = Math.hypot(pr.u[0], pr.u[1]);
+        const bh = Math.hypot(pr.v[0], pr.v[1]);
+        if (!(bw > 0.001) || !(bh > 0.001)) return false;
+        if (dropTiny && Math.max(bw, bh) < 2) return false;
+        return true;
+      }
       const b = pdfPrimBox(pr);
       // zero-size loops (no width or no height) and fully collapsed shapes are
       // junk whatever their colour — the same rule the Z leftovers use
@@ -18768,6 +18828,22 @@
 
   function closeHelpModal() {
     const modal = document.getElementById('help-modal');
+    if (modal) modal.classList.add('hidden');
+  }
+
+  // ---- Dokumentasi lengkap (docs/index.html dalam iframe) ----------------
+  // Buku panduan HTML per fitur di folder docs/. `page` boleh berupa nama
+  // berkas ("draw.html") untuk langsung membuka satu topik; kosong = beranda.
+  function openDocsModal(page) {
+    const modal = document.getElementById('docs-modal');
+    if (!modal) return;
+    const frame = document.getElementById('docs-frame');
+    if (frame) frame.src = page ? 'docs/' + page : 'docs/index.html';
+    modal.classList.remove('hidden');
+  }
+
+  function closeDocsModal() {
+    const modal = document.getElementById('docs-modal');
     if (modal) modal.classList.add('hidden');
   }
 
@@ -21709,7 +21785,9 @@
     // paints large numbers of low-information pixels — loop fills/tints,
     // notes, dimension/badge annotations — the full scene follows right after
     // the window closes (see scheduleZoomSettle)
-    if (!fastMode && (loopFillCurrentVisible || loopFillOthersVisible)) {
+    // L temporarily hides the loop fills+tints (the settings switches still
+    // apply on top when L brings them back)
+    if (!fastMode && (loopFillCurrentVisible || loopFillOthersVisible) && !loopFillTempOff) {
       prof('loopfills', () => { drawLoopFills(); drawLoops(); });
     }
     prof('entities', () => drawEntities());
@@ -28715,6 +28793,11 @@ function cmdSplitCurve() {
         closeSettingsModal();
         return;
       }
+      const docsBox = document.getElementById('docs-modal');
+      if (docsBox && !docsBox.classList.contains('hidden')) {
+        closeDocsModal();
+        return;
+      }
       const helpBox = document.getElementById('help-modal');
       if (helpBox && !helpBox.classList.contains('hidden')) {
         closeHelpModal();
@@ -28880,6 +28963,15 @@ function cmdSplitCurve() {
       case 's':                                    // S kept as a snap alias
         ui.snap = !ui.snap;
         syncViewToggles();
+        break;
+      case 'l':                                    // L = loop fills on/off (temporary, L again to bring back)
+        loopFillTempOff = !loopFillTempOff;
+        toast(!(loopFillCurrentVisible || loopFillOthersVisible)
+          ? 'Loop fills stay off in Settings \u203a Renderer'
+          : loopFillTempOff
+            ? 'Loop fills hidden (temporary) \u2014 L to show again'
+            : 'Loop fills shown');
+        render();
         break;
       case 'i': setTool('trim'); break;
       case 'n': cmdSelectConnected(); break;
@@ -31326,6 +31418,19 @@ function cmdSplitCurve() {
     });
     const btnHelp = document.getElementById('btn-help');
     if (btnHelp) btnHelp.addEventListener('click', openHelpModal);
+    // File → Dokumentasi lengkap: buku panduan HTML (docs/) dalam iframe
+    const btnDocs = document.getElementById('btn-docs');
+    if (btnDocs) btnDocs.addEventListener('click', () => openDocsModal());
+    const docsClose = document.getElementById('docs-close');
+    if (docsClose) docsClose.addEventListener('click', closeDocsModal);
+    const docsOpenTab = document.getElementById('docs-open-tab');
+    if (docsOpenTab) docsOpenTab.addEventListener('click', () => window.open('docs/index.html', '_blank'));
+    // Dari jendela Help (?) langsung lompat ke panduan lengkap
+    const helpOpenDocs = document.getElementById('help-open-docs');
+    if (helpOpenDocs) helpOpenDocs.addEventListener('click', () => {
+      closeHelpModal();
+      openDocsModal();
+    });
     // File → Lang: ONE switch for the guide texts of the tool windows and the
     // Help panes. The registry stores the choice under the Help window's own
     // key (minisketch.help.lang), so both stay in sync across sessions.

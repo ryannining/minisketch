@@ -2428,8 +2428,13 @@ function decodePdfString(s) {
 // Parse one PDF content stream into primitives:
 //   { color, closed, nodes: [{ p:[x,y], o:[x,y]|null, i:[x,y]|null }] }
 // and note primitives for text: { kind:'note', x, y, text }
-function pdfContentPrims(content, uniMap, fonts, ocg) {
-  const toks = pdfTokens(String(content), uniMap);
+function pdfContentPrims(content, uniMap, fonts, ocg, xres) {
+  // Frame stack: the page's content tokens at the bottom, one frame per form
+  // XObject entered by a `Do` (the only recursion a content stream can ask
+  // for). Frames carry their own resource map and token cursor; the whole
+  // graphics state is saved/restored around them, like the q/Q a writer wraps
+  // a form in.
+  const frames = [{ toks: pdfTokens(String(content), uniMap), i: 0, xres: xres || null, saved: null }];
   const out = [];
   let ctm = [1, 0, 0, 1, 0, 0];
   const stack = [];
@@ -2454,6 +2459,29 @@ function pdfContentPrims(content, uniMap, fonts, ocg) {
   let rise = 0;
   let curFont = null;
   let inText = false;
+  // W n clips like a viewer: tracked as an axis-aligned bbox in user space
+  // (part of the graphics state, so q/Q and form frames save/restore it).
+  // Vector prims still ignore it — only image prims are cropped to it.
+  let clipBox = null;   // { x0, y0, x1, y1 } | null
+
+  const pathBox = () => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const sp of subpaths) {
+      const pts = [sp.start, ...sp.segs.map(s => s.p)];
+      for (const p of pts) {
+        if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+        if (p.x < x0) x0 = p.x;
+        if (p.y < y0) y0 = p.y;
+        if (p.x > x1) x1 = p.x;
+        if (p.y > y1) y1 = p.y;
+      }
+    }
+    return x0 <= x1 && y0 <= y1 ? { x0, y0, x1, y1 } : null;
+  };
+  const intersectBox = (a, b) => {
+    const r = { x0: Math.max(a.x0, b.x0), y0: Math.max(a.y0, b.y0), x1: Math.min(a.x1, b.x1), y1: Math.min(a.y1, b.y1) };
+    return r.x0 < r.x1 && r.y0 < r.y1 ? r : null;
+  };
 
   const T = (x, y) => ({ x: ctm[0] * x + ctm[2] * y + ctm[4], y: ctm[1] * x + ctm[3] * y + ctm[5] });
   // text space -> user space: the text matrix places/scales the glyphs, the
@@ -2540,7 +2568,38 @@ function pdfContentPrims(content, uniMap, fonts, ocg) {
     cur = null;
   };
 
-  for (const tk of toks) {
+  while (frames.length) {
+    const fr = frames[frames.length - 1];
+    if (fr.i >= fr.toks.length) {
+      if (fr.saved) {
+        // form exhausted: restore the caller's graphics state
+        const s = fr.saved;
+        ctm = s.ctm;
+        stroke = s.stroke;
+        fill = s.fill;
+        subpaths = s.subpaths;
+        cur = s.cur;
+        cx = s.cx; cy = s.cy;
+        inArray = s.inArray;
+        arrayBuf = s.arrayBuf;
+        pendingTJ = s.pendingTJ;
+        tm = s.tm;
+        leading = s.leading;
+        fontSize = s.fontSize;
+        charSpace = s.charSpace;
+        wordSpace = s.wordSpace;
+        hScale = s.hScale;
+        rise = s.rise;
+        curFont = s.curFont;
+        inText = s.inText;
+        clipBox = s.clip;
+        if (stack.length > s.stackLen) stack.length = s.stackLen;
+        frames.pop();
+        continue;
+      }
+      break;
+    }
+    const tk = fr.toks[fr.i++];
     if (tk.t === 'arr' || (tk.t === 'op' && tk.v === '[')) {
       // operand arrays (TJ kerning lists): collect the strings inside
       inArray = true;
@@ -2556,8 +2615,8 @@ function pdfContentPrims(content, uniMap, fonts, ocg) {
     const op = tk.v;
     if (op === '[') { inArray = true; arrayBuf = []; ops = []; continue; }
     switch (op) {
-      case 'q': stack.push(ctm.slice()); break;
-      case 'Q': if (stack.length) ctm = stack.pop(); break;
+      case 'q': stack.push({ ctm: ctm.slice(), clip: clipBox }); break;
+      case 'Q': if (stack.length) { const s = stack.pop(); ctm = s.ctm; clipBox = s.clip; } break;
       case 'cm': {
         const m = ops.slice(-6);
         if (m.length === 6 && m.every(Number.isFinite)) {
@@ -2604,6 +2663,12 @@ function pdfContentPrims(content, uniMap, fonts, ocg) {
       }
       case 'h': if (cur) cur.closed = true; break;
       case 'n': subpaths = []; cur = null; break;
+      case 'W': case 'W*': {
+        // W n clips: remember the path's bbox as the (intersected) clip
+        const box = pathBox();
+        if (box) clipBox = clipBox ? intersectBox(clipBox, box) : box;
+        break;
+      }
       case 'BDC': case 'BMC': {
         // /OC <resource> BDC — a layer section; anything else (tagged PDF etc.)
         // pushes a null frame so EMC stays balanced
@@ -2613,6 +2678,93 @@ function pdfContentPrims(content, uniMap, fonts, ocg) {
         break;
       }
       case 'EMC': if (ocgStack.length) ocgStack.pop(); break;
+      case 'Do': {
+        // /Im N Do paints an image XObject; /FormN Do runs a form's content
+        // with CTM ∘ Matrix applied. Names resolve through the frame stack
+        // (nearest frame first) so a form inherits its parent's resources for
+        // names it does not define itself.
+        const name = ops.length ? String(ops[ops.length - 1]) : '';
+        let entry = null;
+        for (let fi = frames.length - 1; fi >= 0; fi--) {
+          const xr = frames[fi].xres;
+          if (xr && xr.has(name)) { entry = xr.get(name); break; }
+        }
+        if (entry && entry.img) {
+          // image space: (0,0) is the bitmap's BOTTOM-left, row 0 (the top
+          // scanline) maps to v = 1 — verified against a reference render
+          // (poppler) with a synthetic asymmetric bitmap. The frame below
+          // maps the bitmap onto exactly the rectangle a viewer paints.
+          const im = entry.img;
+          let tl = T(0, 1), tr = T(1, 1), bl = T(0, 0);
+          if ([tl.x, tl.y, tr.x, tr.y, bl.x, bl.y].every(Number.isFinite)) {
+            let u = [tr.x - tl.x, tr.y - tl.y];
+            let v = [bl.x - tl.x, bl.y - tl.y];
+            // W n clipping: intersect the frame with the active clip and
+            // carry the surviving window in unit coords — the async pass in
+            // parsePdf crops the bitmap to it (axis-aligned frames only)
+            let crop = null;
+            const axisAligned = (Math.abs(u[1]) < 1e-9 && Math.abs(v[0]) < 1e-9) ||
+              (Math.abs(u[0]) < 1e-9 && Math.abs(v[1]) < 1e-9);
+            if (clipBox && axisAligned) {
+              const box = intersectBox(clipBox, {
+                x0: Math.min(tl.x, tr.x, bl.x), y0: Math.min(tl.y, tr.y, bl.y),
+                x1: Math.max(tl.x, tr.x, bl.x), y1: Math.max(tl.y, tr.y, bl.y)
+              });
+              if (!box) { ops = []; continue; }   // image fully clipped away
+              const ul = u[0] * u[0] + u[1] * u[1] || 1;
+              const vl = v[0] * v[0] + v[1] * v[1] || 1;
+              const proj = (px, py, a, b, len) => ((px - tl.x) * a + (py - tl.y) * b) / len;
+              const s0 = Math.max(0, Math.min(1, proj(box.x0, box.y0, u[0], u[1], ul)));
+              const s1 = Math.max(0, Math.min(1, proj(box.x1, box.y1, u[0], u[1], ul)));
+              const t0 = Math.max(0, Math.min(1, proj(box.x0, box.y0, v[0], v[1], vl)));
+              const t1 = Math.max(0, Math.min(1, proj(box.x1, box.y1, v[0], v[1], vl)));
+              if (s1 - s0 < 0.999 || t1 - t0 < 0.999) {
+                crop = { s0: Math.min(s0, s1), s1: Math.max(s0, s1), t0: Math.min(t0, t1), t1: Math.max(t0, t1) };
+              }
+            }
+            if (crop) {
+              // the frame shrinks with the bitmap: the prim maps the CROPPED
+              // bitmap onto exactly the surviving rectangle
+              tl = {
+                x: tl.x + crop.s0 * u[0] + crop.t0 * v[0],
+                y: tl.y + crop.s0 * u[1] + crop.t0 * v[1]
+              };
+              u = [(crop.s1 - crop.s0) * u[0], (crop.s1 - crop.s0) * u[1]];
+              v = [(crop.t1 - crop.t0) * v[0], (crop.t1 - crop.t0) * v[1]];
+            }
+            out.push({
+              kind: 'image', x: tl.x, y: tl.y,
+              u, v,
+              iw: im.iw, ih: im.ih, src: null, _img: im, crop,
+              color: null, closed: false, nodes: [],
+              ocg: ocgCur() ? ocgCur().name : null, ocgOff: ocgCur() ? ocgCur().off : false
+            });
+          }
+        } else if (entry && entry.form && frames.length < 10) {
+          const m = entry.form.matrix;
+          const parentCtm = ctm;
+          ctm = [
+            ctm[0] * m[0] + ctm[2] * m[1],
+            ctm[1] * m[0] + ctm[3] * m[1],
+            ctm[0] * m[2] + ctm[2] * m[3],
+            ctm[1] * m[2] + ctm[3] * m[3],
+            ctm[0] * m[4] + ctm[2] * m[5] + ctm[4],
+            ctm[1] * m[4] + ctm[3] * m[5] + ctm[5]
+          ];
+          frames.push({
+            toks: pdfTokens(String(entry.form.content), uniMap), i: 0,
+            xres: entry.form.xres || null,
+            saved: {
+              ctm: parentCtm, stroke, fill, subpaths, cur, cx, cy,
+              inArray, arrayBuf, pendingTJ, tm: tm.slice(), leading, fontSize,
+              charSpace, wordSpace, hScale, rise, curFont, inText,
+              clip: clipBox,
+              stackLen: stack.length
+            }
+          });
+        }
+        break;
+      }
       case 'S': case 's': emit(stroke); break;
       case 'f': case 'F': case 'f*': emit(fill); break;
       case 'B': case 'B*': case 'b': case 'b*': emit(stroke || fill); break;
@@ -2741,6 +2893,480 @@ async function pdfInflate(bytes) {
   return new Uint8Array(buf);
 }
 
+// ---- PDF embedded bitmaps (image XObjects) ---------------------------------
+// A page paints a bitmap with "q a b c d e f cm /Im Do Q": the image occupies
+// the unit square of the CURRENT transform, and image ROW 0 (the bitmap's top
+// scanline) sits at T(0,0) with +v walking DOWN the rows — the same convention
+// pdf.js paints with. That is why an upright image is placed with a flipped v
+// (d < 0 in a Y-up space), and why Illustrator/Inkscape exports (which draw in
+// a Y-down content space) use d > 0. This section carries the pure decode
+// helpers; parsePdf owns the object scan and resource resolution.
+
+async function pdfDeflate(bytes) {
+  // CompressionStream('deflate') emits the zlib wrapper — exactly PNG's IDAT
+  const cs = new CompressionStream('deflate');
+  const buf = await new Response(new Blob([bytes]).stream().pipeThrough(cs)).arrayBuffer();
+  return new Uint8Array(buf);
+}
+
+let pdfCrcTab = null;
+function pdfCrc32(bytes) {
+  if (!pdfCrcTab) {
+    pdfCrcTab = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      pdfCrcTab[n] = c >>> 0;
+    }
+  }
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < bytes.length; i++) crc = pdfCrcTab[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function pngChunk(type, data) {
+  const out = new Uint8Array(data.length + 12);
+  const dv = new DataView(out.buffer);
+  dv.setUint32(0, data.length);
+  for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+  out.set(data, 8);
+  dv.setUint32(8 + data.length, pdfCrc32(out.subarray(4, 8 + data.length)));
+  return out;
+}
+
+// RGBA bytes -> a PNG file (8-bit RGBA, one IDAT). core.js has no canvas, so
+// the encoding is done by hand; DecompressionStream does the deflate.
+async function pdfImagePng(w, h, rgba) {
+  const raw = new Uint8Array(h * (w * 4 + 1));
+  for (let y = 0; y < h; y++) {
+    const off = y * (w * 4 + 1);
+    raw[off] = 0;   // filter type 0 (none) per scanline
+    raw.set(rgba.subarray(y * w * 4, (y + 1) * w * 4), off + 1);
+  }
+  const idat = await pdfDeflate(raw);
+  const ihdr = new Uint8Array(13);
+  const dv = new DataView(ihdr.buffer);
+  dv.setUint32(0, w);
+  dv.setUint32(4, h);
+  ihdr[8] = 8;    // bit depth
+  ihdr[9] = 6;    // colour type 6 = RGBA
+  const head = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+  const parts = [head, pngChunk('IHDR', ihdr), pngChunk('IDAT', idat), pngChunk('IEND', new Uint8Array(0))];
+  let total = 0;
+  for (const p of parts) total += p.length;
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const p of parts) { out.set(p, off); off += p.length; }
+  return out;
+}
+
+function pdfBase64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 8192) {
+    s += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + 8192, bytes.length)));
+  }
+  return btoa(s);
+}
+
+// The sync content parser emits image prims with the frame + a crop window;
+// this async pass (run per page right after parsing) crops the cached bitmap
+// and encodes the data URL. Returns false when the image must be dropped.
+async function pdfFinishImagePrim(pr) {
+  const im = pr._img;
+  delete pr._img;
+  const crop = pr.crop;
+  delete pr.crop;
+  if (!im) return false;
+  if (!crop) {
+    pr.src = await pdfImgUrl(im);
+    pr.iw = im.iw;
+    pr.ih = im.ih;
+    return !!pr.src;
+  }
+  if (!im.rgba) return false;   // a JPEG cannot be cropped here: drop rather than misplace
+  const c0 = Math.max(0, Math.min(im.iw, Math.round(crop.s0 * im.iw)));
+  const c1 = Math.max(0, Math.min(im.iw, Math.round(crop.s1 * im.iw)));
+  const r0 = Math.max(0, Math.min(im.ih, Math.round(crop.t0 * im.ih)));
+  const r1 = Math.max(0, Math.min(im.ih, Math.round(crop.t1 * im.ih)));
+  const cw = c1 - c0, ch = r1 - r0;
+  if (cw < 1 || ch < 1) return false;
+  const sub = new Uint8Array(cw * ch * 4);
+  for (let y = 0; y < ch; y++) {
+    sub.set(im.rgba.subarray(((r0 + y) * im.iw + c0) * 4, ((r0 + y) * im.iw + c0 + cw) * 4), y * cw * 4);
+  }
+  try {
+    pr.src = 'data:image/png;base64,' + pdfBase64(await pdfImagePng(cw, ch, sub));
+  } catch (err) { return false; }
+  pr.iw = cw;
+  pr.ih = ch;
+  return true;
+}
+
+async function pdfImgUrl(im) {
+  if (im.src) return im.src;
+  try {
+    im.src = im.jpeg
+      ? 'data:image/jpeg;base64,' + pdfBase64(im.jpeg)
+      : 'data:image/png;base64,' + pdfBase64(await pdfImagePng(im.iw, im.ih, im.rgba));
+  } catch (err) {
+    im.src = null;
+  }
+  return im.src;
+}
+
+// Growable byte sink for the decoders whose output size is unknown up front.
+function pdfGrowBuf(cap) {
+  let buf = new Uint8Array(cap || 4096);
+  let len = 0;
+  return {
+    push(b) {
+      if (len >= buf.length) {
+        const nb = new Uint8Array(buf.length * 2);
+        nb.set(buf);
+        buf = nb;
+      }
+      buf[len++] = b;
+    },
+    pushAll(arr) {
+      if (len + arr.length > buf.length) {
+        let cap2 = buf.length * 2;
+        while (cap2 < len + arr.length) cap2 *= 2;
+        const nb = new Uint8Array(cap2);
+        nb.set(buf.subarray(0, len));
+        buf = nb;
+      }
+      buf.set(arr, len);
+      len += arr.length;
+    },
+    bytes() { return buf.subarray(0, len); }
+  };
+}
+
+function pdfAHexDecode(bytes) {
+  const out = pdfGrowBuf(bytes.length >> 1);
+  const hexVal = (c) => (c >= 48 && c <= 57) ? c - 48 : (c >= 65 && c <= 70) ? c - 55
+    : (c >= 97 && c <= 102) ? c - 87 : -1;
+  let hi = -1;
+  for (let i = 0; i < bytes.length; i++) {
+    const c = bytes[i];
+    if (c === 62) break;   // '>' ends the data
+    const v = hexVal(c);
+    if (v < 0) continue;
+    if (hi < 0) hi = v;
+    else { out.push((hi << 4) | v); hi = -1; }
+  }
+  if (hi >= 0) out.push(hi << 4);   // odd digit count: low nibble is zero
+  return out.bytes();
+}
+
+function pdfA85Decode(bytes) {
+  const out = pdfGrowBuf(bytes.length);
+  let group = [];
+  for (let i = 0; i < bytes.length; i++) {
+    const c = bytes[i];
+    if (c === 126) break;                       // '~' — the '~>' EOD marker
+    if (c === 122) {                            // 'z' — four zero bytes
+      if (!group.length) { out.push(0, 0, 0, 0); continue; }
+      break;                                    // 'z' inside a group: corrupt
+    }
+    if (c < 33 || c > 117) continue;            // whitespace / garbage
+    group.push(c - 33);
+    if (group.length === 5) {
+      let v = 0;
+      for (const g of group) v = v * 85 + g;
+      out.push((v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255);
+      group = [];
+    }
+  }
+  if (group.length) {
+    // a partial final group: pad with 'u' (84) and keep only len-1 bytes
+    const k = group.length;
+    while (group.length < 5) group.push(84);
+    let v = 0;
+    for (const g of group) v = v * 85 + g;
+    for (let i = 0; i < k - 1; i++) out.push((v >>> (24 - 8 * i)) & 255);
+  }
+  return out.bytes();
+}
+
+// PDF LZW: codes grow 9->12 bits, clear code 256, EOD 257, and with
+// EarlyChange (the default) the code length grows one entry EARLY — that is
+// how the spec says a decoder must track the encoder.
+function pdfLzwDecode(bytes, early) {
+  if (early == null || !Number.isFinite(early)) early = 1;
+  const out = pdfGrowBuf(Math.max(1024, bytes.length * 4));
+  const dict = [];   // entry i = decoded byte array for code 258 + i
+  let bits = 9;
+  let prev = null;
+  let acc = 0, nbits = 0;
+  for (let i = 0; i < bytes.length;) {
+    while (nbits < bits && i < bytes.length) { acc = ((acc << 8) | bytes[i++]) & 0xFFFFFF; nbits += 8; }
+    if (nbits < bits) break;
+    const code = (acc >> (nbits - bits)) & ((1 << bits) - 1);
+    nbits -= bits;
+    if (code === 256) { dict.length = 0; bits = 9; prev = null; continue; }
+    if (code === 257) break;
+    let entry;
+    if (code < 256) entry = [code];
+    else if (code - 258 < dict.length) entry = dict[code - 258];
+    else if (code === 258 + dict.length && prev) entry = prev.concat([prev[0]]);
+    else break;
+    out.pushAll(entry);
+    if (prev && 258 + dict.length < 4096) {
+      dict.push(prev.concat([entry[0]]));
+      if (258 + dict.length + early >= (1 << bits) && bits < 12) bits++;
+    }
+    prev = entry;
+  }
+  return out.bytes();
+}
+
+function pdfRlDecode(bytes) {
+  const out = pdfGrowBuf(bytes.length * 4);
+  let i = 0;
+  while (i < bytes.length) {
+    const n = bytes[i++];
+    if (n === 128) break;                       // 128 = EOD
+    if (n < 128) {
+      // literal run of n+1 bytes
+      const run = Math.min(n + 1, bytes.length - i);
+      if (run <= 0) break;
+      out.pushAll(bytes.subarray(i, i + run));
+      i += run;
+    } else {
+      if (i >= bytes.length) break;
+      const b = bytes[i++];
+      for (let k = 0; k < 257 - n; k++) out.push(b);
+    }
+  }
+  return out.bytes();
+}
+
+// Undo a stream predictor (DecodeParms /Predictor): 2 = TIFF differencing,
+// 10..15 = PNG row filters. Only 8-bit TIFF predictors are un-done; the rare
+// 1/2/4-bit ones stay as raw samples.
+function pdfUnpredict(samples, parmSeg) {
+  const num = (k, def) => {
+    const v = pdfDictValue(parmSeg, k);
+    const f = v ? parseFloat(v) : NaN;
+    return Number.isFinite(f) ? f : def;
+  };
+  const predictor = num('Predictor', 1) | 0;
+  if (predictor < 2) return samples;
+  const colors = Math.max(1, num('Colors', 1) | 0);
+  const bpc = Math.max(1, num('BitsPerComponent', 8) | 0);
+  const columns = Math.max(1, num('Columns', 1) | 0);
+  if (predictor === 2) {
+    if (bpc !== 8) return samples;
+    const rowBytes = columns * colors;
+    const rows = Math.floor(samples.length / rowBytes);
+    for (let r = 0; r < rows; r++) {
+      const off = r * rowBytes;
+      for (let c = colors; c < rowBytes; c++) samples[off + c] = (samples[off + c] + samples[off + c - colors]) & 255;
+    }
+    return samples;
+  }
+  const bpp = Math.max(1, Math.ceil(colors * bpc / 8));
+  const rowLen = Math.ceil(columns * colors * bpc / 8);
+  const stride = rowLen + 1;
+  const rows = Math.floor(samples.length / stride);
+  if (rows < 1 || columns < 1) return samples;
+  const out = new Uint8Array(rows * rowLen);
+  for (let r = 0; r < rows; r++) {
+    const f = samples[r * stride];
+    const src = r * stride + 1;
+    const dst = r * rowLen;
+    for (let c = 0; c < rowLen; c++) {
+      const left = c >= bpp ? out[dst + c - bpp] : 0;
+      const up = r > 0 ? out[dst + c - rowLen] : 0;
+      const ul = r > 0 && c >= bpp ? out[dst + c - rowLen - bpp] : 0;
+      let v = samples[src + c];
+      if (f === 1) v += left;
+      else if (f === 2) v += up;
+      else if (f === 3) v += ((left + up) >> 1);
+      else if (f === 4) {
+        const p = left + up - ul;
+        const pa = Math.abs(p - left), pb = Math.abs(p - up), pc = Math.abs(p - ul);
+        v += (pa <= pb && pa <= pc) ? left : (pb <= pc ? up : ul);
+      }
+      out[dst + c] = v & 255;
+    }
+  }
+  return out;
+}
+
+// balanced <<...>> starting at position i (seg[i] must be '<')
+function pdfBalancedDict(seg, i) {
+  let depth = 0;
+  for (let j = i; j + 1 < seg.length;) {
+    if (seg[j] === '\\') { j += 2; continue; }
+    if (seg[j] === '<' && seg[j + 1] === '<') { depth++; j += 2; continue; }
+    if (seg[j] === '>' && seg[j + 1] === '>') {
+      depth--; j += 2;
+      if (depth === 0) return seg.slice(i, j);
+      continue;
+    }
+    j++;
+  }
+  return null;
+}
+
+// Value of /Key in a dict text: a balanced <<...>>, a [...] (literal strings
+// skipped), or a scalar token ("13 0 R" refs are kept whole so the caller can
+// resolve them). Used for the keys the token stream cannot reach: the stream
+// dicts of XObjects.
+function pdfDictValue(seg, key) {
+  if (!seg) return null;
+  const m = new RegExp('\\/' + key + '(?=[\\s/\\[<])').exec(seg);
+  if (!m) return null;
+  let i = m.index + m[0].length;
+  while (i < seg.length && seg[i] <= ' ') i++;
+  if (seg[i] === '<' && seg[i + 1] === '<') {
+    return pdfBalancedDict(seg, i);
+  }
+  if (seg[i] === '[') {
+    let depth = 0;
+    for (let j = i; j < seg.length; j++) {
+      const ch = seg[j];
+      if (ch === '\\') { j++; continue; }
+      if (ch === '(') {
+        let d = 1;
+        for (j++; j < seg.length && d > 0; j++) {
+          if (seg[j] === '\\') { j++; continue; }
+          if (seg[j] === '(') d++;
+          else if (seg[j] === ')') d--;
+        }
+        continue;
+      }
+      if (ch === '[') depth++;
+      else if (ch === ']') { depth--; if (depth === 0) return seg.slice(i, j + 1); }
+    }
+    return null;
+  }
+  let j = i;
+  if (seg[j] === '/') j++;
+  while (j < seg.length && seg[j] > ' ' && '/[]<>()%'.indexOf(seg[j]) < 0) j++;
+  const scal = seg.slice(i, j);
+  if (/^\d+$/.test(scal)) {
+    const rm = /^\s+\d+\s+R/.exec(seg.slice(j, j + 20));
+    if (rm) return scal + rm[0];
+  }
+  return scal;
+}
+
+function pdfDictNum(seg, key) {
+  const v = pdfDictValue(seg, key);
+  if (!v || /\d\s+\d+\s+R$/.test(v)) return NaN;
+  const f = parseFloat(v);
+  return Number.isFinite(f) ? f : NaN;
+}
+
+// Split a DecodeParms value into one entry per filter: 'null', a <<dict>> or
+// an indirect ref, aligned with the /Filter array entries.
+function splitTopParms(t) {
+  if (!t) return [];
+  if (t[0] === '<') return [t];
+  if (t[0] !== '[') return t === 'null' ? [] : [t];
+  const inner = t.slice(1, -1);
+  const parts = [];
+  let d = 0, start = 0;
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (ch === '<' && inner[i + 1] === '<') { d++; i++; }
+    else if (ch === '>' && inner[i + 1] === '>') { d--; i++; }
+    else if (ch === '[' || ch === '(') d++;
+    else if (ch === ']' || ch === ')') d--;
+    else if (d === 0 && ch <= ' ') {
+      const piece = inner.slice(start, i).trim();
+      if (piece) parts.push(piece);
+      start = i + 1;
+    }
+  }
+  const last = inner.slice(start).trim();
+  if (last) parts.push(last);
+  return parts;
+}
+
+function pdfFilterNames(dict) {
+  const out = [];
+  const fv = pdfDictValue(dict, 'Filter') || pdfDictValue(dict, 'F');
+  if (!fv) return out;
+  if (fv[0] === '[') {
+    for (const fm of fv.matchAll(/\/([A-Za-z0-9]+)/g)) out.push(fm[1]);
+  } else {
+    out.push(fv.replace(/^\//, ''));
+  }
+  return out;
+}
+
+function pdfFilterParms(dict) {
+  return splitTopParms(pdfDictValue(dict, 'DecodeParms') || pdfDictValue(dict, 'DP'));
+}
+
+// Apply the decodable prefix of a stream's filter chain. Returns
+// { data, terminal }: terminal names the first filter the chain cannot decode
+// ('DCTDecode' leaves the JPEG bytes in data; CCITT/JPX/JBIG2/Crypt give up),
+// or null when everything decoded. `sl` (a stream slice) enables the
+// lying-/Length retry on the first Flate.
+async function pdfFilterChain(data, filters, parms, sl) {
+  for (let fi = 0; fi < filters.length; fi++) {
+    const f = filters[fi];
+    const pr = parms[fi] && parms[fi][0] === '<' ? parms[fi] : null;
+    if (f === 'FlateDecode' || f === 'Fl') {
+      let inf = null;
+      try { inf = await pdfInflate(data); }
+      catch (err) {
+        if (sl && fi === 0 && sl.rawTo) {
+          // /Length can lie (off by a byte or two): retry with the real
+          // stream end, trimmed of the newline the writer put before endstream
+          let end2 = sl.ei;
+          while (end2 > sl.start) {
+            const c = sl.seg.charCodeAt(end2 - 1);
+            if (c === 10 || c === 13 || c === 32 || c === 0) end2--;
+            else break;
+          }
+          inf = await pdfInflate(sl.rawTo(end2));
+        }
+        if (!inf) throw err;
+      }
+      data = inf;
+      if (pr && (pdfDictNum(pr, 'Predictor') || 1) >= 2) data = pdfUnpredict(data, pr);
+    } else if (f === 'LZWDecode' || f === 'LZW') {
+      const early = pr ? pdfDictNum(pr, 'EarlyChange') : NaN;
+      data = pdfLzwDecode(data, early);
+      if (pr && (pdfDictNum(pr, 'Predictor') || 1) >= 2) data = pdfUnpredict(data, pr);
+    } else if (f === 'RunLengthDecode' || f === 'RL') {
+      data = pdfRlDecode(data);
+    } else if (f === 'ASCIIHexDecode' || f === 'AHx') {
+      data = pdfAHexDecode(data);
+    } else if (f === 'ASCII85Decode' || f === 'A85') {
+      data = pdfA85Decode(data);
+    } else {
+      return { data, terminal: f };   // DCTDecode keeps JPEG bytes; others stop
+    }
+  }
+  return { data, terminal: null };
+}
+
+// CIE L* a* b* (PDF /Lab, D50 white) -> sRGB, 0-255 channel triples.
+function pdfLabToRgb(L, a, b) {
+  const fy = (L + 16) / 116;
+  const fx = fy + a / 500;
+  const fz = fy - b / 200;
+  const inv = (t) => {
+    const t3 = t * t * t;
+    return t3 > 0.008856 ? t3 : (t - 4 / 29) * 3 * (6 / 29) * (6 / 29);
+  };
+  const X = inv(fx) * 0.9642, Y = inv(fy), Z = inv(fz) * 0.8249;
+  const lin = (v) => v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(Math.max(0, v), 1 / 2.4) - 0.055;
+  const cl = (v) => Math.max(0, Math.min(255, Math.round(v * 255)));
+  return [
+    cl(lin(3.1338561 * X - 1.6176867 * Y - 0.4906146 * Z)),
+    cl(lin(-0.9787684 * X + 1.9161415 * Y + 0.0334540 * Z)),
+    cl(lin(0.0719453 * X - 0.2289914 * Y + 1.4052427 * Z))
+  ];
+}
+
 function pdfLatin1(bytes) {
   let s = '';
   for (let i = 0; i < bytes.length; i += 8192) {
@@ -2761,7 +3387,7 @@ async function parsePdf(bytes) {
   while ((om = objRe.exec(raw))) objs.push({ num: +om[1], bodyAt: objRe.lastIndex, at: om.index });
   const bodyOf = (i) => raw.slice(objs[i].bodyAt, i + 1 < objs.length ? objs[i + 1].at : raw.length);
 
-  const streamTextOf = async (i) => {
+  const streamSlice = (i) => {
     const seg = bodyOf(i);
     const si = seg.indexOf('stream');
     if (si < 0) return null;
@@ -2782,22 +3408,329 @@ async function parsePdf(bytes) {
         else break;
       }
     }
-    let body = bytes.subarray(objs[i].bodyAt + start, objs[i].bodyAt + end);
-    if (/FlateDecode/.test(dict)) {
-      try { body = await pdfInflate(body); } catch (err) {
-        // /Length can lie (off by a byte or two): retry with the real stream
-        // end, trimmed of the newline the writer put before "endstream"
-        let end2 = ei;
-        while (end2 > start) {
-          const c = seg.charCodeAt(end2 - 1);
-          if (c === 10 || c === 13 || c === 32 || c === 0) end2--;
-          else break;
+    return {
+      dict, seg, start, ei,
+      bytes: bytes.subarray(objs[i].bodyAt + start, objs[i].bodyAt + end),
+      rawTo: (endPos) => bytes.subarray(objs[i].bodyAt + start, objs[i].bodyAt + endPos)
+    };
+  };
+
+  const streamBytesOf = async (i) => {
+    const sl = streamSlice(i);
+    if (!sl) return null;
+    try {
+      const r = await pdfFilterChain(sl.bytes, pdfFilterNames(sl.dict), pdfFilterParms(sl.dict), sl);
+      return r.data;
+    } catch (err) { return null; }
+  };
+
+  const streamTextOf = async (i) => {
+    const b = await streamBytesOf(i);
+    return b ? pdfLatin1(b) : null;
+  };
+
+  // ---- embedded bitmaps: image XObjects ------------------------------------
+  // decoded result: { iw, ih, src (data URL), gray (per-pixel luma for SMask
+  // reuse) } | null. Cached by object number; an SMask is decoded through the
+  // same path so its DeviceGray samples come back as the alpha source.
+  const imgCache = new Map();
+  const objIdx = (num) => objs.findIndex(o => o.num === num);
+
+  const hexBytes = (hx) => {
+    const clean = String(hx).replace(/[^0-9A-Fa-f]/g, '');
+    const out = new Uint8Array(clean.length >> 1);
+    for (let k = 0; k + 1 < clean.length; k += 2) out[k >> 1] = parseInt(clean.slice(k, k + 2), 16);
+    return out;
+  };
+
+  // /ColorSpace value -> { comps, kind } | { comps:1, kind:'indexed',
+  // base:{comps,kind}, table:Uint8Array } | null. kind: gray | rgb | cmyk | lab.
+  const resolveColorSpace = async (val, depth) => {
+    if (!val || depth > 4) return null;
+    val = String(val).trim();
+    if (val[0] !== '[' && val[0] !== '<') {
+      const ref = /^(\d+)\s+\d+\s+R$/.exec(val);
+      if (ref) {
+        const idx = objIdx(+ref[1]);
+        if (idx < 0) return null;
+        const body = bodyOf(idx);
+        const si = body.indexOf('stream');
+        return resolveColorSpace((si >= 0 ? body.slice(0, si) : body).trim(), depth + 1);
+      }
+      if (val[0] === '/') {
+        const n = val.slice(1);
+        if (n === 'DeviceGray' || n === 'G' || n === 'CalGray') return { comps: 1, kind: 'gray' };
+        if (n === 'DeviceRGB' || n === 'RGB' || n === 'CalRGB') return { comps: 3, kind: 'rgb' };
+        if (n === 'DeviceCMYK' || n === 'CMYK') return { comps: 4, kind: 'cmyk' };
+        if (n === 'Lab') return { comps: 3, kind: 'lab' };
+        // Pattern / Separation / DeviceN / unknown: no honest conversion
+        return null;
+      }
+      return null;
+    }
+    const fam = /\/([A-Za-z]+)/.exec(val);
+    if (!fam) return null;
+    const n = fam[1];
+    if (n === 'ICCBased') {
+      const ref = /(\d+)\s+\d+\s+R/.exec(val);
+      if (!ref) return null;
+      const idx = objIdx(+ref[1]);
+      if (idx < 0) return null;
+      const comps = pdfDictNum(bodyOf(idx), 'N');
+      if (comps === 1) return { comps: 1, kind: 'gray' };
+      if (comps === 4) return { comps: 4, kind: 'cmyk' };
+      return { comps: 3, kind: 'rgb' };
+    }
+    if (n === 'Indexed') {
+      const seg = val.slice(0, val.indexOf(']') < 0 ? val.length : val.indexOf(']'));
+      let p = seg.indexOf('/Indexed') + 8;
+      const nextTok = () => {
+        while (p < seg.length && seg[p] <= ' ') p++;
+        if (p >= seg.length) return null;
+        const ch = seg[p];
+        if (ch === '/') {
+          let j = p + 1;
+          while (j < seg.length && seg[j] > ' ' && '/[]<>()'.indexOf(seg[j]) < 0) j++;
+          const t = seg.slice(p, j);
+          p = j;
+          return { t: 'name', v: t.slice(1) };
         }
-        try { body = await pdfInflate(bytes.subarray(objs[i].bodyAt + start, objs[i].bodyAt + end2)); }
-        catch (err2) { return null; }
+        if (ch === '<') {
+          const e = seg.indexOf('>', p);
+          const hx = e < 0 ? seg.slice(p + 1) : seg.slice(p + 1, e);
+          p = e < 0 ? seg.length : e + 1;
+          return { t: 'hex', v: hx };
+        }
+        let j = p;
+        while (j < seg.length && seg[j] > ' ' && '/[]<>()'.indexOf(seg[j]) < 0) j++;
+        const t = seg.slice(p, j);
+        p = j;
+        if (/^\d+$/.test(t)) {
+          const rm = /\s+(\d+)\s+R/.exec(seg.slice(j, j + 20));
+          if (rm) { p = j + rm.index + rm[0].length; return { t: 'ref', v: +t }; }
+          return { t: 'num', v: parseFloat(t) };
+        }
+        return null;
+      };
+      const base = nextTok();
+      const hival = nextTok();
+      const lookup = nextTok();
+      const baseInfo = base && base.t === 'name' ? await resolveColorSpace('/' + base.v, depth + 1) : null;
+      if (!baseInfo || !hival || hival.t !== 'num' || !lookup) return null;
+      let table = null;
+      if (lookup.t === 'hex') table = hexBytes(lookup.v);
+      else if (lookup.t === 'ref') table = await streamBytesOf(objIdx(lookup.v));
+      if (!table || !table.length) return null;
+      return { comps: 1, kind: 'indexed', base: baseInfo, table };
+    }
+    if (n === 'CalRGB' || n === 'RGB') return { comps: 3, kind: 'rgb' };
+    if (n === 'CalGray' || n === 'G') return { comps: 1, kind: 'gray' };
+    if (n === 'CalCMYK' || n === 'CMYK') return { comps: 4, kind: 'cmyk' };
+    if (n === 'Lab') return { comps: 3, kind: 'lab' };
+    return null;
+  };
+
+  // One image XObject -> RGBA pixels (and a PNG data URL). DCT (JPEG) streams
+  // pass through untouched with a data:image/jpeg URL. Returns
+  // { iw, ih, src, gray } or null when the image cannot be decoded.
+  const decodeImageObjInner = async (num, depth) => {
+    if (depth > 3) return null;
+    const idx = objIdx(num);
+    if (idx < 0) return null;
+    const sl = streamSlice(idx);
+    if (!sl) return null;
+    if (!/\/Subtype\s*\/Image/.test(sl.dict)) return null;
+    const iw = pdfDictNum(sl.dict, 'Width');
+    const ih = pdfDictNum(sl.dict, 'Height');
+    if (!(iw > 0) || !(ih > 0) || iw * ih > 4096e4) return null;   // ~41 MP guard
+    if (/\/ImageMask\s*true/.test(sl.dict)) return null;           // stencil masks paint in fill colour
+    const bpcRaw = pdfDictNum(sl.dict, 'BitsPerComponent');
+    const bpc = Number.isFinite(bpcRaw) ? bpcRaw : 8;
+    if ([1, 2, 4, 8, 16].indexOf(bpc) < 0) return null;
+    let r;
+    try {
+      r = await pdfFilterChain(sl.bytes, pdfFilterNames(sl.dict), pdfFilterParms(sl.dict), sl);
+    } catch (err) { return null; }
+    if (r.terminal === 'DCTDecode' || r.terminal === 'DCT') {
+      // JPEG stays JPEG — the browser decodes it. An SMask on a JPEG is lost
+      // (alpha would need a full JPEG decoder here); rare and non-fatal.
+      return { iw, ih, jpeg: r.data, gray: null, src: null };
+    }
+    if (r.terminal) return null;
+    const data = r.data;
+    const csVal = pdfDictValue(sl.dict, 'ColorSpace') || pdfDictValue(sl.dict, 'CS');
+    const csInfo = (csVal && await resolveColorSpace(csVal, 0)) || { comps: 1, kind: 'gray' };
+    const dv = pdfDictValue(sl.dict, 'Decode') || pdfDictValue(sl.dict, 'D');
+    const decode = dv && dv[0] === '[' ? (dv.match(/-?\d*\.?\d+/g) || []).map(parseFloat) : null;
+    let alphaImg = null;
+    const smk = (pdfDictValue(sl.dict, 'SMask') || '').trim();
+    if (/^\d+\s+\d+\s+R$/.test(smk)) {
+      alphaImg = await decodeImageObj(parseInt(smk, 10), depth + 1);
+    }
+    const mk = pdfDictValue(sl.dict, 'Mask');
+    const maskKey = mk && mk[0] === '[' ? (mk.match(/-?\d*\.?\d+/g) || []).map(parseFloat) : null;
+    const rgba = new Uint8Array(iw * ih * 4);
+    const gray = new Uint8Array(iw * ih);
+    const comps = csInfo.kind === 'indexed' ? 1 : csInfo.comps;
+    const baseInfo = csInfo.kind === 'indexed' ? csInfo.base : csInfo;
+    const rowBytes = Math.ceil(iw * comps * bpc / 8);
+    if (data.length < rowBytes * ih) return null;
+    const maxVal = (1 << Math.min(bpc, 16)) - 1;
+    const readComp = (row, col, ci) => {
+      if (bpc === 8) return row[col * comps + ci];
+      if (bpc === 16) return row[(col * comps + ci) * 2];   // high byte
+      const bit = (col * comps + ci) * bpc;
+      return (row[bit >> 3] >> (8 - bpc - (bit & 7))) & maxVal;
+    };
+    const mapComp = (raw, ci) => {
+      let s01 = raw / maxVal;
+      if (decode && decode.length >= (ci + 1) * 2 && Number.isFinite(decode[ci * 2])) {
+        s01 = decode[ci * 2] + s01 * (decode[ci * 2 + 1] - decode[ci * 2]);
+      }
+      return Math.max(0, Math.min(255, Math.round(s01 * 255)));
+    };
+    const baseRgb = (vals, info) => {
+      if (info.kind === 'gray') { const v = vals[0]; return [v, v, v]; }
+      if (info.kind === 'rgb') return [vals[0], vals[1], vals[2]];
+      if (info.kind === 'cmyk') {
+        const c = vals[0] / 255, m = vals[1] / 255, y = vals[2] / 255, k = vals[3] / 255;
+        return [
+          Math.round(255 * (1 - c) * (1 - k)),
+          Math.round(255 * (1 - m) * (1 - k)),
+          Math.round(255 * (1 - y) * (1 - k))
+        ];
+      }
+      if (info.kind === 'lab') return pdfLabToRgb(vals[0] / 2.55, vals[1] - 128, vals[2] - 128);
+      return [0, 0, 0];
+    };
+    // fast paths for the shapes real files use (test8: ICC-RGB + a DeviceGray
+    // SMask, both 8 bpc, no Decode array): the generic path below allocates
+    // two arrays per pixel, which a 7 MP bitmap cannot afford
+    const noDecode = !decode || decode.length < comps * 2;
+    const alphaSame = alphaImg && alphaImg.gray && alphaImg.iw === iw && alphaImg.ih === ih;
+    const alphaNearest = alphaImg && alphaImg.gray && !alphaSame;
+    // /Mask colour keys are in sample units: scale to the 0-255 the loops use
+    let maskKeyLoHi = null;
+    if (maskKey && maskKey.length >= comps * 2) {
+      maskKeyLoHi = [];
+      for (let k = 0; k < maskKey.length; k++) maskKeyLoHi.push(maskKey[k] * 255 / maxVal);
+    }
+    const putPx = (oi, r, g, b, x, y, vals) => {
+      let a = 255;
+      if (alphaSame) a = alphaImg.gray[y * iw + x];
+      else if (alphaNearest) {
+        const sx = Math.min(alphaImg.iw - 1, Math.floor(x * alphaImg.iw / iw));
+        const sy = Math.min(alphaImg.ih - 1, Math.floor(y * alphaImg.ih / ih));
+        a = alphaImg.gray[sy * alphaImg.iw + sx];
+      } else if (maskKeyLoHi && vals) {
+        for (let ci = 0; ci < comps; ci++) {
+          if (vals[ci] >= maskKeyLoHi[ci * 2] && vals[ci] <= maskKeyLoHi[ci * 2 + 1]) { a = 0; break; }
+        }
+      }
+      rgba[oi] = r;
+      rgba[oi + 1] = g;
+      rgba[oi + 2] = b;
+      rgba[oi + 3] = a;
+      gray[y * iw + x] = (r * 299 + g * 587 + b * 114) / 1000;
+    };
+    if (bpc === 8 && noDecode && csInfo.kind === 'rgb') {
+      for (let y = 0; y < ih; y++) {
+        let ri = y * rowBytes;
+        let oi = y * iw * 4;
+        for (let x = 0; x < iw; x++, oi += 4) {
+          putPx(oi, data[ri], data[ri + 1], data[ri + 2], x, y, null);
+          ri += 3;
+        }
+      }
+    } else if (bpc === 8 && noDecode && csInfo.kind === 'gray') {
+      for (let y = 0; y < ih; y++) {
+        let ri = y * rowBytes;
+        let oi = y * iw * 4;
+        for (let x = 0; x < iw; x++, oi += 4) {
+          const v = data[ri++];
+          putPx(oi, v, v, v, x, y, null);
+        }
+      }
+    } else if (bpc === 8 && noDecode && csInfo.kind === 'cmyk') {
+      for (let y = 0; y < ih; y++) {
+        let ri = y * rowBytes;
+        let oi = y * iw * 4;
+        for (let x = 0; x < iw; x++, oi += 4) {
+          const c = data[ri], m = data[ri + 1], yl = data[ri + 2], k = data[ri + 3] / 255;
+          ri += 4;
+          putPx(oi,
+            Math.round((255 - c) * (255 - k * 255) / 255),
+            Math.round((255 - m) * (255 - k * 255) / 255),
+            Math.round((255 - yl) * (255 - k * 255) / 255), x, y, null);
+        }
+      }
+    } else {
+      let oi = 0;
+      for (let y = 0; y < ih; y++) {
+        const row = data.subarray(y * rowBytes, (y + 1) * rowBytes);
+        for (let x = 0; x < iw; x++, oi += 4) {
+          let rgb;
+          let vals;
+          if (csInfo.kind === 'indexed') {
+            vals = [readComp(row, x, 0)];
+            const off = vals[0] * baseInfo.comps;
+            if (off + baseInfo.comps <= csInfo.table.length) {
+              rgb = baseRgb(Array.from(csInfo.table.subarray(off, off + baseInfo.comps)), baseInfo);
+            } else {
+              rgb = [255, 255, 255];
+            }
+          } else {
+            vals = [];
+            for (let ci = 0; ci < comps; ci++) vals.push(mapComp(readComp(row, x, ci), ci));
+            rgb = baseRgb(vals, baseInfo);
+          }
+          putPx(oi, rgb[0], rgb[1], rgb[2], x, y, csInfo.kind === 'indexed' ? [vals[0]] : vals);
+        }
       }
     }
-    return pdfLatin1(body);
+    // the data URL is built lazily at paint time — a clip may crop the bitmap
+    // first, and an SMask-referenced image never needs a URL at all
+    return { iw, ih, rgba, gray, src: null };
+  };
+
+  const decodeImageObj = async (num, depth) => {
+    if (imgCache.has(num)) return imgCache.get(num);
+    imgCache.set(num, null);   // cycle guard while decoding
+    const res = await decodeImageObjInner(num, depth);
+    imgCache.set(num, res);
+    return res;
+  };
+
+  // A page's /Resources /XObject dict -> Map name -> { img } | { form }.
+  // Forms are resolved one level of resource lookup ahead so a `Do` inside the
+  // form can be followed synchronously by the content parser.
+  const resolveXRes = async (resSeg, depth) => {
+    const out = new Map();
+    if (!resSeg || depth > 8) return out;
+    // /XObject as a KEY (its value is a <<dict>>): anchor on the dict so the
+    // /Type /XObject name entry of a form dict can never match first
+    const xm = /\/XObject\s*<</.exec(resSeg);
+    const xv = xm ? pdfBalancedDict(resSeg, xm.index + xm[0].length - 2) : null;
+    if (!xv) return out;
+    for (const em of xv.matchAll(/\/([^\s/<>[\]()]+)\s+(\d+)\s+\d+\s+R/g)) {
+      const name = em[1], num = +em[2];
+      if (out.has(name)) continue;
+      const idx = objIdx(num);
+      if (idx < 0) continue;
+      const seg = bodyOf(idx);
+      if (/\/Subtype\s*\/Image/.test(seg)) {
+        const img = await decodeImageObj(num, 0);
+        if (img) out.set(name, { img });
+      } else if (/\/Subtype\s*\/Form/.test(seg)) {
+        const content = await streamTextOf(idx);
+        if (!content) continue;
+        const mv = pdfDictValue(seg, 'Matrix');
+        const m = mv ? (mv.match(/-?\d*\.?\d+/g) || []).map(parseFloat) : null;
+        const matrix = m && m.length === 6 && m.every(Number.isFinite) ? m : [1, 0, 0, 1, 0, 0];
+        out.set(name, { form: { content, xres: await resolveXRes(seg, depth + 1), matrix } });
+      }
+    }
+    return out;
   };
 
   // ToUnicode CMaps -> code->text map. One CMap per font: subset fonts from
@@ -2948,12 +3881,13 @@ async function parsePdf(bytes) {
     // AutoCAD exports import 90° off from every viewer.
     const rotm = /\/Rotate\s+(-?\d+)/.exec(dict);
     const rot = rotm ? ((+rotm[1] % 360) + 360) % 360 : 0;
-    pages.push({ box, refs, fonts, ocg, rot });
+    const xres = await resolveXRes(resSeg, 0);
+    pages.push({ box, refs, fonts, ocg, xres, rot });
   }
 
   const out = [];
   const shiftPrim = (pr, dx, dy) => {
-    if (pr.kind === 'note') {
+    if (pr.kind === 'note' || pr.kind === 'image') {
       pr.x += dx;
       pr.y += dy;
       return pr;
@@ -2975,6 +3909,12 @@ async function parsePdf(bytes) {
       const [x, y] = pt(pr.x, pr.y); pr.x = x; pr.y = y;
       if (pr.ux != null) { const [a, b] = vec(pr.ux, pr.uy); pr.ux = a; pr.uy = b; }
       if (pr.vx != null) { const [a, b] = vec(pr.vx, pr.vy); pr.vx = a; pr.vy = b; }
+      return pr;
+    }
+    if (pr.kind === 'image') {
+      let p = pt(pr.x, pr.y); pr.x = p[0]; pr.y = p[1];
+      p = vec(pr.u[0], pr.u[1]); pr.u = [p[0], p[1]];
+      p = vec(pr.v[0], pr.v[1]); pr.v = [p[0], p[1]];
       return pr;
     }
     for (const nd of pr.nodes) {
@@ -3009,16 +3949,24 @@ async function parsePdf(bytes) {
       const dx = -box[0];
       const dy = -box[1];
       if (content) {
+        const pagePrims = [];
         try {
-          for (const pr of pdfContentPrims(content, uniMap, pg.fonts, pg.ocg)) { pr.page = pageNo; out.push(shiftPrim(pr, dx, dy)); }
-          if (pg.rot) {
-            const W = box[2] - box[0], H = box[3] - box[1];
-            for (let k = from; k < out.length; k++) rotatePrim(out[k], pg.rot, W, H);
-          }
-        } catch (err) { /* keep going with the other pages */ }
+          for (const pr of pdfContentPrims(content, uniMap, pg.fonts, pg.ocg, pg.xres)) pagePrims.push(pr);
+        } catch (err) { pagePrims.length = 0; }
+        // pictures: crop to their W n clip and encode (async work the sync
+        // token loop could not do); a dropped picture just leaves the vectors
+        for (let k = pagePrims.length - 1; k >= 0; k--) {
+          const pr = pagePrims[k];
+          if (pr.kind === 'image' && !(await pdfFinishImagePrim(pr))) pagePrims.splice(k, 1);
+        }
+        for (const pr of pagePrims) { pr.page = pageNo; out.push(shiftPrim(pr, dx, dy)); }
+        if (pg.rot) {
+          const W = box[2] - box[0], H = box[3] - box[1];
+          for (let k = out.length - pagePrims.length; k < out.length; k++) rotatePrim(out[k], pg.rot, W, H);
+        }
       }
       if (out.length === from) continue;   // empty page: no slot, no marker
-      // bounding box of this page's own artwork (vectors and text notes)
+      // bounding box of this page's own artwork (vectors, text notes, pictures)
       let minX = Infinity, maxX = -Infinity;
       for (let k = from; k < out.length; k++) {
         const pr = out[k];
@@ -3026,6 +3974,14 @@ async function parsePdf(bytes) {
           if (Number.isFinite(pr.x)) {
             if (pr.x < minX) minX = pr.x;
             if (pr.x > maxX) maxX = pr.x;
+          }
+          continue;
+        }
+        if (pr.kind === 'image') {
+          const xs = [pr.x, pr.x + pr.u[0], pr.x + pr.v[0], pr.x + pr.u[0] + pr.v[0]];
+          for (const x of xs) {
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
           }
           continue;
         }
@@ -3051,7 +4007,21 @@ async function parsePdf(bytes) {
       for (let i = 0; i < spans.length; i++) {
         let minX = Infinity, maxY = -Infinity;
         for (let k = spans[i].from; k < spans[i].to; k++) {
-          for (const nd of out[k].nodes) {
+          const pr = out[k];
+          if (pr.kind === 'image') {
+            const pts = [
+              [pr.x, pr.y],
+              [pr.x + pr.u[0], pr.y + pr.u[1]],
+              [pr.x + pr.v[0], pr.y + pr.v[1]],
+              [pr.x + pr.u[0] + pr.v[0], pr.y + pr.u[1] + pr.v[1]]
+            ];
+            for (const [qx, qy] of pts) {
+              if (qx < minX) minX = qx;
+              if (qy > maxY) maxY = qy;
+            }
+            continue;
+          }
+          for (const nd of pr.nodes) {
             if (nd.p[0] < minX) minX = nd.p[0];
             if (nd.p[1] > maxY) maxY = nd.p[1];
           }
