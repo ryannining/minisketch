@@ -33,7 +33,7 @@
       <div class="help-nav-title">Topik</div>
       <div class="help-nav-list">
         <a href="index.html" class="help-nav-item">Beranda &amp; Quick Start<span class="nav-kbd">?</span></a>
-        <a href="draw.html" class="help-nav-item active">Draw — Menggambar<span class="nav-kbd">L · B · R</span></a>
+        <a href="draw.html" class="help-nav-item active">Draw — Menggambar<span class="nav-kbd">B · E · R</span></a>
         <a href="edit.html" class="help-nav-item">Edit — Mengubah Objek<span class="nav-kbd">Ctrl+Z · Ctrl+G</span></a>
         <a href="arrange.html" class="help-nav-item">Arrange — Susun Objek<span class="nav-kbd">Distribusi</span></a>
         <a href="constrain.html" class="help-nav-item">Constrain — Batasan &amp; Dimensi<span class="nav-kbd">D · O · H/V</span></a>
@@ -41,7 +41,7 @@
         <a href="karyacnc.html" class="help-nav-item">KaryaCNC — Kirim ke Mesin<span class="nav-kbd">Alt+Q</span></a>
         <a href="files.html" class="help-nav-item">Berkas — Open / Import / Save / Export<span class="nav-kbd">Ctrl+O · Ctrl+I · Ctrl+S · Ctrl+E</span></a>
         <a href="import.html" class="help-nav-item">Import — SVG / PDF / CDR / DXF</a>
-        <a href="text.html" class="help-nav-item">Teks &amp; Font<span class="nav-kbd">W</span></a>
+        <a href="text.html" class="help-nav-item">Teks &amp; Font<span class="nav-kbd">T</span></a>
         <a href="trace.html" class="help-nav-item">Image Trace — Jejak Gambar<span class="nav-kbd">Ctrl+V</span></a>
         <a href="nesting.html" class="help-nav-item">Nesting — Tata Letak Potongan</a>
         <a href="layers.html" class="help-nav-item">Layers &amp; Pick Filter</a>
@@ -88,9 +88,9 @@
             <tr><td><kbd>B</kbd></td><td>Kurva Bézier (Curve)</td><td>Klik untuk sudut, klik-tahan-geser untuk lengkung halus.</td></tr>
             <tr><td><kbd>*</kbd></td><td>Poligon / Bintang (Poly)</td><td>Titik pusat dulu, lalu radius dan sudut awal. Roda mouse atur persen dalam bintang.</td></tr>
             <tr><td><kbd>A</kbd></td><td>Busur (Arc)</td><td>Busur 3 titik: dua titik ujung lalu titik tempat lengkung.</td></tr>
-            <tr><td><kbd>C</kbd></td><td>Lingkaran (Circle)</td><td>Titik pusat lalu radius.</td></tr>
+            <tr><td><kbd>E</kbd></td><td>Lingkaran (Circle)</td><td>Titik pusat lalu radius.</td></tr>
             <tr><td><kbd>R</kbd></td><td>Kotak (Box)</td><td>Drag untuk menentukan ukuran.</td></tr>
-            <tr><td><kbd>W</kbd></td><td>Teks (Text)</td><td>Isi konten, pilih font, gaya, ukuran, jarak huruf.</td></tr>
+            <tr><td><kbd>T</kbd></td><td>Teks (Text)</td><td>Isi konten, pilih font, gaya, ukuran, jarak huruf.</td></tr>
             <tr><td><kbd>I</kbd></td><td>Potong (Trim)</td><td>Potong di persimpangan. Ctrl+klik menyaluri seluruh rantai.</td></tr>
             <tr><td><kbd>Shift+E</kbd></td><td>Pisah (Separate)</td><td>Membelah tanpa menghapus (Trim tanpa kehilangan).</td></tr>
             <tr><td><kbd>Ctrl+M</kbd></td><td>Transformasi (Transform)</td><td>Pindahkan, putar, ubah ukuran objek.</td></tr>
@@ -110,7 +110,21 @@
           <li>Grid snapping hanya aktif saat grid nyala (<kbd>#</kbd>).</li>
         </ul>
 
+        <h3>Urutan prioritas snap</h3>
+        <p>Saat snap nyala, kursor menempel ke target pertama yang ditemukan mengikuti urutan ini (dari paling spesifik ke paling umum):</p>
+        <ol>
+          <li><b>Titik</b> yang sudah ada (berwarna sama akan dilebur/weld; warna lain hanya dipakai sebagai posisi, ditandai marker amber <i>snap-only</i>).</li>
+          <li><b>Titik asal</b> (0,0).</li>
+          <li><b>Geometri garis/busur/kurva</b> — termasuk <i>midpoint</i> dan <i>on line</i>.</li>
+          <li><b>Pusat loop tertutup</b> (centroid; untuk lingkaran = pusatnya).</li>
+          <li><b>Grid</b> — hanya bila grid tampil (<kbd>#</kbd>).</li>
+        </ol>
+        <p>Jika snap dimatikan lewat menu Tool (<i>Snap leaves constraints</i>), menempel ke garis tidak lagi meninggalkan constraint Midpoint / On line.</p>
+
         <h2>3. Alat khusus</h2>
+        <h3>Kotak (Box, R) — sudut membulat dengan roda mouse</h3>
+        <p>Tarik dua sudut berlawanan seperti biasa. Selama menarik, <b>putar roda mouse</b> untuk mengatur radius fillet (tahan <kbd>Shift</kbd> = langkah halus). Saat kotak diletakkan, muncul konfirmasi radius (0 = sudut tajam). Jika Anda <b>tidak pernah</b> memutar roda, kotak langsung dibuat dengan sudut tajam tanpa ditanya.</p>
+
         <h3>Kurva Bézier</h3>
         <p>Klik untuk sudut, klik-tahan-geser untuk lengkung halus, klik node pertama untuk menutup. <kbd>Enter</kbd>, klik ganda, atau klik kanan mengakhiri kurva; <kbd>Esc</kbd> membatalkan. Preview mengikuti aturan yang sama, jadi yang terlihat itulah hasilnya.</p>
 

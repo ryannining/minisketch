@@ -2016,6 +2016,47 @@ function bmpDensity(u8) {
 // ELLIPSE (as a spline) and INSERT of blocks that contain those. Primitives
 // come back in world radians: {type:'line'|'circle'|'arc'|'spline'}, arcs run
 // CCW from a0 to a1. Nothing here touches the DOM or app state.
+//
+// Colours: an entity's group code 62 (AutoCAD Color Index) or 420 (true
+// colour) wins; 62 = 256 (BYLAYER) or a missing 62 falls back to the LAYER
+// table colour; 62 = 0 (BYBLOCK) walks up the block/insert chain. Only when
+// nothing resolves is `color` left null so the caller can fall back to the
+// current working colour. DXF_ACI is the AutoCAD 2020 model-space palette.
+const DXF_ACI = [
+  '#000000', '#ff0000', '#ffff00', '#00ff00', '#00ffff', '#0000ff', '#ff00ff', '#ffffff',
+  '#808080', '#c0c0c0', '#ff0000', '#ff7f7f', '#a50000', '#a55252', '#7f0000', '#7f3f3f',
+  '#4c0000', '#4c2626', '#260000', '#261313', '#ff3f00', '#ff9f7f', '#a52900', '#a56752',
+  '#7f1f00', '#7f4f3f', '#4c1300', '#4c2f26', '#260900', '#261713', '#ff7f00', '#ffbf7f',
+  '#a55200', '#a57c52', '#7f3f00', '#7f5f3f', '#4c2600', '#4c3926', '#261300', '#261c13',
+  '#ffbf00', '#ffdf7f', '#a57c00', '#a59152', '#7f5f00', '#7f6f3f', '#4c3900', '#4c4226',
+  '#261c00', '#262113', '#ffff00', '#ffff7f', '#a5a500', '#a5a552', '#7f7f00', '#7f7f3f',
+  '#4c4c00', '#4c4c26', '#262600', '#262613', '#bfff00', '#dfff7f', '#7ca500', '#91a552',
+  '#5f7f00', '#6f7f3f', '#394c00', '#424c26', '#1c2600', '#212613', '#7fff00', '#bfff7f',
+  '#52a500', '#7ca552', '#3f7f00', '#5f7f3f', '#264c00', '#394c26', '#132600', '#1c2613',
+  '#3fff00', '#9fff7f', '#29a500', '#67a552', '#1f7f00', '#4f7f3f', '#134c00', '#2f4c26',
+  '#092600', '#172613', '#00ff00', '#7fff7f', '#00a500', '#52a552', '#007f00', '#3f7f3f',
+  '#004c00', '#264c26', '#002600', '#132613', '#00ff3f', '#7fff9f', '#00a529', '#52a567',
+  '#007f1f', '#3f7f4f', '#004c13', '#264c2f', '#002609', '#135817', '#00ff7f', '#7fffbf',
+  '#00a552', '#52a57c', '#007f3f', '#3f7f5f', '#004c26', '#264c39', '#002613', '#13581c',
+  '#00ffbf', '#7fffdf', '#00a57c', '#52a591', '#007f5f', '#3f7f6f', '#004c39', '#264c42',
+  '#00261c', '#135858', '#00ffff', '#7fffff', '#00a5a5', '#52a5a5', '#007f7f', '#3f7f7f',
+  '#004c4c', '#264c4c', '#002626', '#135858', '#00bfff', '#7fdf7f', '#007ca5', '#5291a5',
+  '#005f7f', '#3f6f7f', '#00394c', '#26427e', '#001c26', '#135858', '#007fff', '#7fbfff',
+  '#0052a5', '#527ca5', '#003f7f', '#3f5f7f', '#00264c', '#26397e', '#001326', '#131c58',
+  '#003fff', '#7f9fff', '#0029a5', '#5267a5', '#001f7f', '#3f4f7f', '#00134c', '#262f7e',
+  '#000926', '#131758', '#0000ff', '#7f7fff', '#0000a5', '#5252a5', '#00007f', '#3f3f7f',
+  '#00004c', '#26267e', '#000026', '#131358', '#3f00ff', '#9f7fff', '#2900a5', '#6752a5',
+  '#1f007f', '#4f3f7f', '#13004c', '#2f267e', '#090026', '#171358', '#7f00ff', '#bf7fff',
+  '#5200a5', '#7c52a5', '#3f007f', '#5f3f7f', '#26004c', '#39267e', '#130026', '#1c1358',
+  '#bf00ff', '#df7fff', '#7c00a5', '#9152a5', '#5f007f', '#6f3f7f', '#39004c', '#42264c',
+  '#1c0026', '#581358', '#ff00ff', '#ff7fff', '#a500a5', '#a552a5', '#7f007f', '#7f3f7f',
+  '#4c004c', '#4c264c', '#260026', '#581358', '#ff00bf', '#ff7fdf', '#a5007c', '#a55291',
+  '#7f005f', '#7f3f6f', '#4c0039', '#4c2642', '#26001c', '#581358', '#ff007f', '#ff7fbf',
+  '#a50052', '#a5527c', '#7f003f', '#7f3f5f', '#4c0026', '#4c2639', '#260013', '#58131c',
+  '#ff003f', '#ff7f9f', '#a50029', '#a55267', '#7f001f', '#7f3f4f', '#4c0013', '#4c262f',
+  '#260009', '#581317', '#000000', '#656565', '#666666', '#999999', '#cccccc', '#ffffff'
+];
+
 function parseDxf(text) {
   if (!text || /AutoCAD Binary DXF/.test(String(text).slice(0, 64))) return [];
   const rows = [];
@@ -2026,6 +2067,7 @@ function parseDxf(text) {
   }
   const blocks = Object.create(null);
   const ents = [];
+  const layers = Object.create(null);   // layer name -> { aci, rgb }
   let section = null;
   let blockName = null;
   let cur = null;
@@ -2037,6 +2079,19 @@ function parseDxf(text) {
     if (rec.type === 'ENDSEC' || rec.type === 'EOF') { section = null; return; }
     if (rec.type === 'BLOCK') { blockName = dxfVal(rec, 2); return; }
     if (rec.type === 'ENDBLK') { blockName = null; return; }
+    if (section === 'TABLES' && rec.type === 'LAYER') {
+      // the LAYER table record: code 2 = name, 62 = ACI, 420 = true colour
+      const name = dxfVal(rec, 2);
+      if (name != null) {
+        const aci = parseInt(dxfVal(rec, 62), 10);
+        const tc = dxfNum(rec, 420, NaN);
+        layers[name] = {
+          aci: Number.isFinite(aci) ? aci : 256,
+          rgb: Number.isFinite(tc) ? ((tc >>> 0) & 0xFFFFFF) : null
+        };
+      }
+      return;
+    }
     if (section === 'ENTITIES') ents.push(rec);
     else if (section === 'BLOCKS' && blockName) (blocks[blockName] || (blocks[blockName] = [])).push(rec);
   };
@@ -2050,8 +2105,28 @@ function parseDxf(text) {
   }
   flush();
   const out = [];
-  dxfDecodeAll(ents, blocks, { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }, out, 0);
+  dxfDecodeAll(ents, blocks, { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 }, out, 0, layers, null);
   return out;
+}
+
+// Resolve an entity's colour: explicit ACI (62) / true colour (420) wins, then
+// BYLAYER (256, or no code at all) looks the layer up, and BYBLOCK (0) walks
+// up the block/insert chain. Returns a '#rrggbb' hex string or null.
+function dxfEntityColor(rec, layers, inherited) {
+  const tc = dxfNum(rec, 420, NaN);
+  if (Number.isFinite(tc)) return '#' + ((tc >>> 0) & 0xFFFFFF).toString(16).padStart(6, '0');
+  const raw = dxfVal(rec, 62);
+  const aci = raw == null ? 256 : parseInt(raw, 10);
+  if (Number.isFinite(aci) && aci > 0 && aci < 256) return DXF_ACI[aci];
+  if (aci !== 0) {
+    const layer = dxfVal(rec, 8);
+    const l = layer != null ? layers[layer] : null;
+    if (l) {
+      if (l.rgb != null) return '#' + l.rgb.toString(16).padStart(6, '0');
+      if (l.aci > 0 && l.aci < 256) return DXF_ACI[l.aci];
+    }
+  }
+  return inherited || null;
 }
 
 function dxfVal(rec, code) {
@@ -2099,19 +2174,23 @@ function dxfEllipsePts(t, cx, cy, rx, ry, rot, a0, a1, closed) {
   return pts;
 }
 
-function dxfDecodeAll(recs, blocks, t, out, depth) {
+function dxfDecodeAll(recs, blocks, t, out, depth, layers, inherited) {
   if (!recs || depth > 8) return;
   let poly = null;
   const endPoly = () => {
     if (!poly) return;
     const p = poly;
     poly = null;
-    dxfEmitVerts(p.verts, p.closed, t, out);
+    dxfEmitVerts(p.verts, p.closed, t, out, p.color);
   };
   for (const rec of recs) {
     if (rec.type === 'POLYLINE') {
       endPoly();
-      poly = { closed: (dxfNum(rec, 70, 0) & 1) !== 0, verts: [] };
+      poly = {
+        closed: (dxfNum(rec, 70, 0) & 1) !== 0,
+        color: dxfEntityColor(rec, layers, inherited),
+        verts: []
+      };
       continue;
     }
     if (rec.type === 'VERTEX' && poly) {
@@ -2123,7 +2202,7 @@ function dxfDecodeAll(recs, blocks, t, out, depth) {
       continue;
     }
     endPoly();
-    dxfEmit(rec, blocks, t, out, depth);
+    dxfEmit(rec, blocks, t, out, depth, layers, inherited);
   }
   endPoly();
 }
@@ -2131,7 +2210,7 @@ function dxfDecodeAll(recs, blocks, t, out, depth) {
 // Polyline vertices (with bulges) into line / arc primitives. bulge =
 // tan(included/4), sign = winding: the sagitta sits bulge * half-chord to the
 // left of the chord for a positive bulge.
-function dxfEmitVerts(verts, closed, t, out) {
+function dxfEmitVerts(verts, closed, t, out, color) {
   const n = verts.length;
   if (n < 2) return;
   const count = closed ? n : n - 1;
@@ -2144,7 +2223,7 @@ function dxfEmitVerts(verts, closed, t, out) {
     const p0 = dxfPt(t, v0.x, v0.y);
     const p1 = dxfPt(t, v1.x, v1.y);
     if (Math.abs(bulge) < 1e-9) {
-      out.push({ type: 'line', x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y });
+      out.push({ type: 'line', x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y, color, closed });
       continue;
     }
     const dx = v1.x - v0.x, dy = v1.y - v0.y;
@@ -2164,7 +2243,7 @@ function dxfEmitVerts(verts, closed, t, out) {
       if (sweep < 0) { const tmp = a0; a0 = a1; a1 = tmp; }
       if (det < 0) { const tmp = a0; a0 = a1; a1 = tmp; }
       const c = dxfPt(t, ccx, ccy);
-      out.push({ type: 'arc', cx: c.x, cy: c.y, r: r * scale, a0, a1 });
+      out.push({ type: 'arc', cx: c.x, cy: c.y, r: r * scale, a0, a1, color });
     } else {
       const pts = [];
       const steps = 24;
@@ -2173,17 +2252,18 @@ function dxfEmitVerts(verts, closed, t, out) {
         const p = dxfPt(t, ccx + r * Math.cos(ang), ccy + r * Math.sin(ang));
         pts.push([p.x, p.y]);
       }
-      out.push({ type: 'spline', pts, closed: false });
+      out.push({ type: 'spline', pts, closed: false, color });
     }
   }
 }
 
-function dxfEmit(rec, blocks, t, out, depth) {
+function dxfEmit(rec, blocks, t, out, depth, layers, inherited) {
+  const color = dxfEntityColor(rec, layers, inherited);
   const type = rec.type;
   if (type === 'LINE') {
     const p = dxfPt(t, dxfNum(rec, 10, 0), dxfNum(rec, 20, 0));
     const q = dxfPt(t, dxfNum(rec, 11, 0), dxfNum(rec, 21, 0));
-    out.push({ type: 'line', x1: p.x, y1: p.y, x2: q.x, y2: q.y });
+    out.push({ type: 'line', x1: p.x, y1: p.y, x2: q.x, y2: q.y, color });
     return;
   }
   if (type === 'CIRCLE') {
@@ -2192,9 +2272,9 @@ function dxfEmit(rec, blocks, t, out, depth) {
     if (r <= 0) return;
     const c = dxfPt(t, cx, cy);
     if (dxfUniform(t)) {
-      out.push({ type: 'circle', cx: c.x, cy: c.y, r: r * Math.hypot(t.a, t.c) });
+      out.push({ type: 'circle', cx: c.x, cy: c.y, r: r * Math.hypot(t.a, t.c), color });
     } else {
-      out.push({ type: 'spline', pts: dxfEllipsePts(t, cx, cy, r, r, 0, 0, Math.PI * 2, true), closed: true });
+      out.push({ type: 'spline', pts: dxfEllipsePts(t, cx, cy, r, r, 0, 0, Math.PI * 2, true), closed: true, color });
     }
     return;
   }
@@ -2209,11 +2289,11 @@ function dxfEmit(rec, blocks, t, out, depth) {
       const c = dxfPt(t, cx, cy);
       let s = a0, e = a1;
       if (det < 0) { const tmp = s; s = e; e = tmp; }
-      out.push({ type: 'arc', cx: c.x, cy: c.y, r: r * Math.hypot(t.a, t.c), a0: s, a1: e });
+      out.push({ type: 'arc', cx: c.x, cy: c.y, r: r * Math.hypot(t.a, t.c), a0: s, a1: e, color });
     } else {
       let sweep = a1 - a0;
       while (sweep <= 1e-9) sweep += Math.PI * 2;
-      out.push({ type: 'spline', pts: dxfEllipsePts(t, cx, cy, r, r, 0, a0, a0 + sweep, false), closed: false });
+      out.push({ type: 'spline', pts: dxfEllipsePts(t, cx, cy, r, r, 0, a0, a0 + sweep, false), closed: false, color });
     }
     return;
   }
@@ -2229,7 +2309,7 @@ function dxfEmit(rec, blocks, t, out, depth) {
       else if (pair[0] === 42 && curV) curV.b = parseFloat(pair[1]) || 0;
       else if (pair[0] === 70) closed = (parseInt(pair[1], 10) & 1) !== 0;
     }
-    dxfEmitVerts(verts, closed, t, out);
+    dxfEmitVerts(verts, closed, t, out, color);
     return;
   }
   if (type === 'SPLINE') {
@@ -2250,7 +2330,8 @@ function dxfEmit(rec, blocks, t, out, depth) {
         const q = dxfPt(t, p[0], p[1]);
         return [q.x, q.y];
       }),
-      closed: (flags & 1) !== 0 || (flags & 2) !== 0
+      closed: (flags & 1) !== 0 || (flags & 2) !== 0,
+      color
     });
     return;
   }
@@ -2267,7 +2348,8 @@ function dxfEmit(rec, blocks, t, out, depth) {
     out.push({
       type: 'spline',
       pts: dxfEllipsePts(t, cx, cy, R, R * ratio, Math.atan2(my, mx), p0, p0 + sweep, full),
-      closed: full
+      closed: full,
+      color
     });
     return;
   }
@@ -2280,7 +2362,7 @@ function dxfEmit(rec, blocks, t, out, depth) {
     const rot = dxfNum(rec, 50, 0) * Math.PI / 180;
     const cos = Math.cos(rot), sin = Math.sin(rot);
     const m = { a: cos * sx, b: -sin * sy, c: sin * sx, d: cos * sy, tx: px, ty: py };
-    dxfDecodeAll(sub, blocks, dxfCompose(t, m), out, depth + 1);
+    dxfDecodeAll(sub, blocks, dxfCompose(t, m), out, depth + 1, layers, color);
     return;
   }
 }

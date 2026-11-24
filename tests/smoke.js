@@ -231,6 +231,27 @@ console.log('parseDxf');
   ok(Math.abs(ins[0].x2 - 100) < 1e-9 && Math.abs(ins[0].y2 - 2) < 1e-9,
     'insert rotate 90 + scale 2 maps (1,0) to (100,2)');
 
+  // DXF colours: ACI (62) wins, then BYLAYER via the layer table, then true
+  // colour (420); only an unresolvable entity stays null (app falls back to
+  // the working colour).
+  const dxfColor = pairs(
+    [0, 'SECTION'], [2, 'TABLES'],
+    [0, 'LAYER'], [2, 'L1'], [62, '1'],
+    [0, 'ENDSEC'],
+    [0, 'SECTION'], [2, 'ENTITIES'],
+    [0, 'LINE'], [62, '2'], [8, 'L1'], [10, '0'], [20, '0'], [11, '10'], [21, '0'],
+    [0, 'LINE'], [8, 'L1'], [10, '0'], [20, '0'], [11, '10'], [21, '0'],
+    [0, 'LINE'], [420, '65280'], [10, '0'], [20, '0'], [11, '10'], [21, '0'],
+    [0, 'LINE'], [10, '0'], [20, '0'], [11, '10'], [21, '0'],
+    [0, 'ENDSEC'], [0, 'EOF']
+  );
+  const cprims = C.parseDxf(dxfColor);
+  ok(cprims.length === 4, 'colour fixture parses four lines');
+  ok(cprims[0].color === '#ffff00', 'entity ACI 2 overrides the layer');
+  ok(cprims[1].color === '#ff0000', 'BYLAYER resolves from the layer table');
+  ok(cprims[2].color === '#00ff00', 'true colour 420 wins');
+  ok(cprims[3].color === null, 'no colour mentioned stays null (caller falls back)');
+
   ok(C.parseDxf('AutoCAD Binary DXF').length === 0, 'binary DXF is rejected, not misread');
 }
 

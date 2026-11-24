@@ -1,59 +1,40 @@
-// MiniSketch AI bridge: optional local server that proxies chat to an
-// OpenAI-compatible LLM. The browser (file://) can never hold the API key,
-// so this tiny Node server holds it and only forwards validated tool calls.
-//
-// Run:  node server/ai-bridge.js   (defaults below are used when env is empty;
-//   OPENAI_BASE_URL / OPENAI_API_KEY / MODEL env vars still override them)
-// This standalone bridge listens on the SAME port as server/serve.js (8090),
-// so run one or the other, not both. Prefer serve.js: it serves the app too.
-// MiniSketch settings need no "AI bridge URL" then — empty means "the server
-// that served the app" (e.g. http://127.0.0.1:8090).
-
 'use strict';
+// MiniSketch AI bridge — a POLICY-FREE streaming proxy.
+//
+// All the POLICY (system prompt, tool manifest, domain skills) now lives on the
+// FRONTEND (ai/prompt.js + ai/system-prompt.txt + ai/tools.json + ai/skills.js).
+// The frontend assembles the full `messages` (system message first) and the
+// `tools` array and sends them here; this server just forwards them to an
+// OpenAI-compatible endpoint and streams the reply back.
+//
+// TWO providers, one wire protocol:
+//   • OpenAI-compatible (the default): forwards `messages`/`tools` straight to
+//     {base}/chat/completions and re-assembles the SSE deltas.
+//   • Google Gemini (auto-detected from the base URL — generativelanguage.*):
+//     translates OpenAI-style messages/tools to Gemini contents/function
+//     declarations, streams `alt=sse`, maps `thought:true` parts to thinking
+//     deltas and `functionCall` parts to tool_calls. No frontend change needed:
+//     the browser still talks OpenAI shape in and out.
+//
+// Why: tuning the prompt or tools no longer needs a server restart OR a rebuild
+// of the KaryaCNC Go proxy — edit a static file, refresh. Both backends (this
+// Node one and the Go one in KaryaCNC) are interchangeable policy-free streams.
+//
+// Run:  node server/ai-bridge.js     (default port 8090; PORT / AI_BRIDGE_PORT override)
+// Optional env: AI_BRIDGE_PORT / PORT (listen), AI_ALLOWED_ORIGINS (extra CORS).
+// The API key / base URL / model come from the FRONTEND with each request
+// (Settings › AI chat). Nothing is stored here.
+
 const http = require('http');
 const https = require('https');
-const fs = require('fs');
-const path = require('path');
 
-// Optional server/.env (KEY=VALUE per line, # comments). Loaded first so the
-// real environment can still override anything in the file.
-try {
-  const envPath = path.join(__dirname, '.env');
-  if (fs.existsSync(envPath)) {
-    for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
-      const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
-      if (!m || line.trim().startsWith('#')) continue;
-      if (process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
-    }
-    console.log('ai-bridge: loaded server/.env');
-  }
-} catch (err) { /* no .env: run on the built-in defaults */ }
-
-// Same port as serve.js, whichever way the server is started: PORT (serve.js
-// also honours it) first, then the bridge-specific AI_BRIDGE_PORT.
 const PORT = +(process.env.PORT || process.env.AI_BRIDGE_PORT || 8090);
 
-// The API key belongs to whoever RUNS MiniSketch — it is not this project's
-// to ship. It arrives three ways, in this order:
-//   1. with the request  (the app sends the user's own key; nothing is kept)
-//   2. bridge settings  (POST /api/settings, kept in memory only)
-//   3. the environment   (OPENAI_API_KEY in server/.env — a self-hosted
-//                         bridge for one person)
-// There is deliberately NO built-in default: a key baked into the source is a
-// key that leaks with the source.
-let KEY = process.env.OPENAI_API_KEY || '';
-let BASE = process.env.OPENAI_BASE_URL || '';
-let MODEL = process.env.MODEL || process.env.OPENAI_MODEL || '';
-
-// Settings the user pushed to the bridge (in memory; gone when it restarts).
-let userSettings = { baseUrl: '', apiKey: '', model: '' };
-
-// ---- CORS ---------------------------------------------------------------
-// The bridge spends an API key, so a random web page must not be able to
-// reach it. Only the pages that are meant to talk to the bridge are allowed:
-// the app itself (a file:// page sends Origin: null), a MiniSketch served
-// from any local port, and a private LAN address (the phone or tablet
-// talking to this PC). AI_ALLOWED_ORIGINS adds exact origins on top.
+// ---- CORS -----------------------------------------------------------------
+// The bridge forwards a paid API call, so a random web page must not be able to
+// reach it. Allowed: the app itself (a file:// page sends Origin: null), any
+// local/loopback page, and a private LAN address (phone/tablet on the same Wi-Fi).
+// AI_ALLOWED_ORIGINS adds exact origins on top.
 const EXTRA_ORIGINS = (process.env.AI_ALLOWED_ORIGINS || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 
@@ -70,99 +51,69 @@ function originAllowed(origin) {
   return false;
 }
 
-let TOOLS = [];
-let SYSTEM = '';
-let SKILLS = [];                         // {name, trigger:[words], body}
-try {
-  TOOLS = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'ai', 'tools.json'), 'utf8')).tools || [];
-} catch (err) { console.warn('ai-bridge: tools.json not found, running without tools'); }
-try {
-  SYSTEM = fs.readFileSync(path.join(__dirname, '..', 'ai', 'system-prompt.txt'), 'utf8');
-} catch (err) { SYSTEM = 'You drive MiniSketch, a 2D CAD sketcher. Reply in Indonesian.'; }
-// Domain recipes: injected into the system prompt ONLY when the user's message
-// matches a skill's trigger words — domain knowledge without prompt bloat.
-try {
-  const dir = path.join(__dirname, '..', 'ai', 'skills');
-  for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.md'))) {
-    const raw = fs.readFileSync(path.join(dir, f), 'utf8');
-    const m = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-    if (!m) continue;
-    const meta = {};
-    for (const line of m[1].split('\n')) {
-      const kv = line.match(/^(\w+):\s*(.+)$/);
-      if (kv) meta[kv[1]] = kv[2].trim();
-    }
-    SKILLS.push({
-      name: meta.name || f.replace(/\.md$/, ''),
-      trigger: (meta.trigger || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
-      body: m[2].trim()
-    });
-  }
-  console.log('ai-bridge: ' + SKILLS.length + ' skill(s) loaded (' + SKILLS.map(s => s.name).join(', ') + ')');
-} catch (err) { /* no skills dir: fine */ }
-
-// Pick skills whose trigger words appear in the latest user message, plus any
-// the model explicitly requested with use_skill (input.requestedSkills).
-function skillsFor(messages, requested) {
-  const lastUser = [...(messages || [])].reverse().find(m => m.role === 'user');
-  const text = String(lastUser ? lastUser.content : '').toLowerCase();
-  const out = [];
-  const seen = new Set();
-  for (const s of SKILLS) {
-    if ((requested || []).includes(s.name) || s.trigger.some(t => text.includes(t))) {
-      if (!seen.has(s.name)) { out.push(s); seen.add(s.name); }
-    }
-  }
-  return out;
-}
-
-const MAX_OPS = 20;
-const KNOWN = new Set(TOOLS.map(t => t.function && t.function.name).filter(Boolean));
-
-function clampNum(v) {
-  const n = +v;
-  if (!isFinite(n)) return 0;
-  return Math.max(-10000, Math.min(10000, n));
-}
-
-function sanitizeArgs(name, args) {
-  const a = (args && typeof args === 'object') ? JSON.parse(JSON.stringify(args)) : {};
-  const walk = (o) => {
-    if (Array.isArray(o)) { for (let i = 0; i < o.length; i++) {
-      if (typeof o[i] === 'number') o[i] = clampNum(o[i]);
-      else if (o[i] && typeof o[i] === 'object') walk(o[i]);
-    } }
-    else if (o && typeof o === 'object') { for (const k of Object.keys(o)) {
-      if (k === 'value' && typeof o[k] === 'number') o[k] = Math.max(-100000, Math.min(100000, o[k]));
-      else if (typeof o[k] === 'number') o[k] = clampNum(o[k]);
-      else if (o[k] && typeof o[k] === 'object') walk(o[k]);
-    } }
-  };
-  walk(a);
-  return a;
-}
-
-// One upstream request at a time, and no keep-alive: the provider counts
-// OPEN CONNECTIONS as "active sessions" (429 at 5), so every request opens a
-// fresh socket and closes it as soon as the response is fully read.
-let upstreamBusy = null;
-function serializeUpstream(run) {
-  const next = (upstreamBusy || Promise.resolve()).then(run, run);
-  upstreamBusy = next.catch(() => {});   // the queue never stays rejected
-  return next;
-}
-
-// Users paste the base URL in whatever shape the provider's docs show it,
-// including a trailing slash or the full ".../v1/chat/completions". Both are
-// accepted here: appending the endpoint to an already-complete URL gave a 404
-// that looked like a dead provider.
+// The user pastes the base URL in whatever shape the provider's docs show it,
+// including a trailing slash or the full ".../v1/chat/completions". Both work.
 function normalizeBase(base) {
   return String(base || '').trim().replace(/\/+$/, '').replace(/\/chat\/completions$/i, '');
 }
 
+// ---- arg sanitizing (parity with the KaryaCNC Go proxy's sanitizeAIArgs) ---
+// A model can hallucinate wild coordinates; clamp every number to the world
+// frame so nothing absurd reaches the worksheet. Constraint `value` gets a
+// wider limit. Mirrors the Go proxy so both backends behave identically.
+function clampNum(n, limit) {
+  if (!isFinite(n)) return 0;
+  return Math.max(-limit, Math.min(limit, n));
+}
+function sanitizeArgs(args) {
+  if (!args || typeof args !== 'object') return {};
+  for (const k of Object.keys(args)) {
+    const v = args[k];
+    if (typeof v === 'number') {
+      args[k] = clampNum(v, k === 'value' ? 100000 : 10000);
+    } else if (Array.isArray(v)) {
+      args[k] = v.map(item =>
+        (item && typeof item === 'object') ? sanitizeArgs(item) :
+        (typeof item === 'number') ? clampNum(item, 10000) : item);
+    } else if (v && typeof v === 'object') {
+      args[k] = sanitizeArgs(v);
+    }
+  }
+  return args;
+}
+const MAX_OPS = 20;
+
+// Log-friendly summary of a user message (string OR multimodal parts array).
+function describeMessage(m) {
+  const c = m && m.content;
+  if (typeof c === 'string') return c.replace(/\s+/g, ' ').slice(0, 160);
+  if (Array.isArray(c)) {
+    const texts = [];
+    let imgs = 0;
+    for (const p of c) {
+      if (p && p.type === 'text' && p.text) texts.push(String(p.text));
+      else if (p && p.type === 'image_url') imgs++;
+    }
+    const out = texts.join(' ').replace(/\s+/g, ' ').slice(0, 120);
+    return out + (imgs ? (out ? ' [' : '[') + imgs + ' gambar]' : '');
+  }
+  return '(none)';
+}
+
+// ---- upstream (one socket at a time, no keep-alive) -----------------------
+// Providers count OPEN CONNECTIONS as "active sessions" (429 past a small cap),
+// so every request opens a fresh socket and closes it as soon as it's read, and
+// requests are serialized.
+let upstreamBusy = null;
+function serializeUpstream(run) {
+  const next = (upstreamBusy || Promise.resolve()).then(run, run);
+  upstreamBusy = next.catch(() => {});
+  return next;
+}
+
 function postUpstreamOnce(payload, register, cfg) {
-  const base = normalizeBase((cfg && cfg.base) || BASE);
-  const key = (cfg && cfg.key) || KEY;
+  const base = normalizeBase(cfg.base);
+  const key = cfg.key;
   return new Promise((resolve, reject) => {
     if (!base || !key) return reject(new Error('missing API key or base URL'));
     const url = new URL(base + '/chat/completions');
@@ -179,15 +130,14 @@ function postUpstreamOnce(payload, register, cfg) {
         'Content-Length': Buffer.byteLength(body)
       }
     }, (res) => {
-      // STREAMING (stream:true in the payload): SSE chunks arrive as
-      // "data: {...}" lines; reasoning_content and content Deltas are forwarded
-      // live to onDelta so the browser panel fills while the model thinks.
+      // STREAMING (stream:true): SSE "data: {...}" lines. reasoning_content and
+      // content deltas are forwarded live to onDelta so the browser panel fills
+      // while the model thinks; tool_calls are assembled from their deltas.
       let buf = '';
       const assembled = { role: 'assistant', content: '', reasoning_content: '', tool_calls: [] };
       const tcBuf = {};                  // index -> {name, arguments}
       const finish = (err) => {
         if (err) return reject(err);
-        // assemble tool_calls from deltas
         for (const k of Object.keys(tcBuf)) {
           const t = tcBuf[k];
           assembled.tool_calls.push({
@@ -232,49 +182,233 @@ function postUpstreamOnce(payload, register, cfg) {
       });
       res.on('end', () => finish());
     });
-    // Idle timeout, NOT total-time: the socket must show activity every 60 s
-    // or it is genuinely hung (freed immediately). A reasoning model that is
-    // legitimately streaming/thinking for minutes keeps resetting the timer on
-    // every packet, so long answers are never killed. The old fixed 120 s cap
-    // murdered slow-but-healthy calls with "upstream timeout after 120s".
+    // Idle timeout, NOT total-time: the socket must show activity every 60 s or
+    // it is genuinely hung. A reasoning model streaming for minutes keeps
+    // resetting this on every packet, so long answers are never killed.
     req.setTimeout(60000, () => req.destroy(new Error('upstream idle >60s — connection closed')));
     req.on('error', reject);
-    if (register) register(req);         // caller can abort when its client leaves
+    if (register) register(req);         // caller aborts when its client leaves
     req.write(body);
     req.end();
   });
 }
 
-// Sessions the provider counts are OPEN SOCKETS: every path must close them.
-//  - upstream timeout (above): hung connections are destroyed after 120 s
-//  - client disconnect (browser refresh / New chat): the upstream request is
-//    aborted immediately, its session frees at once
-//  - in-flight counter in the log makes any leak visible at a glance
-let upstreamInFlight = 0;
+// ---- Google Gemini adapter ------------------------------------------------
+// The frontend speaks OpenAI shape (messages/tools, SSE {delta:{thinking|content}}
+// then {done, reply, thinking, tool_calls}); Gemini speaks its own protocol. This
+// adapter is the ONLY piece that knows about Gemini; everything upstream of it
+// (chat.js) stays identical. Detected automatically from the base URL.
+const GEMINI_HOST_RE = /generativelanguage\.googleapis\.com|generativelanguage\.google\.com/i;
+function isGemini(base) { return GEMINI_HOST_RE.test(String(base || '')); }
 
-// 429 (session/rate limit) waits once and retries — the provider frees
-// sessions within seconds, and a failed round is expensive to redo by hand.
+// OpenAI message content (string | parts[]) -> Gemini parts[]
+function geminiParts(m) {
+  const c = m.content;
+  if (typeof c === 'string') return c ? [{ text: c }] : [];
+  if (!Array.isArray(c)) return [];
+  const parts = [];
+  for (const p of c) {
+    if (p.type === 'text' && p.text) {
+      parts.push({ text: String(p.text) });
+    } else if (p.type === 'image_url' && p.image_url && p.image_url.url) {
+      // data:image/png;base64,.... -> inlineData (Gemini)
+      const mm = String(p.image_url.url).match(/^data:(image\/[a-z0-9.+-]+);base64,(.*)$/i);
+      if (mm) parts.push({ inlineData: { mimeType: mm[1], data: mm[2] } });
+    }
+  }
+  return parts;
+}
+
+// Build a Gemini generateContent request body from the OpenAI-style input.
+function geminiRequest(input, cfg) {
+  const contents = [];
+  let sysText = '';
+  const push = (role, parts) => {
+    if (!parts.length) return;
+    const last = contents[contents.length - 1];
+    // Gemini wants alternate user/model roles — merge consecutive same-role.
+    if (last && last.role === role) last.parts = last.parts.concat(parts);
+    else contents.push({ role, parts });
+  };
+  for (const m of input.messages || []) {
+    if (!m || !m.role) continue;
+    if (m.role === 'system') {
+      const t = typeof m.content === 'string' ? m.content : '';
+      if (t) sysText += (sysText ? '\n\n' : '') + t;
+      continue;
+    }
+    const role = (m.role === 'assistant' || m.role === 'model') ? 'model' : 'user';
+    push(role, geminiParts(m));
+  }
+  const body = { contents };
+  if (sysText) body.systemInstruction = { parts: [{ text: sysText }] };
+  if (Array.isArray(input.tools) && input.tools.length) {
+    const decls = [];
+    for (const t of input.tools) {
+      const fn = (t && t.function) || {};
+      const name = fn.name || (t && t.name);
+      if (!name) continue;
+      const d = { name, description: fn.description || '' };
+      if (fn.parameters) d.parameters = fn.parameters;
+      decls.push(d);
+    }
+    if (decls.length) body.tools = [{ functionDeclarations: decls }];
+  }
+  if (input.thinking !== false) body.thinkingConfig = { includeThinking: true };
+  // NOTE: no generationConfig here — hardcoding maxOutputTokens etc. has caused
+  // 400s on models with stricter limits. Provider defaults are safest.
+  return body;
+}
+
+// Stream from Gemini REST. Resolves { content, reasoning, calls } where calls
+// are already {name, arguments:{}} (Gemini sends complete functionCall parts).
+function postGeminiOnce(payload, register, cfg) {
+  const base = normalizeBase(cfg.base);
+  const key = cfg.key;
+  return new Promise((resolve, reject) => {
+    if (!base || !key) return reject(new Error('missing API key or base URL'));
+    const model = encodeURIComponent(cfg.model || 'gemini-2.5-flash');
+    const root = base.replace(/\/v1beta?$/, '');
+    const url = new URL(root + '/v1beta/models/' + model + ':streamGenerateContent?alt=sse');
+    const lib = url.protocol === 'https:' ? https : http;
+    const body = JSON.stringify(payload);
+    const req = lib.request(url, {
+      method: 'POST',
+      agent: false,                      // no socket pooling: close after each response
+      headers: {
+        'Content-Type': 'application/json',
+        'Connection': 'close',
+        'Accept': 'text/event-stream',
+        'x-goog-api-key': key,
+        'Content-Length': Buffer.byteLength(body)
+      }
+    }, (res) => {
+      let buf = '';
+      let rawBody = '';       // full raw response captured for error reporting
+      let failed = false;
+      let events = 0;
+      const t0 = Date.now();
+      const state = { content: '', reasoning: '', calls: [] };
+      // Liveness logging: a long reasoning stream is normal, but an idle one is
+      // not — show that we are still receiving data.
+      const liveness = setInterval(() => {
+        const secs = Math.round((Date.now() - t0) / 1000);
+        console.log('  [gemini] live ' + secs + 's · events=' + events +
+          ' · sang=' + Math.round((state.reasoning.length + state.content.length) / 1024) + 'KB');
+      }, 20000);
+      const stopLiveness = () => clearInterval(liveness);
+      const finish = (err) => {
+        if (failed) return stopLiveness();
+        stopLiveness();
+        if (err) { failed = true; return reject(err); }
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          // Surface the provider's REAL error text — never swallow it.
+          let msg = (rawBody || buf).trim();
+          try {
+            const j = JSON.parse(msg);
+            if (j.error) msg = j.error.message || j.error.status || msg;
+          } catch (e) { /* keep raw text */ }
+          if (!msg) msg = '(empty response body, status ' + res.statusCode + ')';
+          failed = true;
+          return reject(new Error('upstream ' + res.statusCode + ': ' + msg.slice(0, 600)));
+        }
+        resolve(state);
+      };
+      res.on('data', (c) => {
+        const s = c.toString();
+        buf += s;
+        rawBody += s;
+        let idx;
+        while ((idx = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 1);
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (!data) continue;
+          let j;
+          try { j = JSON.parse(data); } catch (err) { continue; }
+          if (j.error) { finish(new Error(j.error.message || 'gemini error')); return; }
+          const cand = (j.candidates || [])[0];
+          if (!cand || !cand.content || !Array.isArray(cand.content.parts)) continue;
+          for (const part of cand.content.parts) {
+            if (!part) continue;
+            if (part.thought) {
+              state.reasoning += part.text || '';
+              if (payload.onDelta) payload.onDelta({ thinking: part.text || '' });
+            } else if (typeof part.text === 'string' && part.text) {
+              state.content += part.text;
+              if (payload.onDelta) payload.onDelta({ content: part.text });
+            } else if (part.functionCall && part.functionCall.name) {
+              state.calls.push({
+                name: part.functionCall.name,
+                arguments: part.functionCall.args || {}
+              });
+            }
+          }
+          events++;
+        }
+      });
+      res.on('end', () => finish());
+      res.on('error', (err) => finish(err));
+    });
+    // Idle timeout (same reasoning as Open:): a thinking model streaming for
+    // minutes keeps resetting this on every packet.
+    req.setTimeout(120000, () => req.destroy(new Error('upstream idle >120s — connection closed')));
+    req.on('error', (err) => reject(err));
+    if (register) register(req);         // caller aborts when its client leaves
+    req.write(body);
+    req.end();
+  });
+}
+
+// 429 (session/rate limit) waits once and retries — the provider frees sessions
+// within seconds, and a failed round is expensive to redo by hand.
 function postUpstream(payload, register, cfg) {
+  const runOnce = isGemini(cfg.base) ? postGeminiOnce : postUpstreamOnce;
   return serializeUpstream(async () => {
-    upstreamInFlight++;
-    if (upstreamInFlight > 1) console.log('  WARNING: ' + upstreamInFlight + ' upstream requests in flight (should never exceed 1)');
     try {
       try {
-        return await postUpstreamOnce(payload, register, cfg);
+        return await runOnce(payload, register, cfg);
       } catch (err) {
         if (!/^upstream 429/.test(String(err && err.message))) throw err;
         console.log('  upstream 429: waiting 6s, retrying once…');
         await new Promise(r => setTimeout(r, 6000));
-        return await postUpstreamOnce(payload, register, cfg);
+        return await runOnce(payload, register, cfg);
       }
-    } finally {
-      upstreamInFlight--;
+    } catch (err) {
+      throw err;
     }
   });
 }
 
+// Normalize raw tool calls from EITHER provider into {name, arguments} with
+// sanitized (clamped) args, de-duped, capped — parity with the Go proxy.
+function assembleCalls(raw) {
+  const seen = new Set();
+  const calls = [];
+  for (const tc of (raw || [])) {
+    const fn = tc.function || {};
+    const name = (fn.name || tc.name || '').trim();
+    if (!name) continue;
+    const rawArgs = (tc.arguments !== undefined) ? tc.arguments : fn.arguments;
+    let args = {};
+    if (typeof rawArgs === 'string') {
+      try { args = JSON.parse(rawArgs); } catch (err) { continue; }
+    } else if (rawArgs && typeof rawArgs === 'object') {
+      args = rawArgs;
+    }
+    const sanitized = sanitizeArgs(args);
+    const fp = name + '|' + JSON.stringify(sanitized);
+    if (seen.has(fp)) continue;
+    seen.add(fp);
+    calls.push({ name, arguments: sanitized });
+    if (calls.length >= MAX_OPS) break;
+  }
+  return calls;
+}
+
+// ---- the single endpoint: POST /api/chat ----------------------------------
 function bridgeHandler(req, res) {
-  // A random web page must not be able to spend the user's API key.
   const origin = req.headers.origin || '';
   if (!originAllowed(origin)) {
     res.writeHead(403, { 'Content-Type': 'application/json' });
@@ -286,141 +420,51 @@ function bridgeHandler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
   if (req.method === 'GET' && req.url === '/health') {
+    // Liveness only — the bridge holds no key/model/state of its own now.
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      ok: true,
-      model: userSettings.model || MODEL,
-      tools: KNOWN.size,
-      hasKey: !!(userSettings.apiKey || KEY),
-      // where the bridge would get its values if the app sent none: this is
-      // what tells you whether the .env fallback is still in play
-      source: {
-        base: userSettings.baseUrl ? 'bridge settings' : (BASE ? '.env' : 'none'),
-        key: userSettings.apiKey ? 'bridge settings' : (KEY ? '.env' : 'none'),
-        model: userSettings.model ? 'bridge settings' : (MODEL ? '.env' : 'none')
-      },
-      // never the key itself, only whether there is one
-      keyLength: (userSettings.apiKey || KEY || '').length
-    }));
+    res.end(JSON.stringify({ ok: true, proxy: true }));
     return;
   }
-  if (req.method === 'GET' && req.url === '/api/tools') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ tools: TOOLS }));
-    return;
-  }
-  if (req.method === 'GET' && req.url === '/api/skills') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ skills: SKILLS.map(s => ({ name: s.name, trigger: s.trigger })) }));
-    return;
-  }
-  // The user pushes their own endpoint settings here: the API key, the base
-  // URL of an OpenAI-compatible service, and the model name. They are kept in
-  // memory only (the bridge forgets them when it stops) and the key is never
-  // echoed back.
-  if (req.method === 'POST' && req.url === '/api/settings') {
-    let raw = '';
-    req.on('data', c => { raw += c; if (raw.length > 64 * 1024) req.destroy(); });
-    req.on('end', () => {
-      try {
-        const s = JSON.parse(raw || '{}');
-        if (typeof s.baseUrl === 'string') userSettings.baseUrl = s.baseUrl.trim();
-        if (typeof s.apiKey === 'string') userSettings.apiKey = s.apiKey.trim();
-        if (typeof s.model === 'string') userSettings.model = s.model.trim();
-        console.log('  settings pushed: base=' + (userSettings.baseUrl || '(none)') +
-          ' model=' + (userSettings.model || '(none)') +
-          ' key=' + (userSettings.apiKey ? 'set' : 'none'));
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          ok: true,
-          hasKey: !!(userSettings.apiKey || KEY),
-          model: userSettings.model || MODEL,
-          baseUrl: userSettings.baseUrl || BASE
-        }));
-      } catch (err) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'bad settings json' }));
-      }
-    });
-    return;
-  }
+
   if (req.method === 'POST' && req.url === '/api/chat') {
     const t0 = Date.now();
     let raw = '';
-    req.on('data', c => { raw += c; if (raw.length > 256 * 1024) req.destroy(); });
+    req.on('data', c => { raw += c; if (raw.length > 8 * 1024 * 1024) req.destroy(); });
     req.on('end', async () => {
+      let clientGone = false;
+      res.on('close', () => {
+        if (res.writableEnded) return;     // normal completion, not a drop
+        clientGone = true;
+      });
       try {
         const input = JSON.parse(raw || '{}');
         const messages = Array.isArray(input.messages) ? input.messages : [];
-        const stateSummary = input.stateSummary || null;
-        const agent = input.agent || {};
-        const lastUser = [...messages].reverse().find(m => m.role === 'user');
-        console.log('\n=== chat request ' + new Date().toLocaleTimeString() + ' ===');
-        console.log('  round      : ' + (agent.round || 1) + '/' + (agent.maxRounds || '?'));
-        console.log('  messages   : ' + messages.length);
-        console.log('  user says  : ' + String(lastUser ? lastUser.content : '(none)').replace(/\s+/g, ' ').slice(0, 160));
-        if (stateSummary) console.log('  document   : ' + (stateSummary.entities || 0) + ' entities, ' +
-          (stateSummary.loops || []).length + ' loops, selection ' + (stateSummary.selection || []).length);
-        let sys = SYSTEM + (stateSummary
-          ? '\n\nCURRENT DOCUMENT (world mm, Y-down: +X right, +Y down):\n' + JSON.stringify(stateSummary).slice(0, 4000)
-          : '');
-        const active = skillsFor(messages, input.requestedSkills);
-        if (active.length) {
-          console.log('  skills     : ' + active.map(s => s.name).join(', '));
-          sys += '\n\n' + active.map(s =>
-            '=== ACTIVE SKILL: ' + s.name + ' ===\n' + s.body).join('\n\n');
-        }
-        // The user's own endpoint settings: what came with THIS request wins,
-        // then the settings pushed to the bridge, then the environment.
+        const tools = Array.isArray(input.tools) ? input.tools : [];
         const rs = (input && input.settings) || {};
         const cfg = {
-          base: normalizeBase(rs.baseUrl || userSettings.baseUrl || BASE),
-          key: String(rs.apiKey || userSettings.apiKey || KEY || '').trim(),
-          model: String(rs.model || userSettings.model || MODEL || '').trim()
+          base: normalizeBase(rs.baseUrl || ''),
+          key: String(rs.apiKey || '').trim(),
+          model: String(rs.model || '').trim()
         };
-        // where each piece came from — the log has to say it, or a run that
-        // silently uses the .env key looks like the Settings key was used
-        const keyFrom = rs.apiKey ? 'request' : (userSettings.apiKey ? 'bridge settings' : '.env');
-        const baseFrom = rs.baseUrl ? 'request' : (userSettings.baseUrl ? 'bridge settings' : '.env');
-        const modelFrom = rs.model ? 'request' : (userSettings.model ? 'bridge settings' : '.env');
+        const lastUser = [...messages].reverse().find(m => m && m.role === 'user');
+        const gemini = isGemini(cfg.base);
+        console.log('\n=== chat ' + new Date().toLocaleTimeString() + ' ===' +
+          ' msgs=' + messages.length + ' tools=' + tools.length +
+          ' model=' + (cfg.model || '(provider default)') +
+          ' base=' + (cfg.base || '(none)') + (gemini ? ' [gemini adapter]' : ''));
+        console.log('  user says: ' + describeMessage(lastUser));
         if (!cfg.key || !cfg.base) {
-          console.log('  no API key: set it in MiniSketch Settings (AI API key), or on the bridge');
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
-            error: 'No API key. Set "AI API key" in MiniSketch Settings, or start the bridge with OPENAI_API_KEY in server/.env.'
+            error: 'No API key or base URL. Set "AI API base URL" and "AI API key" in Settings › AI chat.'
           }));
           return;
         }
-        console.log('  -> upstream: model=' + (cfg.model || '(provider default)') + ' (' + modelFrom + ')' +
-          ' base=' + cfg.base + ' (' + baseFrom + ')' +
-          ' key=' + keyFrom + ' tools=' + TOOLS.length);
-        // If the browser truly drops mid-flight (refresh, tab close), abort the
-        // upstream request so its session frees at once. Detection MUST use the
-        // RESPONSE 'close' (writableEnded=false): the request's own 'close'
-        // fires as soon as its body is read — milliseconds in — and would abort
-        // every healthy call.
-        let upstreamReq = null;
-        let clientGone = false;
-        res.on('close', () => {
-          if (res.writableEnded) return;     // normal completion, not a drop
-          clientGone = true;
-          console.log('  browser dropped the connection (refresh/close?) — aborting upstream so its session frees');
-          if (upstreamReq) upstreamReq.destroy(new Error('client disconnected'));
-        });
-        // Ask GLM-family models to ALWAYS return their reasoning, and STREAM
-        // the answer: reasoning deltas are forwarded to the browser live
-        // (SSE below), so the "pikiran model" panel fills while it thinks.
-        const basePayload = {
-          model: cfg.model || undefined,
-          messages: [{ role: 'system', content: sys }, ...messages.slice(-20)],
-          tools: TOOLS,
-          tool_choice: 'auto',
-          stream: true
-        };
-        // SSE to the browser: live reasoning/content deltas, then a final JSON
-        // event with the assembled tool_calls (same shape the old non-stream
-        // response had, so chat.js needs one reader for both phases).
+
+        // SSE to the browser: live reasoning/content deltas, then one final JSON
+        // event with the assembled tool_calls (chat.js has one reader for both).
         res.writeHead(200, {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
@@ -428,110 +472,194 @@ function bridgeHandler(req, res) {
         });
         const send = (obj) => {
           try { res.write('data: ' + JSON.stringify(obj) + '\n\n'); }
-          catch (err) { /* client gone: the close handler aborts upstream */ }
+          catch (err) { /* client gone: the close handler flags it */ }
         };
-        basePayload.onDelta = (d) => send({ delta: d });   // stripped before JSON (see postUpstreamOnce)
+
+        // The frontend owns the prompt/tools; the only transport-level nicety is
+        // asking for streamed reasoning. Gemini asks for it via thinkingConfig
+        // (2.5+); GLM-family OpenAI endpoints take a `thinking` flag. If the
+        // provider rejects the flag (400), retry without it.
+        const basePayload = {
+          model: cfg.model || undefined,
+          messages,
+          tools,
+          tool_choice: 'auto',
+          stream: true
+        };
+
+        // The frontend sends a reasoning LEVEL: 'off' | 'low' | 'normal'.
+        //   off    -> no reasoning at all (cheapest, fastest)
+        //   low    -> short reasoning; OpenAI-compatible providers also get
+        //             reasoning_effort=low (GLM/z.ai-style endpoints accept it
+        //             and cut their long thinking time)
+        //   normal -> full reasoning (default)
+        // If the provider rejects the extra field (400), retry without it.
+        const wantThink = input.thinking !== 'off';
+        const lowThink = input.thinking === 'low';
+        const thinkOpts = wantThink ? { thinking: { type: 'enabled' } } : {};
+        const lowOpts = lowThink ? { reasoning_effort: 'low' } : {};
+
+        // When the browser aborts (Stop button / tab closed), destroy the
+        // upstream request too — a paid stream must not keep running.
+        const abortUp = (r) => { if (r && clientGone) r.destroy(); };
+
         let upstream;
         try {
           try {
-            upstream = await postUpstream({
-              ...basePayload,
-              thinking: { type: 'enabled' }
-            }, (r) => { upstreamReq = r; }, cfg);
+            const p = gemini
+              ? geminiRequest({ messages, tools, thinking: wantThink }, cfg)
+              : { ...basePayload, ...thinkOpts, ...lowOpts };
+            p.onDelta = (d) => send({ delta: d });
+            upstream = await postUpstream(p, abortUp, cfg);
           } catch (err) {
-            if (clientGone) {
-              console.log('  upstream aborted (client gone) — nothing to answer');
-              return;
-            }
+            if (clientGone) return;
             if (!/^upstream 400/.test(String(err && err.message))) throw err;
             console.log('  upstream rejected the thinking flag — retrying without it');
-            upstream = await postUpstream(basePayload, (r) => { upstreamReq = r; }, cfg);
+            const p2 = gemini
+              ? geminiRequest({ messages, tools, thinking: false }, cfg)
+              : { ...basePayload };
+            p2.onDelta = (d) => send({ delta: d });
+            upstream = await postUpstream(p2, abortUp, cfg);
           }
         } catch (err) {
           if (clientGone) return;
-          const text = String(err && err.message || err);
-          console.log('  ERROR      : ' + text.slice(0, 300));
-          // The SSE status line (200) is already on the wire, so an HTTP error
-          // body would never be read by chat.js: the failure travels as an
-          // event on the same stream, otherwise the chat just hangs on "…".
+          let text = String(err && err.message || err);
+          if (/is not found|not found for API version/i.test(text)) {
+            text = 'Model tidak ditemukan di provider — periksa nama/versi model (untuk Gemini: tombol "Muat daftar model" di Settings). Pesan provider: ' + text;
+          }
+          console.log('  ERROR: ' + text.slice(0, 300));
+          // The 200 status line is already on the wire, so the failure travels
+          // as an event on the same stream (an HTTP error body would never be
+          // read; the chat would just hang on "…").
           send({ error: text });
           res.end();
           return;
         }
-        const msg = (upstream.choices && upstream.choices[0] && upstream.choices[0].message) || {};
-        // reasoning models (deepseek-r1 style) return their chain of thought in
-        // a separate field; surface it so the user can follow/correct the plan
-        const think = String(msg.reasoning_content || msg.reasoning || '');
-        const calls = (msg.tool_calls || []).slice(0, MAX_OPS)
-          .filter(tc => tc && tc.function && KNOWN.has(tc.function.name))
-          // de-dup: z.ai sometimes repeats the final delta chunk, which would
-          // double-register the same call and run it twice
-          .filter((tc, i, arr) => arr.findIndex(x =>
-            x.function.name === tc.function.name && x.function.arguments === tc.function.arguments) === i)
-          .map(tc => {
-            let args = {};
-            try { args = JSON.parse(tc.function.arguments || '{}'); } catch (err) { args = {}; }
-            return { name: tc.function.name, arguments: sanitizeArgs(tc.function.name, args) };
-          });
-        console.log('  <- model   : ' + (Date.now() - t0) + ' ms');
-        if (think) console.log('  thinking   : ' + think.replace(/\s+/g, ' ').slice(0, 500) + (think.length > 500 ? '…' : ''));
-        if (msg.content) console.log('  says       : ' + String(msg.content).replace(/\s+/g, ' ').slice(0, 300));
-        if (calls.length) {
-          for (const c of calls) {
-            console.log('  tool_call  : ' + c.name + '(' + JSON.stringify(c.arguments).slice(0, 220) + ')');
-          }
-        } else {
-          console.log('  tool_call  : (none — model is done)');
-        }
-        // final event carries the assembled result (deltas already streamed)
-        send({ done: true, reply: msg.content || '', thinking: think.slice(0, 4000), tool_calls: calls });
+
+        // Frontend owns tool filtering/validation (it knows the executor's ops);
+        // we just hand back the raw assembled calls in the shape chat.js reads.
+        // Gemini resolves {content, reasoning, calls}; OpenAI resolves {choices}.
+        const msg = gemini ? null : ((upstream.choices && upstream.choices[0] && upstream.choices[0].message) || {});
+        const reply = gemini ? String(upstream.content || '') : String((msg && msg.content) || '');
+        const think = gemini ? String(upstream.reasoning || '') : String((msg && (msg.reasoning_content || msg.reasoning)) || '');
+        const rawCalls = gemini ? upstream.calls : ((msg && msg.tool_calls) || []);
+        // Sanitize args (clamp numbers), drop unnamed calls, de-dup (some
+        // providers repeat the final chunk, which would run an op twice) and cap
+        // the count — parity with the Go proxy's assembleAIToolCalls.
+        const calls = assembleCalls(rawCalls);
+        console.log('  <- model: ' + (Date.now() - t0) + ' ms (gemini=' + gemini + '), tool_calls=' + calls.length);
+        send({ done: true, reply, thinking: think.slice(0, 4000), tool_calls: calls });
         res.end();
       } catch (err) {
-        // a disconnected client can no longer receive anything: do not attempt
-        // to write headers on a dead socket (would throw ERR_HTTP_HEADERS_SENT)
-        if (res.writableEnded || res.headersSent) {
-          const text = String(err && err.message || err);
-          console.log('  (SSE already open, reporting as stream event: ' + text.slice(0, 120) + ')');
-          try {
-            if (!res.writableEnded) {
-              res.write('data: ' + JSON.stringify({ error: text }) + '\n\n');
-              res.end();
-            }
-          } catch (e2) { /* socket already gone */ }
+        const text = String(err && err.message || err);
+        if (res.headersSent) {
+          try { if (!res.writableEnded) { send({ error: text }); res.end(); } } catch (e2) {}
           return;
         }
-        console.log('  ERROR      : ' + String(err && err.message || err).slice(0, 300));
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: String(err && err.message || err) }));
+        res.end(JSON.stringify({ error: text }));
       }
-      return;
     });
     return;
   }
+
+  // ---- helper: POST /api/models (provider model list) ------------------
+  // Lists the models the key can actually call, so Settings can offer a
+  // dropdown instead of guessing names. Works for:
+  //   • Google Gemini — ListModels (x-goog-api-key).
+  //   • any OpenAI-compatible provider — GET {base}/models with Bearer auth
+  //     (the standard /models endpoint; data[].id).
+  if (req.method === 'POST' && req.url === '/api/models') {
+    let raw = '';
+    req.on('data', c => { raw += c; if (raw.length > 256 * 1024) req.destroy(); });
+    req.on('end', () => {
+      let input = {};
+      try { input = JSON.parse(raw || '{}'); } catch (err) { input = {}; }
+      const rs = (input && input.settings) || {};
+      const cfg = {
+        base: normalizeBase(rs.baseUrl || ''),
+        key: String(rs.apiKey || '').trim()
+      };
+      if (!cfg.base) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Base URL kosong — pilih provider atau isi AI API base URL.' }));
+        return;
+      }
+      if (!cfg.key) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Isi dulu AI API key.' }));
+        return;
+      }
+      const root = cfg.base.replace(/\/v1beta?$/, '');
+      const gemini = isGemini(cfg.base);
+      const url = new URL(gemini ? root + '/v1beta/models' : root + '/models');
+      const lib = url.protocol === 'https:' ? https : http;
+      const req2 = lib.request(url, {
+        method: 'GET',
+        agent: false,
+        headers: {
+          'Accept': 'application/json',
+          ...(gemini ? { 'x-goog-api-key': cfg.key } : { 'Authorization': 'Bearer ' + cfg.key })
+        }
+      }, (r2) => {
+        let out = '';
+        r2.on('data', c => { out += c; });
+        r2.on('end', () => {
+          if (r2.statusCode < 200 || r2.statusCode >= 300) {
+            let msg = out.slice(0, 400);
+            try { const j = JSON.parse(out); if (j.error && j.error.message) msg = j.error.message; } catch (e) {}
+            res.writeHead(502, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: msg }));
+            return;
+          }
+          let names = [];
+          try {
+            const j = JSON.parse(out);
+            if (gemini) {
+              names = (j.models || [])
+                .filter(m => m && Array.isArray(m.supportedGenerationMethods) &&
+                  m.supportedGenerationMethods.indexOf('generateContent') >= 0)
+                .map(m => m.name.replace(/^models\//, ''));
+            } else {
+              // OpenAI standard: { data: [{ id, ... }] }
+              names = (j.data || []).map(m => m && m.id).filter(Boolean);
+              if (!names.length && Array.isArray(j.models)) names = j.models.map(m => m && m.id).filter(Boolean);
+            }
+            names = names.filter((v, i, a) => a.indexOf(v) === i).sort();
+          } catch (err) { /* fall through empty */ }
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ models: names.slice(0, 300) }));
+        });
+      });
+      req2.setTimeout(30000, () => req2.destroy(new Error('ListModels timeout')));
+      req2.on('error', (err) => {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: String(err && err.message || err) }));
+      });
+      req2.end();
+    });
+    return;
+  }
+
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'not found' }));
 }
 
 if (require.main !== module) {
-  module.exports = { bridgeHandler };
+  module.exports = { bridgeHandler, _test: { isGemini, geminiRequest, assembleCalls, sanitizeArgs } };
   return;
 }
 
 const server = http.createServer(bridgeHandler);
-
 server.on('error', (err) => {
   if (err && err.code === 'EADDRINUSE') {
-    console.error('');
-    console.error('Port ' + PORT + ' sudah dipakai — kemungkinan server/serve.js atau ai-bridge lain masih jalan.');
-    console.error('Cari dan matikan proses lama, lalu jalankan lagi:');
-    console.error('  ss -ltnp | grep ' + PORT + '          # lihat PID pemegang port');
-    console.error('  pkill -f "node server/serve.js"       # atau: kill <PID>');
-    console.error('Kalau yang jalan memang server ini di terminal lain, gunakan itu saja.');
+    console.error('\nPort ' + PORT + ' sudah dipakai — bridge lain masih jalan?');
+    console.error('  ss -ltnp | grep ' + PORT + '   # lihat PID pemegang port');
     process.exit(1);
   }
   throw err;
 });
-
 server.listen(PORT, '0.0.0.0', () => {
-  console.log('minisketch ai-bridge on http://localhost:' + PORT + ' model=' + MODEL + ' tools=' + KNOWN.size);
+  console.log('minisketch ai-bridge (policy-free proxy) on http://localhost:' + PORT);
+  console.log('  policy (prompt/tools/skills) now lives in ai/ on the frontend.');
 });

@@ -302,10 +302,13 @@
     return Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]);
   }
 
-  // Nearest KaryaCNC stroke code; ties fall back to black (cut).
-  function nearestCncColor(hex) {
+  // Nearest KaryaCNC stroke code; ties fall back to black (cut). White (the
+  // paper/canvas colour) is not a stroke code: it must never be mapped to a
+  // light operation, so it always becomes Cut.
+  function nearestCncColorDist(hex) {
     const rgb = hexToRgb(hex);
-    if (!rgb) return '#000000';
+    if (!rgb) return { code: '#000000', dist: Infinity };
+    if (rgb[0] >= 240 && rgb[1] >= 240 && rgb[2] >= 240) return { code: '#000000', dist: 0 };
     let best = '#000000';
     let bestD = Infinity;
     for (const code of CNC_CODES) {
@@ -314,7 +317,26 @@
       const d = colorDistanceLab(rgb, c);
       if (d < bestD - 1e-9) { bestD = d; best = code; }
     }
-    return best;
+    return { code: best, dist: bestD };
+  }
+
+  function nearestCncColor(hex) {
+    return nearestCncColorDist(hex).code;
+  }
+
+  // A colour taken from an imported file (PDF/CDR/DXF/SVG) must land on a real
+  // KaryaCNC stroke code: the colour IS the operation. Anything the workflow
+  // cannot express is snapped to its nearest code, and a colour with no
+  // reasonable match (or white — the paper colour) becomes Cut.
+  const CNC_MATCH_MAX_DIST = 46;   // Lab distance; beyond = no match -> Cut
+  function importColorNormalized(hex) {
+    if (!hex) return null;
+    const rgb = hexToRgb(hex);
+    if (!rgb) return '#000000';
+    if (rgb[0] >= 240 && rgb[1] >= 240 && rgb[2] >= 240) return '#000000';
+    if (CNC_CODES.indexOf(hex) >= 0) return hex;
+    const n = nearestCncColorDist(hex);
+    return n.dist <= CNC_MATCH_MAX_DIST ? n.code : '#000000';
   }
 
 
@@ -380,6 +402,7 @@
           if (k.fill != null) { style.fill = k.fill; style.fillSet = true; }
           if (k['stroke-width'] != null) style.strokeWidth = k['stroke-width'];
           if (k['fill-rule'] != null) style.fillRule = k['fill-rule'];
+          if (k['text-anchor'] != null) style.textAnchor = k['text-anchor'];
           if (k.display != null) style.display = k.display;
           if (k.visibility != null) style.visibility = k.visibility;
           if (k.opacity != null) style.opacity = k.opacity;
@@ -392,13 +415,14 @@
     const st = {
       stroke: parent.stroke, fill: parent.fill, fillSet: !!parent.fillSet,
       strokeWidth: parent.strokeWidth, fillRule: parent.fillRule,
-      fontSize: parent.fontSize,
+      fontSize: parent.fontSize, textAnchor: parent.textAnchor,
       display: parent.display, visibility: parent.visibility, opacity: parent.opacity
     };
     const attr = (k) => (el.getAttribute && el.hasAttribute && el.hasAttribute(k) ? el.getAttribute(k) : null);
     const keys = {
       stroke: 'stroke', fill: 'fill', 'stroke-width': 'strokeWidth',
       'fill-rule': 'fillRule', 'font-size': 'fontSize',
+      'text-anchor': 'textAnchor',
       display: 'display', visibility: 'visibility', opacity: 'opacity'
     };
     for (const k in keys) {
@@ -418,6 +442,7 @@
       if (d['stroke-width'] != null) st.strokeWidth = d['stroke-width'];
       if (d['fill-rule'] != null) st.fillRule = d['fill-rule'];
       if (d['font-size'] != null) st.fontSize = d['font-size'];
+      if (d['text-anchor'] != null) st.textAnchor = d['text-anchor'];
       if (d.display != null) st.display = d.display;
       if (d.visibility != null) st.visibility = d.visibility;
       if (d.opacity != null) st.opacity = d.opacity;
@@ -607,11 +632,15 @@
         ? svgLenToMm(fsRaw)
         : (isFinite(fsNum) ? fsNum : 16) * mScale;
       const color = svgColorToHex(style.fill) || '#000000';
+      // text-anchor: start|middle|end -> left|center|right (kept through import)
+      const anchorRaw = String(el.getAttribute('text-anchor') || style.textAnchor || '').toLowerCase();
+      const anchor = anchorRaw === 'middle' ? 'center'
+        : anchorRaw === 'end' ? 'right' : 'left';
       // SVG y is the baseline; a comment/text frame hangs from its top-left,
       // so lift the anchor to the cap line (0.75 em)
       const anchorY = p.y - size * 0.75;
       ctx.items.push({ kind: 'note', x: p.x, y: anchorY, text: raw, size,
-        color, group, source: 'text' });
+        color, group, source: 'text', anchor });
       ctx.colors.set(color, (ctx.colors.get(color) || 0) + 1);
       ctx.textCount = (ctx.textCount || 0) + 1;
       return;
@@ -998,8 +1027,8 @@
       cache.set(key, id);
       return id;
     };
-    const colorOfSrc = (hex) => colorMap[hex] || hex;
-    const made = { entities: [], groups: new Set(), lines: 0, splines: 0, circles: 0, framed: 0, notes: 0 };
+    const colorOfSrc = (hex) => colorMap[hex] || importColorNormalized(hex);
+    const made = { entities: [], groups: new Set(), lines: 0, splines: 0, circles: 0, framed: 0, notes: 0, openLines: [] };
     const groupBag = new Map();
 
     const tagEntity = (ent, item) => {
@@ -1041,6 +1070,9 @@
         }
         const pids = sub.nodes.map(n => mkPoint(n.x + off.x, n.y + off.y));
         const chain = isClosed ? pids.concat([pids[0]]) : pids;
+        // Closed subpaths are already complete loops: their edges are locked
+        // out of endpoint joining, so a shared vertex/edge between two shapes
+        // never welds them into one mixed contour. Only open chains join.
         for (let i = 1; i < chain.length; i++) {
           if (chain[i - 1] === chain[i]) continue;
           const id = newId();
@@ -1051,6 +1083,7 @@
           if (!firstId) firstId = id;
           made.entities.push(id);
           made.lines++;
+          if (!isClosed) made.openLines.push(id);
         }
       }
       if (firstId && item.filled && fillMode !== 'ignore') state.entities[firstId].fill = fillMode;
@@ -1067,7 +1100,7 @@
         if (o.textMode === 'skip') continue;
         if (o.textMode === 'text') {
           const id = addImportedTextObject(item.x + off.x, item.y + off.y, text,
-            item.size || 5, { ux: 1, uy: 0, vx: 0, vy: -1 });
+            item.size || 5, { ux: 1, uy: 0, vx: 0, vy: -1 }, item.anchor);
           made.entities.push(id);
           made.framed++;
         } else {
@@ -1151,8 +1184,8 @@
 
     // connect same-colour segments that meet within the join tolerance (SVG
     // often arrives as many tiny open paths; Settings > Geometry > Join
-    // imported points)
-    if (settings.joinImportAuto !== 'off' && made.lines >= 2) joinImportedSegments(made.entities, settings.joinImportTol);
+    // imported points). Closed subpaths are already loops and stay locked out.
+    if (settings.joinImportAuto !== 'off' && made.openLines.length >= 2) joinImportedSegments(made.openLines, settings.joinImportTol);
 
     return made;
   }
@@ -1382,7 +1415,7 @@
       help: 'Maximum gap between segment ends that loop detection still bridges into a closed loop. Customer CAD exports round coordinates, leaving 0.1-0.2 mm cracks at junctions that the CNC join tolerance (often 0.1) refuses to close — the shape then never fills or lists as a loop. Independent of the join tolerance: it only affects loop topology, never moves a point.' },
     { group: 'Geometry', key: 'joinImportAuto', label: 'Join imported points', unit: '',
       def: 'on', choices: [['on', 'On — weld same-colour ends when importing'], ['off', 'Off — import segments exactly as-is']],
-      help: 'When On, PDF / SVG / DXF / CDR imports weld same-colour segment ends that meet within the join tolerance so contours arrive connected and loops close: an open end snaps onto the vertex it touches (T-junctions), otherwise the surviving point keeps its exact file position. Then simplify drops staircase noise points whose turn is below the Ctrl+K sharp-corner angle and whose chord stays within the curve fit tolerance — corners and curve nodes keep their valid positions. Off keeps every imported segment exactly as the file describes it.' },
+      help: 'When On, PDF / SVG / DXF / CDR imports weld same-colour segment ends that meet within the join tolerance so contours arrive connected and loops close: an open end snaps onto the vertex it touches (T-junctions), otherwise the surviving point keeps its exact file position. Closed contours (rectangles, ellipses, closed paths) are already complete loops and are never welded — a shared vertex or edge between two shapes stays two independent loops instead of mixing into one contour. Then simplify drops staircase noise points whose turn is below the Ctrl+K sharp-corner angle and whose chord stays within the curve fit tolerance — corners and curve nodes keep their valid positions. Off keeps every imported segment exactly as the file describes it.' },
     { group: 'Geometry', key: 'joinImportTol', label: 'Join imported distance', unit: 'mm',
       def: 0.1, min: 0.001, max: 5, step: 0.01,
       help: 'How close two same-colour segment ends must be before an import welds them, AND the maximum chord deviation when import simplify hops staircase noise points. Ends within 20% of this distance merge as file noise without moving (loops close); across a real gap only a short segment’s open end may snap onto the other’s exact position. Ends of segments longer than 20x this distance are VALID anchors: never moved by welding, never dropped by simplify. Raise it to collapse coarser staircases; lower it to keep more of the file’s nodes.' },
@@ -1456,12 +1489,19 @@
       help: 'One number, shown in both this window and the KaryaCNC window: circles and arcs are flattened so they never deviate more than this. Smaller = smoother and more points; 0.05 mm is a good laser default, 0.02 mm for fine detail.' },
     { group: 'AI chat', key: 'aiBridgeUrl', label: 'AI bridge URL', unit: '', text: true, def: '',
       help: 'AI bridge server (server/serve.js), e.g. http://127.0.0.1:8090. Empty = the same server that served MiniSketch (needs the app served over http, not opened as a file). With no server at all the chat tab falls back to offline mode: it parses simple Indonesian/English commands directly, no LLM needed.' },
+    { group: 'AI chat', key: 'aiProviderGoogle', label: 'Google Gemini', unit: '', bool: true, def: false,
+      help: 'Pakai Google Gemini sebagai provider: cukup isi AI API key dan model (mis. gemini-2.5-flash). Base URL otomatis ke https://generativelanguage.googleapis.com/v1beta — field AI API base URL diabaikan. Matikan centang ini untuk endpoint OpenAI-compatible biasa (z.ai, DeepSeek, dst.) dengan base URL sendiri.' },
     { group: 'AI chat', key: 'aiApiUrl', label: 'AI API base URL', unit: '', text: true, def: '',
-      help: 'The OpenAI-compatible endpoint YOUR key belongs to, without /chat/completions. Empty = the bridge uses its own server/.env value. Fill this in together with the API key below.' },
+      help: 'The OpenAI-compatible endpoint YOUR key belongs to, without /chat/completions (mis. https://api.z.ai/api/coding/paas/v4). Empty = the bridge uses its own server/.env value. Fill this in together with the API key below. Toe Google Gemini, centang "Google Gemini" — kolom ini tidak perlu diisi.' },
     { group: 'AI chat', key: 'aiApiKey', label: 'AI API key', unit: '', password: true, def: '',
-      help: 'Your own key for that service. It is sent to the bridge with each request and is never stored by the bridge (it forgets it when it stops). A key that is baked into the source code leaks with the source, so there is none here — you set it.' },
+      help: 'Your own key for that service (Google Gemini: AIza…). It is sent to the bridge with each request and is never stored by the bridge (it forgets it when it stops). A key that is baked into the source code leaks with the source, so there is none here — you set it.' },
     { group: 'AI chat', key: 'aiModel', label: 'AI model', unit: '', text: true, def: '',
-      help: 'Model name to ask for, e.g. glm-5.3-flash or deepseek-v4.1-flash-1017. Empty = the bridge uses its own default.' },
+      help: 'Model name to ask for, e.g. glm-5.3-flash, deepseek-v4.1-flash-1017, atau gemini-2.5-flash (Google). Empty = the bridge uses its own default.' },
+    { group: 'AI chat', key: 'aiThinkLevel', label: 'AI reasoning level', unit: '',
+      choices: [['off', 'Off'], ['low', 'Low'], ['normal', 'Normal']], def: 'normal',
+      help: 'Off = model menjawab langsung, tanpa berpikir (paling cepat/murah). Low = reasoning singkat — disarankan untuk glm/Gemini agar tidak terlalu lama "mikir" pada permintaan biasa. Normal = reasoning penuh (lebih teliti untuk tugas rumit, lebih lambat/mahal).' },
+    { group: 'AI chat', key: 'aiModeSvg', label: 'Mode SVG (tanpa tools)', unit: '', bool: true, def: false,
+      help: 'AI fokus murni menghasilkan SATU <svg> — tanpa tool MiniSketch (cocok untuk model yang belum dilatih dengan tools ini, mis. Gemini). Hasil muncul sebagai pratinjau + tombol "Masukkan ke MiniSketch" dan "Salin SVG". Matikan untuk mode agen penuh (tool calls).' },
     { group: 'AI chat', key: 'aiMaxRounds', label: 'AI agent rounds', unit: '×',
       def: 4, min: 1, max: 8, step: 1,
       help: 'How many times the agent may loop (emit tool calls → execute → verify) before it must give a final answer. Each round is one provider request. 2–3 is cheaper; more rounds give the model more chances to self-correct complex jobs.' }
@@ -1568,6 +1608,34 @@
   // A press shorter than this never moves geometry: a trembling click (mouse
   // jitter at press/release) stays a selection instead of becoming a micro-drag.
   const DRAG_GATE_MS = 50;
+  // Ribbon feedback: when the drag gate passes, the Select tool icon flashes
+  // (brighter) so a drag started too early is visibly acknowledged.
+  const DRAG_READY_FLASH_MS = 600;
+  let dragReadyFlashTimer = null;
+  function flashSelectToolReady(on, why) {
+    const el = document.querySelector('.tool-btn[data-tool="select"]');
+    if (on) console.log('[drag-ready] flash ON (' + why + ') button=' + (el ? 'found' : 'MISSING'));
+    clearTimeout(dragReadyFlashTimer);
+    if (on) {
+      el.classList.add('drag-ready');
+      dragReadyFlashTimer = setTimeout(() => el.classList.remove('drag-ready'), DRAG_READY_FLASH_MS);
+    } else {
+      el.classList.remove('drag-ready');
+    }
+  }
+  // Arm the "ready" feedback at PRESS time (not on first move): the flash
+  // fires the moment the press passes its readiness threshold — the drag gate
+  // for a plain marquee, the dwell for a press inside a loop — even when the
+  // pointer has not moved yet (holding still inside a loop must still show it).
+  function armDragFeedback(d, ms, why) {
+    clearTimeout(d.armedTimer);
+    d.armedTimer = setTimeout(() => {
+      if (ui.drag === d) {
+        d.armedFlashed = true;
+        flashSelectToolReady(true, why);
+      }
+    }, ms);
+  }
   // Press-and-hold disambiguation (mouse/pen) for a press ON an object:
   // dragging away within PRESS_DWELL_MS reads as "start a marquee here";
   // holding the press first arms the object drag — select + move, exactly
@@ -1605,6 +1673,7 @@
   }
 
   function clampSetting(sp, value) {
+    if (sp.bool) return !!value;
     if (sp.text || sp.password) {
       const s = value == null ? '' : String(value).trim();
       return s || sp.def;
@@ -1646,6 +1715,19 @@
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     } catch (err) { /* private mode: the values just are not remembered */ }
   }
+
+  // Dipanggil dari pemilih model di panel AI chat: simpan pilihan model ke
+  // settings + sinkronkan field di modal Settings (bila terbuka) + judul panel.
+  window.setAiModelFromChat = function (name) {
+    const s = String(name == null ? '' : name).trim();
+    settings.aiModel = s;
+    saveSettings();
+    const el = document.getElementById('set-aiModel');
+    if (el) el.value = s;
+    try {
+      if (window.MiniSketchAI && window.MiniSketchAI.updateTitle) window.MiniSketchAI.updateTitle();
+    } catch (err) { /* ignore */ }
+  };
 
   // Push the numbers into the working constants.
   function applySettings() {
@@ -1726,6 +1808,15 @@
     const bodies = {};
     let idx = 0;
     for (const sp of SETTINGS_SPEC) {
+      // KaryaCNC serves the AI chat through its own built-in Go proxy
+      // (/api/chat), so it has no separate Node bridge to point at. It hides
+      // the "AI bridge URL" row by setting window.MiniSketchUI.showBridgeUrl
+      // = false in its app-specific ai/ui-flags.js (never synced). Upstream
+      // MiniSketch leaves the flag unset -> defaults to true -> row shows.
+      if (sp.key === 'aiBridgeUrl' &&
+          window.MiniSketchUI && window.MiniSketchUI.showBridgeUrl === false) {
+        continue;
+      }
       // P1-13: hidden keys (lives in a menu toggle) still show as a readonly
       // "menu-linked" row, so every key is searchable in one place.
       const linked = !!sp.hidden;
@@ -1749,7 +1840,8 @@
         idx++;
       }
       const row = document.createElement('div');
-      row.className = 'settings-row' + (linked ? ' linked' : '');
+      row.className = 'settings-row' + (linked ? ' linked' : '') +
+        ((sp.text || sp.password) ? ' wide' : '');
       row.dataset.search = (sp.label + ' ' + sp.key + ' ' + sp.group + ' ' + (sp.unit || '')).toLowerCase();
       const name = document.createElement('span');
       name.className = 'settings-name';
@@ -1775,6 +1867,13 @@
           opt.value = pair[0];
           opt.textContent = pair[1];
           input.appendChild(opt);
+        }
+      } else if (sp.bool) {
+        input = document.createElement('input');
+        input.type = 'checkbox';
+        if (sp.key === 'aiProviderGoogle') {
+          // live-update the URL row without waiting for Apply
+          input.addEventListener('change', syncProviderRows);
         }
       } else if (sp.text) {
         input = document.createElement('input');
@@ -1916,7 +2015,269 @@
       const el = document.getElementById('set-' + sp.key);
       if (!el) continue;
       const value = settings[sp.key] != null ? settings[sp.key] : sp.def;
-      el.value = String(value);
+      if (sp.bool) el.checked = !!value;
+      else el.value = String(value);
+    }
+  }
+
+  // ---- AI provider presets ---------------------------------------------
+  // Pasangan {baseUrl, apiKey} (dan model opsional) disimpan sebagai preset di
+  // localStorage; memilih preset mengisi kolom AI API base URL + key + model.
+  // Key disimpan polos — sama seperti key yang sudah tersimpan di settings
+  // (minisketch.settings.v1), hanya di lokasi sendiri agar mudah dipilih
+  // tanpa perlu mengingat URL/menyalin key.
+  const AI_PROVIDERS_KEY = 'minisketch.ai.providers.v1';
+  const GOOGLE_DEFAULT_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+  function loadAiProviders() {
+    try {
+      const raw = localStorage.getItem(AI_PROVIDERS_KEY);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr.filter(p => p && p.name && p.baseUrl) : [];
+    } catch (err) { return []; }
+  }
+  function saveAiProviders() {
+    try { localStorage.setItem(AI_PROVIDERS_KEY, JSON.stringify(aiProviders)); } catch (err) { /* private mode */ }
+  }
+  let aiProviders = loadAiProviders();
+  const isGeminiBaseUrl = (base) => /generativelanguage\.googleapis\.com|generativelanguage\.google\.com/.test(String(base || ''));
+
+  // "Google Gemini" checked => the base URL row is not needed (the bridge uses
+  // the Google endpoint automatically). Grey the row out and show the default.
+  function syncProviderRows() {
+    const cb = document.getElementById('set-aiProviderGoogle');
+    const google = cb ? !!cb.checked : !!settings.aiProviderGoogle;
+    const urlInput = document.getElementById('set-aiApiUrl');
+    const urlRow = urlInput ? urlInput.closest('.settings-row') : null;
+    if (urlRow) urlRow.classList.toggle('off', google);
+    if (urlInput) urlInput.disabled = google;
+    if (urlRow) {
+      const unit = urlRow.querySelector('.settings-unit');
+      if (unit) unit.textContent = google ? 'otomatis: generativelanguage.googleapis.com' : '';
+    }
+    // ---- AI provider presets + model list (semua provider) --------------
+    const modelInput = document.getElementById('set-aiModel');
+    const modelRow = modelInput ? modelInput.closest('.settings-row') : null;
+    const groupHost = modelRow ? (modelRow.parentElement || modelRow) : null;
+
+    const effGoogle = () => {
+      const cbEl = document.getElementById('set-aiProviderGoogle');
+      return cbEl ? !!cbEl.checked : !!settings.aiProviderGoogle;
+    };
+    const effBase = () => {
+      if (effGoogle()) return GOOGLE_DEFAULT_BASE;
+      const el = document.getElementById('set-aiApiUrl');
+      return String((el && el.value) || settings.aiApiUrl || '').trim();
+    };
+    const effKey = () => {
+      const el = document.getElementById('set-aiApiKey');
+      return String((el && el.value) || settings.aiApiKey || '').trim();
+    };
+
+    // Pemilih preset provider (pilih -> kolom URL/key/model terisi otomatis)
+    let sel = document.getElementById('ai-provider-sel');
+    if (groupHost && !sel) {
+      const prow = document.createElement('div');
+      prow.className = 'settings-row';
+      prow.style.gridTemplateColumns = 'max-content 1fr auto auto';
+      prow.style.alignItems = 'center';
+      const lab = document.createElement('span');
+      lab.className = 'settings-name';
+      lab.textContent = 'Provider tersimpan';
+      sel = document.createElement('select');
+      sel.id = 'ai-provider-sel';
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.className = 'btn small';
+      saveBtn.textContent = 'Simpan preset';
+      saveBtn.title = 'Simpan pasangan base URL + API key saat ini sebagai preset';
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'btn small';
+      delBtn.textContent = '✕';
+      delBtn.title = 'Hapus preset terpilih';
+      prow.appendChild(lab);
+      prow.appendChild(sel);
+      prow.appendChild(saveBtn);
+      prow.appendChild(delBtn);
+      groupHost.appendChild(prow);
+
+      const fillSel = () => {
+        sel.innerHTML = '';
+        const ph = document.createElement('option');
+        ph.value = '';
+        ph.textContent = '— pilih provider —';
+        sel.appendChild(ph);
+        for (const p of aiProviders) {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          let host = '';
+          try { host = new URL(p.baseUrl).host; } catch (e) { host = p.baseUrl; }
+          opt.textContent = p.name + ' · ' + host;
+          sel.appendChild(opt);
+        }
+      };
+      fillSel();
+
+      sel.addEventListener('change', () => {
+        const p = aiProviders.find(x => x.id === sel.value);
+        if (!p) return;
+        const urlEl = document.getElementById('set-aiApiUrl');
+        const keyEl = document.getElementById('set-aiApiKey');
+        const gcbEl = document.getElementById('set-aiProviderGoogle');
+        if (p.baseUrl) urlEl.value = p.baseUrl;
+        if (p.apiKey != null) keyEl.value = p.apiKey;
+        if (p.model) modelInput.value = p.model;
+        if (gcbEl) gcbEl.checked = isGeminiBaseUrl(p.baseUrl);
+        syncProviderRows();   // cukup state URL-row/dll. (id sudah ada → tidak duplikat)
+      });
+
+      saveBtn.addEventListener('click', () => {
+        let nameSugg = 'provider';
+        try { nameSugg = new URL(effBase()).host; } catch (e) { /* keep */ }
+        const name = (window.prompt('Nama preset provider:', nameSugg) || '').trim();
+        if (!name) return;
+        const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'provider';
+        const base = effBase();
+        const rec = {
+          id,
+          name,
+          baseUrl: base,
+          apiKey: effKey(),
+          model: String(modelInput ? modelInput.value : '').trim()
+        };
+        const idx = aiProviders.findIndex(x => x.baseUrl === base);
+        if (idx >= 0) aiProviders[idx] = rec; else aiProviders.push(rec);
+        saveAiProviders();
+        fillSel();
+        sel.value = id;
+        toast('Preset “' + name + '” disimpan.');
+      });
+
+      delBtn.addEventListener('click', () => {
+        const p = aiProviders.find(x => x.id === sel.value);
+        if (!p) return;
+        aiProviders = aiProviders.filter(x => x.id !== p.id);
+        saveAiProviders();
+        fillSel();
+        sel.value = '';
+        toast('Preset “' + p.name + '” dihapus.');
+      });
+    }
+
+    // Muat daftar model dari provider AKTIF (base URL + key dari kolom).
+    // Bisa Gemini (ListModels) maupun OpenAI-compatible (/models).
+    let dd = document.getElementById('ai-model-dd');
+    let btn = document.getElementById('ai-models-refresh');
+    if (!dd) {
+      // rendered on document.body with fixed coordinates so the settings
+      // panel's overflow can never clip it
+      dd = document.createElement('div');
+      dd.id = 'ai-model-dd';
+      dd.className = 'settings-dd hidden';
+      dd.style.position = 'fixed';
+      document.body.appendChild(dd);
+    }
+    if (modelRow && !btn) {
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.id = 'ai-models-refresh';
+      btn.className = 'btn small ai-model-load';
+      btn.textContent = '🔄';
+      btn.title = 'Muat daftar model dari provider aktif (base URL + API key yang terisi)';
+      // kecil, di sebelah kiri kolom AI model (segaris dengan input)
+      modelRow.appendChild(btn);
+      modelRow.insertBefore(btn, modelInput);
+      if (modelInput) modelRow.style.gridTemplateColumns = 'max-content auto 1fr 24px';
+      const fillList = (names) => {
+        dd.innerHTML = '';
+        for (const name of names) {
+          const opt = document.createElement('button');
+          opt.type = 'button';
+          opt.value = name;
+          opt.textContent = name;
+          opt.addEventListener('click', () => {
+            if (modelInput) modelInput.value = name;
+            dd.classList.add('hidden');
+          });
+          dd.appendChild(opt);
+        }
+      };
+      btn.addEventListener('click', async (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        btn.disabled = true;
+        btn.textContent = '…';
+        const baseNow = effBase();
+        const hostLabel = (() => { try { return new URL(baseNow).host; } catch (e) { return 'provider'; } })();
+        try {
+          const r = await fetch('/api/models', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ settings: { baseUrl: baseNow, apiKey: effKey() } })
+          });
+          const j = await r.json().catch(() => ({}));
+          if (Array.isArray(j.models) && j.models.length) {
+            fillList(j.models);
+            placeDd();
+            dd.classList.remove('hidden');
+            toast(j.models.length + ' model dimuat dari ' + hostLabel + ' — pilih dari daftar');
+          } else {
+            toast('Gagal memuat model (' + hostLabel + '): ' + ((j && j.error) || 'respons tidak dikenal'));
+          }
+        } catch (err) {
+          toast('Gagal memuat model (' + hostLabel + '): ' + String(err && err.message || err));
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Muat daftar model';
+        }
+      });
+    }
+    if (btn) btn.style.display = '';
+
+    // document-level click closes the dropdown; helper bound once
+    if (!window.__aiModelDdClose) {
+      window.__aiModelDdClose = (ev) => {
+        const d = document.getElementById('ai-model-dd');
+        if (d && !d.contains(ev.target) &&
+            !(ev.target.id === 'ai-models-refresh') &&
+            !(ev.target.id === 'set-aiModel')) {
+          d.classList.add('hidden');
+        }
+      };
+      document.addEventListener('click', window.__aiModelDdClose, true);
+    }
+    const placeDd = () => {
+      if (!dd || !modelInput) return;
+      const r = modelInput.getBoundingClientRect();
+      dd.style.top = Math.round(r.bottom + 4) + 'px';
+      dd.style.left = Math.round(r.left) + 'px';
+      dd.style.width = Math.max(140, Math.round(r.width)) + 'px';
+      dd.style.right = 'auto';
+    };
+    const openDd = (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (dd && dd.children.length && dd.classList.contains('hidden')) {
+        placeDd();
+        dd.classList.remove('hidden');
+      }
+    };
+    modelInput.removeEventListener('focus', openDd);
+    modelInput.addEventListener('focus', openDd);
+    modelInput.addEventListener('click', openDd);
+    // any scroll/resize OUTSIDE the dropdown closes it; scrolling INSIDE the
+    // dropdown's own list must keep it open (the wheel/scrollbar is how the
+    // user reads long model lists).
+    if (!window.__aiModelDdScroll) {
+      window.__aiModelDdScroll = (ev) => {
+        const d = document.getElementById('ai-model-dd');
+        if (!d) return;
+        if (ev && ev.target && d.contains(ev.target)) return;
+        d.classList.add('hidden');
+      };
+      document.addEventListener('scroll', window.__aiModelDdScroll, true);
+      window.addEventListener('resize', window.__aiModelDdScroll);
     }
   }
 
@@ -1926,6 +2287,7 @@
     if (Object.keys(settings).length !== SETTINGS_SPEC.length) loadSettings();
     buildSettingsForm();
     fillSettingsForm();
+    syncProviderRows();
     refreshLinkedSettings();
     const modal = document.getElementById('settings-modal');
     if (modal) modal.classList.remove('hidden');
@@ -1948,7 +2310,8 @@
       if (sp.hidden) continue;   // menu-linked rows are readonly
       const el = document.getElementById('set-' + sp.key);
       if (!el) continue;
-      settings[sp.key] = clampSetting(sp, el.value === '' ? sp.def : el.value);
+      if (sp.bool) settings[sp.key] = !!el.checked;
+      else settings[sp.key] = clampSetting(sp, el.value === '' ? sp.def : el.value);
     }
     applySettings();
     saveSettings();
@@ -1956,6 +2319,8 @@
     refreshLinkedSettings();
     syncWallIndicator();
     render();
+    // keep the AI chat panel title in sync (provider/model shown there)
+    try { if (window.MiniSketchAI && window.MiniSketchAI.updateTitle) window.MiniSketchAI.updateTitle(); } catch (err) { /* ignore */ }
     // P1-13: Apply keeps the modal open — the search + tweak loop stays alive.
     // Close explicitly with Close / Esc / backdrop.
     toast('Settings applied');
@@ -5445,9 +5810,194 @@
     }
   }
 
+  // [Insert into green box] — the Arrange tab's "Insert" tool. It is like
+  // nesting, but placement only: the selected green (construction) box is the
+  // target, and every OTHER selected object is centered inside it. If an
+  // object's bounding box does not fit as-is but fits after a quarter turn,
+  // it is rotated 90° first. No packing — all objects land centered in the
+  // same box.
+  //
+  // Green detection follows the nest engine's rule: green (construction) loops
+  // are the target; everything else selected is an item to place. The split
+  // must see through a green box that ALREADY surrounds its contents (that is
+  // the "recenter" use): the sheet is still the target and the loops inside it
+  // are still items — arrangeableUnits would merge them into one unit, so the
+  // nest decomposition (nestCollectLoops) is used instead.
+  function collectInsertInput() {
+    const { sheetLoops, partLoops } = nestCollectLoops();
+    const target = [];
+    const items = [];
+    const consumed = new Set();
+    if (sheetLoops.length) {
+      let tb = null;
+      for (const rec of sheetLoops) {
+        for (const id of rec.entityIds) tb = mergeBounds(tb, entityTightBounds(state.entities[id]));
+      }
+      if (tb) {
+        const ids = [];
+        for (const rec of sheetLoops) for (const id of rec.entityIds) ids.push(+id);
+        target.push({ ids, b: tb });
+      }
+    }
+    for (const obj of nestGroupParts(partLoops)) {
+      const ids = obj.outer.entityIds.concat(...obj.holeRecs.map(h => h.entityIds)).filter(id => state.entities[id]);
+      let b = null;
+      for (const id of ids) { consumed.add(+id); b = mergeBounds(b, entityTightBounds(state.entities[id])); }
+      if (b) items.push({ ids, b });
+    }
+    // container objects (art / image / array / part) selected but not consumed
+    // by a part above are items too
+    for (const s of ui.selection) {
+      if (s.kind !== 'entity') continue;
+      const id = +s.id;
+      if (consumed.has(id)) continue;
+      const e = state.entities[id];
+      if (!e) continue;
+      if (e.type !== 'art' && e.type !== 'image' && e.type !== 'array' && e.type !== 'part') continue;
+      const bb = entityTightBounds(e);
+      if (bb) items.push({ ids: [id], b: bb });
+    }
+    return { target, items };
+  }
+
+  // Rotate one arrange unit by `deg` (visual degrees, CCW positive) about its
+  // own bounding-box centre. Mirrors quickRotate's mechanics but scoped to the
+  // unit: its points (incl. owned guide lines), spline handles, clone instance
+  // matrices; H/V/perp/parallel/aspect constraints on it are dropped, fix
+  // constraints follow their point.
+  function rotateUnit(unit, deg) {
+    const pts = new Set();
+    for (const id of unit.ids) {
+      const e = state.entities[id];
+      if (!e) continue;
+      for (const pid of entityPointIds(e)) pts.add(+pid);
+      if ((e.type === 'art' || e.type === 'text' || e.type === 'image') && Array.isArray(e.guide)) {
+        for (const gid of e.guide) {
+          const g = state.entities[gid];
+          if (g) for (const pid of entityPointIds(g)) pts.add(+pid);
+        }
+      }
+    }
+    let b = null;
+    for (const id of unit.ids) b = mergeBounds(b, entityTightBounds(state.entities[id]));
+    if (!b) return;
+    const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
+    const eids = new Set(unit.ids.map(Number));
+    const phi = -deg * Math.PI / 180;
+    const c = Math.cos(phi), s = Math.sin(phi);
+    let removed = 0;
+    for (const cid in state.constraints) {
+      const con = state.constraints[cid];
+      const drop =
+        ((con.type === 'horizontal' || con.type === 'vertical') && eids.has(+con.entity)) ||
+        ((con.type === 'horizontalPoints' || con.type === 'verticalPoints') &&
+          pts.has(+con.p1) && pts.has(+con.p2)) ||
+        ((con.type === 'perpendicular' || con.type === 'parallel') &&
+          (eids.has(+con.line1) || eids.has(+con.line2))) ||
+        (con.type === 'aspect' && eids.has(+con.entity));
+      if (drop) { delete state.constraints[cid]; removed++; }
+    }
+    const rot = (x, y) => {
+      const dx = x - cx, dy = y - cy;
+      return { x: cx + c * dx - s * dy, y: cy + s * dx + c * dy };
+    };
+    for (const pid of pts) {
+      const p = state.points[pid];
+      if (!p) continue;
+      const q = rot(p.x, p.y);
+      p.x = q.x; p.y = q.y;
+    }
+    for (const id of unit.ids) {
+      const e = state.entities[id];
+      if (!e) continue;
+      if (e.type === 'array' && e.kind === 'clone') {
+        const M = [c, s, -s, c, cx - (c * cx - s * cy), cy - (s * cx + c * cy)];
+        e.instances = (e.instances || []).map(inst => (
+          inst && inst.m ? { ...inst, m: matMul(M, inst.m) } : inst));
+        delete e.shapes;
+        continue;
+      }
+      if (e.type !== 'spline' || !e.hs) continue;
+      for (const arr of [e.hs.o, e.hs.i]) {
+        for (const h of (arr || [])) {
+          if (!h) continue;
+          const q = rot(h.x, h.y);
+          h.x = q.x; h.y = q.y;
+        }
+      }
+    }
+    for (const cid in state.constraints) {
+      const con = state.constraints[cid];
+      if (con.type === 'fix' && pts.has(+con.p)) {
+        const pt = P(con.p);
+        if (pt) { con.x = pt.x; con.y = pt.y; }
+      }
+    }
+    requestSolve(pts);
+    return removed;
+  }
+
+  function arrangeInsert() {
+    const { target, items } = collectInsertInput();
+    if (!target.length) {
+      toast('Select the green (guide) box plus the objects to place inside it');
+      return;
+    }
+    if (!items.length) {
+      toast('Select at least one non-green object to insert into the green box');
+      return;
+    }
+    for (const u of items) {
+      if (u.ids.some(id => { const e = state.entities[id]; return e && e.type === 'part'; })) {
+        toast('Parts are pose-driven — rotate them with the transform tool');
+        return;
+      }
+    }
+    let tg = null;
+    for (const t of target) tg = mergeBounds(tg, t.b);
+    if (!tg) return;
+    const tcX = (tg.minX + tg.maxX) / 2;
+    const tcY = (tg.minY + tg.maxY) / 2;
+    const W = tg.maxX - tg.minX;
+    const H = tg.maxY - tg.minY;
+    // ALL non-green objects travel as ONE unit: one shared delta keeps their
+    // relative layout, so several loops never pile up at the box centre. The
+    // whole group rotates together (90°) only when that makes the GROUP fit.
+    const ids = [];
+    let b = null;
+    for (const u of items) {
+      for (const id of u.ids) ids.push(id);
+      b = mergeBounds(b, u.b);
+    }
+    if (!b) return;
+    const eps = 1e-6;
+    const w = b.maxX - b.minX;
+    const h = b.maxY - b.minY;
+    const fits = w <= W + eps && h <= H + eps;
+    const fitsRot = h <= W + eps && w <= H + eps;
+    pushHistory();
+    let rotated = 0;
+    if (!fits && fitsRot) {
+      rotateUnit({ ids }, 90);
+      rotated++;
+      b = null;
+      for (const id of ids) b = mergeBounds(b, entityTightBounds(state.entities[id]));
+      if (!b) return;
+    }
+    const dx = tcX - (b.minX + b.maxX) / 2;
+    const dy = tcY - (b.minY + b.maxY) / 2;
+    translateUnit({ ids }, dx, dy);
+    invalidateLoops();
+    commit();
+    toast('Inserted ' + ids.length + ' objects as one group' +
+      (rotated ? ' — rotated 90° to fit' : '') +
+      ' centered in the green box');
+  }
+
   // Align / distribute the arrangeable selection. kind in:
-  //   left | center-h | right | top | center-v | bottom | dist-h | dist-v
+  //   left | center-h | right | top | center-v | bottom | dist-h | dist-v | insert
   function arrangeSelection(kind) {
+    if (kind === 'insert') { arrangeInsert(); return; }
     const ents = arrangeableUnits();
     const need = kind === 'dist-h' || kind === 'dist-v' ? 3 : 2;
     if (ents.length < need) {
@@ -11113,7 +11663,21 @@
   }
 
   function textStyleString(e, sizePx) {
-    return (e.italic ? 'italic ' : '') + (e.weight || 400) + ' ' + sizePx + 'px ' + (e.font || 'sans-serif');
+    // Ask for a weight/style the family REALLY has. Requesting a member the
+    // family lacks (Bold on a Regular-only font) makes Chrome synthesize it —
+    // it re-draws the glyph offset and stroked, so the canvas trace captures
+    // nested double contours and -> Curve (the real single outline) then
+    // disagrees with what was on screen. Resolving to the closest REGISTERED
+    // member keeps every path on real letterforms; the Weight/Style controls
+    // still record the user's choice on the entity.
+    const reg = window.MiniSketchFonts;
+    let weight = e.weight || 400;
+    let style = e.italic ? 'italic' : 'normal';
+    if (reg && reg.resolveFace) {
+      const face = reg.resolveFace(e.font || 'sans-serif', weight, style);
+      if (face) { weight = face.weight; style = face.style; }
+    }
+    return (style === 'italic' ? 'italic ' : '') + weight + ' ' + sizePx + 'px ' + (e.font || 'sans-serif');
   }
 
   function textTrackingPx(e, sizePx) {
@@ -11134,7 +11698,10 @@
   function textMetricsOf(e) {
     if (isSingleLineFont(e)) return textMetricsSingle(e);
     const reg = window.MiniSketchFonts;
-    if (reg && !reg.registered(e.font || 'sans-serif')) return null; // font not loaded yet: skip, frame only
+    // Family-level gate, not per-member: a system face whose bytes registered
+    // under a non-400 weight would fail a bare registered(family) check (that
+    // keys to 400|normal) and draw an empty frame though the face is loaded.
+    if (reg && !reg.registeredAny(e.font || 'sans-serif')) return null; // font not loaded yet: skip, frame only
     const key = [e.text, e.font, e.weight, e.italic ? 1 : 0, e.tracking || 0, e.align || '', textLeadingOf(e), fontEpoch()].join('|');
     const cached = textMeasureCache.get(key);
     if (cached) return cached;
@@ -15830,9 +16397,12 @@
     try {
       made = svgImportInsert(ir, {
         center: ui.lastWorld ? { x: ui.lastWorld.x, y: ui.lastWorld.y } : s2w(W / 2, H / 2),
-        fillMode: 'gray',
+        // pasted shapes come in WITHOUT fill (fill = none) — the lines are the
+        // geometry; a fill would tint whole shapes and hide nested cuts
+        fillMode: 'ignore',
         colorMap,
-        textMode: 'comment'
+        // pasted <text> becomes a real editable text object, not a yellow note
+        textMode: 'text'
       });
     } catch (err) {
       // the pushed snapshot stays: the insert may have written geometry before it
@@ -15915,25 +16485,31 @@
       return id;
     };
     const made = [];
+    const openLines = [];
     for (const pr of prims) {
       const id = newId();
+      const fileColor = importColorNormalized(pr.color);
       if (pr.type === 'line') {
         state.entities[id] = {
-          id, type: 'line', color: pr.color || ui.color,
+          id, type: 'line', color: fileColor || ui.color,
           a: addPoint(pr.x1, pr.y1), b: addPoint(pr.x2, pr.y2)
         };
+        // a closed polyline's ring is already one complete loop: lock it out
+        // of endpoint joining so a shared vertex/edge between two closed
+        // shapes never welds them into one mixed contour
+        if (!pr.closed) openLines.push(id);
       } else if (pr.type === 'circle') {
-        state.entities[id] = { id, type: 'circle', color: pr.color || ui.color, c: addPoint(pr.cx, pr.cy), r: pr.r };
+        state.entities[id] = { id, type: 'circle', color: fileColor || ui.color, c: addPoint(pr.cx, pr.cy), r: pr.r };
       } else if (pr.type === 'arc') {
         state.entities[id] = {
-          id, type: 'arc', color: pr.color || ui.color,
+          id, type: 'arc', color: fileColor || ui.color,
           c: addPoint(pr.cx, pr.cy),
           s: addPoint(pr.cx + pr.r * Math.cos(pr.a1), pr.cy + pr.r * Math.sin(pr.a1)),
           e: addPoint(pr.cx + pr.r * Math.cos(pr.a0), pr.cy + pr.r * Math.sin(pr.a0))
         };
       } else if (pr.type === 'spline') {
         const pts = pr.pts.map(p => addPoint(p[0], p[1]));
-        const ent = { id, type: 'spline', color: pr.color || ui.color, pts, closed: !!pr.closed };
+        const ent = { id, type: 'spline', color: fileColor || ui.color, pts, closed: !!pr.closed };
         if (pts.length >= 2) ent.hs = autoHandles(pts.map(p => state.points[p]), !!pr.closed);
         state.entities[id] = ent;
       } else {
@@ -15947,10 +16523,11 @@
       return null;
     }
     // connect same-colour open segments (DXF arrives as loose LINE entities);
-    // the import dialog's join switch / distance override the Settings default
+    // the import dialog's join switch / distance override the Settings default.
+    // Closed polyline rings are already loops and stay locked out.
     const joinOn = o.join != null ? o.join : settings.joinImportAuto !== 'off';
     const joinTol = isFinite(+o.joinTol) && +o.joinTol > 0 ? +o.joinTol : settings.joinImportTol;
-    if (joinOn && made.length >= 2) joinImportedSegments(made, joinTol);
+    if (joinOn && openLines.length >= 2) joinImportedSegments(openLines, joinTol);
     if (wasEmpty) fitView();
     // commit (not just render): without scheduleSave the import vanishes on a
     // refresh before the next edit triggers an autosave
@@ -15965,18 +16542,58 @@
   // to the real font metrics so the glyphs keep the PDF's size instead of being
   // stretched to a guessed box. Callers load the face first (importPrimsIntoDocument
   // awaits it) so the glyphs are on the first render.
-  function addImportedTextObject(x, y, text, sizeMm, dir) {
+  // Re-place an imported text frame against the anchor it was created from
+  // (SVG text-anchor -> align). The frame's p0 is not the anchor: for middle/
+  // end anchors p0 is offset by half/full width, so it must be recomputed with
+  // the REAL measured width — the initial estimate (len * h * 0.55) is only a
+  // placeholder and would leave centered/right text off its SVG anchor.
+  function refitImportedText(ent) {
+    if (!ent || ent.type !== 'text') return false;
+    const m = textMetricsOf(ent);
+    if (!m) return false;
+    const p0 = P(ent.p0), qw = P(ent.pw), qh = P(ent.ph);
+    if (!p0 || !qw || !qh) return false;
+    const ax = (qw.x - p0.x), ay = (qw.y - p0.y);
+    const al = Math.hypot(ax, ay) || 1;
+    const ux = ax / al, uy = ay / al;
+    const hx = qh.x - p0.x, hy = qh.y - p0.y;
+    const hl = Math.hypot(hx, hy) || 1;
+    const hh = hl;                                 // keep the user-set height
+    const ww = hh * (m.width / m.height);
+    const align = ent.align === 'center' || ent.align === 'right' ? ent.align : 'left';
+    const off = align === 'center' ? ww / 2 : align === 'right' ? ww : 0;
+    // anchor point (stored at creation); fall back to the current p0+off
+    const ax0 = isFinite(+ent.ax) ? +ent.ax : p0.x + ux * off;
+    const ay0 = isFinite(+ent.ay) ? +ent.ay : p0.y + uy * off;
+    p0.x = ax0 - ux * off;
+    p0.y = ay0 - uy * off;
+    qw.x = p0.x + ux * ww;
+    qw.y = p0.y + uy * ww;
+    qh.x = p0.x + hx / hl * hh;
+    qh.y = p0.y + hy / hl * hh;
+    ensureTextAspect(ent);
+    requestSolve();
+    return true;
+  }
+
+  function addImportedTextObject(x, y, text, sizeMm, dir, align) {
     const d = dir || {};
     const ux = isFinite(d.ux) ? d.ux : 1, uy = isFinite(d.uy) ? d.uy : 0;
     const vx = isFinite(d.vx) ? d.vx : 0, vy = isFinite(d.vy) ? d.vy : 1;
     const h = clamp(sizeMm, 0.5, 500);
     const w = Math.max(h, String(text).length * h * 0.55);
+    // SVG text-anchor (start|middle|end) -> entity align (left|center|right).
+    // The anchor X is the reference point; shift the whole frame left so the
+    // centered/right-aligned line lands at that anchor.
+    const al = align === 'center' || align === 'right' ? align : 'left';
+    const off = al === 'center' ? w / 2 : al === 'right' ? w : 0;
+    const ax = x - ux * off, ay = y - uy * off;
     const p0 = newId();
-    state.points[p0] = { id: p0, x, y };
+    state.points[p0] = { id: p0, x: ax, y: ay };
     const pwId = newId();
-    state.points[pwId] = { id: pwId, x: x + ux * w, y: y + uy * w };
+    state.points[pwId] = { id: pwId, x: ax + ux * w, y: ay + uy * w };
     const phId = newId();
-    state.points[phId] = { id: phId, x: x - vx * h, y: y - vy * h };
+    state.points[phId] = { id: phId, x: ax - vx * h, y: ay - vy * h };
     const idW = newId();
     state.entities[idW] = { id: idW, type: 'line', a: p0, b: pwId, color: '#00ff00' };
     const idH = newId();
@@ -16000,27 +16617,11 @@
     const ent = {
       id, type: 'text', p0, pw: pwId, ph: phId, guide: [idW, idH],
       text: String(text), font: TEXT_DEFAULT_FONT, weight: 400, italic: false, tracking: 0,
-      color: ui.color
+      color: ui.color, align: al,
+      ax: x, ay: y
     };
     state.entities[id] = ent;
-    const fit = () => {
-      const m = textMetricsOf(ent);
-      const q0 = P(ent.p0), qw = P(ent.pw), qh = P(ent.ph);
-      if (!m || !q0 || !qw || !qh) return;
-      const ww = sizeMm * (m.width / TEXT_REF);
-      const hh = sizeMm * (m.height / TEXT_REF);
-      const dx = qw.x - q0.x, dy = qw.y - q0.y;
-      const dl = Math.hypot(dx, dy) || 1;
-      qw.x = q0.x + dx / dl * ww;
-      qw.y = q0.y + dy / dl * ww;
-      const ex = qh.x - q0.x, ey = qh.y - q0.y;
-      const el = Math.hypot(ex, ey) || 1;
-      qh.x = q0.x + ex / el * hh;
-      qh.y = q0.y + ey / el * hh;
-      ensureTextAspect(ent);
-      requestSolve();
-    };
-    fit();
+    refitImportedText(ent);
     return id;
   }
 
@@ -16239,11 +16840,11 @@
         if (imgId) made++;
         continue;
       }
-      // keep-original off: every line snaps to the nearest MiniSketch (KaryaCNC
-      // operation) colour and nothing keeps a fill — same shape, machine ready
-      const color = o.keepColors === false
-        ? ((pr.color ? nearestCncColor(pr.color) : null) || ui.color)
-        : (pr.color || ui.color);
+      // Every colour must land on a real KaryaCNC stroke code: palette codes
+      // stay as-is, other file colours snap to their nearest operation, a
+      // colour with no reasonable match (or white) becomes Cut, and a colour
+      // the file never states falls back to the working colour.
+      const color = importColorNormalized(pr.color) || ui.color;
       if (pr.kind === 'circle') {
         const id = newId();
         state.entities[id] = { id, type: 'circle', c: addPoint([pr.cx, pr.cy]), r: pr.r * scale, color };
@@ -16253,13 +16854,27 @@
       const straight = pr.nodes.every(nd => !nd.o && !nd.i);
       const ids = pr.nodes.map(nd => addPoint(nd.p));
       if (straight) {
-        const last = pr.closed ? ids.length : ids.length - 1;
+        // A closed prim (rect, ellipse outline, closed path) is ALREADY one
+        // complete loop: it must never take part in endpoint joining, or a
+        // vertex/edge shared between two shapes welds them into one mixed
+        // contour — two adjacent boxes collapse into a single loop plus
+        // leftover centre lines. Only OPEN chains join. Also drop the
+        // duplicated closing node some files emit (first === last), so no
+        // zero-length closing segment is created.
+        let chain = ids;
+        if (pr.closed && chain.length > 2) {
+          const p0 = state.points[chain[0]], pn = state.points[chain[chain.length - 1]];
+          if (p0 && pn && Math.hypot(p0.x - pn.x, p0.y - pn.y) < 1e-9) {
+            chain = chain.slice(0, -1);
+          }
+        }
+        const last = pr.closed ? chain.length : chain.length - 1;
         for (let i = 0; i < last; i++) {
-          const a = ids[i], b = ids[(i + 1) % ids.length];
+          const a = chain[i], b = chain[(i + 1) % chain.length];
           if (a === b) continue;
           const id = newId();
           state.entities[id] = { id, type: 'line', a, b, color };
-          lineIds.push(id);
+          if (!pr.closed) lineIds.push(id);
           made++;
         }
       } else {
@@ -18567,7 +19182,11 @@
       // unreachable. Weight and Style in the row below pick the face.
       for (const cat of reg.categories()) {
         if (cat === 'Imported' && !reg.imported().length) continue;
-        if (cat === 'System' && !(reg.systemList && reg.systemList().length)) continue;
+        // The System group lists only families this machine has that the
+        // catalogue does NOT bundle; a bundled family that is also installed
+        // (Carlito) shows once under its own category and must not create an
+        // empty System group or answer the System checkbox.
+        if (cat === 'System' && !(reg.systemList && reg.systemList().some(f => !reg.known(f.family)))) continue;
         const g = document.createElement('optgroup');
         g.label = cat;
         sel.appendChild(g);
@@ -18582,8 +19201,13 @@
         }
         if (cat === 'System') {
           // remembered family names from the Local Font Access scan; the bytes
-          // of one are read the moment it is applied
-          for (const f of reg.systemList()) addOpt(g, f.family, f.family);
+          // of one are read the moment it is applied. A family the catalogue
+          // already bundles (Carlito) is skipped: it is listed once under its
+          // bundled category and always loads from its bundled bytes, so it is
+          // not a "system font" here and must not answer the System checkbox.
+          for (const f of reg.systemList()) {
+            if (!reg.known(f.family)) addOpt(g, f.family, f.family);
+          }
         }
       }
     } else {
@@ -18627,9 +19251,37 @@
   let fontPickBound = false;
   let fontPickKb = -1;   // keyboard-highlighted row index over the visible rows
 
+  // ---- Favourite fonts ------------------------------------------------------
+  // With hundreds of installed families the filter alone is slow to use when you
+  // keep reaching for the same handful. A star on each row toggles a favourite;
+  // favourites float to a group at the top of the list (and survive a reload via
+  // localStorage). Stored as family NAMES, keyed the same way the picker lists
+  // them, so bundled / imported / system families all work.
+  const FONT_FAV_KEY = 'minisketch.fontFavorites.v1';
+  let fontFavorites = new Set();
+  try {
+    const raw = JSON.parse(localStorage.getItem(FONT_FAV_KEY) || '[]');
+    if (Array.isArray(raw)) fontFavorites = new Set(raw.filter(x => typeof x === 'string'));
+  } catch (err) { /* private mode / corrupt: start empty */ }
+
+  function fontFavSave() {
+    try { localStorage.setItem(FONT_FAV_KEY, JSON.stringify([...fontFavorites])); }
+    catch (err) { /* private mode: favourites just do not persist */ }
+  }
+  const fontFavIs = (family) => fontFavorites.has(family);
+  function fontFavToggle(family) {
+    if (fontFavorites.has(family)) fontFavorites.delete(family);
+    else fontFavorites.add(family);
+    fontFavSave();
+    // the visible list re-orders (favourites float up) and the star flips
+    fontPickKb = -1;
+    fontPickRender();
+  }
+
   // The rows the panel should show right now: filter by the typed name, drop
-  // the System group when the checkbox says so, and always keep the applied
-  // family reachable even when its group is filtered off.
+  // the System group when the checkbox says so, always keep the applied family
+  // reachable even when its group is filtered off, and float FAVOURITES to a
+  // group at the top so a hand-picked shortlist survives a long catalogue.
   function fontPickVisibleRows() {
     const sel = document.getElementById('text-font');
     if (!sel) return [];
@@ -18649,11 +19301,19 @@
         const v = o.value || o.textContent;
         if (v === current) seenCurrent = true;
         if (q && v.toLowerCase().indexOf(q) < 0) continue;
-        rows.push({ group, value: v });
+        rows.push({ group, value: v, fav: fontFavIs(v) });
       }
     }
-    if (current && !seenCurrent) rows.unshift({ group: '', value: current, pinned: true });
-    return rows;
+    if (current && !seenCurrent) rows.unshift({ group: '', value: current, pinned: true, fav: fontFavIs(current) });
+    // Float favourites into one group at the very top (the applied/current row
+    // stays pinned above them). Non-favourites keep their category order.
+    const pinned = rows.filter(r => r.pinned);
+    const favs = rows.filter(r => !r.pinned && r.fav);
+    const rest = rows.filter(r => !r.pinned && !r.fav);
+    const out = pinned.slice();
+    if (favs.length) for (const f of favs) out.push({ group: 'Favorites', value: f.value, fav: true });
+    for (const r of rest) out.push(r);
+    return out;
   }
 
   function fontPickRender() {
@@ -18687,8 +19347,22 @@
       row.className = 'font-pick-row' +
         (r.value === sel.value ? ' active' : '') +
         (i === fontPickKb ? ' kb' : '');
-      row.textContent = r.value;
       row.title = r.value;
+      // Star toggles the favourite; it must not also choose the font, so the
+      // click stops here before the row's own choose handler.
+      const star = document.createElement('span');
+      star.className = 'font-pick-star' + (r.fav ? ' on' : '');
+      star.textContent = r.fav ? '\u2605' : '\u2606';
+      star.title = r.fav ? 'Remove from favourites' : 'Add to favourites';
+      star.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        fontFavToggle(r.value);
+      });
+      row.appendChild(star);
+      const label = document.createElement('span');
+      label.className = 'font-pick-name';
+      label.textContent = r.value;
+      row.appendChild(label);
       row.addEventListener('click', () => fontPickChoose(r.value));
       list.appendChild(row);
     }
@@ -19113,14 +19787,21 @@
     ctx.fillStyle = ink;
     ctx.clearRect(0, 0, cvs.width, cvs.height);
     if (!text) return;
+    const wantW = +wt || 400;
+    const wantS = it === '1' ? 'italic' : 'normal';
     if (!single && window.MiniSketchFonts &&
-      !window.MiniSketchFonts.registered(family, +wt || 400, it === '1' ? 'italic' : 'normal')) {
+      window.MiniSketchFonts.hasMember(family, wantW, wantS) &&
+      !window.MiniSketchFonts.registered(family, wantW, wantS)) {
       // An imported / bundled face may still be arriving: paint the fallback
-      // now, then repaint once it lands. Only repaint when the load actually
-      // registered the face — otherwise an unknown family would re-schedule
-      // itself forever. The member matters: a Bold-only family would report
-      // itself unregistered for a Regular request and repaint in a loop.
-      window.MiniSketchFonts.load(family, +wt || 400, it === '1' ? 'italic' : 'normal').then((ok) => {
+      // now, then repaint once it lands. Gate on `hasMember` — a member the
+      // family actually ships — AND not-yet-registered. Scheduling on the bare
+      // exact-member check alone froze the tab: for a weight the family does
+      // not have (Light on a Regular-only pick) `load` resolves true off a
+      // fallback member but the requested member never registers, so this
+      // re-scheduled itself in an endless promise loop. `hasMember` is false
+      // for such a request, so there is nothing to wait for — the browser
+      // renders the closest face the family does have.
+      window.MiniSketchFonts.load(family, wantW, wantS).then((ok) => {
         if (!ok) return;
         const f2 = document.getElementById('text-font');
         if (f2 && f2.value === family && ui.textEdit) renderTextPreview();
@@ -19148,7 +19829,16 @@
       asc = size * 0.72;
       H = asc + size * 0.05 + lineHeight * (lines.length - 1);
     } else {
-      ctx.font = (it === '1' ? 'italic ' : '') + wt + ' ' + size + 'px ' + family;
+      // Resolve to a member the family really has, so the preview shows the real
+      // letterforms (no Chrome synthetic bold) and matches what -> Curve will
+      // produce for the same family/weight.
+      const regP = window.MiniSketchFonts;
+      let useW = +wt || 400, useS = it === '1' ? 'italic' : 'normal';
+      if (regP && regP.resolveFace) {
+        const face = regP.resolveFace(family, useW, useS);
+        if (face) { useW = face.weight; useS = face.style; }
+      }
+      ctx.font = (useS === 'italic' ? 'italic ' : '') + useW + ' ' + size + 'px ' + family;
       if ('letterSpacing' in ctx) ctx.letterSpacing = ((tr || 0) / 100) * size + 'px';
       for (const line of lines) {
         const mw = ctx.measureText(line.length ? line : 'M').width;
@@ -20938,16 +21628,21 @@
     const nxs = g.nx * sign;
     const nys = -g.ny * sign;
     const labelTxt = labelText || dimMeasureLabel(c, g);
-    drawLabel(c.reference ? '(' + labelTxt + ')' : labelTxt, mx + nxs * 13, my + nys * 13, c.id, isSel);
+    // dimMeasureLabel already carries its own parentheses; the plain labelText
+    // path (point-to-line) keeps the reference wrapper as before.
+    drawLabel(labelText && c.reference ? '(' + labelTxt + ')' : labelTxt,
+      mx + nxs * 13, my + nys * 13, c.id, isSel);
   }
 
   // Label of a point-to-point measure: the axis letter (D/H/V) plus the value
-  // it measures — X span for H, Y span for V, straight distance for D.
+  // it measures — X span for H, Y span for V, straight distance for D. D is
+  // the default measure and carries no letter, and the whole label is one pair
+  // of parentheses: (100), (H 100), (V 100) — never nested.
   function dimMeasureLabel(c, g) {
     if (c.kind) return 'R ' + (c.reference ? '(' + fmt(c.value) + ')' : fmt(c.value));
-    if (c.axis === 'x') return 'H ' + fmt(Math.abs(g.p2.x - g.p1.x));
-    if (c.axis === 'y') return 'V ' + fmt(Math.abs(g.p2.y - g.p1.y));
-    return 'D ' + (c.reference ? '(' + fmt(c.value) + ')' : fmt(c.value));
+    if (c.axis === 'x') return '(H ' + fmt(Math.abs(g.p2.x - g.p1.x)) + ')';
+    if (c.axis === 'y') return '(V ' + fmt(Math.abs(g.p2.y - g.p1.y)) + ')';
+    return '(' + fmt(c.reference ? c.value : Math.hypot(g.p2.x - g.p1.x, g.p2.y - g.p1.y)) + ')';
   }
 
   function pointDimGeom(c) {
@@ -21792,6 +22487,10 @@
     ctx.restore();
   }
 
+  // (removed) gate flash: the old canvas ring at the press point when the drag
+  // gate passed. Feedback now lives on the Select tool ribbon icon (see
+  // flashSelectToolReady / armDragFeedback).
+
   function drawEmptyState() {
     if (Object.keys(state.entities).length) return;
     ctx.save();
@@ -22150,10 +22849,18 @@
     const qbHas = !!selectionBounds();
     document.querySelectorAll('[data-quick]').forEach(b => { b.disabled = !qbHas; });
     document.querySelectorAll('.qb-act').forEach(b => { b.disabled = !qbHas; });
-    // arrange tab: align needs >=2 units, distribute needs >=3
-    const nArr = arrangeableUnits().length;
+    // arrange tab: align needs >=2 units, distribute needs >=3, insert needs
+    // at least one green (construction) box + one other object
+    const unitsArr = arrangeableUnits();
+    const nArr = unitsArr.length;
+    const insertInput = collectInsertInput();
     document.querySelectorAll('[data-arrange]').forEach(b => {
-      const dist = b.dataset.arrange === 'dist-h' || b.dataset.arrange === 'dist-v';
+      const k = b.dataset.arrange;
+      const dist = k === 'dist-h' || k === 'dist-v';
+      if (k === 'insert') {
+        b.disabled = !(insertInput.target.length && insertInput.items.length);
+        return;
+      }
       b.disabled = dist ? nArr < 3 : nArr < 2;
     });
     document.querySelectorAll('.tool-btn').forEach(b => {
@@ -24097,6 +24804,14 @@
         const sel = selectionBodyDragFor(world);
         if (sel) ui.drag = sel;
       }
+      // The drag is armed (dwell served / touch immediate): acknowledge it on
+      // the Select ribbon icon — covers text, notes and every other entity.
+      // The press-time timer (armDragFeedback) may have flashed already at the
+      // dwell boundary; don't flash twice for the same press.
+      if (ui.drag && !d.armedFlashed) {
+        d.armedFlashed = true;
+        flashSelectToolReady(true, 'entity-dwell');
+      }
     }
     updateUI();
     render();
@@ -24443,6 +25158,9 @@
             moved: false,
             startWorld: world
           };
+          // point drag: arms right after the drag gate — flash at press time
+          // so a held press shows it even before any movement
+          armDragFeedback(ui.drag, DRAG_GATE_MS, 'point-gate');
           updateUI();
           render();
         }
@@ -24640,6 +25358,9 @@
           if (body) {
             pushHistory();
             ui.drag = body;
+            // selected framed object: the drag is armed immediately — flash
+            // the Select ribbon icon so text/notes give the same cue
+            flashSelectToolReady(true, 'framed-immediate');
             updateUI();
             render();
             return;
@@ -24667,6 +25388,9 @@
           },
           moved: false
         };
+        // press on an entity (line / text / note / ...): the drag arms at the
+        // dwell — flash at press time so holding still shows it too
+        armDragFeedback(ui.drag, PRESS_DWELL_MS, 'pressEntity-dwell');
         render();
         return;
       }
@@ -24695,6 +25419,7 @@
         const editableLoop = loopEntities(loop)
           .some(eid => { const e = state.entities[eid]; return e && entityEditable(e); });
         if (!editableLoop) {
+          // locked/non-editable loop: plain marquee — no drag-ready flash
           ui.drag = { kind: 'rubber', start: pos, additive: addMod || subMod, subtract: ev.altKey };
           render();
           return;
@@ -24719,6 +25444,11 @@
           mouse: ev.pointerType !== 'touch',
           crossLayer: !!(ev.ctrlKey && ev.shiftKey)
         };
+        // held press inside a loop: the "ready" moment is the dwell — after
+        // PRESS_DWELL_MS a drag selects and moves the loop (before that it is
+        // the rectangle selection). Arm the feedback at press time so holding
+        // still still flashes when the threshold passes.
+        armDragFeedback(ui.drag, PRESS_DWELL_MS, 'loop-dwell');
         render();
         return;
       }
@@ -24737,6 +25467,7 @@
           Math.abs(pos.y - lastTap.y) < DOUBLE_TAP_SLOP;
         if (dbl) {
           lastTap = null;
+          // double-tap rubber marquee — no drag-ready flash
           ui.drag = {
             kind: 'rubber', start: pos, additive: false, subtract: ev.altKey || ui.altToggle,
             crossLayer: false
@@ -24753,6 +25484,8 @@
       // rectangle selection: Shift adds to the selection (the classic), Ctrl
       // adds too, Alt takes the rectangle's contents back out. Ctrl+Shift is
       // cross-layer: it reaches into every visible, unlocked layer.
+      // No drag-ready flash here: this is a pure marquee (selection) gesture —
+      // the flash is reserved for presses that arm an object drag.
       ui.drag = { kind: 'rubber', start: pos, additive: addMod || subMod, subtract: ev.altKey || ui.altToggle, crossLayer: !!(ev.ctrlKey && ev.shiftKey) };
       return;
     }
@@ -26082,6 +26815,7 @@ function cmdSplitCurve() {
         if (performance.now() - d.downAt < PRESS_DWELL_MS) {
           // Same modifier language as a press on empty space: Ctrl or Shift
           // adds to the marquee, Alt takes the rectangle's contents out.
+          // This is a pure marquee (selection) gesture — no drag-ready flash.
           ui.drag = {
             kind: 'rubber',
             start: d.start,
@@ -26113,10 +26847,17 @@ function cmdSplitCurve() {
         // fast flick that stops moving sends no later move events, and without
         // the replay such a drag would never start at all.
         d.gateEv = ev;
+        d.gatePos = { x: pos.x, y: pos.y };
         if (!d.gateTimer) {
           d.gateTimer = setTimeout(() => {
             d.gateTimer = 0;
-            if (ui.drag === d && !d.moved && d.gateEv) onPointerMove(d.gateEv);
+            if (ui.drag === d && !d.moved) {
+              // The gate has passed: replay the earliest movement so a drag
+              // started too early is never lost. The "ready" feedback itself
+              // is armed at press time (armDragFeedback), so it shows even
+              // when the pointer never moved.
+              if (d.gateEv) onPointerMove(d.gateEv);
+            }
           }, DRAG_GATE_MS - (performance.now() - ui._downAt));
         }
         return;
@@ -31115,10 +31856,8 @@ function cmdSplitCurve() {
       if (modal) modal.classList.add('hidden');
       pendingCdr = null;
       const sel = document.getElementById('cdr-text-mode');
-      const keep = document.getElementById('cdr-keep-color');
       await importPrimsIntoDocument(filterImportPages(prims, pages, 100), 1, 'CDR', {
         textMode: sel ? sel.value : 'comment',
-        keepColors: keep ? keep.checked : true,
         flipY: true,
         avoidExisting: true,
         ...importJoinOpts('cdr')
@@ -32697,9 +33436,14 @@ function cmdSplitCurve() {
     // the remembered name; only an explicit Save As still asks for a name.
     const date = new Date();
     const stamp = date.toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    const written = downloadBlob('sketch-' + stamp + '.sketch', new Blob([text], { type: 'application/json' }), forcePicker);
+    // Ask for a name whenever there is not yet a document name (first save), so
+    // the user is never left guessing where/under what the file landed — the
+    // toast below then says where to look for it.
+    const ask = forcePicker || !save.name;
+    const written = downloadBlob('sketch-' + stamp + '.sketch', new Blob([text], { type: 'application/json' }), ask);
     if (written) setFileName(written);
-    toast('Downloaded .sketch file');
+    toast('Downloaded ' + written + ' — check your browser\u2019s Downloads folder' +
+      (ask ? ' (you picked the name)' : ''));
   }
 
   // Downloads ask for the file name and remember the last one (browser only):
@@ -32777,7 +33521,10 @@ function cmdSplitCurve() {
   }
 
   function saveApiAvailable() {
-    return !isWailsRuntime() && !isEmbedded() &&
+    // No longer blocks the picker on `embedded`: inside a same-origin frame
+    // Chrome/Edge can still open the native Save dialog. If the browser or
+    // the context refuses, saveTextAs falls back to the download path anyway.
+    return !isWailsRuntime() &&
       typeof window.showSaveFilePicker === 'function' &&
       typeof window.isSecureContext !== 'undefined' && window.isSecureContext;
   }
@@ -33676,13 +34423,31 @@ function cmdSplitCurve() {
           wanted.add(e.font + '|' + (e.weight || 400) + '|' + (e.italic ? 'italic' : 'normal'));
         }
       }
+      // A text in a SYSTEM font is not "known" (it is not in the bundled
+      // catalogue), so the loop above skipped it — after a restart its face was
+      // never read, textMetricsOf returned null and the canvas drew an empty
+      // frame until the user pressed Apply again (which is what finally called
+      // loadSystem). Ask for those here too: the local-fonts permission, once
+      // granted, persists across a reload, so loadSystem can read the bytes
+      // silently at startup and the text renders on the first paint.
+      for (const e of Object.values(state.entities)) {
+        if (e.type !== 'text' || !e.font || window.MiniSketchFonts.known(e.font)) continue;
+        const sys = window.MiniSketchFonts.systemList ? window.MiniSketchFonts.systemList() : [];
+        if (!sys.some(f => f.family === e.font)) continue;
+        wanted.add(e.font + '|' + (e.weight || 400) + '|' + (e.italic ? 'italic' : 'normal'));
+      }
       for (const key of wanted) {
         const [fam, w, st] = key.split('|');
         window.MiniSketchFonts.load(fam, +w, st).then((ok) => {
           if (ok) {
             for (const e of Object.values(state.entities)) {
               if (e.type === 'text' && e.font === fam && (e.weight || 400) === +w &&
-                (e.italic ? 'italic' : 'normal') === st) ensureTextAspect(e);
+                (e.italic ? 'italic' : 'normal') === st) {
+                // real metrics are available now: re-place imported text frames
+                // against their anchor (the estimate is replaced by true width)
+                if (e.ax != null || e.ay != null) refitImportedText(e);
+                else ensureTextAspect(e);
+              }
             }
             requestSolve();
           }

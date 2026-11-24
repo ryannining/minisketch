@@ -470,6 +470,22 @@ button {
   color: var(--accent);
 }
 
+/* Drag-ready flash (Select tool): the icon lights up the moment the drag gate
+   passes, so a drag started too early is visibly acknowledged. */
+.tool-btn.drag-ready {
+  background: var(--accent);
+  border-color: var(--accent-border);
+  color: var(--accent-ink, #fff);
+  box-shadow: 0 0 0 1px var(--accent-border), 0 0 14px rgba(37, 99, 235, 0.45);
+  animation: dragReadyPulse 0.6s ease-out;
+}
+
+@keyframes dragReadyPulse {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+
 .swatches {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1016,6 +1032,22 @@ details[open] > .settings-group-title::before { content: '\25BE'; }
   margin-top: 5px;
 }
 
+/* Rows disabled by a toggle (e.g. AI base URL when "Google Gemini" is checked) */
+.settings-row.off {
+  opacity: 0.45;
+}
+.settings-row.off input,
+.settings-row.off select {
+  pointer-events: none;
+}
+
+/* Text-ish settings (URL / key / model) need room for long values: give the
+   input the whole row and let the label take only what it needs. Numbers keep
+   the compact default above. */
+.settings-row.wide {
+  grid-template-columns: max-content 1fr 24px;
+}
+
 /* help tooltip: floats above the focused input, one instance per modal */
 .settings-tip {
   position: absolute;
@@ -1056,6 +1088,54 @@ details[open] > .settings-group-title::before { content: '\25BE'; }
   border: 1px solid var(--line);
   border-radius: 5px;
 }
+.settings-row input[type="checkbox"] {
+  width: auto;
+  justify-self: start;
+  padding: 0;
+  background: none;
+  border: none;
+}
+/* action button inside a settings row (e.g. "Muat daftar model" for Gemini) */
+.settings-row .btn {
+  white-space: nowrap;
+  padding: 3px 8px;
+  font-size: 10px;
+  justify-self: start;
+}
+.settings-row .ai-model-load {
+  width: 24px;
+  padding: 3px 0;
+  font-size: 11px;
+  text-align: center;
+}
+/* custom model dropdown under the AI model field (Gemini) */
+.settings-dd {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+.settings-dd.hidden { display: none; }
+.settings-dd button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 4px 8px;
+  border: none;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.settings-dd button:hover { background: var(--surface-2-hover); }
 
 .settings-row select {
   padding: 4px 4px;
@@ -2939,6 +3019,14 @@ body.wall-drag-active .stage::after {
 }
 
 /* AI chat tab: reuse .panel/.row/.list/.btn, only the log needs wrapping lines */
+.chat-model-row {
+  margin-bottom: 6px;
+  gap: 5px;
+}
+.chat-model-row .muted {
+  font-size: 10.5px;
+  white-space: nowrap;
+}
 #chat-log { min-height: 110px; max-height: 220px; }
 #chat-log li { display: block; white-space: normal; word-break: break-word; font-size: 11.5px; line-height: 1.45;
   /* full-contrast chat text: the generic .list li grey (text-2) is too dim
@@ -2947,7 +3035,62 @@ body.wall-drag-active .stage::after {
 #chat-log li b { color: var(--accent-ink, inherit); }
 .tab-bar .btn { flex: 1 1 auto; }
 #chat-log li.chat-error { border-color: color-mix(in srgb, #ff0000 45%, transparent); }
+/* archived session rows (LOG tab): override the message-block li layout */
+#chat-log li.chat-session { display: flex; align-items: center; gap: 7px; }
+#chat-log li.chat-session .name { font-weight: 600; color: var(--ink); }
+
+/* image attachments (vision): staged tray above the input + inline thumbnails */
+.chat-pending { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.chat-pending[hidden] { display: none; }
+.chat-pending-item { position: relative; line-height: 0; }
+.chat-pending-item img {
+  height: 40px; max-width: 72px; object-fit: cover;
+  border: 1px solid var(--line); border-radius: 5px; display: block;
+}
+.chat-pending-del {
+  position: absolute; top: -5px; right: -5px; width: 15px; height: 15px;
+  line-height: 13px; text-align: center; padding: 0; font-size: 11px;
+  border-radius: 50%; border: 1px solid var(--line); cursor: pointer;
+  background: var(--panel); color: var(--ink);
+}
+.chat-images {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.chat-thumb {
+  /* full panel width: the attached picture is the main reference for the ask */
+  width: 100%;
+  max-width: none;
+  height: auto;
+  max-height: 280px;
+  object-fit: contain;
+  cursor: zoom-in;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: block;
+  background: #fff;
+}
 .chat-retry { margin-top: 5px; }
+.chat-retry { margin-top: 5px; }
+/* SVG mode: preview + import/copy buttons under an AI reply */
+.chat-svg {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.chat-svg-preview {
+  max-width: 160px;
+  max-height: 90px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  cursor: zoom-in;
+}
+.chat-svg-status { font-size: 10.5px; }
 details.chat-think { margin-top: 5px; font-size: 11px; }
 details.chat-think summary {
   cursor: pointer;
@@ -3037,6 +3180,7 @@ details.chat-think summary:hover { color: #00c96a; }
   color: var(--faint); padding: 5px 8px 2px;
 }
 .font-pick-row {
+  display: flex; align-items: center; gap: 7px;
   padding: 4px 8px; font-size: 12px; color: var(--ink);
   cursor: pointer; border-radius: 6px; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis;
@@ -3044,4 +3188,17 @@ details.chat-think summary:hover { color: #00c96a; }
 .font-pick-row:hover { background: var(--surface-2-hover); }
 .font-pick-row.active { background: var(--accent-soft); color: var(--accent-ink); }
 .font-pick-row.kb { outline: 1px solid var(--accent); }
+/* The favourite star sits left of the name; clicking it toggles and must not
+   choose the font. It gets a wider hit area than its glyph so it is easy to
+   hit in a long list. */
+.font-pick-star {
+  flex: 0 0 auto; width: 16px; text-align: center;
+  color: var(--faint); font-size: 13px; line-height: 1;
+  cursor: pointer; user-select: none;
+}
+.font-pick-star:hover { color: var(--accent-ink); }
+.font-pick-star.on { color: #e8b23a; }
+.font-pick-name {
+  flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis;
+}
 .font-pick-empty { padding: 8px; font-size: 11px; color: var(--faint); }

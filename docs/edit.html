@@ -33,7 +33,7 @@
       <div class="help-nav-title">Topik</div>
       <div class="help-nav-list">
         <a href="index.html" class="help-nav-item">Beranda &amp; Quick Start<span class="nav-kbd">?</span></a>
-        <a href="draw.html" class="help-nav-item">Draw — Menggambar<span class="nav-kbd">L · B · R</span></a>
+        <a href="draw.html" class="help-nav-item">Draw — Menggambar<span class="nav-kbd">B · E · R</span></a>
         <a href="edit.html" class="help-nav-item active">Edit — Mengubah Objek<span class="nav-kbd">Ctrl+Z · Ctrl+G</span></a>
         <a href="arrange.html" class="help-nav-item">Arrange — Susun Objek<span class="nav-kbd">Distribusi</span></a>
         <a href="constrain.html" class="help-nav-item">Constrain — Batasan &amp; Dimensi<span class="nav-kbd">D · O · H/V</span></a>
@@ -41,7 +41,7 @@
         <a href="karyacnc.html" class="help-nav-item">KaryaCNC — Kirim ke Mesin<span class="nav-kbd">Alt+Q</span></a>
         <a href="files.html" class="help-nav-item">Berkas — Open / Import / Save / Export<span class="nav-kbd">Ctrl+O · Ctrl+I · Ctrl+S · Ctrl+E</span></a>
         <a href="import.html" class="help-nav-item">Import — SVG / PDF / CDR / DXF</a>
-        <a href="text.html" class="help-nav-item">Teks &amp; Font<span class="nav-kbd">W</span></a>
+        <a href="text.html" class="help-nav-item">Teks &amp; Font<span class="nav-kbd">T</span></a>
         <a href="trace.html" class="help-nav-item">Image Trace — Jejak Gambar<span class="nav-kbd">Ctrl+V</span></a>
         <a href="nesting.html" class="help-nav-item">Nesting — Tata Letak Potongan</a>
         <a href="layers.html" class="help-nav-item">Layers &amp; Pick Filter</a>
@@ -61,7 +61,7 @@
 
         <div class="screenshot">
           <img src="img/screenshots/edit-ribbon.png" alt="Tab Edit aktif di ribbon">
-          <figcaption>Tab Edit aktif: Transform, Offset, Move, Array, Flip X/Y, Rotasi, Group, Ungroup, Clone, Connected, Clean up, dan Boolean Union/Cut/Intersect.</figcaption>
+          <figcaption>Tab Edit aktif: Transform, Offset, Move, Array, Flip X/Y, Rotasi, Group, Ungroup, Clone, Connected, Clean up, dan Boolean Union/Cut/Intersect serta Join/Weld.</figcaption>
         </div>
 
         <h2>1. Pintasan utama di Edit</h2>
@@ -88,7 +88,30 @@
           </tbody>
         </table>
 
-        <h2>2. Transformasi dan Offset</h2>
+        <h2>2. Cara memilih objek</h2>
+        <p>Semua interaksi pemilihan memakai mouse di atas kanvas:</p>
+        <table class="kb">
+          <thead>
+            <tr><th style="width:30%">Gestur</th><th>Hasil</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>Klik kiri</b> pada objek</td><td>Memilih bentuk loop itu saja (bukan isi/children di dalamnya).</td></tr>
+            <tr><td><b>Klik kiri di dalam</b> loop tertutup</td><td>Memilih bentuk loop tersebut.</td></tr>
+            <tr><td><b>Tahan klik lalu tunda (dwell ±200 ms)</b></td><td>Mengangkat gestur "seret objek": objek terpilih di saat itu dan digeser. Melepas tanpa gerak = klik biasa.</td></tr>
+            <tr><td><b>Tarik persegi (marquee) segera</b></td><td>Seleksi marquee — memilih semua titik/objek di dalam persegi. Menekan di atas sebuah garis pun tetap bisa memulai marquee.</td></tr>
+            <tr><td><b>Shift+klik</b></td><td>Menambah ke seleksi, atau mengurangi bila objek itu sudah terpilih (toggle).</td></tr>
+            <tr><td><b>Ctrl+klik</b> pada loop</td><td>Memilih loop itu <b>beserta semua yang ada di dalamnya</b> (children dan lubang).</td></tr>
+            <tr><td><b>Dobel-klik</b> di dalam loop</td><td>Memilih loop beserta seluruh isinya, tanpa pernah meng-toggle keluar (aman untuk memastikan semuanya terpilih).</td></tr>
+            <tr><td><b>Klik kanan</b> (tanpa geser) pada tumpukan objek</td><td>Memilih objek <b>di bawah</b> yang teratas; klik berulang menelusuri makin ke bawah lewat objek yang bertumpuk di titik itu.</td></tr>
+            <tr><td><b>Alt+klik</b></td><td>Sama seperti klik kanan — memilih loop di bawah objek teratas (praktis di Linux, yang sering memakan Alt).</td></tr>
+            <tr><td><b>Seret tombol kanan / tengah</b></td><td>Pan (menggeser kanvas). Seret tombol tengah = pan gaya Inkscape.</td></tr>
+            <tr><td><b>Seret label dimensi</b></td><td>Menggeser label ke samping tanpa mengubah nilainya.</td></tr>
+          </tbody>
+        </table>
+        <div class="callout info"><b>Pick filter (panel Layers):</b> <kbd>1</kbd> titik, <kbd>2</kbd> garis, <kbd>3</kbd> loop — matikan satu jenis agar kursor mengabaikannya total, jadi mengedit titik tidak akan tak sengaja menyambar garis atau loop.</div>
+        <div class="callout info">Seleksi marquee memilih <b>titik-titik</b>; setelah itu objek yang titiknya terpilih ikut terpilih sebagai satu kesatuan. Dobel-klik adalah cara cepat mengambil satu loop lengkap dengan seluruh child-nya.</div>
+
+        <h2>3. Transformasi dan Offset</h2>
         <h3>Transformasi (Ctrl+M)</h3>
         <p>Pindahkan, putar, dan ubah ukuran objek melalui panel Transform yang melayang. Sudut, skala X/Y, dan pergeseran dx/dy dapat diisi langsung. Kunci perbandingan lebar/tinggi dengan ikon gembok agar proporsi tetap.</p>
 
@@ -98,7 +121,7 @@
         <h3>Geser (Ctrl+Shift+M)</h3>
         <p>Pilih titik referensi (juga menempel ke marker part), lalu tujuan, kemudian konfirmasi dx dan dy.</p>
 
-        <h2>3. Grup dan Boolean</h2>
+        <h2>4. Grup dan Boolean</h2>
         <h3>Group / Ungroup (Ctrl+G / Ctrl+U)</h3>
         <p>Group menggabungkan pilihan menjadi satu objek yang dapat dipindah sebagai satu satuan. Ungroup meledakkan grup kembali ke kurva dan garis yang bisa diedit.</p>
 
@@ -115,7 +138,7 @@
         </table>
         <div class="callout info"><b>Boolean eksak:</b> defaultnya menghitung pada kurva asli (PathBool) — arc tetap arc, sudut tetap eksak, sehingga constraint selamat setelah operasi. Tersedia juga opsi legacy Clipper melalui Settings &rarr; Geometry &rarr; Boolean result.</div>
 
-        <h2>4. Join, Fillet, dan Bersihkan</h2>
+        <h2>5. Join, Fillet, dan Bersihkan</h2>
         <h3>Join points (J)</h3>
         <p>Menyambung titik terpilih yang bersentuh (pada satu spot). Dengan loop tertutup, J membersihkan titik ganda di sekitar setiap loop. Meminta konfirmasi jika lebih dari 100 titik diseleksi.</p>
 

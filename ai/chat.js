@@ -19,6 +19,69 @@
   NS.mode = 'chat';
   let api = null;
 
+  // Settings > AI chat > "Mode SVG (tanpa tools)": the model produces ONE
+  // <svg> instead of driving MiniSketch's tools. Preview + import buttons.
+  NS.svgMode = () => !!(api && api.settings && api.settings.aiModeSvg);
+
+  // Daftar model dari provider AKTIF (Gemini: ListModels; OpenAI-compatible:
+  // GET {base}/models). Dipakai oleh pemilih model di panel chat.
+  async function fetchProviderModels() {
+    if (!api) return null;
+    const g = !!(api.settings && api.settings.aiProviderGoogle);
+    const base = g
+      ? 'https://generativelanguage.googleapis.com/v1beta'
+      : String((api.settings && api.settings.aiApiUrl) || '').trim();
+    const key = String((api.settings && api.settings.aiApiKey) || '').trim();
+    if (!base || !key) return null;
+    try {
+      const r = await fetch('/api/models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: { baseUrl: base, apiKey: key } })
+      });
+      const j = await r.json().catch(() => ({}));
+      return (Array.isArray(j.models) && j.models.length) ? j.models : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  // Panel title shows the provider/model in use ("AI Chat · Google gemini-…").
+  // Called from mount() and from app.js applySettings() after Settings Apply.
+  NS.updateTitle = () => {
+    const titleEl = document.querySelector('#chat-panel .panel-title');
+    if (!titleEl) return;
+    const label = 'AI Chat';
+    const model = String((api && api.settings && api.settings.aiModel) || '').trim();
+    const google = !!(api && api.settings && api.settings.aiProviderGoogle);
+    const full = model
+      ? label + ' · ' + (google ? 'Google ' : '') + model
+      : label;
+    const count = titleEl.querySelector('.count');
+    titleEl.textContent = '';
+    titleEl.appendChild(document.createTextNode(full + ' '));
+    if (count) titleEl.appendChild(count);
+  };
+
+  // App-specific USER-FACING strings live in ai/ui-strings.js (window.MiniSketchAIStrings).
+  // This is the ONE thing that differs between the upstream MiniSketch (served by
+  // the Node bridge server/serve.js) and the KaryaCNC build (served by its own
+  // built-in Go proxy at /api/chat). Keeping the words there — instead of inline —
+  // lets ai/chat.js stay byte-identical across both apps and safe to sync; only
+  // ui-strings.js is app-specific and never synced. Defaults below = upstream.
+  const STR = Object.assign({
+    offlineNoEndpoint: 'Tidak ada bridge: jalankan "node server/serve.js" lalu buka http://127.0.0.1:8090 (atau isi AI bridge URL di Settings). Offline, command sederhana tetap jalan: "kotak 100x60", "lingkaran d50", "pindah 10,0", "hapus".',
+    errorPrefix: 'Bridge error: ',
+    errorHint: '. Cek server/ai-bridge.js + env.'
+  }, window.MiniSketchAIStrings || {});
+
+  // Policy lives on the FRONTEND (ai/prompt.js): system prompt, tool manifest and
+  // skills are static files fetched at send-time, so tuning them never needs a
+  // rebuild and the SAME chat works against the Node proxy OR the KaryaCNC Go
+  // proxy (both are policy-free streams now).
+  const P = window.MiniSketchAIPrompt || null;
+  const ensurePolicy = () => (P && P.ready ? P.ready() : Promise.resolve());
+
   const HEX_RE = /^#(?:[0-9a-f]{6})$/i;
   // KaryaCNC convention (user's machine): red is a LOW-POWER MARKING line, not
   // a drill/cut color. Through-cut is black; a drilled hole is a black circle.
@@ -48,32 +111,362 @@
 
   const clampPt = (p) => ({ x: clampN(p && p.x), y: clampN(p && p.y) });
 
-  function pushLog(role, text, ops) {
-    NS.log.push({ role, text: String(text == null ? '' : text), ops: ops || null, at: Date.now() });
-    if (NS.log.length > 200) NS.log.splice(0, NS.log.length - 200);
-    persistLog();
+  // ---- image attachments (vision) -----------------------------------------
+  // A user can attach/paste/drop an image ("bikin sketch sesuai gambar ini").
+  // The image rides along as an OpenAI-style multimodal content part:
+  //   content: [{type:'text', text}, {type:'image_url', image_url:{url:dataURL}}]
+  // Only two backends see it — the proxy forwards `messages` verbatim, so the
+  // provider must be vision-capable for images to actually be understood.
+  const IMG_MAX_DIM = 1024;   // downscale the long edge: huge photos waste tokens
+  const IMG_MAX_BYTES = 4 * 1024 * 1024;
+  NS.pendingImages = [];      // dataURLs staged for the NEXT send
+
+  function isImageFile(f) {
+    return f && typeof f.type === 'string' && f.type.startsWith('image/');
   }
 
-  // Chat survives a page refresh: same localStorage pattern as the document
-  // (STORAGE_KEY) and settings (SETTINGS_KEY) in app.js. Transient agent
-  // phases ("berpikir…") are never saved — only finished turns are.
-  const CHAT_KEY = 'minisketch.chat.v1';
-  function persistLog() {
-    try {
-      const done = NS.log.filter(m => m && m.text && !/…\s*$/.test(m.text));
-      localStorage.setItem(CHAT_KEY, JSON.stringify(done.slice(-200)));
-    } catch (err) { /* private mode: the chat just does not survive refresh */ }
+  // Read a File/Blob into a downscaled JPEG/PNG data URL. Keeps screenshots and
+  // phone photos small enough to be cheap, without touching line-art fidelity.
+  function fileToDataURL(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('gagal membaca berkas'));
+      reader.onload = () => {
+        const src = String(reader.result || '');
+        const img = new Image();
+        img.onerror = () => resolve(src);   // not decodable: send as-is
+        img.onload = () => {
+          try {
+            const scale = Math.min(1, IMG_MAX_DIM / Math.max(img.width, img.height));
+            if (scale >= 1 && src.length < IMG_MAX_BYTES) { resolve(src); return; }
+            const w = Math.max(1, Math.round(img.width * scale));
+            const h = Math.max(1, Math.round(img.height * scale));
+            const cv = document.createElement('canvas');
+            cv.width = w; cv.height = h;
+            const ctx = cv.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            // PNG for line-art (crisp), else JPEG to shrink photos
+            const keepPng = /^data:image\/png/.test(src);
+            resolve(cv.toDataURL(keepPng ? 'image/png' : 'image/jpeg', 0.85));
+          } catch (err) { resolve(src); }
+        };
+        img.src = src;
+      };
+      reader.readAsDataURL(file);
+    });
   }
-  function loadLog() {
-    try {
-      const raw = localStorage.getItem(CHAT_KEY);
-      if (!raw) return;
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) {
-        NS.log = arr.filter(m => m && (m.role === 'user' || m.role === 'ai' || m.role === 'sys') &&
-          typeof m.text === 'string' && m.text);
+
+  async function addImageFiles(files) {
+    const imgs = Array.from(files || []).filter(isImageFile);
+    if (!imgs.length) return 0;
+    for (const f of imgs) {
+      try {
+        NS.pendingImages.push(await fileToDataURL(f));
+      } catch (err) {
+        pushLog('sys', 'Gagal memuat gambar: ' + (err && err.message || err));
       }
-    } catch (err) { /* corrupted record: start clean */ }
+    }
+    renderPending();
+    return imgs.length;
+  }
+
+  function renderPending() {
+    const host = document.getElementById('chat-pending');
+    if (!host) return;
+    host.innerHTML = '';
+    const imgs = NS.pendingImages || [];
+    // Show the tray only when there is something staged, else keep it collapsed.
+    // (CSS hides it via .chat-pending[hidden]; without this toggle a staged
+    // image stayed invisible — the tray filled but never appeared.)
+    host.hidden = imgs.length === 0;
+    imgs.forEach((src, i) => {
+      const wrap = document.createElement('span');
+      wrap.className = 'chat-pending-item';
+      const img = document.createElement('img');
+      img.src = src;
+      img.alt = 'lampiran ' + (i + 1);
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'chat-pending-del';
+      del.textContent = '×';
+      del.title = 'Buang gambar ini';
+      del.addEventListener('click', () => {
+        NS.pendingImages.splice(i, 1);
+        renderPending();
+      });
+      wrap.appendChild(img);
+      wrap.appendChild(del);
+      host.appendChild(wrap);
+    });
+  }
+
+  // Collect image files from a clipboard/drag DataTransfer's items.
+  function imagesFromClipboard(dt) {
+    const items = (dt && dt.items) || [];
+    const out = [];
+    for (const it of items) {
+      if (it.kind === 'file') {
+        const f = it.getAsFile && it.getAsFile();
+        if (isImageFile(f)) out.push(f);
+      }
+    }
+    return out;
+  }
+
+  function setupImageInput() {
+    const input = document.getElementById('chat-input');
+    const attach = document.getElementById('chat-attach');
+    const file = document.getElementById('chat-file');
+    if (attach && file) {
+      attach.addEventListener('click', (ev) => { ev.preventDefault(); file.click(); });
+      file.addEventListener('change', () => {
+        addImageFiles(file.files);
+        file.value = '';
+      });
+    }
+    if (input) {
+      // Drag & drop an image file onto the box.
+      input.addEventListener('dragover', (ev) => { ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; });
+      input.addEventListener('drop', (ev) => {
+        ev.preventDefault();
+        if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length) {
+          addImageFiles(ev.dataTransfer.files);
+        }
+      });
+      // Klik di luar panel chat mencabut fokus dari input chat — jadi paste
+      // berikutnya (teks/gambar) mendarat di target aslinya, bukan di chat.
+      document.addEventListener('pointerdown', (ev) => {
+        const t = ev.target;
+        if (t && t.closest && t.closest('#chat-panel')) return;
+        if (document.activeElement === input) input.blur();
+      }, true);
+    }
+    // Paste an image INTO THE CHAT ONLY while the cursor is truly in the chat
+    // input (document.activeElement === #chat-input). Anywhere else — canvas,
+    // kolom lain, select model, dll. — paste diserahkan ke target aslinya
+    // (workspace Image Trace, atau field teks yang sedang fokus). Satu listener
+    // CAPTURE-phase menang sebelum handler workspace:
+    //   • capture runs before the workspace's own bubble-phase paste handler
+    //     (app.js onPasteEvent), which otherwise grabs the image for Image Trace
+    //     and opens its dialog;
+    //   • stopImmediatePropagation() keeps that trace handler from also firing.
+    document.addEventListener('paste', (ev) => {
+      if (document.activeElement !== input) return;     // hanya saat kursor di input chat
+      const imgs = imagesFromClipboard(ev.clipboardData);
+      if (!imgs.length) return;                         // nothing image-y: not ours
+      ev.preventDefault();
+      ev.stopImmediatePropagation();                    // block workspace Image Trace
+      addImageFiles(imgs);
+      if (input) input.focus();                         // ready for a note + Kirim
+    }, true);                                           // capture: win the race
+    renderPending();
+  }
+
+  function pushLog(role, text, ops, images) {
+    const entry = { role, text: String(text == null ? '' : text), ops: ops || null, at: Date.now() };
+    if (images && images.length) entry.images = images.slice();
+    NS.log.push(entry);
+    if (NS.log.length > 200) NS.log.splice(0, NS.log.length - 200);
+    scheduleSave();
+  }
+
+  // ---- session store (IndexedDB) ------------------------------------------
+  // Chat sessions (text AND attached image data URLs) live in IndexedDB:
+  // localStorage's ~5MB quota can't hold downscaled photos, and a session
+  // archive grows past it quickly. Structure:
+  //   • `sessions` store — one record per session (running OR archived):
+  //       { id, title, at, updatedAt, messages: [{role,text,ops,at,done,thinking,retryText,images?}] }
+  //   • `meta` store — ONLY archived sessions (the LOG list), lightweight:
+  //       { id, title, at, updatedAt, count, img }
+  //   • localStorage key CURRENT_ID_KEY — which session is RUNNING right now.
+  // The running session always survives a reload; "New" moves it into `meta`
+  // (LOG), and clicking a LOG entry moves it back to running.
+  const DB_NAME = 'minisketch-chat';
+  const DB_VER = 1;
+  const SESSIONS = 'sessions';
+  const META = 'meta';
+  const CURRENT_ID_KEY = 'minisketch.chat.currentId';
+  const LEGACY_CHAT_KEY = 'minisketch.chat.v1';   // v0 localStorage record, migrated once
+  const lsGet = (k) => { try { return localStorage.getItem(k); } catch (err) { return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (err) { /* private mode */ } };
+  const lsDel = (k) => { try { localStorage.removeItem(k); } catch (err) { /* ignore */ } };
+  let _db = null;
+  const dbOpen = () => new Promise((resolve, reject) => {
+    if (_db) return resolve(_db);
+    let req;
+    try { req = indexedDB.open(DB_NAME, DB_VER); } catch (err) { return reject(err); }
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(SESSIONS)) db.createObjectStore(SESSIONS, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(META)) db.createObjectStore(META, { keyPath: 'id' });
+    };
+    req.onsuccess = () => { _db = req.result; resolve(_db); };
+    req.onerror = () => reject(req.error);
+  });
+  const idbPut = (store, val) => dbOpen().then(db => new Promise((res, rej) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).put(val);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  }));
+  const idbGet = (store, key) => dbOpen().then(db => new Promise((res, rej) => {
+    const tx = db.transaction(store, 'readonly');
+    const rq = tx.objectStore(store).get(key);
+    rq.onsuccess = () => res(rq.result || null);
+    rq.onerror = () => rej(rq.error);
+  }));
+  const idbDel = (store, key) => dbOpen().then(db => new Promise((res, rej) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).delete(key);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  }));
+  const idbAll = (store) => dbOpen().then(db => new Promise((res, rej) => {
+    const tx = db.transaction(store, 'readonly');
+    const rq = tx.objectStore(store).getAll();
+    rq.onsuccess = () => res(rq.result || []);
+    rq.onerror = () => rej(rq.error);
+  }));
+
+  // Mark a live entry as a FINISHED turn so it is kept on save. We used to
+  // guess by "text doesn't end in …", but the FINAL phase of a turn ends in …
+  // too ("… memverifikasi…", '… Ketik "lanjutkan"…'), so the last AI message —
+  // the one carrying the thinking — was dropped and a refresh left only the
+  // first user line. An explicit flag is reliable.
+  function markDone(m) { if (m) m.done = true; }
+
+  // The persistent picture of the RUNNING session: finished turns only. A live
+  // agent message ("berpikir…") gets `done` when its turn completes, so this
+  // filter is the same "finished" notion as the old v0 persistLog.
+  function finishedMessages() {
+    return NS.log.filter(m => m && (m.role === 'user' || m.done) && typeof m.text === 'string')
+      .map(m => {
+        const c = Object.assign({}, m);
+        if (c.images && Array.isArray(c.images)) {
+          c.images = c.images.filter(s => typeof s === 'string' && s.startsWith('data:image/'));
+          if (!c.images.length) delete c.images;
+        } else if (c.images) delete c.images;
+        return c;
+      })
+      .slice(-200);
+  }
+  function sessionTitle(msgs) {
+    const u = msgs.find(m => m.role === 'user');
+    const t = u ? String(u.text || '').replace(/\s+/g, ' ').trim() : '';
+    if (t) return t.length > 48 ? t.slice(0, 48) + '…' : t;
+    return (u && u.images && u.images.length) ? '(gambar)' : 'Percakapan baru';
+  }
+  function saveCurrentSession() {
+    if (!NS.sessionId) return Promise.resolve();
+    const msgs = finishedMessages();
+    return idbPut(SESSIONS, {
+      id: NS.sessionId,
+      title: sessionTitle(msgs),
+      at: NS.sessionAt || Date.now(),
+      updatedAt: Date.now(),
+      messages: msgs
+    }).catch(() => { /* IDB unavailable: chat won't survive refresh */ });
+  }
+  let _saveTimer = null;
+  function scheduleSave() {
+    if (!NS.sessionId) return;
+    if (_saveTimer) return;
+    _saveTimer = setTimeout(() => { _saveTimer = null; saveCurrentSession(); }, 120);
+  }
+  function sanitizeMessages(arr) {
+    return (Array.isArray(arr) ? arr : [])
+      .filter(m => m && (m.role === 'user' || m.role === 'ai' || m.role === 'sys') &&
+        typeof m.text === 'string' && m.text)
+      .map(m => {
+        const c = Object.assign({}, m);
+        if (c.images && Array.isArray(c.images)) {
+          c.images = c.images.filter(s => typeof s === 'string' && s.startsWith('data:image/'));
+          if (!c.images.length) delete c.images;
+        } else delete c.images;
+        return c;
+      })
+      .slice(-200);
+  }
+  function newSessionId() {
+    return 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  }
+  // Load the running session (or migrate the v0 localStorage chat once).
+  // Always resolves to a promise so callers can .then() unconditionally.
+  function initSession() {
+    const fresh = () => {
+      NS.sessionId = newSessionId();
+      NS.sessionAt = Date.now();
+      lsSet(CURRENT_ID_KEY, NS.sessionId);
+      return Promise.resolve();
+    };
+    const cur = lsGet(CURRENT_ID_KEY);
+    if (cur) {
+      return idbGet(SESSIONS, cur).then(sess => {
+        if (sess) {
+          NS.sessionId = cur;
+          NS.sessionAt = sess.at;
+          NS.log = sanitizeMessages(sess.messages);
+          return;
+        }
+        return fresh();
+      }).catch(() => { NS.sessionId = newSessionId(); });
+    }
+    const raw = lsGet(LEGACY_CHAT_KEY);
+    if (raw) {
+      try {
+        const arr = JSON.parse(raw);
+        const msgs = sanitizeMessages(arr);
+        if (msgs.length) {
+          NS.sessionId = newSessionId();
+          NS.sessionAt = Date.now();
+          NS.log = msgs;
+          lsSet(CURRENT_ID_KEY, NS.sessionId);
+          lsDel(LEGACY_CHAT_KEY);
+          return saveCurrentSession();
+        }
+      } catch (err) { /* corrupted old record: start clean */ }
+    }
+    return fresh();
+  }
+  // Move the running session into the LOG archive (called by New, and before
+  // resuming a LOG session so nothing currently running is lost).
+  function archiveCurrentSession() {
+    if (NS.sessionId && finishedMessages().length) {
+      return saveCurrentSession().then(() => {
+        const msgs = finishedMessages();
+        return idbPut(META, {
+          id: NS.sessionId,
+          title: sessionTitle(msgs),
+          at: NS.sessionAt || Date.now(),
+          updatedAt: Date.now(),
+          count: msgs.length,
+          img: msgs.some(m => m.images && m.images.length)
+        }).catch(() => {});
+      });
+    }
+    return Promise.resolve();
+  }
+  // Clicking a LOG row moves that session back to running.
+  function resumeSession(id) {
+    return idbGet(SESSIONS, id).then(sess => {
+      if (!sess) return false;
+      NS.sessionId = id;
+      NS.sessionAt = sess.at;
+      NS.log = sanitizeMessages(sess.messages);
+      lsSet(CURRENT_ID_KEY, id);
+      // it is the running session again: drop it from the LOG list
+      return idbDel(META, id).then(() => true);
+    }).catch(() => false);
+  }
+  function deleteArchivedSession(id) {
+    return idbDel(SESSIONS, id).then(() => idbDel(META, id)).catch(() => {});
+  }
+  NS.meta = [];
+  function refreshMeta() {
+    idbAll(META).then(list => {
+      NS.meta = list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      if (NS.mode === 'log') renderLog();
+    }).catch(() => {});
   }
 
   function stateSummary() {
@@ -211,8 +604,17 @@
         return id ? { ok: true, id } : { ok: false, error: 'need 2+ points' };
       }
       case 'add_note': {
-        const id = api.addNote(a.text, clampN(a.x), clampN(a.y));
-        return id ? { ok: true, id } : { ok: false, error: 'bad note' };
+        // The model keeps reaching for add_note for lettering that must appear
+        // ON the part (an editable text object), which is wrong: a note is a
+        // non-machined yellow comment. Rather than trust the prompt alone, the
+        // executor REDIRECTS add_note -> add_text so the user always gets real,
+        // editable text. A workshop-only annotation is rare and not worth the
+        // confusion this causes when the model misroutes visible lettering.
+        if (typeof a.text !== 'string' || !a.text.trim()) return { ok: false, error: 'need text' };
+        const id = api.addText(a.text, clampN(a.x), clampN(a.y), {
+          height: a.height, color: a.color
+        });
+        return id ? { ok: true, id } : { ok: false, error: 'bad note->text params' };
       }
       case 'add_text': {
         if (typeof a.text !== 'string' || !a.text.trim()) return { ok: false, error: 'need text' };
@@ -454,6 +856,11 @@
           ? clampPt(a.at) : undefined;
         const made = api.svgImportInsert(ir, {
           keepGroups: !!a.keepGroups,
+          // The model writes lettering as SVG <text>. Import it as a REAL,
+          // editable text object — not a yellow note. Without textMode:'text'
+          // the importer turned every <text> into a non-machined note, so the
+          // "editable text" the user asked for came out as comments.
+          textMode: 'text',
           ...(at ? { center: at } : {})
         });
         const ids = (made && made.entities) || [];
@@ -502,10 +909,25 @@
   // One batch of ops. `opts.noHistory` continues an agent turn that already
   // pushed history (round 2+ of the verify loop), so the whole agent run
   // stays ONE undo step. Returns per-op results for the agent loop feedback.
-  function applyOps(ops, opts) {
+  async function applyOps(ops, opts) {
     const o = opts || {};
     const list = (ops || []).filter(Boolean);
     if (!list.length) return { made: 0, errors: ['no ops'], results: [] };
+    // import_svg with textMode:'text' creates REAL text objects, whose frame is
+    // fitted from font metrics. If the face isn't loaded yet, fit() measures the
+    // fallback font and the frame comes out wrong — the text is invisible until
+    // a reload re-creates it with the font ready. Await the face first (same as
+    // the PDF/CDR import path). Idempotent/cached, so this is free after once.
+    if (list.some(op => op.name === 'import_svg') && window.MiniSketchFonts) {
+      // Load BOTH faces the AI is allowed to use (Liberation Sans/Serif) so the
+      // fit() inside import uses real metrics whichever one the SVG names.
+      try {
+        await Promise.all([
+          window.MiniSketchFonts.load('Liberation Sans', 400, 'normal'),
+          window.MiniSketchFonts.load('Liberation Serif', 400, 'normal')
+        ]);
+      } catch (err) { /* fall back to whatever metrics we have */ }
+    }
     if (list.length === 1 && (list[0].name === 'call_generator' || list[0].generator)) {
       const g = list[0].name === 'call_generator'
         ? { kind: list[0].arguments.kind, params: list[0].arguments.params }
@@ -514,11 +936,16 @@
       api.commit();
       return { made: r.ok ? 1 : 0, errors: r.ok ? [] : [r.error], results: [{ op: 'call_generator', ok: r.ok, error: r.error }], generator: g.kind };
     }
+    // Destructive ops (remove_entity / delete_selection) used to block on a
+    // modal confirm EVERY round, which broke the agent's self-revision loop.
+    // Now: always push ONE undo step, run the batch, then decide —
+    //   • if everything that disappeared was created by the AI this batch, the
+    //     deletion was the agent cleaning up its own draft: accept silently;
+    //   • if anything PRE-EXISTING (the user's own geometry) was removed, undo
+    //     the batch and ask. One Undo reverts it either way.
     const destructive = list.some(op => op.name === 'remove_entity' || op.name === 'delete_selection');
-    if (destructive && !window.confirm('AI chat wants to delete geometry. Allow? (one Undo reverts it)')) {
-      return { made: 0, errors: ['cancelled by user'], results: [] };
-    }
-    if (!o.noHistory) api.pushHistory();
+    const preIds = destructive ? new Set(Object.keys(api.state.entities)) : null;
+    api.pushHistory();
     const madeIds = [];
     const queryResults = [];
     const errors = [];
@@ -531,8 +958,15 @@
         continue;
       }
       let r;
+      // Surface the EXACT tool call so misroutes (e.g. add_note for lettering)
+      // are visible in the Console instead of only showing up as wrong output.
+      // The millisecond figure shows which op blocks: a big number here means
+      // the freeze is inside this tool's execution, not in the streaming UI.
+      const tOp = performance.now();
       try { r = runOp(op); }
       catch (err) { r = { ok: false, error: String(err && err.message || err) }; }
+      console.log('[AI tool]', op.name, '(' + Math.round(performance.now() - tOp) + 'ms)',
+        JSON.stringify(op.arguments || {}).slice(0, 600));
       results.push({ op: op.name, ok: r.ok, id: r.id, error: r.ok ? undefined : r.error });
       if (r.ok && r.id) madeIds.push(r.id);
       if (r.ok && r.query) queryResults.push({ query: r.query, result: r.result });
@@ -541,6 +975,19 @@
     }
     if (needSolve) { try { api.requestSolve(); } catch (err) { /* solve is best-effort */ } }
     api.commit();
+    // Decide the destructive batch now that it ran (see note above pushHistory):
+    // everything that vanished AND was AI-made this batch = accepted silently;
+    // anything pre-existing that vanished = undo + ask (one Undo reverts it).
+    if (destructive) {
+      const madeSet = new Set(madeIds);
+      const removedPreExisting = [...preIds].filter(id => !api.state.entities[+id] && !madeSet.has(+id));
+      if (removedPreExisting.length &&
+          !window.confirm('AI chat menghapus ' + removedPreExisting.length +
+            ' objek yang sudah ada sebelumnya. Izinkan? (satu Undo membatalkan)')) {
+        api.undo();
+        return { made: 0, errors: ['cancelled by user'], results: [] };
+      }
+    }
     return { made: madeIds.length, ids: madeIds, queryResults, errors, results };
   }
 
@@ -703,20 +1150,26 @@
     const input = String(text == null ? '' : text).trim();
     // a stop press (Kirim becomes Stop while running) aborts the request
     if (NS.activeAbort) { NS.activeAbort.abort(); return; }
-    if (!input || !api) return;
-    pushLog('user', input);
+    if (!input && !(NS.pendingImages && NS.pendingImages.length)) return;
+    if (!api) return;
+    // Stage any attached images onto this turn, then clear the tray.
+    const attached = (NS.pendingImages && NS.pendingImages.length)
+      ? NS.pendingImages.slice() : null;
+    NS.pendingImages = [];
+    renderPending();
+    pushLog('user', input || '(gambar)', null, attached);
     renderLog();
     const url = bridgeUrl();
     if (!url) {
       const parsed = parseLocal(input);
       if (parsed && parsed.ops.length) {
-        const r = applyOps(parsed.ops);
+        const r = await applyOps(parsed.ops);
         const tail = r.errors.length ? ' (' + r.errors[0] + ')' : '';
         pushLog('ai', parsed.reply + tail, parsed.ops);
       } else if (parsed) {
         pushLog('ai', parsed.reply);
       } else {
-        pushLog('ai', 'Tidak ada bridge: jalankan "node server/serve.js" lalu buka http://127.0.0.1:8090 (atau isi AI bridge URL di Settings). Offline, command sederhana tetap jalan: "kotak 100x60", "lingkaran d50", "pindah 10,0", "hapus".');
+        pushLog('ai', STR.offlineNoEndpoint);
       }
       renderLog();
       return;
@@ -742,13 +1195,22 @@
     // (round cap / Stop) and the user says "lanjutkan", the model must know
     // what it already did — not just what it said.
     const history = NS.log.filter(m => m.role !== 'sys')
-      .map(m => ({
-        role: m.role === 'ai' ? 'assistant' : 'user',
-        content: m.text + (m.ops && m.ops.length
+      .map(m => {
+        const note = (m.ops && m.ops.length)
           ? '\n[tools executed in that turn: ' + m.ops.map(o => o.name).join(', ') + ']'
-          : '')
-      }))
-      .filter(m => !m.content.startsWith('…'));
+          : '';
+        const role = m.role === 'ai' ? 'assistant' : 'user';
+        // Multimodal user turn (attached images): content is a parts array.
+        if (Array.isArray(m.images) && m.images.length) {
+          const parts = [{ type: 'text', text: m.text + note }];
+          for (const url of m.images) {
+            parts.push({ type: 'image_url', image_url: { url } });
+          }
+          return { role, content: parts };
+        }
+        return { role, content: m.text + note };
+      })
+      .filter(m => !(typeof m.content === 'string' && m.content.startsWith('…')));
     let lastExec = null;
     NS.requestedSkills = [];               // use_skill ops refill this per turn
     const think = {};                      // round -> reasoning_content (deepseek)
@@ -777,8 +1239,20 @@
     };
     const stopWaitClock = () => { if (waitTimer) { clearInterval(waitTimer); waitTimer = null; } };
     try {
+      // Pull the policy assets (system prompt, tools, skills) before the first
+      // round. Cached by prompt.js after the first load, so this is free on
+      // subsequent turns. Failure degrades to "no system prompt" (chat.js still
+      // sends history; the model just has less guidance).
+      await ensurePolicy();
+      const svgMode = NS.svgMode();
+      const sysMsg = P && P.systemMessage
+        ? P.systemMessage(history, stateSummary(), NS.requestedSkills || [], { svgMode })
+        : null;
+      // SVG mode: no tool manifest at all — the model only returns <svg>.
+      const toolManifest = (!svgMode && P && P.toolManifest) ? P.toolManifest() : [];
       for (let round = 1; round <= MAX_ROUNDS; round++) {
         const messages = [...history];
+        if (sysMsg) messages.unshift(sysMsg);
         if (lastExec) {
           messages.push({
             role: 'user',
@@ -792,23 +1266,40 @@
         startWaitClock(lastExec
           ? 'memeriksa hasil putaran ' + (round - 1) + '…'
           : 'berpikir…');
+        const tRound = performance.now();
+        const payload = {
+          messages,
+          // The tool manifest travels with the request: the policy (which tools
+          // exist) is frontend-owned, the proxy stays policy-free.
+          tools: toolManifest,
+          stateSummary: stateSummary(),
+          agent: { round, maxRounds: MAX_ROUNDS },
+          requestedSkills: NS.requestedSkills || [],
+          // The user's own endpoint settings travel with the request: the key
+          // belongs to whoever runs MiniSketch, and the bridge keeps no copy
+          // of it.
+          settings: {
+            // "Google Gemini" checked => the bridge uses Google's endpoint with
+            // just the key + model; the base-URL field is ignored.
+            baseUrl: api.settings.aiProviderGoogle
+              ? 'https://generativelanguage.googleapis.com/v1beta'
+              : String(api.settings.aiApiUrl || '').trim(),
+            apiKey: String(api.settings.aiApiKey || '').trim(),
+            model: String(api.settings.aiModel || '').trim(),
+            // Settings > AI reasoning level: 'off' | 'low' | 'normal'. The
+            // bridge maps off -> no reasoning, low -> short reasoning (and
+            // reasoning_effort=low for OpenAI-compatible providers), normal ->
+            // full reasoning.
+            thinking: String(api.settings.aiThinkLevel || 'normal')
+          }
+        };
+        const bodyStr = JSON.stringify(payload);
+        console.log('[AI req] putaran ' + round + '/' + MAX_ROUNDS +
+          ' · payload=' + Math.round(bodyStr.length / 1024) + 'KB · msgs=' + messages.length);
         const res = await fetch(url + '/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messages,
-            stateSummary: stateSummary(),
-            agent: { round, maxRounds: MAX_ROUNDS },
-            requestedSkills: NS.requestedSkills || [],
-            // The user's own endpoint settings travel with the request: the key
-            // belongs to whoever runs MiniSketch, and the bridge keeps no copy
-            // of it.
-            settings: {
-              baseUrl: String(api.settings.aiApiUrl || '').trim(),
-              apiKey: String(api.settings.aiApiKey || '').trim(),
-              model: String(api.settings.aiModel || '').trim()
-            }
-          }),
+          body: bodyStr,
           signal: ac.signal
         });
         if (!res.ok) {
@@ -823,6 +1314,7 @@
         const dec = new TextDecoder();
         let buf = '';
         const liveThink = {};
+        NS._lastThinkRound = 0;   // insert the round separator once per round
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -836,12 +1328,20 @@
             try { ev = JSON.parse(line.slice(5)); } catch (err) { continue; }
             if (ev.error) throw new Error(ev.error);
             if (ev.delta && ev.delta.thinking) {
+              if (NS._lastThinkRound !== round) {
+                NS._lastThinkRound = round;
+                if (liveMsg.thinking) liveMsg.thinking += '\n---\n';
+              }
               liveThink[round] = (liveThink[round] || '') + ev.delta.thinking;
               think[round] = liveThink[round];
-              // show reasoning AS IT ARRIVES — the whole point of streaming
-              liveMsg.thinking = Object.keys(think).map(r => think[r]).join('\n---\n');
+              // show reasoning AS IT ARRIVES — the whole point of streaming.
+              // Accumulate APPEND-ONLY: re-joining every round on every chunk is
+              // O(rounds × chars) per chunk; appending is O(chunk).
+              liveMsg.thinking = (liveMsg.thinking || '') + ev.delta.thinking;
               if (!liveMsg.text || liveMsg.text === '…') liveMsg.text = 'berpikir…';
-              renderLog();
+              // Coalesce rapid chunks into at most ~10 renders/second; the live
+              // path renders only the short thinking tail, so this stays cheap.
+              scheduleThinkFlush();
             } else if (ev.done) {
               data = ev;
             }
@@ -850,16 +1350,23 @@
         stopWaitClock();
         if (!data) throw new Error('bridge stream ended without a final event');
         const calls = (data.tool_calls || []).map(tc => ({ name: tc.name, arguments: tc.arguments || {} }));
+        console.log('[AI stream] putaran ' + round + '/' + MAX_ROUNDS + ' selesai dalam ' +
+          Math.round(performance.now() - tRound) + 'ms · tool_calls=' + calls.length +
+          ' · thinking=' + Math.round((liveMsg.thinking || '').length / 1024) + 'KB');
+        for (const c of calls) {
+          console.log('[AI call]', c.name, JSON.stringify(c.arguments || {}).slice(0, 600));
+        }
         const roundThink = String(data.thinking || '');
         if (roundThink) think[round] = roundThink;
         if (!calls.length) {
           // no tool calls = the model is satisfied; this ends the loop
           setPhase((data.reply || 'Selesai.').trim() +
             (round > 1 ? '  (setelah ' + (round - 1) + ' verifikasi)' : ''));
+          markDone(liveMsg);
           break;
         }
         setPhase('mengeksekusi ' + calls.length + ' op (putaran ' + round + '/' + MAX_ROUNDS + ')…', calls);
-        const r = applyOps(calls, { noHistory: round > 1 });
+        const r = await applyOps(calls, { noHistory: round > 1 });
         lastExec = { round, made: r.made, ids: r.ids, errors: r.errors, results: r.results };
         setPhase('putaran ' + round + '/' + MAX_ROUNDS + ': ' + r.made + ' op' +
           (r.errors.length ? ', error: ' + r.errors[0] : ', ok') + ' — memverifikasi…', calls);
@@ -868,6 +1375,7 @@
             (r.errors.length ? ', error: ' + r.errors[0] : '') +
             '. Ketik "lanjutkan" untuk meneruskan, atau tombol Retry untuk mengulang.', calls);
           liveMsg.retryText = input;   // Retry re-runs the whole request
+          markDone(liveMsg);
         }
       }
     } catch (err) {
@@ -879,25 +1387,120 @@
           (liveMsg.thinking ? ' (pikiran terakhir tersimpan di atas)' : '');
         liveMsg.retryText = input;
         liveMsg.ops = [];
+        markDone(liveMsg);
       } else {
         // keep the failing turn retryable: remember what the user asked
-        liveMsg.text = 'Bridge error: ' + (err && err.message || err) + '. Cek server/ai-bridge.js + env.';
+        liveMsg.text = STR.errorPrefix + (err && err.message || err) + STR.errorHint;
         liveMsg.retryText = input;
         liveMsg.ops = [];
+        markDone(liveMsg);
       }
     }
     NS.activeAbort = null;
     NS.setStopVisible(false);
     NS.liveMsg = null;   // the turn is finished: the next render is a full rebuild
     renderLog();
+    scheduleSave();      // persist the finished turn (text + images) right away
   }
 
   // ---- panel ---------------------------------------------------------------
+  // The LOG tab shows only archived SESSIONS (no message content); the input
+  // row and image tray belong to the Chat tab, so they hide in LOG mode.
+  function setChatInputVisible(on) {
+    const row = document.getElementById('chat-input-row');
+    const tray = document.getElementById('chat-pending');
+    if (row) row.hidden = !on;
+    if (tray) tray.hidden = !on || !(NS.pendingImages && NS.pendingImages.length);
+  }
+  function renderSessions(host) {
+    host.innerHTML = '';
+    if (!NS.meta.length) {
+      const li = document.createElement('li');
+      li.innerHTML = '<span class="muted">Belum ada sesi tersimpan — tekan New untuk memindahkan percakapan saat ini ke LOG.</span>';
+      host.appendChild(li);
+      return;
+    }
+    for (const s of NS.meta) {
+      const li = document.createElement('li');
+      li.className = 'chat-session clickable';
+      li.title = 'Klik untuk melanjutkan sesi ini';
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = s.title;
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      const d = s.at ? new Date(s.at) : null;
+      const dateStr = d ? d.toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+      meta.textContent = (s.count != null ? s.count + ' pesan' : '') +
+        (s.img ? ' · 🖼' : '') +
+        (dateStr ? ' · ' + dateStr : '');
+      const del = document.createElement('button');
+      del.className = 'mini-del';
+      del.textContent = '×';
+      del.title = 'Hapus dari LOG';
+      del.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        deleteArchivedSession(s.id).then(refreshMeta);
+      });
+      li.appendChild(name);
+      li.appendChild(meta);
+      li.appendChild(del);
+      li.addEventListener('click', () => {
+        // archive whatever is running now first (same rule as New), then move
+        // the clicked session back to running
+        archiveCurrentSession().then(() => resumeSession(s.id)).then(ok => {
+          if (!ok) { refreshMeta(); return; }
+          setTab('chat');
+          renderLog();
+        });
+      });
+      host.appendChild(li);
+    }
+  }
+  // The model's reasoning is kept in full in memory (and saved), but the DOM
+  // only renders the LAST few paragraphs: laying out a ~1MB text node on every
+  // chunk (stickToBottom -> scrollHeight) was ~80% of the recorded freeze.
+  const THINK_PARAS = 2;
+  const THINK_MAX_CHARS = 8000;
+  const THINK_CUT_NOTE = '[… pemikiran sebelumnya dipotong — hanya 2 paragraf terakhir ditampilkan]\n';
+  function thinkDisplay(s) {
+    s = String(s || '');
+    if (!s) return { text: '', cut: false };
+    let cut = false;
+    let out = s;
+    const paras = s.split(/\n{2,}/);
+    if (paras.length > THINK_PARAS) {
+      out = paras.slice(-THINK_PARAS).join('\n\n');
+      cut = true;
+    }
+    if (out.length > THINK_MAX_CHARS) {
+      out = out.slice(-THINK_MAX_CHARS);
+      cut = true;
+    }
+    return { text: out, cut };
+  }
+  let _thinkFlush = null;
+  function scheduleThinkFlush() {
+    if (_thinkFlush) return;
+    _thinkFlush = setTimeout(() => {
+      _thinkFlush = null;
+      renderLog();
+    }, 100);
+  }
+
   function renderLog() {
     const host = document.getElementById('chat-log');
     const count = document.getElementById('chat-count');
     if (!host) return;
+    if (NS.mode === 'log') {
+      if (count) count.textContent = String(NS.meta.length);
+      NS.liveMsg = null;
+      setChatInputVisible(false);
+      renderSessions(host);
+      return;
+    }
     if (count) count.textContent = String(NS.log.length);
+    setChatInputVisible(true);
     // the streaming turn is over (or spliced away by a retry): drop the ref
     if (NS.liveMsg && NS.log[NS.log.length - 1] !== NS.liveMsg) NS.liveMsg = null;
     // LIVE PATH: the streaming message updates its existing nodes instead of a
@@ -909,7 +1512,14 @@
       let html = who + ' ' + escapeHtml(m.text).replace(/\n/g, '<br>');
       if (m.ops && m.ops.length) html += '<br><span class="muted">' + m.ops.map(o => escapeHtml(o.name)).join(', ') + '</span>';
       NS.liveRefs.text.innerHTML = html;
-      NS.liveRefs.body.textContent = m.thinking || '';
+      // Render ONLY the short thinking tail: the full reasoning still lives in
+      // m.thinking (memory + save), but the DOM node stays small so scrollHeight
+      // reads (stickToBottom) never lay out a megabyte of text again.
+      const disp = thinkDisplay(m.thinking);
+      if (disp.text !== NS.liveRefs.lastThink) {
+        NS.liveRefs.body.textContent = (disp.cut ? THINK_CUT_NOTE : '') + disp.text;
+        NS.liveRefs.lastThink = disp.text;
+      }
       NS.liveRefs.det.open = !(NS.thinkClosed && NS.thinkClosed.has(m));
       // auto-scroll the reasoning box ONLY while the user sits at its bottom;
       // scrolled up to read = we leave their position alone
@@ -917,7 +1527,7 @@
       return;
     }
     host.innerHTML = '';
-    const items = NS.log.filter(m => NS.mode === 'log' ? true : m.role !== 'sys');
+    const items = NS.log.filter(m => m.role !== 'sys');
     if (!items.length) {
       const li = document.createElement('li');
       li.innerHTML = '<span class="muted">Tanya atau perintahkan sesuatu… cth: "kotak 100x60 di 0,0", "4 lubang d5 di sudut", "buatkan box 120x80x60".</span>';
@@ -935,6 +1545,9 @@
       const textSpan = document.createElement('span');
       textSpan.innerHTML = html;
       li.appendChild(textSpan);
+      appendImageThumbs(li, m);
+      // SVG mode: render a preview + import/copy buttons for a produced <svg>
+      if (m.role === 'ai' && NS.svgMode()) appendSvgBlock(li, m);
       // the model's reasoning, collapsible: click to inspect/correct its plan.
       // Default OPEN, and the open state survives a re-render: renderChat
       // rebuilds the whole log on every update, so a <details> the user opened
@@ -955,7 +1568,9 @@
         });
         const body = document.createElement('div');
         body.className = 'chat-think-body';
-        body.textContent = m.thinking;
+        // full thinking stays on the message object; only the tail is rendered
+        const disp = thinkDisplay(m.thinking);
+        body.textContent = (disp.cut ? THINK_CUT_NOTE : '') + disp.text;
         det.appendChild(sum);
         det.appendChild(body);
         li.appendChild(det);
@@ -978,6 +1593,7 @@
             const userEntry = NS.log[at - 1];
             NS.log.splice(userEntry && userEntry.role === 'user' ? at - 1 : at, NS.log.length);
           }
+          scheduleSave();
           send(m.retryText);
         });
         li.appendChild(retry);
@@ -985,6 +1601,112 @@
       host.appendChild(li);
     }
     host.scrollTop = host.scrollHeight;
+  }
+
+  // Inline thumbnails for a turn's attached images (the user's reference
+  // picture stays visible next to what they asked, so the turn reads whole).
+  function appendImageThumbs(li, m) {
+    if (!m || !Array.isArray(m.images) || !m.images.length) return;
+    const row = document.createElement('div');
+    row.className = 'chat-images';
+    for (const src of m.images) {
+      const img = document.createElement('img');
+      img.className = 'chat-thumb';
+      img.src = src;
+      img.alt = 'gambar terlampir';
+      img.addEventListener('click', () => {
+        const w = window.open('');
+        if (w) { const big = w.document.createElement('img'); big.src = src; big.style.maxWidth = '100%'; w.document.body.appendChild(big); }
+      });
+      row.appendChild(img);
+    }
+    li.appendChild(row);
+  }
+
+  // ---- SVG mode -----------------------------------------------------------
+  // Extract the first complete <svg>…</svg> from an AI reply.
+  function extractSvg(text) {
+    const m = String(text == null ? '' : text).match(/<svg[\s\S]*?<\/svg>/i);
+    return m ? m[0] : null;
+  }
+
+  // Insert a pasted SVG into the worksheet, the same way the executor's
+  // import_svg does (one undo step, real editable text for <text>).
+  // Placement: top-RIGHT of the current workspace content + 20mm gap to the
+  // right, so repeated inserts never pile up on top of existing geometry.
+  async function importUserSvg(svgText) {
+    if (typeof api.svgImportParse !== 'function' || typeof api.svgImportInsert !== 'function') return -1;
+    try {
+      const ir = api.svgImportParse(svgText, {
+        prefix: 'svgpaste' + Date.now().toString(36) + '-',
+        // flipY:true = past the SVG as-is (Y-down, the world frame). Only
+        // flipY:false would read it as Y-up and MIRROR it — wrong here.
+        flipY: true
+      });
+      if (!ir.items || !ir.items.length) return 0;
+      const bb = ir.bounds || null;
+      let center = null;
+      try {
+        const ws = api.contentBounds ? api.contentBounds() : null;
+        if (ws && bb && isFinite(bb.maxX)) {
+          const w = bb.maxX - bb.minX;
+          const h = bb.maxY - bb.minY;
+          const right = isFinite(ws.maxX) ? ws.maxX : 0;
+          const top = isFinite(ws.minY) ? ws.minY : 0;
+          center = { x: right + 20 + w / 2, y: top + h / 2 };
+        }
+      } catch (err) { /* fall back to default placement */ }
+      api.pushHistory();
+      const made = api.svgImportInsert(ir, {
+        keepGroups: true,
+        textMode: 'text',
+        ...(center ? { center } : {})
+      });
+      api.commit();
+      const ids = (made && made.entities) || [];
+      if (ids.length) api.ui.selection = ids.map(id => ({ kind: 'entity', id }));
+      return ids.length;
+    } catch (err) {
+      return -2;
+    }
+  }
+
+  function appendSvgBlock(li, m) {
+    const svg = extractSvg(m.text);
+    if (!svg) return;
+    const row = document.createElement('div');
+    row.className = 'chat-svg';
+    const img = document.createElement('img');
+    try { img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); }
+    catch (err) { return; }
+    img.className = 'chat-svg-preview';
+    img.alt = 'pratinjau SVG';
+    img.title = 'Pratinjau SVG — klik untuk perbesar';
+    img.addEventListener('click', () => {
+      const w = window.open('');
+      if (w) { const big = w.document.createElement('img'); big.src = img.src; big.style.maxWidth = '100%'; w.document.body.appendChild(big); }
+    });
+    const status = document.createElement('span');
+    status.className = 'muted chat-svg-status';
+    const paste = document.createElement('button');
+    paste.className = 'btn small';
+    paste.textContent = 'Insert to workspace';
+    paste.title = 'Impor SVG ini ke worksheet: posisi top-right dari konten saat ini + gap kanan 20mm (satu Undo)';
+    paste.addEventListener('click', async () => {
+      const n = await importUserSvg(svg);
+      if (n > 0) {
+        status.textContent = '✓ ' + n + ' objek dimasukkan (top-right + 20mm).';
+        try { api.render && api.render(); } catch (err) { /* ignore */ }
+      } else if (n === 0) {
+        status.textContent = 'Tidak ada bentuk vektor yang terbaca.';
+      } else {
+        status.textContent = 'Impor gagal (SVG tidak valid?).';
+      }
+    });
+    row.appendChild(img);
+    row.appendChild(paste);
+    row.appendChild(status);
+    li.appendChild(row);
   }
 
   // follow the tail of a scrolling element unless the user scrolled up to read
@@ -1003,6 +1725,7 @@
     document.querySelectorAll('[data-chat-tab]').forEach(b => {
       b.classList.toggle('is-on', b.dataset.chatTab === NS.mode);
     });
+    if (NS.mode === 'log') refreshMeta();
     renderLog();
   }
 
@@ -1011,11 +1734,62 @@
   NS.mount = function mount(aiApi) {
     api = aiApi;
     NS._apiRef = aiApi;   // debug/inspection handle
-    loadLog();
-    renderLog();
+    // Restore the running session (text + images) from IndexedDB; the v0
+    // localStorage chat migrates in once.
+    initSession().then(() => renderLog()).catch(() => { renderLog(); });
+    NS.updateTitle();
+    setupImageInput();    // attach/paste/drop image wiring + tray
+    // Preload the only two fonts the AI uses, so an import_svg that lands text
+    // renders immediately: by the time applyOps awaits the face it is already
+    // cached (the await resolves instantly) and the frame is fitted with real
+    // metrics — no late-appearing text, no reload needed.
+    if (window.MiniSketchFonts) {
+      Promise.all([
+        window.MiniSketchFonts.load('Liberation Sans', 400, 'normal'),
+        window.MiniSketchFonts.load('Liberation Serif', 400, 'normal')
+      ]).catch(() => { /* fonts stay on-demand if preload fails */ });
+    }
     document.querySelectorAll('[data-chat-tab]').forEach(b => {
       b.addEventListener('click', () => setTab(b.dataset.chatTab));
     });
+    // Pemilih model di panel chat: 🔄 memuat daftar dari provider aktif,
+    // pilih -> tersimpan ke settings (judul panel ikut terupdate).
+    const modelSel = document.getElementById('chat-model-sel');
+    const modelRefresh = document.getElementById('chat-model-refresh');
+    if (modelSel) {
+      const fill = (models) => {
+        const cur = String((api.settings && api.settings.aiModel) || '').trim();
+        modelSel.innerHTML = '';
+        const ph = document.createElement('option');
+        ph.value = '';
+        ph.textContent = cur || 'pilih model…';
+        modelSel.appendChild(ph);
+        for (const n of models) {
+          const o = document.createElement('option');
+          o.value = n;
+          o.textContent = n;
+          modelSel.appendChild(o);
+        }
+        modelSel.value = cur;
+      };
+      const loadM = (silent) => {
+        return fetchProviderModels().then(models => {
+          if (models) fill(models);
+          else if (!silent && modelSel) modelSel.title = 'Gagal memuat model — cek provider/key di Settings';
+        });
+      };
+      if (modelRefresh) {
+        modelRefresh.addEventListener('click', () => {
+          modelRefresh.disabled = true;
+          loadM(false).finally(() => { modelRefresh.disabled = false; });
+        });
+      }
+      modelSel.addEventListener('change', () => {
+        const v = modelSel.value;
+        if (v && window.setAiModelFromChat) window.setAiModelFromChat(v);
+      });
+      loadM(true);   // isi otomatis saat panel dibuka (jika daftar tersedia)
+    }
     const input = document.getElementById('chat-input');
     const btn = document.getElementById('chat-send');
     const stopBtn = document.getElementById('chat-stop');
@@ -1031,12 +1805,47 @@
       // The Send button keeps its own label. Flipping it to "Stop" as well put
       // two Stop buttons next to each other while a request was running.
     };
+    // Fork: salin perintah PERTAMA (teks + gambar tertanam) sebagai seed sesi
+    // baru. Sesi saat ini diarsipkan ke LOG dulu — jadi tidak ada yang hilang,
+    // dan Anda bisa ganti model lalu melanjutkan dari awal.
+    const forkBtn = document.getElementById('chat-fork');
+    if (forkBtn) forkBtn.addEventListener('click', () => {
+      if (NS.activeAbort) return;
+      const firstUser = NS.log.find(m => m && m.role === 'user');
+      if (!firstUser) return;
+      const seedText = String(firstUser.text || '');
+      const seedImages = (Array.isArray(firstUser.images) && firstUser.images.length)
+        ? firstUser.images.slice()        // salinan penuh data-URL
+        : null;
+      archiveCurrentSession().then(() => {
+        NS.log = [];
+        NS.sessionId = newSessionId();
+        NS.sessionAt = Date.now();
+        lsSet(CURRENT_ID_KEY, NS.sessionId);
+        // stage gambar seed lalu langsung kirim ke AI (send() memakai pendingImages)
+        NS.pendingImages = seedImages || [];
+        renderPending();
+        setTab('chat');
+        renderLog();
+        scheduleSave();
+        send(seedText);
+      });
+    });
+
     const newBtn = document.getElementById('chat-new');
     if (newBtn) newBtn.addEventListener('click', () => {
-      NS.log = [];
-      persistLog();
-      renderLog();
-      if (input) input.focus();
+      // never archive/clear mid-turn: the streaming entry is not finished yet
+      if (NS.activeAbort) return;
+      archiveCurrentSession().then(() => {
+        NS.log = [];
+        NS.sessionId = newSessionId();
+        NS.sessionAt = Date.now();
+        lsSet(CURRENT_ID_KEY, NS.sessionId);
+        refreshMeta();
+        setTab('chat');
+        renderLog();
+        if (input) input.focus();
+      });
     });
     const go = () => {
       const v = input ? input.value : '';

@@ -171,6 +171,9 @@
               <button class="rb-btn" data-arrange="dist-h" title="Distribute horizontally with equal gaps"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h14" stroke="currentColor" stroke-dasharray="2 1.6"/><rect x="2.5" y="6" width="3" height="8" fill="currentColor" opacity="0.7"/><rect x="8.5" y="6" width="3" height="8" fill="currentColor" opacity="0.7"/><rect x="14.5" y="6" width="3" height="8" fill="currentColor" opacity="0.7"/></svg><span>Distribute H</span></button>
               <button class="rb-btn" data-arrange="dist-v" title="Distribute vertically with equal gaps"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v14" stroke="currentColor" stroke-dasharray="2 1.6"/><rect x="6" y="2.5" width="8" height="3" fill="currentColor" opacity="0.7"/><rect x="6" y="8.5" width="8" height="3" fill="currentColor" opacity="0.7"/><rect x="6" y="14.5" width="8" height="3" fill="currentColor" opacity="0.7"/></svg><span>Distribute V</span></button>
             </div>
+            <div class="rb-panel">
+              <button class="rb-btn" data-arrange="insert" title="Insert into green box — move every selected non-green object together as one group, centered in the green (guide) box, rotating the whole group 90° when that makes it fit. Relative positions are kept: loops never pile up at the box center."><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="2.5" width="13" height="15" fill="none" stroke="currentColor" stroke-dasharray="2 1.6"/><path d="M10 8.5 7 11.5h6z" fill="currentColor" opacity="0.7"/><path d="M10 5.5v5" stroke="currentColor"/></svg><span>Insert</span></button>
+            </div>
           </div>
           <div class="ribbon-page hidden" data-rpage="parts" id="rpage-parts" role="tabpanel" aria-labelledby="rtab-parts">
             <div class="rb-panel">
@@ -332,10 +335,19 @@
           <div class="row tab-bar" style="margin-bottom:6px">
             <button class="btn small is-on" data-chat-tab="chat">Chat</button>
             <button class="btn small" data-chat-tab="log">Log</button>
-            <button class="btn small" id="chat-new" title="Bersihkan percakapan dan mulai chat baru (geometri di worksheet tidak disentuh)">New</button>
+            <button class="btn small" id="chat-new" title="Pindahkan percakapan ini ke LOG dan mulai chat baru (geometri di worksheet tidak disentuh)">New</button>
+          </div>
+          <div class="row chat-model-row">
+            <span class="muted">Model</span>
+            <select id="chat-model-sel" title="Pilih model untuk provider aktif (klik 🔄 untuk memuat daftar)" style="flex:1 1 auto;min-width:0;font:inherit;font-size:11px;padding:2px 5px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)"></select>
+            <button class="btn small" id="chat-model-refresh" title="Muat daftar model dari provider aktif">🔄</button>
+            <button class="btn small" id="chat-fork" style="margin-left:10px" title="Fork: salin perintah pertama (teks + gambar tertanam) ke sesi baru — berguna setelah ganti model. Sesi saat ini dipindahkan ke LOG, lalu perintah langsung dikirim ke AI.">Fork</button>
           </div>
           <ul class="list" id="chat-log"></ul>
-          <div class="row" style="margin-top:6px">
+          <div class="chat-pending" id="chat-pending" hidden></div>
+          <div class="row" id="chat-input-row" style="margin-top:6px">
+            <button class="btn small" id="chat-attach" title="Lampirkan gambar untuk ditelusuri jadi sketch (atau tempel/drag-drop)">🖼</button>
+            <input type="file" id="chat-file" accept="image/*" multiple hidden>
             <input id="chat-input" type="text" placeholder='kotak 100x60 di 0,0…' style="flex:1 1 auto;min-width:0;font:inherit;font-size:11.5px;padding:4px 7px;border:1px solid var(--line);border-radius:6px" autocomplete="off" spellcheck="false">
             <button class="btn small danger" id="chat-stop" hidden title="Hentikan permintaan yang sedang berjalan">■ Stop</button>
             <button class="btn small primary" id="chat-send">Kirim</button>
@@ -661,7 +673,6 @@
         <option value="skip">skip</option>
       </select>
     </label>
-    <label class="opt"><input type="checkbox" id="cdr-keep-color"> Keep original colours (off = snap each line to the nearest MiniSketch colour, fills dropped)</label>
     <label class="opt" title="Weld same-colour segment ends into one point so contours arrive chained. Off keeps every segment exactly as the file describes it."><input type="checkbox" id="cdr-join"> Join endpoints (weld)</label>
     <label class="opt" title="Keep below half the SHORTEST segment in the file, otherwise a short segment welds its own ends into the neighbours and disappears.">Join distance (mm) <input type="number" id="cdr-join-tol" step="0.01" min="0.001" style="width:70px"></label>
     <div class="modal-actions">
@@ -914,6 +925,9 @@
 <script src="tools/finger.js"></script>
 <script src="tools/spiral.js"></script>
 <script src="tools/textweld.js"></script>
+<script src="ai/skills.js"></script>
+<script src="ai/ui-strings.js"></script>
+<script src="ai/prompt.js"></script>
 <script src="ai/chat.js"></script>
 <script src="core.js"></script>
 <script src="app.js"></script>

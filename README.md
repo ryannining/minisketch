@@ -117,6 +117,19 @@ repo; with no key the bridge answers 400 and names the setting to fill. CORS
 is an allowlist (local file, localhost, LAN) so a random web page can't spend
 your key.
 
+**Google Gemini:** centang **Google Gemini** di Settings › AI chat — cukup isi
+**AI API key** (AIza…) dan **AI model** (mis. `gemini-2.5-flash`); base URL
+otomatis ke `generativelanguage.googleapis.com`. Bridge (`server/ai-bridge.js`)
+menerjemahkan `messages`/`tools` OpenAI → Gemini (termasuk gambar lampiran dan
+tool calls) tanpa perubahan di frontend. Untuk provider OpenAI-compatible lain
+(z.ai, DeepSeek, dst.) biarkan centangan kosong dan isi base URL biasa.
+
+**Mode SVG (tanpa tools):** kalau model tidak akurat dengan tools MiniSketch
+(mis. Gemini), centang **Mode SVG** di Settings › AI chat — AI hanya diminta
+menghasilkan **satu `<svg>`**, muncul pratinjau + tombol **Masukkan ke
+MiniSketch** (impor satu Undo) dan **Salin SVG**. Mode agen penuh (tool calls)
+tetap tersedia dengan mematikan centangan ini.
+
 ## Sending to the machine
 
 The **KaryaCNC** tab carries the machine dialog: colour is interpreted as the

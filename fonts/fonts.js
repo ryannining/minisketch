@@ -758,26 +758,35 @@
     const st = style || 'normal';
     const key = faceKey(family, w, st);
     if (registered.has(key)) return Promise.resolve(true);
-    // an installed (system) family is not in the bundled index: its names live
-    // in localStorage and its bytes come from the Local Font Access permission
+    // A BUNDLED family always loads from its own bytes, even when the same
+    // family name is also installed on this machine (Carlito ships with the
+    // app AND with Windows). Checking systemStored() first routed such a pick
+    // to loadSystem, which needs the Local Font Access permission and returns
+    // false from a background load — so the bundled bytes sat unused and the
+    // face never registered (nothing rendered, though the preview drew). Only
+    // a family that is NOT in the catalogue is a true system font.
+    if (known(family)) {
+      if (loading.has(key)) return loading.get(key).then(() => registered.has(key));
+      // an italic request without an italic member falls back to upright
+      const entry = FONT_INDEX.find(f => f.family === family && f.weight === w && (f.style || 'normal') === st)
+        || FONT_INDEX.find(f => f.family === family);
+      if (!entry) return Promise.resolve(false);
+      const wantKey = faceKey(family, entry.weight || 400, entry.style || 'normal');
+      if (registered.has(wantKey)) return Promise.resolve(true);
+      loading.set(wantKey, injectScript(entry.file)
+        .then(() => (loading.get(wantKey) || Promise.resolve()))
+        .then(() => registered.has(wantKey))
+        .catch(err => {
+          loading.delete(wantKey);
+          if (typeof console !== 'undefined' && console.warn) console.warn('[fonts]', err);
+          return false;
+        }));
+      return loading.get(wantKey);
+    }
+    // not in the catalogue: an installed (system) family whose names live in
+    // localStorage and whose bytes come from the Local Font Access permission
     if (systemStored().some(f => f.family === family)) return loadSystem(family, w, st);
-    if (!known(family)) return Promise.resolve(false);
-    if (loading.has(key)) return loading.get(key).then(() => registered.has(key));
-    // an italic request without an italic member falls back to upright
-    const entry = FONT_INDEX.find(f => f.family === family && f.weight === w && (f.style || 'normal') === st)
-      || FONT_INDEX.find(f => f.family === family);
-    if (!entry) return Promise.resolve(false);
-    const wantKey = faceKey(family, entry.weight || 400, entry.style || 'normal');
-    if (registered.has(wantKey)) return Promise.resolve(true);
-    loading.set(wantKey, injectScript(entry.file)
-      .then(() => (loading.get(wantKey) || Promise.resolve()))
-      .then(() => registered.has(wantKey))
-      .catch(err => {
-        loading.delete(wantKey);
-        if (typeof console !== 'undefined' && console.warn) console.warn('[fonts]', err);
-        return false;
-      }));
-    return loading.get(wantKey);
+    return Promise.resolve(false);
   }
 
   // ---- Imported fonts (IndexedDB) -----------------------------------------
@@ -996,6 +1005,14 @@
     const seen = new Set();
     for (const fd of fonts) {
       if (!fd || !fd.family || seen.has(fd.family)) continue;
+      // A family the catalogue already bundles (Carlito ships with the app AND
+      // with Windows) is not a "system font" to this app: it loads from its own
+      // bundled bytes under its bundled category. Remembering it here made the
+      // System checkbox unable to hide it (it shows under Sans) and — before
+      // load() learned to prefer bundled bytes — hijacked its load to
+      // loadSystem, which cannot run from a background load and so never
+      // rendered it. Skip bundled families entirely.
+      if (known(fd.family)) continue;
       seen.add(fd.family);
       rememberSystemFamily(fd.family, 400, 'normal');
     }
@@ -1046,6 +1063,29 @@
     removeImported,
     familyFromBytes,
     known,
+    // Resolve a requested member to one the family REALLY has registered, so the
+    // canvas never asks for a weight/style the family lacks. Asking for a missing
+    // weight is what makes Chrome synthesize bold/oblique — it re-draws the glyph
+    // offset and stroked, which the tracer captures as nested double contours and
+    // -> Curve then contradicts (the real outline is single). Returning the exact
+    // member when it exists, else the closest registered one, keeps drawing on
+    // real letterforms. Returns null when the family has nothing registered yet.
+    resolveFace: (family, weight, style) => {
+      const w = weight || 400, st = style || 'normal';
+      if (registered.has(faceKey(family, w, st))) return { weight: w, style: st };
+      let best = null, bestD = Infinity;
+      for (const key of registered) {
+        // faceKey is "family|weight|style"; the family may itself contain "|",
+        // so split off only the trailing weight and style.
+        const c1 = key.lastIndexOf('|'), c2 = key.lastIndexOf('|', c1 - 1);
+        if (c2 < 0 || !key.startsWith(family + '|')) continue;
+        if (key.slice(0, c2) !== family) continue;
+        const rw = +key.slice(c2 + 1, c1), rs = key.slice(c1 + 1);
+        const d = Math.abs(rw - w) + (rs !== st ? 2 : 0);
+        if (d < bestD) { bestD = d; best = { weight: rw, style: rs }; }
+      }
+      return best;
+    },
     querySystemFonts,
     importSystemFonts,
     systemList: () => systemStored(),
@@ -1063,6 +1103,31 @@
     imported: () => imported.slice(),
     categories,
     registered: (family, weight, style) => registered.has(faceKey(family, weight, style)),
+    // True when ANY member of the family has its bytes registered. The canvas
+    // render gate uses this, not the exact member: a system family whose bytes
+    // were read as, say, weight 700 would report a bare registered(family)
+    // check false (it keys to 400|normal) and the text would draw as an empty
+    // frame even though the face is loaded. "Is this family usable at all?" is
+    // a family-level question.
+    registeredAny: (family) => {
+      for (const key of registered) {
+        // faceKey is "family|weight|style"; the family may itself contain "|",
+        // so the family is everything before the second-to-last separator.
+        const c1 = key.lastIndexOf('|'), c2 = key.lastIndexOf('|', c1 - 1);
+        if (c2 >= 0 && key.slice(0, c2) === family) return true;
+      }
+      return false;
+    },
+    // True when the catalogue actually SHIPS this member (family + weight +
+    // style), regardless of whether its bytes are loaded yet. The text preview
+    // schedules a lazy load only for a member the family really has: asking it
+    // to load a member the family does not ship (a Light pick on a Regular-only
+    // family) would never register, so re-scheduling on it looped forever and
+    // froze the tab. For a member the family lacks, the browser already renders
+    // the closest face it does have, so there is nothing to wait for.
+    hasMember: (family, weight, style) =>
+      FONT_INDEX.some(f => f.family === family && (f.weight || 400) === (weight || 400) &&
+        (f.style || 'normal') === (style || 'normal')),
     get epoch() { return epoch; },
     onEpoch: (fn) => { if (typeof fn === 'function') listeners.push(fn); }
   };
