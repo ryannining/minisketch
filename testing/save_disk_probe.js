@@ -59,7 +59,7 @@ check('F5 is intercepted', /k !== 'f5'/.test(guard));
 check('the guard runs in the capture phase so it wins',
   /\}, true\);/.test(guard));
 check('an empty drawing does not nag', /if \(!Object\.keys\(state\.entities\)\.length\) return;/.test(guard));
-check('declining the dialog cancels the reload', /if \(!ans\) ev\.preventDefault\(\);/.test(guard));
+check('declining the dialog cancels the reload', /ev\.preventDefault\(\)/.test(guard) && /uiConfirm\(/.test(guard) && /if \(ans\) location\.reload\(\)/.test(guard));
 
 console.log('browser storage is only a recovery net');
 check('autosave still exists (crash recovery)', /function scheduleSave\(\)/.test(app));

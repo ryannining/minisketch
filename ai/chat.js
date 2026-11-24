@@ -981,11 +981,16 @@
     if (destructive) {
       const madeSet = new Set(madeIds);
       const removedPreExisting = [...preIds].filter(id => !api.state.entities[+id] && !madeSet.has(+id));
-      if (removedPreExisting.length &&
-          !window.confirm('AI chat menghapus ' + removedPreExisting.length +
-            ' objek yang sudah ada sebelumnya. Izinkan? (satu Undo membatalkan)')) {
-        api.undo();
-        return { made: 0, errors: ['cancelled by user'], results: [] };
+      if (removedPreExisting.length) {
+        const msg = 'AI chat menghapus ' + removedPreExisting.length +
+          ' objek yang sudah ada sebelumnya. Izinkan? (satu Undo membatalkan)';
+        const allowed = (typeof window !== 'undefined' && typeof window.uiConfirm === 'function')
+          ? await window.uiConfirm(msg, { title: 'Konfirmasi Penghapusan', danger: true })
+          : false;
+        if (!allowed) {
+          api.undo();
+          return { made: 0, errors: ['cancelled by user'], results: [] };
+        }
       }
     }
     return { made: madeIds.length, ids: madeIds, queryResults, errors, results };

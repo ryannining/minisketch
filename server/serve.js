@@ -17,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const { bridgeHandler } = require('./ai-bridge.js');
 
-const PORT = +(process.argv[2] || process.env.PORT || 8090);
+const PORT = +(process.argv[2] || process.env.PORT || 3000);
 const ROOT = path.resolve(__dirname, '..');
 
 const TYPES = {
@@ -61,7 +61,8 @@ const server = http.createServer((req, res) => {
 
   // Secrets and server code never leave the machine: the static side must
   // not serve the API key or the bridge source.
-  if (rel === '/server/.env' || rel.startsWith('/server/') ||
+  if (rel === '/server/.env' || rel === '/.env' || rel.startsWith('/.env.') ||
+      rel.startsWith('/server/') ||
       rel.startsWith('/.git/') || rel === '/.git' ||
       rel.startsWith('/node_modules/')) {
     res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }).end('forbidden');

@@ -33,18 +33,19 @@
       <div class="help-nav-title">Topik</div>
       <div class="help-nav-list">
         <a href="index.html" class="help-nav-item">Beranda &amp; Quick Start<span class="nav-kbd">?</span></a>
-        <a href="draw.html" class="help-nav-item">Draw — Menggambar<span class="nav-kbd">B · E · R</span></a>
+        <a href="draw.html" class="help-nav-item">Draw — Menggambar<span class="nav-kbd">Sh+B · E · R</span></a>
         <a href="edit.html" class="help-nav-item">Edit — Mengubah Objek<span class="nav-kbd">Ctrl+Z · Ctrl+G</span></a>
-        <a href="arrange.html" class="help-nav-item active">Arrange — Susun Objek<span class="nav-kbd">Distribusi</span></a>
+        <a href="arrange.html" class="help-nav-item active">Arrange — Susun Objek<span class="nav-kbd">W · Insert</span></a>
         <a href="constrain.html" class="help-nav-item">Constrain — Batasan &amp; Dimensi<span class="nav-kbd">D · O · H/V</span></a>
+        <a href="tools.html" class="help-nav-item">Tools — Generator Parametrik<span class="nav-kbd">13 Alat</span></a>
         <a href="parts.html" class="help-nav-item">Parts — Part &amp; Assembly<span class="nav-kbd">Alt+T</span></a>
         <a href="karyacnc.html" class="help-nav-item">KaryaCNC — Kirim ke Mesin<span class="nav-kbd">Alt+Q</span></a>
-        <a href="files.html" class="help-nav-item">Berkas — Open / Import / Save / Export<span class="nav-kbd">Ctrl+O · Ctrl+I · Ctrl+S · Ctrl+E</span></a>
+        <a href="files.html" class="help-nav-item">Berkas — Open / Import / Save / Export<span class="nav-kbd">Ctrl+O · Ctrl+S</span></a>
         <a href="import.html" class="help-nav-item">Import — SVG / PDF / CDR / DXF</a>
         <a href="text.html" class="help-nav-item">Teks &amp; Font<span class="nav-kbd">T</span></a>
         <a href="trace.html" class="help-nav-item">Image Trace — Jejak Gambar<span class="nav-kbd">Ctrl+V</span></a>
         <a href="nesting.html" class="help-nav-item">Nesting — Tata Letak Potongan</a>
-        <a href="layers.html" class="help-nav-item">Layers &amp; Pick Filter</a>
+        <a href="layers.html" class="help-nav-item">Layers &amp; Pick Filter<span class="nav-kbd">Alt+1/2/3</span></a>
         <a href="settings.html" class="help-nav-item">Settings — Pengaturan</a>
         <a href="solver.html" class="help-nav-item">Solver — Mode Penyelesaian<span class="nav-kbd">F9</span></a>
         <a href="shortcuts.html" class="help-nav-item">Pintasan Keyboard Lengkap</a>
@@ -61,7 +62,7 @@
 
         <div class="screenshot">
           <img src="img/screenshots/arrange-ribbon.png" alt="Tab Arrange aktif di ribbon">
-          <figcaption>Tab Arrange aktif: Drag wall + kolom tebal wall, Align L/Center H/Align R, Align T/Center V/Align B, dan Distribute H/V.</figcaption>
+          <figcaption>Tab Arrange aktif: Drag wall + kolom tebal wall, Align L/Center H/Align R, Align T/Center V/Align B, Distribute H/V, dan Insert (masukkan ke kotak hijau).</figcaption>
         </div>
 
         <h2>1. Align (Rata tepi)</h2>
@@ -90,18 +91,31 @@
           </tbody>
         </table>
 
-        <h2>3. Drag wall (W)</h2>
-        <p class="help-lead">Drag wall adalah pengaman nesting manual. Pilih bentuk tertutup, group, atau beberapa objek, atur tebal wall (default 1 mm), lalu geser di kanvas.</p>
+        <h2 id="drag-wall">3. Drag wall (W)</h2>
+        <p class="help-lead">Drag wall adalah pengaman nesting manual — sangat cocok dipakai setelah <a href="nesting.html">Nesting</a> otomatis untuk merapatkan atau memindahkan part di dalam lembar hijau tanpa risiko bertabrakan. Pilih bentuk tertutup, clone hasil nesting, group, atau beberapa objek, atur tebal wall (default 1 mm), lalu geser di kanvas.</p>
         <ul>
           <li>Seluruh pilihan dianggap satu objek compound. App mengambil <b>kontur terluar</b> dan membungkusnya dengan amplop offset hidup (collision wall).</li>
           <li>Amplop hanya digambar saat drag dan <b>tidak pernah</b> ditambahkan ke gambar, dipotong, atau diekspor.</li>
-          <li>Saat pointer bergerak, wall diuji terhadap objek lain. Jika akan melewati penghalang, pilihan menahan posisi bebas collision terakhir (wall berubah merah). Saat posisi bersih ditemukan, objek mengikuti lagi.</li>
+          <li>Saat pointer bergerak, wall diuji terhadap objek lain (termasuk huruf/part tetangga dan batas lembar hijau). Jika akan melewati penghalang, pilihan menahan posisi bebas collision terakhir (wall berubah merah dengan badge <b>BLOCKED</b> dan pratinjau hantu di posisi kursor). Saat posisi bersih ditemukan, wall kembali hijau (<b>CLEAR</b>) dan objek mengikuti lagi.</li>
           <li>Loop terluar dipakai sebagai poligon (loop dalam/lubang diabaikan). Garis/busur terbuka dipakai apa adanya. Group memakai bounding box-nya.</li>
           <li>Part yang berada penuh di dalam outline lembar tetap sah — berguna untuk menata part di dalam lembar.</li>
           <li>Gunakan mode Release/Manual solve untuk nesting yang tepat, karena drag dengan live-solve dapat merusak cached wall.</li>
         </ul>
 
+        <div class="screenshot">
+          <img src="img/screenshots/arrange-drag-wall.png" alt="Drag wall 1.5 mm menahan huruf hasil nesting agar tidak bertabrakan">
+          <figcaption>Memperbaiki hasil nesting <code>hello world</code> secara manual dengan <b>Drag wall (1.5 mm)</b>: huruf <code>o</code> berhenti aman di posisi bebas benturan terakhir (<code>BLOCKED</code> di kanan atas) lengkap dengan amplop merah putus-putus dan bayangan posisi kursor.</figcaption>
+        </div>
+
         <div class="callout warn"><b>Tebal wall</b> diatur di kolom ribbon Arrange (default 1 mm) atau Settings &rarr; Geometry &rarr; Drag wall thickness. 0 = outline itu sendiri; 1 mm menjaga jarak 1 mm ke setiap objek lain.</div>
+
+        <h2>4. Insert ke Kotak Hijau</h2>
+        <p>Tombol <b>Insert</b> memindahkan semua objek non-hijau yang sedang dipilih secara bersama-sama (sebagai satu kesatuan) ke tengah kotak pandu <b>Hijau (Mark)</b>:</p>
+        <ul>
+          <li>Posisi relatif antar objek di dalam pilihan tetap terjaga (lubang atau teks di dalam desain tidak bertumpuk di tengah).</li>
+          <li>Jika ukuran grup lebih pas bila diputar 90°, MiniSketch otomatis memutarnya 90° agar muat di dalam kotak hijau.</li>
+          <li>Berguna untuk memposisikan batch desain atau hasil gambar cepat ke lembar kerja/bahan berwarna hijau.</li>
+        </ul>
 
         <div class="help-footer">
           <span>Arrange — Susun Objek</span>

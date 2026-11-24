@@ -33,22 +33,39 @@
       <div class="help-nav-title">Topik</div>
       <div class="help-nav-list">
         <a href="index.html" class="help-nav-item">Beranda &amp; Quick Start<span class="nav-kbd">?</span></a>
-        <a href="draw.html" class="help-nav-item">Draw — Menggambar<span class="nav-kbd">B · E · R</span></a>
-        <a href="edit.html" class="help-nav-item">Edit — Mengubah Objek<span class="nav-kbd">Ctrl+Z · Ctrl+G</span></a>
-        <a href="arrange.html" class="help-nav-item">Arrange — Susun Objek<span class="nav-kbd">Distribusi</span></a>
-        <a href="constrain.html" class="help-nav-item">Constrain — Batasan &amp; Dimensi<span class="nav-kbd">D · O · H/V</span></a>
-        <a href="parts.html" class="help-nav-item">Parts — Part &amp; Assembly<span class="nav-kbd">Alt+T</span></a>
-        <a href="karyacnc.html" class="help-nav-item">KaryaCNC — Kirim ke Mesin<span class="nav-kbd">Alt+Q</span></a>
-        <a href="files.html" class="help-nav-item">Berkas — Open / Import / Save / Export<span class="nav-kbd">Ctrl+O · Ctrl+I · Ctrl+S · Ctrl+E</span></a>
-        <a href="import.html" class="help-nav-item">Import — SVG / PDF / CDR / DXF</a>
-        <a href="text.html" class="help-nav-item">Teks &amp; Font<span class="nav-kbd">T</span></a>
-        <a href="trace.html" class="help-nav-item">Image Trace — Jejak Gambar<span class="nav-kbd">Ctrl+V</span></a>
-        <a href="nesting.html" class="help-nav-item">Nesting — Tata Letak Potongan</a>
-        <a href="layers.html" class="help-nav-item">Layers &amp; Pick Filter</a>
-        <a href="settings.html" class="help-nav-item active">Settings — Pengaturan</a>
-        <a href="solver.html" class="help-nav-item">Solver — Mode Penyelesaian<span class="nav-kbd">F9</span></a>
-        <a href="shortcuts.html" class="help-nav-item">Pintasan Keyboard Lengkap</a>
-        <a href="ai.html" class="help-nav-item">AI Chat (Bawa Kunci Sendiri)</a>
+
+        <div class="help-nav-group">
+          <div class="nav-sub">Gambar &amp; Edit</div>
+          <a href="draw.html" class="help-nav-item nav-sub-item">Draw — Menggambar<span class="nav-kbd">Sh+B · E · R</span></a>
+          <a href="edit.html" class="help-nav-item nav-sub-item">Edit — Mengubah Objek<span class="nav-kbd">Ctrl+Z · Ctrl+G</span></a>
+          <a href="arrange.html" class="help-nav-item nav-sub-item">Arrange — Susun Objek<span class="nav-kbd">W · Insert</span></a>
+          <a href="constrain.html" class="help-nav-item nav-sub-item">Constrain — Batasan &amp; Dimensi<span class="nav-kbd">D · O · H/V</span></a>
+        </div>
+
+        <div class="help-nav-group">
+          <div class="nav-sub">Part &amp; Mesin</div>
+          <a href="tools.html" class="help-nav-item nav-sub-item">Tools — Generator Parametrik<span class="nav-kbd">13 Alat</span></a>
+          <a href="parts.html" class="help-nav-item nav-sub-item">Parts — Part &amp; Assembly<span class="nav-kbd">Alt+T</span></a>
+          <a href="karyacnc.html" class="help-nav-item nav-sub-item">KaryaCNC — Kirim ke Mesin<span class="nav-kbd">Alt+Q</span></a>
+        </div>
+
+        <div class="help-nav-group">
+          <div class="nav-sub">Berkas &amp; Data</div>
+          <a href="files.html" class="help-nav-item nav-sub-item">Berkas — Open / Import / Save / Export<span class="nav-kbd">Ctrl+O · Ctrl+I · Ctrl+S · Ctrl+E</span></a>
+          <a href="import.html" class="help-nav-item nav-sub-item">Import — SVG / PDF / CDR / DXF</a>
+          <a href="text.html" class="help-nav-item nav-sub-item">Teks &amp; Font<span class="nav-kbd">T</span></a>
+          <a href="trace.html" class="help-nav-item nav-sub-item">Image Trace — Jejak Gambar<span class="nav-kbd">Ctrl+V</span></a>
+          <a href="nesting.html" class="help-nav-item nav-sub-item">Nesting — Tata Letak Potongan</a>
+          <a href="layers.html" class="help-nav-item nav-sub-item">Layers &amp; Pick Filter<span class="nav-kbd">Alt+1/2/3</span></a>
+        </div>
+
+        <div class="help-nav-group">
+          <div class="nav-sub">Pengaturan &amp; Lainnya</div>
+          <a href="settings.html" class="help-nav-item nav-sub-item active">Settings — Pengaturan</a>
+          <a href="solver.html" class="help-nav-item nav-sub-item">Solver — Mode Penyelesaian<span class="nav-kbd">F9</span></a>
+          <a href="shortcuts.html" class="help-nav-item nav-sub-item">Pintasan Keyboard Lengkap</a>
+          <a href="ai.html" class="help-nav-item nav-sub-item">AI Chat (Bawa Kunci Sendiri)</a>
+        </div>
       </div>
     </nav>
 
@@ -61,7 +78,7 @@
 
         <div class="screenshot">
           <img src="img/screenshots/menu-tool.png" alt="Menu Tool terbuka">
-          <figcaption>Settings dibuka melalui menu <b>Tool ▸ Settings…</b>; di menu yang sama ada View grid (G), Snap (S), Points, Show dimension, Auto dimension (Alt+D), Auto solve, Undo moves view, dan Send to KaryaCNC (Alt+Q).</figcaption>
+          <figcaption>Settings dibuka melalui menu <b>Tool ▸ Settings…</b>; di menu yang sama ada View grid (#), Snap (Shift+5), Points, Show dimension, Auto dimension (Alt+D), Auto solve, Undo moves view, dan Send to KaryaCNC (Alt+Q).</figcaption>
         </div>
 
         <div class="screenshot">
@@ -70,6 +87,16 @@
         </div>
 
         <div class="callout info"><b>Cari pengaturan:</b> gunakan kotak pencarian di atas dialog Settings (mis. offset, snap, curve). Keterangan tiap pengaturan muncul sebagai tooltip saat kolom difokuskan.</div>
+
+        <h2>0. History (riwayat undo)</h2>
+        <table class="kb">
+          <thead>
+            <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Undo moves the view</td><td>Off</td><td>Jika menyala, menekan Undo/Redo juga mengembalikan posisi pan &amp; zoom kamera ke saat langkah tersebut dibuat (bisa juga di-toggle cepat dari menu <b>Tool</b>).</td></tr>
+          </tbody>
+        </table>
 
         <h2>1. Renderer (tampilan kanvas)</h2>
         <table class="kb">
@@ -99,8 +126,8 @@
           </thead>
           <tbody>
             <tr><td>Chain tolerance</td><td>0.1 mm</td><td>Ujung yang lebih dekat dari ini menjadi satu node saat grouping (Ctrl+G) atau offsetting (Ctrl+J).</td></tr>
-            <tr><td>Join tolerance</td><td>0.1 mm</td><td>Toleransi CNC: titik yang lebih dekat dari ini dihitung sebagai satu sinkung. Jaga di bawah setengah segmen terpendek.</td></tr>
-            <tr><td>Loop closure gap</td><td>0.25 mm</td><td>Jarak maksimal antara ujung segmen yang masih dibentang loop deteksi menjadi loop tertutup.</td></tr>
+            <tr><td>Join tolerance</td><td>0.1 mm</td><td>Toleransi CNC: titik yang lebih dekat dari ini dihitung sebagai satu titik sambung. Jaga di bawah setengah segmen terpendek.</td></tr>
+            <tr><td>Loop closure gap</td><td>0.25 mm</td><td>Jarak maksimal antara ujung segmen yang masih dianggap oleh loop deteksi sebagai loop tertutup.</td></tr>
             <tr><td>Join imported points</td><td>On</td><td>Nyalakan untuk memadatkan ujung segmen warna sama saat impor SVG/PDF/DXF/CDR.</td></tr>
             <tr><td>Join imported distance</td><td>0.1 mm</td><td>Seberapa dekat ujung segmen warna sama sebelum impor memadatkannya.</td></tr>
             <tr><td>Arrow key nudge</td><td>1 mm</td><td>Sejauh panah gerakkan objek/titik pada zoom 100%. Semakin zoom out, semakin jauh per tekan.</td></tr>
@@ -111,7 +138,7 @@
             <tr><td>Auto solve</td><td>Off</td><td>Drag menjalankan solve penuh secara teratur tanpa menunggu mouse dilepas.</td></tr>
             <tr><td>Auto solve interval</td><td>100 ms</td><td>Interval antar solve otomatis saat drag.</td></tr>
             <tr><td>Object detail (artTol)</td><td>0.1 mm</td><td>Simplifikasi objek grup, paste, dan offset saat di-flatten ke lines atau dikirim ke KaryaCNC.</td></tr>
-            <tr><td>Offset miter limit</td><td>4×</td><td>Sejauh mana sudut miter boleh sampai sebelum Clipper mempertapikannya.</td></tr>
+            <tr><td>Offset miter limit</td><td>4×</td><td>Sejauh mana sudut miter boleh menjorok sebelum Clipper memotong ujung runcingnya.</td></tr>
             <tr><td>Drag wall thickness</td><td>1 mm</td><td>Amplop offset sekeliling objek compound saat Drag wall. 0 = outline itu sendiri.</td></tr>
             <tr><td>Offset corners</td><td>Sharp (miter)</td><td>Bentuk sudut offset: tajam (miter), bulat, atau persegi (bevel).</td></tr>
             <tr><td>Rounded corner detail</td><td>0.05 mm</td><td>Chord tolerance untuk sudut bulat.</td></tr>
@@ -180,11 +207,14 @@
             <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
           </thead>
           <tbody>
-            <tr><td>AI bridge URL</td><td>(kosong)</td><td>Server AI bridge (server/serve.js), mis. http://127.0.0.1:8090. Kosong = server yang melayani MiniSketch.</td></tr>
-            <tr><td>AI API base URL</td><td>(kosong)</td><td>Endpoint OpenAI-compatible milik KAMU, tanpa /chat/completions.</td></tr>
-            <tr><td>AI API key</td><td>(kosong, password)</td><td>Kunci Anda untuk layanan itu. Dikirim ke bridge setiap permintaan dan tidak pernah disimpan bridge.</td></tr>
-            <tr><td>AI model</td><td>(kosong)</td><td>Nama model, mis. glm-5.3-flash atau deepseek-v4.1-flash-1017.</td></tr>
-            <tr><td>AI agent rounds</td><td>4×</td><td>Berapa kali agen boleh looping (emit tool calls → execute → verify) sebelum harus memberi jawaban akhir.</td></tr>
+            <tr><td>AI bridge URL</td><td>(kosong)</td><td>Server AI bridge (<code>server/serve.js</code>), mis. <code>http://127.0.0.1:3000</code>. Kosong = pakai server yang melayani MiniSketch.</td></tr>
+            <tr><td>Google Gemini</td><td>Off</td><td>Centang jika menggunakan Gemini Developer API langsung (menggunakan endpoint resmi Google AI dan menyembunyikan Base URL kustom).</td></tr>
+            <tr><td>AI API base URL</td><td>(kosong)</td><td>Endpoint OpenAI-compatible milik Anda, tanpa <code>/chat/completions</code> (diabaikan saat Google Gemini aktif).</td></tr>
+            <tr><td>AI API key</td><td>(kosong, password)</td><td>Kunci API Anda. Dikirim ke bridge setiap permintaan dan tidak pernah disimpan di server.</td></tr>
+            <tr><td>AI model</td><td>(kosong)</td><td>Nama model, mis. <code>gemini-2.5-flash</code> atau model dari dropdown panel chat.</td></tr>
+            <tr><td>AI reasoning level</td><td>Off</td><td>Tingkat penalaran model (<code>Off</code> / <code>Low</code> / <code>Normal</code>) untuk model yang mendukung thinking/reasoning.</td></tr>
+            <tr><td>Mode SVG (tanpa tools)</td><td>Off</td><td>Model menghasilkan sketsa sebagai SVG langsung lalu diimpor ke kanvas, tanpa memanggil tool CAD langkah demi langkah.</td></tr>
+            <tr><td>AI agent rounds</td><td>4×</td><td>Berapa kali agen boleh looping (emit tool calls &rarr; execute &rarr; verify) sebelum harus memberi jawaban akhir.</td></tr>
           </tbody>
         </table>
         <div class="callout warn"><b>Tidak ada kunci yang dikirim bersama repositori.</b> Anda menyetel kunci sendiri. Tanpa server sama sekali, tab chat kembali ke mode offline: mem-parsing perintah sederhana Indonesia/English tanpa LLM.</div>

@@ -28,7 +28,7 @@
 const http = require('http');
 const https = require('https');
 
-const PORT = +(process.env.PORT || process.env.AI_BRIDGE_PORT || 8090);
+const PORT = +(process.env.PORT || process.env.AI_BRIDGE_PORT || 3000);
 
 // ---- CORS -----------------------------------------------------------------
 // The bridge forwards a paid API call, so a random web page must not be able to
@@ -38,15 +38,19 @@ const PORT = +(process.env.PORT || process.env.AI_BRIDGE_PORT || 8090);
 const EXTRA_ORIGINS = (process.env.AI_ALLOWED_ORIGINS || '')
   .split(',').map(s => s.trim()).filter(Boolean);
 
-function originAllowed(origin) {
+function originAllowed(origin, req) {
   if (!origin) return true;            // no Origin header: not a browser page
   if (origin === 'null') return true;  // a local file — that IS the app
   if (EXTRA_ORIGINS.indexOf(origin) >= 0) return true;
   try {
-    const h = new URL(origin).hostname;
+    const u = new URL(origin);
+    const h = u.hostname;
     if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return true;
     if (/^10\./.test(h) || /^192\.168\./.test(h)) return true;
     if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+    const reqHost = req && (req.headers['x-forwarded-host'] || req.headers.host || '');
+    const firstHost = String(reqHost).split(',')[0].trim().toLowerCase();
+    if (firstHost && u.host.toLowerCase() === firstHost) return true;
   } catch (err) { return false; }
   return false;
 }
@@ -410,7 +414,7 @@ function assembleCalls(raw) {
 // ---- the single endpoint: POST /api/chat ----------------------------------
 function bridgeHandler(req, res) {
   const origin = req.headers.origin || '';
-  if (!originAllowed(origin)) {
+  if (!originAllowed(origin, req)) {
     res.writeHead(403, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'origin not allowed: ' + origin }));
     return;

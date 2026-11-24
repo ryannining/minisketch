@@ -13,7 +13,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const PORT = +(process.argv[2] || process.env.STATIC_PORT || 8090);
+const PORT = +(process.argv[2] || process.env.STATIC_PORT || 3000);
 const ROOT = path.resolve(__dirname, '..');
 
 const TYPES = {

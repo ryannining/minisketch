@@ -819,6 +819,38 @@ button {
   margin-top: 12px;
 }
 
+#app-dialog-modal { z-index: 80; }
+.app-dialog-box { width: min(380px, calc(100vw - 32px)); }
+.app-dialog-box h3.hidden { display: none; }
+.app-dialog-message {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.app-dialog-field { margin-top: 10px; }
+.app-dialog-field.hidden { display: none; }
+.app-dialog-field input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--input);
+  color: var(--ink);
+}
+.app-dialog-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--input-focus);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+#app-dialog-cancel.hidden { display: none; }
+
 /* Send to KaryaCNC */
 .cnc-box {
   width: 382px;

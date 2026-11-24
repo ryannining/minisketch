@@ -33,22 +33,39 @@
       <div class="help-nav-title">Topik</div>
       <div class="help-nav-list">
         <a href="index.html" class="help-nav-item">Beranda &amp; Quick Start<span class="nav-kbd">?</span></a>
-        <a href="draw.html" class="help-nav-item">Draw — Menggambar<span class="nav-kbd">B · E · R</span></a>
-        <a href="edit.html" class="help-nav-item">Edit — Mengubah Objek<span class="nav-kbd">Ctrl+Z · Ctrl+G</span></a>
-        <a href="arrange.html" class="help-nav-item">Arrange — Susun Objek<span class="nav-kbd">Distribusi</span></a>
-        <a href="constrain.html" class="help-nav-item">Constrain — Batasan &amp; Dimensi<span class="nav-kbd">D · O · H/V</span></a>
-        <a href="parts.html" class="help-nav-item">Parts — Part &amp; Assembly<span class="nav-kbd">Alt+T</span></a>
-        <a href="karyacnc.html" class="help-nav-item">KaryaCNC — Kirim ke Mesin<span class="nav-kbd">Alt+Q</span></a>
-        <a href="files.html" class="help-nav-item">Berkas — Open / Import / Save / Export<span class="nav-kbd">Ctrl+O · Ctrl+I · Ctrl+S · Ctrl+E</span></a>
-        <a href="import.html" class="help-nav-item">Import — SVG / PDF / CDR / DXF</a>
-        <a href="text.html" class="help-nav-item">Teks &amp; Font<span class="nav-kbd">T</span></a>
-        <a href="trace.html" class="help-nav-item">Image Trace — Jejak Gambar<span class="nav-kbd">Ctrl+V</span></a>
-        <a href="nesting.html" class="help-nav-item">Nesting — Tata Letak Potongan</a>
-        <a href="layers.html" class="help-nav-item">Layers &amp; Pick Filter</a>
-        <a href="settings.html" class="help-nav-item">Settings — Pengaturan</a>
-        <a href="solver.html" class="help-nav-item">Solver — Mode Penyelesaian<span class="nav-kbd">F9</span></a>
-        <a href="shortcuts.html" class="help-nav-item">Pintasan Keyboard Lengkap</a>
-        <a href="ai.html" class="help-nav-item active">AI Chat (Bawa Kunci Sendiri)</a>
+
+        <div class="help-nav-group">
+          <div class="nav-sub">Gambar &amp; Edit</div>
+          <a href="draw.html" class="help-nav-item nav-sub-item">Draw — Menggambar<span class="nav-kbd">Sh+B · E · R</span></a>
+          <a href="edit.html" class="help-nav-item nav-sub-item">Edit — Mengubah Objek<span class="nav-kbd">Ctrl+Z · Ctrl+G</span></a>
+          <a href="arrange.html" class="help-nav-item nav-sub-item">Arrange — Susun Objek<span class="nav-kbd">W · Insert</span></a>
+          <a href="constrain.html" class="help-nav-item nav-sub-item">Constrain — Batasan &amp; Dimensi<span class="nav-kbd">D · O · H/V</span></a>
+        </div>
+
+        <div class="help-nav-group">
+          <div class="nav-sub">Part &amp; Mesin</div>
+          <a href="tools.html" class="help-nav-item nav-sub-item">Tools — Generator Parametrik<span class="nav-kbd">13 Alat</span></a>
+          <a href="parts.html" class="help-nav-item nav-sub-item">Parts — Part &amp; Assembly<span class="nav-kbd">Alt+T</span></a>
+          <a href="karyacnc.html" class="help-nav-item nav-sub-item">KaryaCNC — Kirim ke Mesin<span class="nav-kbd">Alt+Q</span></a>
+        </div>
+
+        <div class="help-nav-group">
+          <div class="nav-sub">Berkas &amp; Data</div>
+          <a href="files.html" class="help-nav-item nav-sub-item">Berkas — Open / Import / Save / Export<span class="nav-kbd">Ctrl+O · Ctrl+I · Ctrl+S · Ctrl+E</span></a>
+          <a href="import.html" class="help-nav-item nav-sub-item">Import — SVG / PDF / CDR / DXF</a>
+          <a href="text.html" class="help-nav-item nav-sub-item">Teks &amp; Font<span class="nav-kbd">T</span></a>
+          <a href="trace.html" class="help-nav-item nav-sub-item">Image Trace — Jejak Gambar<span class="nav-kbd">Ctrl+V</span></a>
+          <a href="nesting.html" class="help-nav-item nav-sub-item">Nesting — Tata Letak Potongan</a>
+          <a href="layers.html" class="help-nav-item nav-sub-item">Layers &amp; Pick Filter<span class="nav-kbd">Alt+1/2/3</span></a>
+        </div>
+
+        <div class="help-nav-group">
+          <div class="nav-sub">Pengaturan &amp; Lainnya</div>
+          <a href="settings.html" class="help-nav-item nav-sub-item">Settings — Pengaturan</a>
+          <a href="solver.html" class="help-nav-item nav-sub-item">Solver — Mode Penyelesaian<span class="nav-kbd">F9</span></a>
+          <a href="shortcuts.html" class="help-nav-item nav-sub-item">Pintasan Keyboard Lengkap</a>
+          <a href="ai.html" class="help-nav-item nav-sub-item active">AI Chat (Bawa Kunci Sendiri)</a>
+        </div>
       </div>
     </nav>
 
@@ -66,24 +83,26 @@
 
         <h2>1. Mengaktifkan AI chat</h2>
         <ol>
-          <li>Jalankan server MiniSketch: <code>node server/serve.js</code> (http://localhost:8090).</li>
+          <li>Jalankan server MiniSketch (<code>http://127.0.0.1:3000</code>, atau <code>node server/serve.js</code> pada port 8090).</li>
           <li>Buka <b>Settings ▸ AI chat</b> dan isi:
             <ul>
-              <li><b>AI bridge URL</b> — mis. <code>http://127.0.0.1:8090</code>. Kosong = server yang melayani MiniSketch (butuh HTTP, bukan file://).</li>
-              <li><b>AI API base URL</b> — endpoint OpenAI-compatible Anda, tanpa <code>/chat/completions</code>.</li>
-              <li><b>AI API key</b> — kunci Anda untuk layanan tersebut.</li>
-              <li><b>AI model</b> — nama model, mis. <code>glm-5.3-flash</code> atau <code>deepseek-v4.1-flash-1017</code>.</li>
+              <li><b>AI bridge URL</b> — kosongkan jika diakses lewat server yang melayani MiniSketch (butuh HTTP, bukan <code>file://</code>), atau isi mis. <code>http://127.0.0.1:3000</code>.</li>
+              <li><b>Google Gemini</b> — centang bila memakai kunci Google Gemini API; biarkan kosong jika memakai endpoint OpenAI-compatible kustom di kolom <b>AI API base URL</b>.</li>
+              <li><b>AI API key</b> — kunci API Anda sendiri.</li>
+              <li><b>AI model</b> — nama model (bisa juga dipilih langsung dari dropdown model di panel AI Chat setelah klik <b>&#128260;</b> refresh).</li>
+              <li><b>AI reasoning level</b> — pilih <code>Off</code>, <code>Low</code>, atau <code>Normal</code> untuk model yang mendukung penalaran.</li>
+              <li><b>Mode SVG (tanpa tools)</b> — jika aktif, AI menghasilkan SVG mentah yang langsung diimpor ke kanvas daripada memanggil alat gambar satu per satu.</li>
               <li><b>AI agent rounds</b> — berapa kali agen boleh looping sebelum jawaban akhir (default 4×).</li>
             </ul>
           </li>
           <li>Klik <b>Apply</b> di Settings.</li>
-          <li>Buka panel AI Chat di sidebar, ketik perintah, lalu klik <b>Kirim</b>.</li>
+          <li>Buka panel <b>AI Chat</b> di sidebar kanan: pilih model atau klik <b>&#128260;</b> untuk memuat daftar model, gunakan <b>&#128444;</b> (atau paste/seret gambar) untuk <b>Vision-to-sketch</b>, ketik perintah, lalu klik <b>Kirim</b>. Tombol <b>Fork</b> menyalin percakapan ke cabang baru, dan <b>Stop</b> menghentikan respons yang sedang berjalan.</li>
         </ol>
 
-        <div class="callout warn"><b>Keamanan:</b> kunci API dikirim ke bridge dengan setiap permintaan dan tidak pernah disimpan oleh bridge (dilupakan saat berhenti). Kunci yang dibakar ke dalam source code bocor bersama source — tidak ada kunci di sini, Anda menyetel sendiri. CORS adalah allowlist (local file, localhost, LAN) sehingga halaman web acak tidak bisa memborok kunci Anda.</div>
+        <div class="callout warn"><b>Keamanan:</b> kunci API dikirim ke bridge dengan setiap permintaan dan tidak pernah disimpan oleh bridge (dilupakan saat berhenti). Kunci yang dibakar ke dalam source code bocor bersama source — tidak ada kunci di sini, Anda menyetel sendiri. CORS adalah allowlist (local file, localhost, LAN) sehingga halaman web acak tidak bisa mencuri kunci Anda.</div>
 
         <h2>2. Mode offline</h2>
-        <p>Jika tidak ada server sama sekali, tab chat kembali ke <b>mode offline</strong>: mem-parsing perintah sederhana Bahasa Indonesia / Inggris langsung, tanpa LLM yang diperlukan.</p>
+        <p>Jika tidak ada server sama sekali, tab chat kembali ke <b>mode offline</b>: mem-parsing perintah sederhana Bahasa Indonesia / Inggris langsung, tanpa LLM yang diperlukan.</p>
 
         <h2>3. Contoh perintah</h2>
         <ul>

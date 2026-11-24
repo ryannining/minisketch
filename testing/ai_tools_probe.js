@@ -69,7 +69,7 @@ check('add_constraint defers history+solves to the turn',
 check('generator turn runs solo', /call_generator[\s\S]{0,300}must run alone/.test(chatSrc));
 
 console.log('\n== destructive ops ask first ==');
-check('confirm() guards delete', /window\.confirm\([\s\S]{0,120}[Dd]elete/.test(chatSrc));
+check('confirm() guards delete', /menghapus[\s\S]{0,240}window\.uiConfirm\(/.test(chatSrc));
 
 console.log('\n== clamping + bridge validation ==');
 check('executor clamps coordinates', /-10000.*10000/.test(chatSrc));

@@ -2132,10 +2132,11 @@
         syncProviderRows();   // cukup state URL-row/dll. (id sudah ada → tidak duplikat)
       });
 
-      saveBtn.addEventListener('click', () => {
+      saveBtn.addEventListener('click', async () => {
         let nameSugg = 'provider';
         try { nameSugg = new URL(effBase()).host; } catch (e) { /* keep */ }
-        const name = (window.prompt('Nama preset provider:', nameSugg) || '').trim();
+        const rawName = await uiPrompt('Nama preset provider:', nameSugg, { title: 'Simpan Preset Provider' });
+        const name = (rawName || '').trim();
         if (!name) return;
         const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'provider';
         const base = effBase();
@@ -3156,17 +3157,20 @@
     updateHistoryButtons();
   }
 
+  let lastSavedDocStr;
   function persistNow(quiet) {
     if (ui.transform.pending) return;
     try {
       // P0-6: keep the last-good document aside before overwriting it. A crash
       // or a quota error mid-write used to leave localStorage corrupt with no
       // fallback; load tries main → .bak → blank, in that order.
-      const prev = localStorage.getItem(STORAGE_KEY);
+      const prev = lastSavedDocStr !== undefined ? lastSavedDocStr : localStorage.getItem(STORAGE_KEY);
       if (prev) {
         try { localStorage.setItem(BAK_KEY, prev); } catch (err) { /* bak best-effort */ }
       }
-      localStorage.setItem(STORAGE_KEY, serializeDoc());
+      const next = serializeDoc();
+      localStorage.setItem(STORAGE_KEY, next);
+      lastSavedDocStr = next;
       docDirty = false;
       paintFileDirty(false);
       if (!quiet) setSavedLabel('saved');
@@ -3261,6 +3265,7 @@
   function loadRecord() {
     let raw = null;
     try { raw = localStorage.getItem(STORAGE_KEY); } catch (err) { raw = null; }
+    lastSavedDocStr = raw || '';
     if (raw) return { data: JSON.parse(raw), from: 'main' };
     let bak = null;
     try { bak = localStorage.getItem(BAK_KEY); } catch (err) { bak = null; }
@@ -3375,12 +3380,16 @@
     // — rebuilding the entity→points index on every pointermove is wasted work
     // on a big drawing. It is dropped here for every structural change; the
     // drag path (ui.drag) rebuilds it only when an entity appears or vanishes.
-    if (!ui.drag) pointUseCache = null;
+    if (!ui.drag) {
+      pointUseCache = null;
+      conflictBadgeCache = null;
+    }
     pointEditableCache = null;
     pointShownCache = null;
     hitGridCache = null;
     entityCountCache = -1;
     pointGridCache = null;
+    noteCache = null;
     epiCache.clear();
     eqbCache.clear();
     // sample/contour caches always drop (cheap to rebuild, must track moving
@@ -3457,6 +3466,7 @@
 
   function removeConstraint(id) {
     delete state.constraints[id];
+    conflictBadgeCache = null;
   }
 
   function removeEntity(id, keepConstraints) {
@@ -5049,6 +5059,7 @@
     if (opts.history !== false) pushHistory();
     c.id = newId();
     state.constraints[c.id] = c;
+    conflictBadgeCache = null;
     if (opts.solve !== false) requestSolve();
     invalidateLoops();
     scheduleSave();
@@ -5067,12 +5078,12 @@
   // A stray H / V / [...] with hundreds of points selected used to build
   // hundreds of constraints (and one big solve) before anything could stop it.
   // Ask first when the command would hit more than 3 objects at once.
-  function confirmBulkConstraint(label, count) {
+  async function confirmBulkConstraint(label, count) {
     if (count <= 3) return true;
-    return confirm('Apply the "' + label + '" constraint to ' + count + ' objects at once?');
+    return uiConfirm('Apply the "' + label + '" constraint to ' + count + ' objects at once?');
   }
 
-  function cmdCoincident() {
+  async function cmdCoincident() {
     const pts = selectedPointIds();
     const ents = selectedEntities().filter(e => e.type === 'line' || e.type === 'arc' || e.type === 'circle');
     if (pts.length === 1 && ents.length === 1) {
@@ -5097,7 +5108,7 @@
       toast('Select two points, or one point plus a line/arc/circle');
       return;
     }
-    if (!confirmBulkConstraint('coincident', pts.length)) return;
+    if (!(await confirmBulkConstraint('coincident', pts.length))) return;
     const pairs = [];
     for (let i = 0; i + 1 < pts.length; i++) pairs.push([pts[i], pts[i + 1]]);
     const allHave = pairs.every(([a, b]) => constraintExists(c => c.type === 'coincident' &&
@@ -5133,13 +5144,13 @@
     commit();
   }
 
-  function cmdPointAxis(type) {
+  async function cmdPointAxis(type) {
     const pts = selectedPointIds();
     if (pts.length < 2) {
       toast('Select two points first');
       return;
     }
-    if (!confirmBulkConstraint(type, pts.length)) return;
+    if (!(await confirmBulkConstraint(type, pts.length))) return;
     pushHistory();
     let touched = 0;
     const allHave = pts.length >= 2 && pts.slice(0, -1).every((a, i) => {
@@ -5172,18 +5183,18 @@
     commit();
   }
 
-  function cmdLineAxis(type) {
+  async function cmdLineAxis(type) {
     const pts = selectedPointIds();
     const lines = selectedEntities().filter(e => e.type === 'line');
     if (!lines.length && pts.length >= 2) {
-      cmdPointAxis(type + 'Points');
+      await cmdPointAxis(type + 'Points');
       return;
     }
     if (!lines.length) {
       toast('Select one or more lines first');
       return;
     }
-    if (!confirmBulkConstraint(type, lines.length)) return;
+    if (!(await confirmBulkConstraint(type, lines.length))) return;
     const allHave = lines.every(e => constraintExists(c => c.type === type && +c.entity === e.id));
     pushHistory();
     let touched = 0;
@@ -5210,7 +5221,7 @@
     commit();
   }
 
-  function cmdLinePair(type) {
+  async function cmdLinePair(type) {
     // Equal also applies to round shapes: two circles, two arcs, or a circle
     // and an arc, all with the same RADIUS. Parallel / perpendicular stay
     // line-only.
@@ -5229,7 +5240,7 @@
       toast('Equal compares two lengths or two radii — not a line with a circle');
       return;
     }
-    if (!confirmBulkConstraint(type, lines.length)) return;
+    if (!(await confirmBulkConstraint(type, lines.length))) return;
     const pairs = [];
     for (let i = 0; i + 1 < lines.length; i++) pairs.push([lines[i].id, lines[i + 1].id]);
     const matchPair = (c, a, b) => c.type === type &&
@@ -5259,13 +5270,13 @@
     commit();
   }
 
-  function cmdAnchor() {
+  async function cmdAnchor() {
     const pts = selectedPointIds();
     if (!pts.length) {
       toast('Select one or more points to anchor');
       return;
     }
-    if (!confirmBulkConstraint('anchor', pts.length)) return;
+    if (!(await confirmBulkConstraint('anchor', pts.length))) return;
     const allAnchored = pts.every(pid => constraintExists(c => c.type === 'fix' && +c.p === pid));
     if (allAnchored) {
       // same key again releases the anchor, like H / V / [ / M / T
@@ -7897,7 +7908,7 @@
     panel.style.top = Math.round(y) + 'px';
   }
 
-  function createDimension(opts = {}) {
+  async function createDimension(opts = {}) {
     if (xfBlock()) return;
     const reference = !!opts.reference;
     const pts = selectedPointIds();
@@ -7916,7 +7927,7 @@
         toast('Measure added');
         return;
       }
-      const input = prompt('Angle in degrees', fmt(current));
+      const input = await uiPrompt('Angle in degrees', fmt(current));
       if (input == null) return;
       const value = evalFormula(input, current);
       if (!isFinite(value)) {
@@ -7962,7 +7973,7 @@
         toast('Point is already on the ' + e.type);
         return;
       }
-      const input = prompt('Distance to ' + e.type, fmt(value));
+      const input = await uiPrompt('Distance to ' + e.type, fmt(value));
       if (input == null) return;
       const num = evalFormula(input, value);
       if (!isFinite(num) || num <= 0) {
@@ -7996,7 +8007,7 @@
         toast('Measure added');
         return;
       }
-      const input = prompt('Distance', fmt(current));
+      const input = await uiPrompt('Distance', fmt(current));
       if (input == null) return;
       const value = evalFormula(input, current);
       if (!isFinite(value) || value <= 0) {
@@ -8021,7 +8032,7 @@
         toast('Measure added');
         return;
       }
-      const input = prompt('Diameter (enter "rx, ry" radii for an ellipse)', fmt(e.r * 2));
+      const input = await uiPrompt('Diameter (enter "rx, ry" radii for an ellipse)', fmt(e.r * 2));
       if (input == null) return;
       const pair = parsePairInput(input);
       if (pair) {
@@ -8071,7 +8082,7 @@
         toast('Measure added');
         return;
       }
-      const input = prompt('Radius', fmt(current));
+      const input = await uiPrompt('Radius', fmt(current));
       if (input == null) return;
       const value = evalFormula(input, current);
       if (!isFinite(value) || value <= 0) {
@@ -8089,13 +8100,13 @@
     toast('Select two points, one line, one circle/arc, or two lines');
   }
 
-  function clearAllConstraints() {
+  async function clearAllConstraints() {
     const n = Object.keys(state.constraints).length;
     if (!n) {
       toast('There are no constraints');
       return;
     }
-    if (!confirm('Remove all ' + n + ' constraints and dimensions?')) return;
+    if (!(await uiConfirm('Remove all ' + n + ' constraints and dimensions?', { danger: true }))) return;
     pushHistory();
     state.constraints = {};
     cleanupPoints();
@@ -10300,21 +10311,23 @@
     const rad = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y)) / 2 + 1 / view.zoom;
     const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
     const cands = pointCandidatesNear(cx, cy, rad);
-    const scan = (ids) => {
-      for (const id of ids) {
-        if (skip && skip.has(id)) continue;
-        if (!pointVisible(id) || !pointEditable(id)) continue;
-        const p = state.points[id];
-        const s = w2s(p.x, p.y);
-        const d = Math.hypot(sx - s.x, sy - s.y);
-        if (d < bestD) {
-          bestD = d;
-          best = id;
-        }
+    const scanOne = (id) => {
+      if (skip && skip.has(id)) return;
+      if (!pointVisible(id) || !pointEditable(id)) return;
+      const p = state.points[id];
+      if (!p) return;
+      const s = w2s(p.x, p.y);
+      const d = Math.hypot(sx - s.x, sy - s.y);
+      if (d < bestD) {
+        bestD = d;
+        best = id;
       }
     };
-    if (cands) scan(cands);
-    else for (const key in state.points) scan([+key]);
+    if (cands) {
+      for (let i = 0; i < cands.length; i++) scanOne(cands[i]);
+    } else {
+      for (const key in state.points) scanOne(+key);
+    }
     return best;
   }
 
@@ -13576,26 +13589,28 @@
     }
     const firstName = ents[0].name || '';
     const current = ents.every(e => (e.name || '') === firstName) ? firstName : '';
-    const input = prompt(
-      ents.length === 1
-        ? 'Name for this object (leave empty to clear it)'
-        : 'Name for these ' + ents.length + ' objects (leave empty to clear it)',
-      current
-    );
-    if (input == null) return;
-    const name = String(input).trim().slice(0, 80);
-    pushHistory();
-    for (const e of ents) {
-      if (name) e.name = name;
-      else delete e.name;
-    }
-    commit();
-    updateSelectionInfo();
-    if (name) {
-      toast((ents.length === 1 ? 'Named' : 'Named ' + ents.length + ' objects') + ' \u201c' + name + '\u201d');
-    } else {
-      toast('Name cleared');
-    }
+    const msg = ents.length === 1
+      ? 'Name for this object (leave empty to clear it)'
+      : 'Name for these ' + ents.length + ' objects (leave empty to clear it)';
+    const finish = (input) => {
+      if (input == null) return;
+      const name = String(input).trim().slice(0, 80);
+      pushHistory();
+      for (const e of ents) {
+        if (name) e.name = name;
+        else delete e.name;
+      }
+      commit();
+      updateSelectionInfo();
+      if (name) {
+        toast((ents.length === 1 ? 'Named' : 'Named ' + ents.length + ' objects') + ' \u201c' + name + '\u201d');
+      } else {
+        toast('Name cleared');
+      }
+    };
+    const res = typeof uiPrompt === 'function' ? uiPrompt(msg, current) : prompt(msg, current);
+    if (res && typeof res.then === 'function') return res.then(finish);
+    finish(res);
   }
 
   function cmdUngroupSelection() {
@@ -16119,36 +16134,37 @@
   function confirmOffset() {
     const job = ui.offsetJob;
     if (!job) return;
-    const input = prompt('Offset in mm (positive = outward, negative = inward)', fmt(job.dist));
-    if (input == null) return;                       // stay in drafting
-    const value = evalFormula(input, job.dist);
-    if (!isFinite(value)) {
-      toast('Enter a number or a formula');
-      return;
-    }
-    const off = offsetChains(job.chains, value, {
-      tol: OFFSET_TOL, miterLimit: OFFSET_MITER, join: OFFSET_JOIN, arcTol: OFFSET_ARC_TOL
+    return uiPrompt('Offset in mm (positive = outward, negative = inward)', fmt(job.dist)).then((input) => {
+      if (input == null) return;                       // stay in drafting
+      const value = evalFormula(input, job.dist);
+      if (!isFinite(value)) {
+        toast('Enter a number or a formula');
+        return;
+      }
+      const off = offsetChains(job.chains, value, {
+        tol: OFFSET_TOL, miterLimit: OFFSET_MITER, join: OFFSET_JOIN, arcTol: OFFSET_ARC_TOL
+      });
+      if (!off.length) {
+        toast('That offset collapses the shape — try a smaller value');
+        return;
+      }
+      pushHistory();
+      const id = addFramedObject(off, { color: job.color, layer: job.layer });
+      if (id == null) {
+        history.pop();
+        updateHistoryButtons();
+        toast('Nothing left at that offset');
+        return;
+      }
+      ui.offsetJob = null;
+      ui.selection = [{ kind: 'entity', id }];
+      invalidateLoops();
+      commit();
+      const holes = off.filter(c => (c.depth || 0) % 2 === 1).length;
+      toast('Offset ' + fmt(value) + ' mm \u00b7 ' + off.length + ' contour' + (off.length === 1 ? '' : 's') +
+        (holes ? ' (' + (off.length - holes) + ' outside, ' + holes + ' hole' + (holes === 1 ? '' : 's') + ')' : '') +
+        ' \u00b7 Ctrl+O again for another');
     });
-    if (!off.length) {
-      toast('That offset collapses the shape — try a smaller value');
-      return;
-    }
-    pushHistory();
-    const id = addFramedObject(off, { color: job.color, layer: job.layer });
-    if (id == null) {
-      history.pop();
-      updateHistoryButtons();
-      toast('Nothing left at that offset');
-      return;
-    }
-    ui.offsetJob = null;
-    ui.selection = [{ kind: 'entity', id }];
-    invalidateLoops();
-    commit();
-    const holes = off.filter(c => (c.depth || 0) % 2 === 1).length;
-    toast('Offset ' + fmt(value) + ' mm \u00b7 ' + off.length + ' contour' + (off.length === 1 ? '' : 's') +
-      (holes ? ' (' + (off.length - holes) + ' outside, ' + holes + ' hole' + (holes === 1 ? '' : 's') + ')' : '') +
-      ' \u00b7 Ctrl+O again for another');
   }
 
   function drawOffsetPreview() {
@@ -21200,11 +21216,10 @@
       (wA.x + wB.x) / 2, (wA.y + wB.y) / 2,
       Math.max(Math.abs(wB.x - wA.x), Math.abs(wB.y - wA.y)) / 2 + 12 / view.zoom
     );
-    const scanPoints = (ids) => {
-      for (const id of ids) {
+    const scanOnePoint = (id) => {
       const p = state.points[id];
-      if (!p) continue;
-      if (!pointShown(id)) continue;
+      if (!p) return;
+      if (!pointShown(id)) return;
       const isSel = selPts.has(id);
       const isHover = ui.hover && ui.hover.kind === 'point' && ui.hover.id === id;
       // A point on another layer is drawn as a HANDLE, not as something you can
@@ -21212,13 +21227,13 @@
       // which belongs to the active layer only.
       const grabbable = pointEditable(id);
       const show = isSel || (ui.mode === 'node' && (isHover || showAll || selEntPoints.has(id)));
-      if (!show) continue;
+      if (!show) return;
       // inline screen math: w2s() allocates an object per call, and ten
       // thousand markers per frame is what pushed the garbage collector into
       // the frame time (the draw time barely moved)
       const sx = p.x * view.zoom + view.ox;
       const sy = p.y * view.zoom + view.oy;
-      if (sx < -12 || sy < -12 || sx > W + 12 || sy > H + 12) continue;
+      if (sx < -12 || sy < -12 || sx > W + 12 || sy > H + 12) return;
       // a point whose lines the zoom all skipped stays hidden too — even when
       // it is selected: the geometry is invisible, so its marker is as well
       const uses = pointUses(id);
@@ -21235,22 +21250,22 @@
           if (e2 && layerOf(e2) === ui.activeLayer) onActiveLayer = true;
           if (e2 && !entitySubPixel(e2)) allTiny = false;
         }
-        if (allTiny) continue;
+        if (allTiny) return;
       }
       if (!isHover && (!isSel || decimateSel)) {
         const k = (((sx / 8) | 0) << 16) | (((sy / 8) | 0) & 0xffff);
-        if (cellSeen.has(k)) continue;
+        if (cellSeen.has(k)) return;
         cellSeen.add(k);
       }
       if (grabbable && isSel) {
         selPath.rect(sx - selHalf, sy - selHalf, selHalf * 2, selHalf * 2);
         selCount++;
-        continue;
+        return;
       }
       if (grabbable && isHover) {
         hovPath.rect(sx - hovHalf, sy - hovHalf, hovHalf * 2, hovHalf * 2);
         hovCount++;
-        continue;
+        return;
       }
       // a point owned only by other layers fades with them (dim other layers)
       if (!onActiveLayer && ui.dimOthers && !skipPlain) {
@@ -21260,13 +21275,11 @@
         plain.rect(sx - half, sy - half, ms, ms);
         plainCount++;
       }
-      }
     };
-    if (cullCands) scanPoints(cullCands);
-    else {
-      const all = [];
-      for (const key in state.points) all.push(+key);
-      scanPoints(all);
+    if (cullCands) {
+      for (let i = 0; i < cullCands.length; i++) scanOnePoint(cullCands[i]);
+    } else {
+      for (const key in state.points) scanOnePoint(+key);
     }
     if (plainCount) {
       ctx.fillStyle = '#ffffff';
@@ -21794,6 +21807,25 @@
     return false;
   }
 
+  let conflictBadgeCache = null;
+  let conflictBadgeSource = null;
+  let conflictBadgeCount = -1;
+  function getConflictBadges() {
+    const keys = Object.keys(state.constraints);
+    if (conflictBadgeCache && conflictBadgeSource === state.constraints && conflictBadgeCount === keys.length) {
+      return conflictBadgeCache;
+    }
+    const set = new Set();
+    for (let i = 0; i < keys.length; i++) {
+      const cid = keys[i];
+      if (conflictOf(state.constraints[cid], +cid)) set.add(+cid);
+    }
+    conflictBadgeCache = set;
+    conflictBadgeSource = state.constraints;
+    conflictBadgeCount = keys.length;
+    return set;
+  }
+
   function drawConstraintBadges() {
     ui.badgeHits = [];
     ui.badgeRects = [];
@@ -21801,10 +21833,7 @@
     const placed = {};
     // P1-9: constraints fighting another one draw red, with the reason in the
     // title — the same triage the panel list shows (see conflictOf).
-    const conflictSet = new Set();
-    for (const cid in state.constraints) {
-      if (conflictOf(state.constraints[cid], +cid)) conflictSet.add(+cid);
-    }
+    const conflictSet = getConflictBadges();
     ui.conflictBadges = conflictSet;
     for (const cid in state.constraints) {
       const c = state.constraints[cid];
@@ -22501,7 +22530,7 @@
     ctx.fillText('Empty sketch', W / 2, H / 2 - 12);
     ctx.font = '12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
     ctx.fillStyle = '#b6bec9';
-    ctx.fillText('Press L for a line, A for an arc, C for a circle, or B for a box', W / 2, H / 2 + 10);
+    ctx.fillText('Press Shift+B for a line, A for an arc, E for a circle, or R for a box', W / 2, H / 2 + 10);
     ctx.restore();
   }
 
@@ -22514,24 +22543,47 @@
     return Math.max(NOTE_SIZE * view.zoom, NOTE_MIN_PX);
   }
 
+  let noteCache = null;
+  let noteCacheEpoch = -1;
+  let noteCacheSource = null;
+  function getNoteEntities() {
+    if (noteCache && noteCacheEpoch === geometryEpoch && noteCacheSource === state.entities) {
+      return noteCache;
+    }
+    const list = [];
+    for (const id in state.entities) {
+      const e = state.entities[id];
+      if (e && e.type === 'note') list.push(e);
+    }
+    noteCache = list;
+    noteCacheEpoch = geometryEpoch;
+    noteCacheSource = state.entities;
+    return list;
+  }
+
   function drawNotes() {
+    const notes = getNoteEntities();
+    if (!notes.length) return;
     const h = noteFontPx();
     ctx.save();
     ctx.font = h + 'px sans-serif';
     ctx.textBaseline = 'top';
-    for (const id in state.entities) {
-      const e = state.entities[id];
-      if (e.type !== 'note' || !layerVisible(e)) continue;
+    for (let i = 0; i < notes.length; i++) {
+      const e = notes[i];
+      if (!layerVisible(e)) continue;
       const p = P(e.p);
       if (!p) continue;
-      const s = w2s(p.x, p.y);
-      const w = ctx.measureText(e.text || '').width;
-      if (selected('entity', +id)) {
+      const sx = p.x * view.zoom + view.ox;
+      const sy = p.y * view.zoom + view.oy;
+      if (sx > W + 20 || sy > H + 20 || sy + h < -20) continue;
+      const txt = e.text || '';
+      if (selected('entity', +e.id)) {
+        const w = ctx.measureText(txt).width;
         ctx.fillStyle = 'rgba(37, 99, 235, 0.16)';
-        ctx.fillRect(s.x - 2, s.y - 2, w + 4, h + 4);
+        ctx.fillRect(sx - 2, sy - 2, w + 4, h + 4);
       }
       ctx.fillStyle = NOTE_COLOR;
-      ctx.fillText(e.text || '', s.x, s.y);
+      ctx.fillText(txt, sx, sy);
     }
     ctx.restore();
   }
@@ -22746,7 +22798,7 @@
     if (ui.offsetJob || mateJob) return text;
     if (!ui.snap && (ui.tool === 'line' || ui.tool === 'curve' || ui.tool === 'arc' ||
       ui.tool === 'circle' || ui.tool === 'box' || ui.tool === 'poly')) {
-      return text + '  ⚠ Snap is OFF — nothing snaps, hold Alt to snap for a moment, S to toggle.';
+      return text + '  ⚠ Snap is OFF — nothing snaps, hold Alt to snap for a moment, Shift+5 to toggle.';
     }
     return text;
   }
@@ -22777,7 +22829,7 @@
     }
     if (isSelectLikeTool()) return selectHintText();
     switch (ui.tool) {
-      case 'line': return 'Click start point, then end point. Keep clicking to chain; click the first point again to close the loop and finish. Enter finishes, Esc takes the last line back, Esc again stops. Shift = 15° polar, Alt = inverse of the Snap toggle while held. With exactly two points selected, L creates the line between them.';
+      case 'line': return 'Click start point, then end point. Keep clicking to chain; click the first point again to close the loop and finish. Enter finishes, Esc takes the last line back, Esc again stops. Shift = 15° polar, Alt = inverse of the Snap toggle while held. With exactly two points selected, Shift+B creates the line between them.';
       case 'arc': return 'Click center, then start point, then end point. Shift snaps angles.';
       case 'circle': return 'Click center, then a point on the radius. The circle is created and the dimension prompt opens: one value = radius, two values (100,200) = ellipse. Drag the circle edge to move it.';
       case 'box': return 'Click two opposite corners. Scroll to set a fillet radius (Shift = fine) — the radius is confirmed when the box is created; without scrolling the corners stay sharp.';
@@ -22803,12 +22855,12 @@
       return 'Boolean ready: ' + nLoops + ' loops — Ctrl++ union · Ctrl+- cut (FIRST loop = tool, SECOND = target) · Ctrl+0 intersect.';
     }
     if (nLoops === 1) {
-      return 'Boolean: 1 loop picked — pick a SECOND loop, then Ctrl++ union · Ctrl+- cut (first = tool) · Ctrl+0 intersect. Offset: Ctrl+O offsets this selection.';
+      return 'Boolean: 1 loop picked — pick a SECOND loop, then Ctrl++ union · Ctrl+- cut (first = tool) · Ctrl+0 intersect. Offset: Ctrl+J offsets this selection.';
     }
     if (selN > 0) {
-      return base + ' Offset: Ctrl+O offsets the selection (wheel = distance, Enter confirms). Boolean: pick closed loops first (' + selN + ' selected, 0 loops).';
+      return base + ' Offset: Ctrl+J offsets the selection (wheel = distance, Enter confirms). Boolean: pick closed loops first (' + selN + ' selected, 0 loops).';
     }
-    return base + ' Frame: Alt+R jumps to L/T/W/H (+20 = move +20, Tab = next box). Dimension: select 2 points / 1–2 lines / circle, then D (driving) or Shift+D (measure). Constraints: H V P Q O T M . [ F J on a selection.';
+    return base + ' Frame: Alt+R jumps to L/T/W/H (+20 = move +20, Tab = next box). Dimension: select 2 points / 1–2 lines / circle, then D (driving) or Shift+D (measure). Constraints: H V P Q O G M . [ F J on a selection.';
   }
 
   function syncWallInput() {
@@ -24013,7 +24065,7 @@
     return { arcId, line1: id1, line2: id2 };
   }
 
-  function cmdFillet() {
+  async function cmdFillet() {
     const lines = selectedEntities().filter(e => e.type === 'line');
     const pts = selectedPointIds();
     const targets = [];
@@ -24054,7 +24106,7 @@
       if (s < suggest) suggest = s;
     }
     if (!isFinite(suggest)) suggest = 1;
-    const input = prompt(targets.length > 1 ? 'Fillet radius for ' + targets.length + ' corners' : 'Fillet radius', fmt(suggest));
+    const input = await uiPrompt(targets.length > 1 ? 'Fillet radius for ' + targets.length + ' corners' : 'Fillet radius', fmt(suggest));
     if (input == null) return;
     const r = evalFormula(input, suggest);
     if (!isFinite(r) || r <= 0) {
@@ -24936,7 +24988,7 @@
     render();
   }
 
-  function onPointerDown(ev) {
+  async function onPointerDown(ev) {
     if (ui.offsetJob) return;                 // drafting: wheel and Enter only
     // The finger that lifts last after a pinch must not also draw a line.
     if (pinchSwallowed && ev.pointerType !== 'mouse') {
@@ -25000,11 +25052,11 @@
         const dx0 = pt.x - ref.x;
         const dy0 = pt.y - ref.y;
         ui.moveJob = null;
-        const typed = prompt('Move dx, dy (mm)', fmt(dx0) + ', ' + fmt(dy0));
         updateUI();
-        if (typed == null) return;
+        const typed = await uiPrompt('Move dx, dy (mm)', fmt(dx0) + ', ' + fmt(dy0));
+        if (typed == null) { render(); return; }
         const nums = String(typed).split(/[\s,;]+/).map(Number).filter(v => isFinite(v));
-        if (!nums.length) { toast('No movement entered'); return; }
+        if (!nums.length) { toast('No movement entered'); render(); return; }
         applyMoveDelta(nums[0], nums.length > 1 ? nums[1] : 0);
       }
       render();
@@ -25526,7 +25578,7 @@
     return true;
   }
 
-  function handleCreateClick(snap, ev) {
+  async function handleCreateClick(snap, ev) {
     const shift = ev.shiftKey;
 
     if (ui.tool === 'text') {
@@ -25670,7 +25722,8 @@
         const maxR = Math.max(0, Math.min(Math.abs(x2 - x1), Math.abs(y2 - y1)) / 2 - 0.001);
         let r = Math.min(ui.boxFillet || 0, maxR);
         if (ui.boxFilletTouched) {
-          const input = prompt('Fillet radius (0 = sharp corners)', fmt(ui.boxFillet || 0));
+          try { if (canvas.hasPointerCapture(ev.pointerId)) canvas.releasePointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
+          const input = await uiPrompt('Fillet radius (0 = sharp corners)', fmt(ui.boxFillet || 0));
           if (input == null) {
             cancelDraft();
             render();
@@ -25745,14 +25798,15 @@
       const R = Math.hypot(snap.x - c.x, snap.y - c.y);
       if (R < 1e-6) return;
       const mouseA = Math.atan2(snap.y - c.y, snap.x - c.x);
-      const sidesIn = prompt('Sides (3-64)', String(ui.polySides || 6));
+      try { if (canvas.hasPointerCapture(ev.pointerId)) canvas.releasePointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
+      const sidesIn = await uiPrompt('Sides (3-64)', String(ui.polySides || 6));
       if (sidesIn == null) return;
       const sides = clamp(Math.round(Number(sidesIn) || 0), 3, 64);
-      const innerIn = prompt('Star inner % (0-100, 0 = regular polygon)', String(ui.polyInner || 0));
+      const innerIn = await uiPrompt('Star inner % (0-100, 0 = regular polygon)', String(ui.polyInner || 0));
       if (innerIn == null) return;
       const inner = clamp(Number(innerIn) || 0, 0, 100);
       const defAngle = normDeg((mouseA - polygonUprightBase(sides, inner)) * 180 / Math.PI);
-      const angleIn = prompt('Start angle in degrees (0 = upright)', Math.abs(defAngle) < 1e-9 ? '0' : fmt(defAngle));
+      const angleIn = await uiPrompt('Start angle in degrees (0 = upright)', Math.abs(defAngle) < 1e-9 ? '0' : fmt(defAngle));
       if (angleIn == null) return;
       const angle = evalFormula(angleIn, defAngle);
       if (!isFinite(angle)) {
@@ -28286,7 +28340,7 @@ function cmdSplitCurve() {
     return kill.length;
   }
 
-  function cmdJoinPoints() {
+  async function cmdJoinPoints() {
     // Closed loops in the selection are joined PER LOOP (weld the doubled
     // points around each contour). The pairwise point scan below is O(n²) and
     // freezes the moment N selected a whole drawing.
@@ -28310,7 +28364,7 @@ function cmdSplitCurve() {
       toast('Select at least two points to join');
       return;
     }
-    if (pts.length > 100 && !confirm('Join ' + pts.length + ' points at once? Points that touch are merged and the rest collapse to their center.')) {
+    if (pts.length > 100 && !(await uiConfirm('Join ' + pts.length + ' points at once? Points that touch are merged and the rest collapse to their center.'))) {
       return;
     }
     // Only objects built on the selected points may be touched by the clean-up
@@ -28873,7 +28927,7 @@ function cmdSplitCurve() {
     }
   }
 
-  function onDoubleClick(ev) {
+  async function onDoubleClick(ev) {
     if (xfBusy() || ui.offsetJob) return;
     const pos = pointerPos(ev);
     // A mate job owns every click — its second pick IS a double click on the
@@ -28913,7 +28967,7 @@ function cmdSplitCurve() {
       const ent = state.entities[eh];
       // A part's name is editable in place: double click asks for the new name.
       if (ent && ent.type === 'part') {
-        const newName = prompt('Part name', ent.name || ('Part ' + ent.id));
+        const newName = await uiPrompt('Part name', ent.name || ('Part ' + ent.id));
         if (newName != null) {
           pushHistory();
           ent.name = newName.trim();
@@ -29008,7 +29062,7 @@ function cmdSplitCurve() {
     commit();
   }
 
-  function editDimensionConstraint(id) {
+  async function editDimensionConstraint(id) {
     const c = state.constraints[id];
     if (!c) return;
     if (c.reference) {
@@ -29021,7 +29075,7 @@ function cmdSplitCurve() {
       (isCir ? 'Diameter (or "rx, ry" radii for an ellipse)' :
         (c.type === 'radius' ? 'Radius (or "rx, ry" for an ellipse)' :
           (c.kind === 'radius' ? 'Radius' : 'Distance')));
-    const input = prompt(label, fmt(isCir ? c.value * 2 : c.value));
+    const input = await uiPrompt(label, fmt(isCir ? c.value * 2 : c.value));
     if (input == null) return;
     if (c.type === 'radius') {
       const pair = parsePairInput(input);
@@ -29194,9 +29248,9 @@ function cmdSplitCurve() {
   }
 
   // ; — drop a comment at the cursor and type its text right away.
-  function createNote() {
+  async function createNote() {
     const at = ui.lastWorld || ui.raw || s2w(W / 2, H / 2);
-    const text = prompt('Comment', '');
+    const text = await uiPrompt('Comment', '');
     if (text == null) return;
     const t = text.trim();
     if (!t) {
@@ -29213,8 +29267,8 @@ function cmdSplitCurve() {
     commit();
   }
 
-  function editNote(e) {
-    const text = prompt('Comment', e.text || '');
+  async function editNote(e) {
+    const text = await uiPrompt('Comment', e.text || '');
     if (text == null) return;
     const t = text.trim();
     if (!t) {
@@ -30036,8 +30090,8 @@ function cmdSplitCurve() {
     });
   }
 
-  function loadDemoSketch() {
-    if (Object.keys(state.entities).length && !confirm('Load the demo sketch? The current sketch will be replaced.')) return;
+  async function loadDemoSketch() {
+    if (Object.keys(state.entities).length && !(await uiConfirm('Load the demo sketch? The current sketch will be replaced.', { danger: true }))) return;
     pushHistory();
     state = buildDemo();
     clearSelection();
@@ -31355,6 +31409,7 @@ function cmdSplitCurve() {
     }
     const host = cncResolveHost(cnc.host);
     const url = 'ws://' + host + ':' + cnc.port + '/';
+    const isHttps = typeof location !== 'undefined' && location.protocol === 'https:';
     cncCloseSocket();
     cnc.busy = true;
     say('Connecting to ' + host + ':' + cnc.port + ' …', 'busy');
@@ -31363,7 +31418,9 @@ function cmdSplitCurve() {
       ws = new WebSocket(url);
     } catch (err) {
       cnc.busy = false;
-      say('Bad address: ' + url, 'error');
+      say(isHttps
+        ? 'Browser memblokir ws:// dari halaman HTTPS — buka MiniSketch lewat http://127.0.0.1:3000 untuk kirim ke KaryaCNC lokal'
+        : 'Bad address: ' + url, 'error');
       return;
     }
     cnc.ws = ws;
@@ -31427,7 +31484,9 @@ function cmdSplitCurve() {
       }
     };
     ws.onerror = () => {
-      finish('Cannot reach ' + host + ':' + cnc.port + ' — is KaryaCNC running with that WS port?', 'error', false);
+      finish(isHttps
+        ? 'Koneksi ws:// lokal diblokir di HTTPS — buka MiniSketch lewat http://127.0.0.1:3000 atau izinkan konten lokal'
+        : 'Cannot reach ' + host + ':' + cnc.port + ' — is KaryaCNC running with that WS port?', 'error', false);
     };
     ws.onclose = () => {
       if (!settled) finish('Connection closed by ' + host + ':' + cnc.port, 'error', false);
@@ -31559,8 +31618,8 @@ function cmdSplitCurve() {
       // Same contract as Ctrl+S: always a real file.
       downloadSketch(false);
     });
-    document.getElementById('btn-new').addEventListener('click', () => {
-      if (Object.keys(state.entities).length && !confirm('Start a new sketch? The current sketch will be replaced.')) return;
+    document.getElementById('btn-new').addEventListener('click', async () => {
+      if (Object.keys(state.entities).length && !(await uiConfirm('Start a new sketch? The current sketch will be replaced.', { danger: true }))) return;
       pushHistory();
       state = blankState();
       clearSelection();
@@ -32493,8 +32552,8 @@ function cmdSplitCurve() {
         updateUI();
         render();
       });
-      name.addEventListener('dblclick', () => {
-        const n = prompt('Layer name', l.name);
+      name.addEventListener('dblclick', async () => {
+        const n = await uiPrompt('Layer name', l.name);
         if (n && n.trim()) {
           l.name = n.trim();
           scheduleSave();
@@ -32524,7 +32583,7 @@ function cmdSplitCurve() {
       del.className = 'layer-btn danger';
       del.title = 'Delete layer together with everything on it';
       del.textContent = '\u00d7';
-      del.addEventListener('click', () => {
+      del.addEventListener('click', async () => {
         if (state.layers.length <= 1) {
           toast('At least one layer must exist');
           return;
@@ -32535,7 +32594,7 @@ function cmdSplitCurve() {
         }
         const msg = 'Delete layer "' + l.name + '"' +
           (ids.length ? ' together with its ' + ids.length + ' object(s)?' : '?');
-        if (!confirm(msg)) return;
+        if (!(await uiConfirm(msg, { danger: true }))) return;
         pushHistory();
         removeEntities(ids);
         state.layers = state.layers.filter(x => x.id !== l.id);
@@ -33440,8 +33499,9 @@ function cmdSplitCurve() {
     // the user is never left guessing where/under what the file landed — the
     // toast below then says where to look for it.
     const ask = forcePicker || !save.name;
-    const written = downloadBlob('sketch-' + stamp + '.sketch', new Blob([text], { type: 'application/json' }), ask);
-    if (written) setFileName(written);
+    const written = await downloadBlob('sketch-' + stamp + '.sketch', new Blob([text], { type: 'application/json' }), ask);
+    if (!written) return;
+    setFileName(written);
     toast('Downloaded ' + written + ' — check your browser\u2019s Downloads folder' +
       (ask ? ' (you picked the name)' : ''));
   }
@@ -33605,48 +33665,53 @@ function cmdSplitCurve() {
   }
 
   function downloadBlob(name, blob, askName) {
-    let outName = String(name || 'download');
+    const finishDownload = (typed) => {
+      let outName = String(name || 'download');
+      if (!isWailsRuntime()) {
+        const dot = outName.lastIndexOf('.');
+        const base0 = dot > 0 ? outName.slice(0, dot) : outName;
+        const ext = dot > 0 ? outName.slice(dot) : '';
+        if (typed != null) {
+          typed = String(typed).trim().replace(/[\\/:*?"<>|]/g, '_');
+          if (!typed) typed = base0;
+          // the extension belongs to the file type; typing it is fine too
+          let base = typed;
+          if (ext && base.toLowerCase().endsWith(ext.toLowerCase())) base = base.slice(0, base.length - ext.length);
+          base = base.replace(/[. ]+$/, '');
+          if (!base) base = base0;
+          outName = base + ext;
+          try { localStorage.setItem(FILENAME_KEY, base); } catch (err) { /* ignore */ }
+        }
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = outName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1200);
+      // the caller shows this name as the current document's file
+      return outName;
+    };
+    const rawName = String(name || 'download');
     if (!isWailsRuntime()) {
-      const dot = outName.lastIndexOf('.');
-      const base0 = dot > 0 ? outName.slice(0, dot) : outName;
-      const ext = dot > 0 ? outName.slice(dot) : '';
+      const dot = rawName.lastIndexOf('.');
+      const base0 = dot > 0 ? rawName.slice(0, dot) : rawName;
       let remembered = '';
       try { remembered = String(localStorage.getItem(FILENAME_KEY) || '').trim(); } catch (err) { remembered = ''; }
-      // No picker in this context (insecure origin, Firefox, …): download
-      // silently under the remembered name instead of interrupting with a
-      // prompt. Only an explicit Save As (askName) still asks for a name.
-      let typed = null;
       if (askName) {
-        typed = prompt('File name', remembered || base0);
-        if (typed == null) {
-          toast('Download cancelled');
-          return null;
-        }
-      } else if (remembered) {
-        typed = remembered;
+        return uiPrompt('File name', remembered || base0).then((typed) => {
+          if (typed == null) {
+            toast('Download cancelled');
+            return null;
+          }
+          return finishDownload(typed);
+        });
       }
-      if (typed != null) {
-        typed = String(typed).trim().replace(/[\\/:*?"<>|]/g, '_');
-        if (!typed) typed = base0;
-        // the extension belongs to the file type; typing it is fine too
-        let base = typed;
-        if (ext && base.toLowerCase().endsWith(ext.toLowerCase())) base = base.slice(0, base.length - ext.length);
-        base = base.replace(/[. ]+$/, '');
-        if (!base) base = base0;
-        outName = base + ext;
-        try { localStorage.setItem(FILENAME_KEY, base); } catch (err) { /* ignore */ }
-      }
+      return finishDownload(remembered || null);
     }
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = outName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1200);
-    // the caller shows this name as the current document's file
-    return outName;
+    return finishDownload(null);
   }
 
   function svgArcPath(e) {
@@ -34045,12 +34110,123 @@ function cmdSplitCurve() {
   // Esc cancels, Enter confirms, Tab cycles the fields and buttons, and the
   // first field takes focus when the dialog opens.
   function activeModal() {
-    return document.querySelector('.modal:not(.hidden)');
+    const dlg = document.getElementById('app-dialog-modal');
+    if (dlg && !dlg.classList.contains('hidden')) return dlg;
+    const open = document.querySelectorAll('.modal:not(.hidden)');
+    return open.length ? open[open.length - 1] : null;
   }
 
   function modalFocusables(modal) {
     return Array.from(modal.querySelectorAll('input, select, textarea, button'))
       .filter(el => !el.disabled && el.offsetParent !== null);
+  }
+
+  let dialogQueue = Promise.resolve();
+  function showAppDialog(opts) {
+    const run = () => new Promise((resolve) => {
+      const modal = document.getElementById('app-dialog-modal');
+      const titleEl = document.getElementById('app-dialog-title');
+      const msgEl = document.getElementById('app-dialog-message');
+      const fieldEl = document.getElementById('app-dialog-field');
+      const inputEl = document.getElementById('app-dialog-input');
+      const cancelBtn = document.getElementById('app-dialog-cancel');
+      const okBtn = document.getElementById('app-dialog-ok');
+      if (!modal || !msgEl || !okBtn || !cancelBtn) {
+        resolve(opts.kind === 'confirm' ? false : (opts.kind === 'prompt' ? null : undefined));
+        return;
+      }
+      const kind = opts.kind || 'alert';
+      const title = opts.title ? String(opts.title) : '';
+      if (titleEl) {
+        titleEl.textContent = title;
+        titleEl.classList.toggle('hidden', !title);
+      }
+      msgEl.textContent = String(opts.message == null ? '' : opts.message);
+      const isPrompt = kind === 'prompt';
+      const isConfirm = kind === 'confirm';
+      if (fieldEl) fieldEl.classList.toggle('hidden', !isPrompt);
+      if (inputEl && isPrompt) {
+        inputEl.value = opts.defaultValue == null ? '' : String(opts.defaultValue);
+      }
+      cancelBtn.classList.toggle('hidden', !isPrompt && !isConfirm);
+      cancelBtn.textContent = opts.cancelText || 'Cancel';
+      okBtn.textContent = opts.okText || 'OK';
+      okBtn.classList.toggle('danger', !!opts.danger);
+      okBtn.classList.toggle('primary', !opts.danger);
+
+      let done = false;
+      const prevFocused = document.activeElement;
+      const finish = (val) => {
+        if (done) return;
+        done = true;
+        okBtn.removeEventListener('click', onOk);
+        cancelBtn.removeEventListener('click', onCancel);
+        if (inputEl) inputEl.removeEventListener('keydown', onInputKey);
+        modal.classList.add('hidden');
+        delete modal.dataset.focused;
+        if (prevFocused && typeof prevFocused.focus === 'function' && document.contains(prevFocused) &&
+            prevFocused.offsetParent !== null) {
+          try { prevFocused.focus(); } catch (err) { /* ignore */ }
+        }
+        resolve(val);
+      };
+      const onOk = () => {
+        if (isPrompt) finish(inputEl ? inputEl.value : '');
+        else if (isConfirm) finish(true);
+        else finish(undefined);
+      };
+      const onCancel = () => {
+        if (isPrompt) finish(null);
+        else if (isConfirm) finish(false);
+        else finish(undefined);
+      };
+      const onInputKey = (ev) => {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          ev.stopPropagation();
+          onOk();
+        }
+      };
+
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+      if (inputEl && isPrompt) inputEl.addEventListener('keydown', onInputKey);
+
+      modal.dataset.focused = '1';
+      modal.classList.remove('hidden');
+      const focusTarget = () => {
+        if (done) return;
+        if (isPrompt && inputEl) {
+          inputEl.focus();
+          inputEl.select();
+        } else {
+          okBtn.focus();
+        }
+      };
+      focusTarget();
+      requestAnimationFrame(focusTarget);
+    });
+    const next = dialogQueue.then(run, run);
+    dialogQueue = next.catch(() => {});
+    return next;
+  }
+
+  function uiAlert(message, opts = {}) {
+    return showAppDialog(Object.assign({}, opts, { kind: 'alert', message }));
+  }
+
+  function uiConfirm(message, opts = {}) {
+    return showAppDialog(Object.assign({}, opts, { kind: 'confirm', message }));
+  }
+
+  function uiPrompt(message, defaultValue = '', opts = {}) {
+    return showAppDialog(Object.assign({}, opts, { kind: 'prompt', message, defaultValue }));
+  }
+
+  if (typeof window !== 'undefined') {
+    window.uiAlert = uiAlert;
+    window.uiConfirm = uiConfirm;
+    window.uiPrompt = uiPrompt;
   }
 
   function initModalBehavior() {
@@ -34123,6 +34299,12 @@ function cmdSplitCurve() {
         // turns Ctrl+Enter into the primary action.
         const t = ev.target;
         if (t && (t.tagName === 'TEXTAREA' || t.isContentEditable === true)) return;
+        if (modal.id === 'app-dialog-modal' && t && t.tagName === 'BUTTON' && t.closest('.modal-actions')) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          t.click();
+          return;
+        }
         // Enter confirms: the primary button, else the last action button
         const actions = modal.querySelectorAll('.modal-actions button');
         const primary = modal.querySelector('.modal-actions .btn.primary') ||
@@ -34486,23 +34668,21 @@ function cmdSplitCurve() {
     updateUI();
     updateHistoryButtons();
     render();
-
-    const ro = new ResizeObserver(() => resize());
-    ro.observe(stage);
   }
 
   // Guard the destructive shortcuts. Ctrl+R / F5 reload the page, which throws
   // away the drawing in memory; localStorage is only a recovery net, not a file.
   // Asking first is the difference between "oops" and losing a customer job.
-  window.addEventListener('keydown', (ev) => {
+  window.addEventListener('keydown', async (ev) => {
     const k = String(ev.key || '').toLowerCase();
     const reload = (ev.ctrlKey || ev.metaKey) && k === 'r';
     if (!reload && k !== 'f5') return;
     if (!Object.keys(state.entities).length) return;
-    if (ev.repeat) { ev.preventDefault(); return; }
-    const ans = confirm('Reload the page? Unsaved work in the window will be lost.\n\n' +
-      'Ctrl+S saves a .sketch file to disk.');
-    if (!ans) ev.preventDefault();
+    ev.preventDefault();
+    if (ev.repeat) return;
+    const ans = await uiConfirm('Reload the page? Unsaved work in the window will be lost.\n\n' +
+      'Ctrl+S saves a .sketch file to disk.', { danger: true, okText: 'Reload' });
+    if (ans) location.reload();
   }, true);
 
   window.addEventListener('beforeunload', () => {
@@ -34513,7 +34693,9 @@ function cmdSplitCurve() {
     saveTimer = null;
     if (docDirty) {
       try {
-        localStorage.setItem(STORAGE_KEY, serializeDoc());
+        const next = serializeDoc();
+        localStorage.setItem(STORAGE_KEY, next);
+        lastSavedDocStr = next;
         docDirty = false;
       } catch (err) {
         /* ignore */

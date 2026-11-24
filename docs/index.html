@@ -40,14 +40,15 @@
 
         <div class="help-nav-group">
           <div class="nav-sub">Gambar &amp; Edit</div>
-          <a href="draw.html" class="help-nav-item nav-sub-item">Draw — Menggambar<span class="nav-kbd">B · E · R</span></a>
+          <a href="draw.html" class="help-nav-item nav-sub-item">Draw — Menggambar<span class="nav-kbd">Sh+B · E · R</span></a>
           <a href="edit.html" class="help-nav-item nav-sub-item">Edit — Mengubah Objek<span class="nav-kbd">Ctrl+Z · Ctrl+G</span></a>
-          <a href="arrange.html" class="help-nav-item nav-sub-item">Arrange — Susun Objek<span class="nav-kbd">Distribusi</span></a>
+          <a href="arrange.html" class="help-nav-item nav-sub-item">Arrange — Susun Objek<span class="nav-kbd">W · Insert</span></a>
           <a href="constrain.html" class="help-nav-item nav-sub-item">Constrain — Batasan &amp; Dimensi<span class="nav-kbd">D · O · H/V</span></a>
         </div>
 
         <div class="help-nav-group">
           <div class="nav-sub">Part &amp; Mesin</div>
+          <a href="tools.html" class="help-nav-item nav-sub-item">Tools — Generator Parametrik<span class="nav-kbd">13 Alat</span></a>
           <a href="parts.html" class="help-nav-item nav-sub-item">Parts — Part &amp; Assembly<span class="nav-kbd">Alt+T</span></a>
           <a href="karyacnc.html" class="help-nav-item nav-sub-item">KaryaCNC — Kirim ke Mesin<span class="nav-kbd">Alt+Q</span></a>
         </div>
@@ -59,7 +60,7 @@
           <a href="text.html" class="help-nav-item nav-sub-item">Teks &amp; Font<span class="nav-kbd">T</span></a>
           <a href="trace.html" class="help-nav-item nav-sub-item">Image Trace — Jejak Gambar<span class="nav-kbd">Ctrl+V</span></a>
           <a href="nesting.html" class="help-nav-item nav-sub-item">Nesting — Tata Letak Potongan</a>
-          <a href="layers.html" class="help-nav-item nav-sub-item">Layers &amp; Pick Filter</a>
+          <a href="layers.html" class="help-nav-item nav-sub-item">Layers &amp; Pick Filter<span class="nav-kbd">Alt+1/2/3</span></a>
         </div>
 
         <div class="help-nav-group">
@@ -84,12 +85,21 @@
         <!-- Quick start -->
         <h2>1. Mulai cepat (Quick Start)</h2>
         <ol>
-          <li>Buka <code>index.html</code> di browser — disarankan melalui HTTP (<code>http://localhost:8090</code>) agar akses dari ponsel dan AI chat aktif, atau langsung dari disk (<code>file://</code>).</li>
+          <li>Buka MiniSketch lewat server lokal (<code>http://127.0.0.1:3000</code> dari <code>node server/serve.js</code>) agar AI Chat dan jembatan WebSocket ke KaryaCNC lokal aktif, atau buka langsung dari disk (<code>file://</code>) untuk menggambar offline.</li>
           <li>Lembar gambar kosong akan muncul dengan tema gelap. Ribbon atas berisi menu <b>File</b> dan <b>Tool</b> serta tab kerja: Draw, Edit, Arrange, Parts, Constrain, KaryaCNC.</li>
           <li>Pilih alat gambar di tab <b>Draw</b> (mis. <kbd>Shift+B</kbd> garis, <kbd>B</kbd> kurva, <kbd>E</kbd> lingkaran, <kbd>R</kbd> kotak, <kbd>T</kbd> teks) lalu klik di kanvas.</li>
-          <li>Tekan <kbd>F9</kbd> untuk menyelesaikan (solve) sketsa sehingga dimensi dan batasan terapkan.</li>
-          <li>Simpan dengan <kbd>Ctrl+S</kbd> atau unduh sebagai <code>.sketch</code> dengan <kbd>Ctrl+Shift+S</kbd>.</li>
+          <li>Atur ukuran tepat lewat strip <b>L / T / W / H</b> di atas kanvas atau tambahkan dimensi (<kbd>D</kbd>), lalu tekan <kbd>F9</kbd> bila memakai mode solver manual.</li>
+          <li>Simpan proyek ke file <code>.sketch</code> dengan <kbd>Ctrl+S</kbd> (atau <kbd>Ctrl+Shift+S</kbd> untuk nama baru). Setiap edit juga otomatis tersimpan sementara di browser.</li>
         </ol>
+
+        <h2 id="pemula">1B. Konsep dasar CNC untuk pemula</h2>
+        <p>Sebelum memotong di mesin atau menata nesting, pahami 4 aturan inti di MiniSketch:</p>
+        <ul>
+          <li><b>Loop tertutup vs garis terbuka:</b> bentuk yang ujungnya benar-benar menyatu (mis. kotak, lingkaran, atau rangkaian garis yang kembali ke titik awal) otomatis terdeteksi sebagai <b>loop tertutup</b> dan diberi warna isi tipis. Nesting, Boolean, dan <i>Extrude wall</i> membutuhkan loop tertutup. Jika loop belum terdeteksi padahal tampak menyambung, pilih objek lalu klik <b>Cleanup loops</b> (<kbd>Shift+L</kbd>) atau <b>Weld</b> (<kbd>Alt+W</kbd>).</li>
+          <li><b>Warna garis = operasi mesin:</b> tidak ada pemetaan per layer untuk mesin. <b>Hitam</b> = Potong (Cut), <b>Biru</b> = Engrave, <b>Merah</b> = Drill/Gores, <b>Hijau</b> = Mark / Garis bantu / Lembar nesting (tidak dipotong sebagai jalur cut utama).</li>
+          <li><b>Isi loop Gray &amp; Yellow:</b> klik di dalam loop lalu pilih <b>Gray</b> untuk menandai batas bahan/luar (semua di dalamnya ikut dibalik offset), atau <b>Yellow</b> untuk membalik arah offset satu kontur saja.</li>
+          <li><b>Mode F1 / F2 / F3:</b> <kbd>F1</kbd> menggeser objek utuh, <kbd>F2</kbd> (bawaan) mengedit titik/node, dan <kbd>F3</kbd> memilih titik pertemuan (<i>junction</i>).</li>
+        </ul>
 
         <div class="screenshot-wrap">
           <div class="screenshot">
@@ -125,6 +135,11 @@
             <span class="card-icon">🔗</span>
             <h3>Constrain — Batasan &amp; Dimensi</h3>
             <p>Coincident, horizontal/vertikal, sejajar, tegak lurus, sama panjang, dimensi penggerak.</p>
+          </a>
+          <a href="tools.html" class="feature-card">
+            <span class="card-icon">🧰</span>
+            <h3>Tools — 13 Generator &amp; Clone</h3>
+            <p>Box maker, Hinge/Slide/Pull top, Gear, Slot, Flex pattern, Extrude wall, Spiral, Text weld, Array/Clone.</p>
           </a>
           <a href="parts.html" class="feature-card">
             <span class="card-icon">🧩</span>
@@ -185,7 +200,7 @@
           <li><b>Zero build</b> — tag <code>&lt;script&gt;</code> biasa, berkas statis, bekerja langsung dari disk.</li>
         </ul>
 
-        <div class="callout tip"><b>Butuh ilustrasi?</b> Setiap halaman fitur dilengkapi screenshot langsung dari aplikasi. Jika ingin mencoba aplikasi itu sendiri, buka <a href="http://127.0.0.1:8090/index.html" target="_blank" rel="noopener">http://127.0.0.1:8090/index.html</a> (server MiniSketch sudah berjalan).</div>
+        <div class="callout tip"><b>Butuh ilustrasi?</b> Setiap halaman fitur dilengkapi screenshot langsung dari aplikasi. Jika ingin mencoba aplikasi itu sendiri, buka <a href="../index.html" target="_blank" rel="noopener">MiniSketch App</a> (atau <code>http://127.0.0.1:3000/index.html</code> saat server berjalan).</div>
 
         <div class="help-footer">
           <span>MiniSketch Help — dokumentasi fitur lengkap</span>

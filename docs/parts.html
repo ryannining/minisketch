@@ -33,18 +33,19 @@
       <div class="help-nav-title">Topik</div>
       <div class="help-nav-list">
         <a href="index.html" class="help-nav-item">Beranda &amp; Quick Start<span class="nav-kbd">?</span></a>
-        <a href="draw.html" class="help-nav-item">Draw — Menggambar<span class="nav-kbd">B · E · R</span></a>
+        <a href="draw.html" class="help-nav-item">Draw — Menggambar<span class="nav-kbd">Sh+B · E · R</span></a>
         <a href="edit.html" class="help-nav-item">Edit — Mengubah Objek<span class="nav-kbd">Ctrl+Z · Ctrl+G</span></a>
-        <a href="arrange.html" class="help-nav-item">Arrange — Susun Objek<span class="nav-kbd">Distribusi</span></a>
+        <a href="arrange.html" class="help-nav-item">Arrange — Susun Objek<span class="nav-kbd">W · Insert</span></a>
         <a href="constrain.html" class="help-nav-item">Constrain — Batasan &amp; Dimensi<span class="nav-kbd">D · O · H/V</span></a>
+        <a href="tools.html" class="help-nav-item">Tools — Generator Parametrik<span class="nav-kbd">13 Alat</span></a>
         <a href="parts.html" class="help-nav-item active">Parts — Part &amp; Assembly<span class="nav-kbd">Alt+T</span></a>
         <a href="karyacnc.html" class="help-nav-item">KaryaCNC — Kirim ke Mesin<span class="nav-kbd">Alt+Q</span></a>
-        <a href="files.html" class="help-nav-item">Berkas — Open / Import / Save / Export<span class="nav-kbd">Ctrl+O · Ctrl+I · Ctrl+S · Ctrl+E</span></a>
+        <a href="files.html" class="help-nav-item">Berkas — Open / Import / Save / Export<span class="nav-kbd">Ctrl+O · Ctrl+S</span></a>
         <a href="import.html" class="help-nav-item">Import — SVG / PDF / CDR / DXF</a>
         <a href="text.html" class="help-nav-item">Teks &amp; Font<span class="nav-kbd">T</span></a>
         <a href="trace.html" class="help-nav-item">Image Trace — Jejak Gambar<span class="nav-kbd">Ctrl+V</span></a>
         <a href="nesting.html" class="help-nav-item">Nesting — Tata Letak Potongan</a>
-        <a href="layers.html" class="help-nav-item">Layers &amp; Pick Filter</a>
+        <a href="layers.html" class="help-nav-item">Layers &amp; Pick Filter<span class="nav-kbd">Alt+1/2/3</span></a>
         <a href="settings.html" class="help-nav-item">Settings — Pengaturan</a>
         <a href="solver.html" class="help-nav-item">Solver — Mode Penyelesaian<span class="nav-kbd">F9</span></a>
         <a href="shortcuts.html" class="help-nav-item">Pintasan Keyboard Lengkap</a>
@@ -60,8 +61,8 @@
         <p class="help-lead">Part adalah benda kaku yang hanya dapat diputar dan digeser. Cocok untuk merancang perakitan (assembly) sebelum dipotong di mesin.</p>
 
         <div class="screenshot">
-          <img src="img/screenshots/parts-ribbon.png" alt="Tab Parts aktif dengan part terpilih">
-          <figcaption>Tab Parts aktif: Make part dan Mate. Panel Selection menampilkan part yang baru dibuat (Part 28, "1 part"), dan sidebar PARTS berhitung 1. Setelah Make part, geometri terpilih berubah hijau dan diberi marker di setiap node.</figcaption>
+          <img src="img/screenshots/parts-ribbon.png" alt="Tab Parts aktif di ribbon">
+          <figcaption>Tab Parts aktif: tombol <b>Make part</b> (membekukan geometri terpilih menjadi part kaku) dan <b>Mate</b> (<kbd>Alt+T</kbd>, menyambungkan dua part). Setelah Make part, part muncul di daftar panel <b>Parts</b> di sidebar kanan beserta marker node/pusatnya.</figcaption>
         </div>
 
         <h2>1. Make part</h2>
@@ -71,7 +72,7 @@
           <li>Marker pada setiap node dan tengah segmen.</li>
           <li>Marker pusat untuk loop tertutup.</li>
         </ul>
-        <div class="callout info"><b>Catatan:</b> garis bantu (hijau) tidak ikut di-bake ke part. Part hanya bisa berputar dan bergeser — menggeser satu titik memindahkan seluruh part. Geometri master dikembekan (frozen).</div>
+        <div class="callout info"><b>Catatan:</b> garis bantu (hijau) tidak ikut di-bake ke part. Part hanya bisa berputar dan bergeser — menggeser satu titik memindahkan seluruh part. Geometri master dibekukan (<i>frozen</i>).</div>
 
         <h2>2. Mate — gabungkan dua part (Alt+T)</h2>
         <p>Mate menyambung dua part melalui marker. Klik marker pada satu part, lalu marker pada part lain (atau tengah tepi untuk slider). Klik marker yang sama dua kali untuk grounded (paku ke dunia).</p>
@@ -81,9 +82,9 @@
             <tr><th style="width:24%">Tipe mate</th><th>Keterangan</th></tr>
           </thead>
           <tbody>
-            <tr><td><b>Pin</b></td><td>Glue dua marker bersama; rotasi tetap bebas.</td></tr>
-            <tr><td><b>Slider</b></td><td>Marker pada tepi part lain: dapat rotasi dan geser along garis.</td></tr>
-            <tr><td><b>String</b></td><td>Benang merekah yang menunjukkan perubahan panjang.</td></tr>
+            <tr><td><b>Pin</b></td><td>Menyatukan dua marker bersama; rotasi tetap bebas.</td></tr>
+            <tr><td><b>Slider</b></td><td>Marker pada tepi part lain: dapat berotasi dan bergeser sepanjang garis tersebut.</td></tr>
+            <tr><td><b>String</b></td><td>Garis ukur lentur yang menampilkan perubahan jarak/panjang secara langsung.</td></tr>
             <tr><td><b>Arc</b></td><td>Perjalanan sudut sisi B di sekitar sisi A.</td></tr>
             <tr><td><b>Weld / Ground</b></td><td>Klik marker yang sama dua kali = paku marker ke dunia (bahan dasar).</td></tr>
           </tbody>
