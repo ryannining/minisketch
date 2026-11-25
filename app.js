@@ -1729,6 +1729,26 @@
     } catch (err) { /* ignore */ }
   };
 
+  // Sinkronkan pemilih model di panel chat AI dengan settings.aiModel. Model
+  // bisa dipilih dari dua tempat (panel chat & Settings) dan keduanya harus
+  // selalu menunjuk nilai yang sama — termasuk sebelum daftar model provider
+  // sempat termuat (fetch gagal / key belum diisi), sehingga panel chat tidak
+  // pernah tampak "kosong" padahal settings sudah berisi model.
+  function syncAiModelSelect() {
+    const sel = document.getElementById('chat-model-sel');
+    if (!sel) return;
+    const v = String(settings.aiModel == null ? '' : settings.aiModel).trim();
+    if (String(sel.value) === v) return;
+    if (v && !Array.from(sel.options).some(o => o.value === v)) {
+      const o = document.createElement('option');
+      o.value = v;
+      o.textContent = v;
+      sel.add(o);
+    }
+    sel.value = v;
+  }
+  window.syncAiModelSelect = syncAiModelSelect;
+
   // Push the numbers into the working constants.
   function applySettings() {
     TEXT_TOL_MM = settings.textTol;
@@ -1785,6 +1805,9 @@
     invalidateLoops();
     if (W > 1) resize();   // pick up the new canvas quality and repaint
     if (typeof updateCncTolField === 'function') updateCncTolField();
+    // AI model changes (Settings > AI chat) must reach the chat panel's model
+    // selector immediately; the selector is the single visible picker there.
+    syncAiModelSelect();
   }
 
   function buildSettingsForm() {
@@ -1808,6 +1831,9 @@
     const bodies = {};
     let idx = 0;
     for (const sp of SETTINGS_SPEC) {
+      // Model AI dipilih HANYA di panel chat — Settings hanya untuk URL &
+      // key/profile provider, jadi tidak ada baris "AI model" di sini.
+      if (sp.key === 'aiModel') continue;
       // KaryaCNC serves the AI chat through its own built-in Go proxy
       // (/api/chat), so it has no separate Node bridge to point at. It hides
       // the "AI bridge URL" row by setting window.MiniSketchUI.showBridgeUrl
@@ -2055,10 +2081,12 @@
       const unit = urlRow.querySelector('.settings-unit');
       if (unit) unit.textContent = google ? 'otomatis: generativelanguage.googleapis.com' : '';
     }
-    // ---- AI provider presets + model list (semua provider) --------------
-    const modelInput = document.getElementById('set-aiModel');
-    const modelRow = modelInput ? modelInput.closest('.settings-row') : null;
-    const groupHost = modelRow ? (modelRow.parentElement || modelRow) : null;
+    // ---- AI provider presets (profil URL + key) ------------------------
+    // Pemilihan model tidak ada di Settings — hanya di panel chat AI.
+    const groupHost = (() => {
+      const ref = document.getElementById('set-aiProviderGoogle');
+      return ref ? ref.closest('.settings-group') : null;
+    })();
 
     const effGoogle = () => {
       const cbEl = document.getElementById('set-aiProviderGoogle');
@@ -2127,7 +2155,7 @@
         const gcbEl = document.getElementById('set-aiProviderGoogle');
         if (p.baseUrl) urlEl.value = p.baseUrl;
         if (p.apiKey != null) keyEl.value = p.apiKey;
-        if (p.model) modelInput.value = p.model;
+        if (p.model) window.setAiModelFromChat(p.model);   // model hanya di panel chat
         if (gcbEl) gcbEl.checked = isGeminiBaseUrl(p.baseUrl);
         syncProviderRows();   // cukup state URL-row/dll. (id sudah ada → tidak duplikat)
       });
@@ -2145,7 +2173,7 @@
           name,
           baseUrl: base,
           apiKey: effKey(),
-          model: String(modelInput ? modelInput.value : '').trim()
+          model: String(settings.aiModel != null ? settings.aiModel : '').trim()
         };
         const idx = aiProviders.findIndex(x => x.baseUrl === base);
         if (idx >= 0) aiProviders[idx] = rec; else aiProviders.push(rec);
@@ -2166,120 +2194,8 @@
       });
     }
 
-    // Muat daftar model dari provider AKTIF (base URL + key dari kolom).
-    // Bisa Gemini (ListModels) maupun OpenAI-compatible (/models).
-    let dd = document.getElementById('ai-model-dd');
-    let btn = document.getElementById('ai-models-refresh');
-    if (!dd) {
-      // rendered on document.body with fixed coordinates so the settings
-      // panel's overflow can never clip it
-      dd = document.createElement('div');
-      dd.id = 'ai-model-dd';
-      dd.className = 'settings-dd hidden';
-      dd.style.position = 'fixed';
-      document.body.appendChild(dd);
-    }
-    if (modelRow && !btn) {
-      btn = document.createElement('button');
-      btn.type = 'button';
-      btn.id = 'ai-models-refresh';
-      btn.className = 'btn small ai-model-load';
-      btn.textContent = '🔄';
-      btn.title = 'Muat daftar model dari provider aktif (base URL + API key yang terisi)';
-      // kecil, di sebelah kiri kolom AI model (segaris dengan input)
-      modelRow.appendChild(btn);
-      modelRow.insertBefore(btn, modelInput);
-      if (modelInput) modelRow.style.gridTemplateColumns = 'max-content auto 1fr 24px';
-      const fillList = (names) => {
-        dd.innerHTML = '';
-        for (const name of names) {
-          const opt = document.createElement('button');
-          opt.type = 'button';
-          opt.value = name;
-          opt.textContent = name;
-          opt.addEventListener('click', () => {
-            if (modelInput) modelInput.value = name;
-            dd.classList.add('hidden');
-          });
-          dd.appendChild(opt);
-        }
-      };
-      btn.addEventListener('click', async (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        btn.disabled = true;
-        btn.textContent = '…';
-        const baseNow = effBase();
-        const hostLabel = (() => { try { return new URL(baseNow).host; } catch (e) { return 'provider'; } })();
-        try {
-          const r = await fetch('/api/models', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ settings: { baseUrl: baseNow, apiKey: effKey() } })
-          });
-          const j = await r.json().catch(() => ({}));
-          if (Array.isArray(j.models) && j.models.length) {
-            fillList(j.models);
-            placeDd();
-            dd.classList.remove('hidden');
-            toast(j.models.length + ' model dimuat dari ' + hostLabel + ' — pilih dari daftar');
-          } else {
-            toast('Gagal memuat model (' + hostLabel + '): ' + ((j && j.error) || 'respons tidak dikenal'));
-          }
-        } catch (err) {
-          toast('Gagal memuat model (' + hostLabel + '): ' + String(err && err.message || err));
-        } finally {
-          btn.disabled = false;
-          btn.textContent = 'Muat daftar model';
-        }
-      });
-    }
-    if (btn) btn.style.display = '';
-
-    // document-level click closes the dropdown; helper bound once
-    if (!window.__aiModelDdClose) {
-      window.__aiModelDdClose = (ev) => {
-        const d = document.getElementById('ai-model-dd');
-        if (d && !d.contains(ev.target) &&
-            !(ev.target.id === 'ai-models-refresh') &&
-            !(ev.target.id === 'set-aiModel')) {
-          d.classList.add('hidden');
-        }
-      };
-      document.addEventListener('click', window.__aiModelDdClose, true);
-    }
-    const placeDd = () => {
-      if (!dd || !modelInput) return;
-      const r = modelInput.getBoundingClientRect();
-      dd.style.top = Math.round(r.bottom + 4) + 'px';
-      dd.style.left = Math.round(r.left) + 'px';
-      dd.style.width = Math.max(140, Math.round(r.width)) + 'px';
-      dd.style.right = 'auto';
-    };
-    const openDd = (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      if (dd && dd.children.length && dd.classList.contains('hidden')) {
-        placeDd();
-        dd.classList.remove('hidden');
-      }
-    };
-    modelInput.removeEventListener('focus', openDd);
-    modelInput.addEventListener('focus', openDd);
-    modelInput.addEventListener('click', openDd);
-    // any scroll/resize OUTSIDE the dropdown closes it; scrolling INSIDE the
-    // dropdown's own list must keep it open (the wheel/scrollbar is how the
-    // user reads long model lists).
-    if (!window.__aiModelDdScroll) {
-      window.__aiModelDdScroll = (ev) => {
-        const d = document.getElementById('ai-model-dd');
-        if (!d) return;
-        if (ev && ev.target && d.contains(ev.target)) return;
-        d.classList.add('hidden');
-      };
-      document.addEventListener('scroll', window.__aiModelDdScroll, true);
-      window.addEventListener('resize', window.__aiModelDdScroll);
-    }
+    // Pemilihan model + pemuat daftar model TIDAK ada di Settings — panel
+    // chat AI yang punya pemilihnya sendiri (chat-model-sel + 🔄).
   }
 
   function openSettingsModal() {
@@ -5652,12 +5568,29 @@
     // ONLY explicitly selected children travel with the parent. Whatever else
     // happens to sit inside the loop (unselected objects, geometry on other
     // layers) must stay where it is — arrange never kidnaps bystanders.
-    const kids = entitiesInsideLoop(loop)
-      .filter(id => selEnts.has(+id))
+    const insideSel = entitiesInsideLoop(loop).filter(id => selEnts.has(+id));
+    // Framed objects (text / image) inside the loop are INDEPENDENT arrange
+    // units, not part of the parent's compound: selecting a caption inside
+    // its box and pressing Center H must center the caption in the box, which
+    // is impossible while the loop swallows it into one unit (the arrange
+    // buttons then stay disabled — only the loop counts). Their guide frame
+    // (the green handles) belongs to them too, so it must not travel with the
+    // loop either — otherwise the pair splits and the release solve snaps the
+    // frame straight back.
+    const skipFramed = new Set();
+    for (const id of insideSel) {
+      const e = state.entities[id];
+      if (e && (e.type === 'text' || e.type === 'image')) {
+        skipFramed.add(+id);
+        if (Array.isArray(e.guide)) for (const gid of e.guide) skipFramed.add(+gid);
+      }
+    }
+    const kids = insideSel
       .filter(id => {
         const e = state.entities[id];
         return e && entityEditable(e);
-      });
+      })
+      .filter(id => !skipFramed.has(+id));
     // One group index per call: the old full entity scan PER queued kid was
     // O(kids × entities) — a whole-document selection made it ~90M iterations.
     const byGroup = new Map();
@@ -11037,8 +10970,8 @@
     yellow: '#eab308',
     gray: '#8a94a3'
   };
-  const LOOP_FILL_DEPTH_ADD = 15;   // R,G,B added per nesting level (cap 255)
-  const LOOP_TINT_DARK_SCALE = 0.1;     // dark-theme dimming factor
+  const LOOP_FILL_DEPTH_ADD = 20;   // R,G,B added per nesting level (cap 255)
+  const LOOP_TINT_DARK_SCALE = 0.20;    // dark-theme dimming factor — calm, clearly darker than the canvas
   function hexScale(hex, f) {
     if (!/^#[0-9a-fA-F]{6}$/.test(hex || '')) return hex;
     const r = parseInt(hex.slice(1, 3), 16);
@@ -11046,6 +10979,25 @@
     const b = parseInt(hex.slice(5, 7), 16);
     const h = (n) => Math.min(255, Math.round(n * f)).toString(16).padStart(2, '0');
     return '#' + h(r) + h(g) + h(b);
+  }
+  function blendHex(a, b, t) {
+    if (!/^#[0-9a-fA-F]{6}$/.test(a || '') || !/^#[0-9a-fA-F]{6}$/.test(b || '')) return a || b || '#888888';
+    const ch = (n) => Math.round(n).toString(16).padStart(2, '0');
+    const mix = (x, y) => ch(parseInt(x, 16) + (parseInt(y, 16) - parseInt(x, 16)) * t);
+    return '#' + mix(a.slice(1, 3), b.slice(1, 3)) +
+      mix(a.slice(3, 5), b.slice(3, 5)) +
+      mix(a.slice(5, 7), b.slice(5, 7));
+  }
+  // Loop fill style for one loop. `kind` is the base tint ('plain' | 'sel' |
+  // 'yellow' | 'gray' — the sel kind already means "selected none-fill").
+  // `selected` additionally applies when the loop is selected but its kind
+  // does not encode it (gray/yellow fills): the fill blends toward the
+  // selection blue and brightens a touch, so a selected gray or yellow loop
+  // is unmistakable — fills that never change made selection invisible.
+  function loopFillStyle(kind, depth, selected) {
+    let base = loopTintBase(kind);
+    if (selected) base = blendHex(base, loopTintBase('sel'), 0.6);
+    return brightenAdd(base, depth * LOOP_FILL_DEPTH_ADD + (selected ? 16 : 0));
   }
   function loopTintBase(kind) {
     const hex = themedCanvasColor(LOOP_TINT_BASE[kind] || '#888888');
@@ -11247,10 +11199,26 @@
 
   function drawLoopFills() {
     const visFlags = (loopFillCurrentVisible ? 1 : 0) + '' + (loopFillOthersVisible ? 1 : 0) + (ui.dimOthers ? 'd' : '');
+    // All fills — none/gray/yellow — render into ONE offscreen layer, ordered
+    // by nesting depth, shallowest first. Fills are opaque, so a deeper loop
+    // painted after its parent covers it; a parent painted after a child would
+    // hide the child (an outer none-fill covering a nested yellow one, for
+    // example). This is why the none-fill pass was merged in here instead of
+    // being drawn onto the main canvas after this layer.
+    // Selected loops render with a visibly different fill (see loopFillStyle),
+    // so the cached offscreen layer must know which loops are selected — a
+    // selection change would otherwise reuse a stale layer.
+    let selSig = '';
+    if (ui.selection.length) {
+      const loops = getLoops();
+      for (let i = 0; i < loops.length; i++) {
+        if (loopShapeSelected(loops[i])) selSig += i + ',';
+      }
+    }
     const key = geometryEpoch + '|' + themeName + '|' + view.zoom + '|' + view.ox + '|' + view.oy + '|' +
-      DPR + '|' + loopFillScale + '|' + visFlags + '|' + ui.activeLayer + '|' + W + 'x' + H;
+      DPR + '|' + loopFillScale + '|' + visFlags + '|' + ui.activeLayer + '|' + W + 'x' + H + '|' + selSig;
     const baseKey = themeName + '|' + view.zoom + '|' + view.ox + '|' + view.oy + '|' +
-      DPR + '|' + loopFillScale + '|' + visFlags + '|' + ui.activeLayer + '|' + W + 'x' + H;
+      DPR + '|' + loopFillScale + '|' + visFlags + '|' + ui.activeLayer + '|' + W + 'x' + H + '|' + selSig;
     if (!loopFillLayer) {
       loopFillLayer = document.createElement('canvas');
       loopFillLayerCtx = loopFillLayer.getContext('2d');
@@ -11283,17 +11251,22 @@
       const groups = new Map();
       for (const loop of getLoops()) {
         const d = loopFrameData(loop);
-        if (d.fill === 'none' || !d.visible || !d.path) continue;
+        if (!d.visible || !d.path) continue;
         const onActive = loopLayerId(loop) === ui.activeLayer;
         if (onActive ? !loopFillCurrentVisible : !loopFillOthersVisible) continue;
         const fade = ui.dimOthers && !onActive;
         const depth = loopDepthOf(loop);
-        const style = d.fill + '|' + depth + (fade ? '|dim' : '');
+        // none-fills tint as plain/sel; gray/yellow fills keep their kind and
+        // shift toward blue when selected. All share the one depth-ordered
+        // batch so a deep loop always paints over its parent.
+        const kind = d.fill === 'none' ? (d.sel ? 'sel' : 'plain') : d.fill;
+        const sel = d.fill !== 'none' && !!d.sel;
+        const style = kind + '|' + depth + (sel ? '|sel' : '') + (fade ? '|dim' : '');
         let g = groups.get(style);
         if (!g) {
           g = {
             path: new Path2D(),
-            fill: brightenAdd(loopTintBase(d.fill), depth * LOOP_FILL_DEPTH_ADD),
+            fill: loopFillStyle(kind, depth, sel),
             fade
           };
           groups.set(style, g);
@@ -11394,45 +11367,6 @@
     const del = loopDragDelta(loop);
     if (!del.x && !del.y) return null;
     return new DOMMatrix([1, 0, 0, 1, del.x * view.zoom, del.y * view.zoom]);
-  }
-
-  function drawLoops() {
-    if (!ui.showLoops) return;
-    const groups = new Map();
-    const loops = getLoops();
-    for (let i = 0; i < loops.length; i++) {
-      const loop = loops[i];
-      const d = loopFrameData(loop);
-      if (!d.visible || !d.path || d.fill !== 'none') continue;
-      // Same per-layer switches as drawLoopFills: this pass paints the plain /
-      // selection tint straight onto the main canvas, so it must honour them
-      // too — otherwise "other layers off" still showed the default tint.
-      const onActive = loopLayerId(loop) === ui.activeLayer;
-      if (onActive ? !loopFillCurrentVisible : !loopFillOthersVisible) continue;
-      const fade = ui.dimOthers && !onActive;
-      const depth = loopDepthOf(loop);
-      const key = (d.sel ? 'sel' : 'plain') + '|' + depth + (fade ? '|dim' : '');
-      let g = groups.get(key);
-      if (!g) {
-        const base = loopTintBase(d.sel ? 'sel' : 'plain');
-        g = {
-          path: new Path2D(),
-          fill: brightenAdd(base, depth * LOOP_FILL_DEPTH_ADD),
-          fade
-        };
-        groups.set(key, g);
-      }
-      g.path.addPath(d.path, loopDragMatrix(loop) || undefined);
-    }
-    const ordered = Array.from(groups.entries()).sort((a, b) =>
-      +a[0].split('|')[1] - +b[0].split('|')[1]
-    );
-    for (const [, g] of ordered) {
-      if (g.fade) ctx.globalAlpha = 0.5;
-      ctx.fillStyle = g.fill;
-      ctx.fill(g.path);
-      if (g.fade) ctx.globalAlpha = 1;
-    }
   }
 
   // Clone arrays: one cached Path2D per colour in world coordinates, stamped
@@ -12057,6 +11991,28 @@
       }
       if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
       ctx.restore();
+    }
+    // Optional fill (Gray / Yellow) behind the glyph strokes, like loop and
+    // art fills: the outline is filled in screen space from the world outline.
+    if (e.fill === 'gray' || e.fill === 'yellow') {
+      const tw = textOutlineWorld(e);
+      if (tw && tw.loops) {
+        ctx.save();
+        ctx.fillStyle = LOOP_FILL_TINT[e.fill];
+        for (const loop of tw.loops) {
+          if (!loop || loop.length < 3) continue;
+          const p = new Path2D();
+          const s0 = w2s(loop[0].x, loop[0].y);
+          p.moveTo(s0.x, s0.y);
+          for (let k = 1; k < loop.length; k++) {
+            const s = w2s(loop[k].x, loop[k].y);
+            p.lineTo(s.x, s.y);
+          }
+          if (tw.closed) p.closePath();
+          ctx.fill(p, 'evenodd');
+        }
+        ctx.restore();
+      }
     }
     // frame outline in screen space, so the box reads at any zoom
     const corners = [
@@ -17287,13 +17243,48 @@
     return picked;
   }
 
+  // Two loops fill the same region when their bounding box and area agree
+  // within tolerance. A box drawn as lines AND as a spline fitted over the
+  // same corners (boolfail.sketch) is the same shape twice — a boolean must
+  // compute it once, or cutting the duplicate legitimately leaves nothing.
+  function loopsSameRegion(A, B) {
+    const pa = A.poly, pb = B.poly;
+    if (!pa || !pb || pa.length < 3 || pb.length < 3) return false;
+    const stat = (poly) => {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, s = 0;
+      for (let i = 0; i < poly.length; i++) {
+        const a = poly[i], b = poly[(i + 1) % poly.length];
+        s += a.x * b.y - b.x * a.y;
+        if (a.x < minX) minX = a.x;
+        if (a.y < minY) minY = a.y;
+        if (a.x > maxX) maxX = a.x;
+        if (a.y > maxY) maxY = a.y;
+      }
+      return { minX, minY, maxX, maxY, area: Math.abs(s) / 2 };
+    };
+    const sa = stat(pa), sb = stat(pb);
+    const tol = 1e-3;
+    if (Math.abs(sa.minX - sb.minX) > tol || Math.abs(sa.minY - sb.minY) > tol ||
+        Math.abs(sa.maxX - sb.maxX) > tol || Math.abs(sa.maxY - sb.maxY) > tol) return false;
+    return Math.abs(sa.area - sb.area) <= 1e-6 * Math.max(1, sa.area, sb.area);
+  }
+
+  // Collapse duplicate regions to the first loop that fills each region.
+  function dedupeLoops(loops) {
+    const out = [];
+    for (const L of loops) {
+      if (!out.some(K => loopsSameRegion(K, L))) out.push(L);
+    }
+    return out;
+  }
+
   // pickedLoops() yields ascending loop-index order, which ignores the order
-  // the user clicked. For a boolean the FIRST picked loop is the tool and the
+  // the user clicked. For a boolean the LAST picked loop is the tool and the
   // rest are targets, so that role must follow selection order — otherwise
-  // "select the tool first" is a lie and cut/intersect feel random. Reorder by
-  // the earliest selection position of each loop's boundary entities. With no
-  // entity selection (a point marquee) there is no click order: keep loop order.
-  function orderLoopsBySelection(loops) {
+  // "select the tool last" is a lie and cut/intersect feel random. Reorder by
+  // the selection position of each loop's boundary entities; with no entity
+  // selection (a point marquee) there is no click order: keep loop order.
+  function orderLoopsBySelection(loops, toolLast) {
     const pos = new Map();
     ui.selection.forEach((s, idx) => {
       if (s && s.kind === 'entity' && !pos.has(+s.id)) pos.set(+s.id, idx);
@@ -17307,7 +17298,19 @@
       }
       return best;
     };
-    return loops.slice().sort((a, b) => key(a) - key(b));
+    const ordered = loops.slice().sort((a, b) => key(a) - key(b));
+    if (!toolLast) return ordered;
+    // toolLast: the most recently selected loop is the tool, so promote it to
+    // the front. Loops with no click order (never picked explicitly) stay at
+    // the back in their original loop order; if nobody was explicitly picked,
+    // there is no "last clicked" to promote — keep the current order.
+    let last = -1;
+    for (let i = ordered.length - 1; i >= 0; i--) {
+      if (isFinite(key(ordered[i]))) { last = i; break; }
+    }
+    if (last <= 0) return ordered;
+    const tool = ordered.splice(last, 1)[0];
+    return [tool].concat(ordered);
   }
 
   // --- Exact bezier boolean (PathBool) ---------------------------------------
@@ -17557,13 +17560,24 @@
   // so the loop graph stays connected. A corner that coincides with an old
   // loop point lands on that SAME point id (pointAtWorld), which is what
   // keeps point-anchored constraints alive across the operation.
-  function boolPathsToEntities(PB, resultPaths, color) {
+  //
+  // `avoid` lists point ids the result must NOT weld onto — the kept tool's
+  // points in cut-keep mode (Ctrl+Shift+- / Shift+click Cut). Welding a result
+  // corner onto a kept tool corner tied the two together, so dragging the tool
+  // dragged the result with it (and the other way). Fresh points are created
+  // there instead.
+  function boolPathsToEntities(PB, resultPaths, color, avoid) {
     const shared = new Map();
     const madeIds = [];
+    const avoidSet = avoid && avoid.size ? avoid : null;
     const pidAt = (x, y) => {
       const key = Math.round(x / BOOL_EPS) + ',' + Math.round(y / BOOL_EPS);
       if (shared.has(key)) return shared.get(key);
-      const id = pointAtWorld(x, y, color);
+      let id = pointAtWorld(x, y, color);
+      if (avoidSet && avoidSet.has(id)) {
+        id = privatePoint(x, y);   // a fresh point: never weld onto the kept tool
+        state.points[id].x = x; state.points[id].y = y;
+      }
       shared.set(key, id);
       return id;
     };
@@ -17833,7 +17847,7 @@
   // result; everything that would be meaningless on the new geometry (radius
   // on a spline, parallel between two eaten lines) is dropped and counted in
   // the toast instead of vanishing silently.
-  function cmdBooleanExact(PB, mode, picked) {
+  function cmdBooleanExact(PB, mode, picked, removedLoops, keepTool, keptLoops) {
     const isUnion = mode === 'union';
     // PolyBool's operations are N-ary LEFT-FOLDS: Difference(A,B,C) means
     // A−B−C. So cut with several targets must union the targets first
@@ -17895,22 +17909,41 @@
     }
     const color = colorOf(state.entities[loopEntities(picked[isUnion ? 0 : 1])[0]]) || ui.color;
     // triage BEFORE any removal: which constraints touch the eaten loops?
-    const oldIds = new Set();
-    for (const loop of picked) for (const eid of loopEntities(loop)) oldIds.add(+eid);
+    // `removedLoops` already skips the tool when it is kept (Ctrl+Shift+-).
+    const eatIds = new Set();
+    for (const loop of removedLoops) {
+      for (const eid of loopEntities(loop)) eatIds.add(+eid);
+    }
+    // Points that belong to a KEPT loop: the result must not weld onto them,
+    // or dragging a kept original would drag the result (and vice versa). A
+    // point shared with an eaten loop disappears with the eat, so it is fine
+    // to land on — collect only the kept loops' own points.
+    const keepPointIds = new Set();
+    if (keepTool) {
+      for (const loop of (keptLoops || [])) {
+        for (const eid of loopEntities(loop)) {
+          const e = state.entities[eid];
+          if (!e) continue;
+          for (const pid of entityPointIds(e)) {
+            if (!eatIds.has(+pid)) keepPointIds.add(+pid);
+          }
+        }
+      }
+    }
     const oldCons = [];
     for (const cid in state.constraints) {
       const c = state.constraints[cid];
-      if (oldIds.has(+c.entity) || oldIds.has(+c.line) ||
-          oldIds.has(+c.line1) || oldIds.has(+c.line2)) oldCons.push(c);
+      if (eatIds.has(+c.entity) || eatIds.has(+c.line) ||
+          eatIds.has(+c.line1) || eatIds.has(+c.line2)) oldCons.push(c);
     }
     pushHistory();
-    const madeIds = boolPathsToEntities(PB, resultPaths, color);
+    const madeIds = boolPathsToEntities(PB, resultPaths, color, keepPointIds);
     if (!madeIds.length) {
       commit();
       toast('That operation leaves nothing');
       return true;
     }
-    removeEntities([...oldIds]);
+    removeEntities([...eatIds]);
     // re-attach what survives meaningfully
     let kept = 0, dropped = 0;
     const single = madeIds.length === 1 ? madeIds[0] : null;
@@ -17942,6 +17975,7 @@
     const what = isUnion ? 'Union' : mode === 'cut' ? 'Cut' : 'Intersection';
     let msg = what + ': ' + picked.length + ' loops \u2192 ' + madeIds.length +
       ' result' + (madeIds.length === 1 ? '' : 's') + ' \u00b7 exact curves';
+    if (keepTool) msg += ' \u00b7 originals kept';
     if (kept) msg += ' \u00b7 ' + kept + ' constraint' + (kept === 1 ? '' : 's') + ' kept';
     if (dropped) msg += ' \u00b7 ' + dropped + ' dropped';
     toast(msg);
@@ -18055,13 +18089,44 @@
   }
 
   function cmdBoolean(mode) {
-    const picked = orderLoopsBySelection(pickedLoops());
-    const isUnion = mode === 'union';
+    // "keep" modes (Shift+click, or Ctrl+Shift+- for cut) run the operation
+    // but leave every ORIGINAL loop in the drawing; the result is added on
+    // top of them. cut-keep keeps only the tool, since the targets are what
+    // the cut removes.
+    const keep = mode === 'cut-keep' || mode === 'union-keep' || mode === 'intersect-keep';
+    const effMode = mode === 'cut-keep' ? 'cut'
+      : mode === 'union-keep' ? 'union'
+      : mode === 'intersect-keep' ? 'intersect' : mode;
+    const keepTool = keep;
+    const isUnion = effMode === 'union';
+    // Cut / intersect take their tool from the LAST selected loop; reorder so
+    // that loop becomes the first (tool) unit. Union has no tool.
+    const allPicked = orderLoopsBySelection(pickedLoops(), !isUnion);
+    // Duplicate loops over the same region (a box as lines + as a fitted
+    // spline) must count once for the OPERATION — but every selected loop is
+    // still eaten, so the twin never litters the result plane.
+    const picked = dedupeLoops(allPicked);
     if (picked.length < 2) {
       toast(isUnion ? 'Select two or more loops, then press Ctrl++'
-        : 'Select the tool loop first, then the target loop');
+        : 'Select the target loop first, then the tool loop last');
       return;
     }
+    const targets = isUnion ? picked : picked.slice(1);
+    const toolLoop = isUnion ? null : picked[0];
+    // Which of the selected loops survive the operation? In keep mode the
+    // kept set differs per operation:
+    //   cut-keep       -> only the TOOL stays (the user asked "toolnya tidak
+    //                     dihapus"); the targets are what a cut eats
+    //   union-keep     -> every original stays (union adds one merged outline)
+    //   intersect-keep -> every original stays (intersect adds the overlap)
+    // Without keep everything selected is consumed and replaced by the result.
+    const keptLoops = keep
+      ? (effMode === 'cut'
+          ? allPicked.filter(L => loopsSameRegion(L, toolLoop))   // keep the tool
+          : allPicked)                                            // keep every original
+      : [];
+    // loops to remove: every selected loop except the ones kept above.
+    const removedLoops = allPicked.filter(L => !keptLoops.includes(L));
     // exact engine first: no flatten, no re-fit, corners stay constraint-safe
     const PB = pathBoolLib();
     if (!PB) {
@@ -18074,7 +18139,7 @@
         console.warn('booleanFit=exact but window.PathBool is missing — index.html or tools/path-bool.js is stale');
         return;
       }
-    } else if (cmdBooleanExact(PB, mode, picked)) {
+    } else if (cmdBooleanExact(PB, effMode, picked, removedLoops, keepTool, keptLoops)) {
       return;
     }
     const Lib = clipperLib();
@@ -18100,12 +18165,14 @@
     if (isUnion) {
       cl.AddPaths(picked.map(l => toPath(fix(l))), Lib.PolyType.ptSubject, true);
     } else {
-      cl.AddPaths([toPath(fix(picked[1]))], Lib.PolyType.ptSubject, true);
-      cl.AddPaths([toPath(fix(picked[0]))], Lib.PolyType.ptClip, true);
+      // subject = all targets fused (multi-target cut/intersect already worked
+      // in the exact engine; this keeps the Clipper fallback equivalent)
+      cl.AddPaths(targets.map(l => toPath(fix(l))), Lib.PolyType.ptSubject, true);
+      cl.AddPaths([toPath(fix(toolLoop))], Lib.PolyType.ptClip, true);
     }
     const raw = new Lib.Paths();
-    const clipOp = mode === 'cut' ? Lib.ClipType.ctDifference
-      : mode === 'intersect' ? Lib.ClipType.ctIntersection : Lib.ClipType.ctUnion;
+    const clipOp = effMode === 'cut' ? Lib.ClipType.ctDifference
+      : effMode === 'intersect' ? Lib.ClipType.ctIntersection : Lib.ClipType.ctUnion;
     cl.Execute(clipOp, raw, Lib.PolyFillType.pftNonZero, Lib.PolyFillType.pftNonZero);
     const result = [];
     for (const path of raw) {
@@ -18123,12 +18190,17 @@
       toast('That operation leaves nothing');
       return;
     }
-    // colour of the target (second) loop, or the first loop for a union
-    const firstEnt = state.entities[loopEntities(picked[isUnion ? 0 : 1])[0]];
+    // colour of the target loop(s), or the first loop for a union
+    const refLoop = isUnion ? picked[0] : targets[0];
+    const firstEnt = state.entities[loopEntities(refLoop)[0]];
     const color = (firstEnt && colorOf(firstEnt)) || ui.color;
     pushHistory();
     const removed = new Set();
-    for (const loop of picked) for (const eid of loopEntities(loop)) removed.add(+eid);
+    // keepTool (Ctrl+Shift+-): the tool stays in the drawing — only the
+    // targets are consumed and replaced by the result.
+    for (const loop of removedLoops) {
+      for (const eid of loopEntities(loop)) removed.add(+eid);
+    }
     removeEntities([...removed]);
     // The result is rebuilt as real curves unless the user asked for the exact
     // outline: Clipper returns a dense polyline (one vertex per tessellated arc
@@ -18153,13 +18225,14 @@
     }
     ui.selection = madeIds.map(id => ({ kind: 'entity', id }));
     commit();
-    const what = isUnion ? 'Union' : mode === 'cut' ? 'Cut' : 'Intersection';
+    const what = isUnion ? 'Union' : effMode === 'cut' ? 'Cut' : 'Intersection';
     const nodes = madeIds.reduce((n, id) => {
       const ent = state.entities[id];
       return n + (ent && ent.pts ? ent.pts.length : 0);
     }, 0);
     toast(what + ': ' + picked.length + ' loops \u2192 ' + madeIds.length +
       ' result' + (madeIds.length === 1 ? '' : 's') +
+      (keepTool ? ' \u00b7 originals kept' : '') +
       (fittedN
         ? ' \u00b7 ' + nodes + ' node' + (nodes === 1 ? '' : 's') + ' \u00b7 ' + fmt(fitTol) + ' mm'
         : ' \u00b7 polyline kept'));
@@ -22667,7 +22740,7 @@
     // L temporarily hides the loop fills+tints (the settings switches still
     // apply on top when L brings them back)
     if (!fastMode && (loopFillCurrentVisible || loopFillOthersVisible) && !loopFillTempOff) {
-      prof('loopfills', () => { drawLoopFills(); drawLoops(); });
+      prof('loopfills', () => { drawLoopFills(); });
     }
     prof('entities', () => drawEntities());
     prof('arrays', () => drawArrays());
@@ -22850,12 +22923,12 @@
     const nLoops = pickedLoops().length;
     if (ui.offsetJob) return offsetHintText();
     const selN = selectedEntities().length;
-    // Boolean: order matters (tool first, then target), so say which is next.
+    // Boolean: order matters (target first, tool LAST), so say which is next.
     if (nLoops >= 2) {
-      return 'Boolean ready: ' + nLoops + ' loops — Ctrl++ union · Ctrl+- cut (FIRST loop = tool, SECOND = target) · Ctrl+0 intersect.';
+      return 'Boolean ready: ' + nLoops + ' loops — Ctrl++ union · Ctrl+- cut (LAST selected = tool) · Ctrl+0 intersect. Hold Shift on any of them to KEEP the original loops (result added on top).';
     }
     if (nLoops === 1) {
-      return 'Boolean: 1 loop picked — pick a SECOND loop, then Ctrl++ union · Ctrl+- cut (first = tool) · Ctrl+0 intersect. Offset: Ctrl+J offsets this selection.';
+      return 'Boolean: 1 loop picked — pick a SECOND loop (target), then the TOOL last, then Ctrl++ union · Ctrl+- cut (last selected = tool) · Ctrl+0 intersect. Hold Shift to keep the originals. Offset: Ctrl+J offsets this selection.';
     }
     if (selN > 0) {
       return base + ' Offset: Ctrl+J offsets the selection (wheel = distance, Enter confirms). Boolean: pick closed loops first (' + selN + ' selected, 0 loops).';
@@ -23720,9 +23793,28 @@
   function updateLoopFillRow() {
     const row = document.getElementById('loop-fill-row');
     if (!row) return;
+    // Current fill shown in the strip: a fully-selected loop's fill first,
+    // then any selected text/group/array's own fill.
+    let fill = null;
     const loops = getLoops();
-    const loop = ui.focusLoop != null ? loops[ui.focusLoop] : null;
-    const fill = loop ? loopFill(loop) : null;
+    for (const L of loops) {
+      if (loopShapeSelected(L)) { fill = loopFill(L); break; }
+    }
+    if (fill == null) {
+      for (const s of ui.selection) {
+        if (s.kind !== 'entity') continue;
+        const e = state.entities[s.id];
+        if (!e) continue;
+        if (e.type === 'text' || e.type === 'art' || e.type === 'array') {
+          fill = (e.fill === 'gray' || e.fill === 'yellow') ? e.fill : 'none';
+          break;
+        }
+      }
+    }
+    if (fill == null) {
+      const loop = ui.focusLoop != null ? loops[ui.focusLoop] : null;
+      if (loop) fill = loopFill(loop);
+    }
     row.querySelectorAll('[data-fill]').forEach(b => {
       b.classList.toggle('active', b.dataset.fill === fill);
     });
@@ -24956,9 +25048,16 @@
       // it is fully selected, in otherwise
       if (loopShapeSelected(loop)) {
         ui.selection = ui.selection.filter(notOwn);
+        // the anchor died with the toggle: the loop was the reference and it
+        // just left the selection
+        if (lastPickEntityId != null && ownSet.has(lastPickEntityId)) lastPickEntityId = null;
       } else {
         ui.selection = ui.selection.filter(notOwn).concat(
           own.filter(eid => !selected('entity', eid)).map(eid => ({ kind: 'entity', id: eid })));
+        // Shift+click ADDS the loop: it becomes the reference object, exactly
+        // like a plain click would. Without this the anchor stays on whatever
+        // was picked earlier, so arrange would align to the wrong object.
+        markLastPicked('entity', own[0]);
       }
     } else {
       // Ctrl+click takes the loop and everything it encloses (its holes /
@@ -24973,6 +25072,13 @@
         if (addMod && !forceSelect) {
           const allIn = pool.every(eid => selected('entity', eid));
           ui.selection = allIn ? outside : outside.concat(pool.map(eid => ({ kind: 'entity', id: eid })));
+          // Ctrl+click adds the loop (and its contents): it is the reference
+          // too. Toggling it back out clears the anchor if it pointed here.
+          if (allIn) {
+            if (lastPickEntityId != null && poolSet.has(lastPickEntityId)) lastPickEntityId = null;
+          } else {
+            markLastPicked('entity', pool[0]);
+          }
         } else if (forceSelect) {
           // double click: keep whatever else was selected, take the loop and
           // its contents in, never toggle back out
@@ -27561,6 +27667,13 @@ function cmdSplitCurve() {
     // loop could ever be reached, while a plain click still worked.
     const picked = new Map(ui.selection.map(s => [s.kind + ':' + s.id, s]));
     if (!d.additive) picked.clear();
+    // Additive marquee (Shift/Ctrl) preserves everything already in the
+    // selection. The pick filters below govern what the marquee GRABS, never
+    // what it must keep — otherwise filtering an additive marquee would drop
+    // pre-existing items (a loop already selected, then a Shift+marquee that
+    // misses the loop filter, wiped it). Remember which entries pre-existed so
+    // the post-pass can exempt them.
+    const preExisting = new Set(picked.keys());
     // Text/picture frames and notes/comments are container objects: their
     // p0/pw/ph (or a note's anchor p) are the frame, not marquee point targets.
     // They are picked as whole objects below (loop filter), so dragging a
@@ -27667,8 +27780,9 @@ function cmdSplitCurve() {
     // selection. A line that belongs to a loop taken as a unit stays even with
     // the line filter off — that is exactly what filter 3 selected.
     for (const [key, s] of Array.from(picked)) {
+      if (preExisting.has(key)) continue;            // additive preservation: never un-pick what was already selected
       if (s.kind === 'point') {
-        if (!pickFilter.point) picked.delete(key);   // filter 1
+        if (!pickFilter.point) picked.delete(key);
         continue;
       }
       const e = state.entities[s.id];
@@ -27676,7 +27790,7 @@ function cmdSplitCurve() {
       if (e.type === 'part') continue;               // parts never machine
       if (e.type === 'note') continue;               // comments are annotations: like a click, never filter-gated
       if (e.type === 'art' || e.type === 'text' || e.type === 'image' || e.type === 'array') {
-        if (!pickFilter.loop) picked.delete(key);    // filter 3: containers
+        if (!pickFilter.loop) picked.delete(key);
         continue;
       }
       // line / arc / circle / spline
@@ -29462,6 +29576,10 @@ function cmdSplitCurve() {
       return;
     }
     if (key === ' ') {
+      // A modal dialog is open: let Space reach the dialog's own handling /
+      // native button activation (see initModalBehavior). It must not be
+      // hijacked as the arc-full-circle shortcut while one is up.
+      if (activeModal()) return;
       ev.preventDefault();
       // Space at the arc's third point toggles between an arc and a full
       // circle through the three points.
@@ -30260,20 +30378,50 @@ function cmdSplitCurve() {
 
   function setLoopFill(fill) {
     const loops = getLoops();
-    const loop = ui.focusLoop != null ? loops[ui.focusLoop] : null;
-    if (!loop) {
+
+    // Apply one fill to one entity (loop member, text, group/art, array).
+    const applyTo = (e) => {
+      if (!e) return;
+      if (fill === 'gray' || fill === 'yellow') e.fill = fill;
+      else delete e.fill;
+    };
+
+    // Targets:
+    // 1) every FULLY-selected loop (marquee / multi-click) — as before;
+    // 2) selected container entities that carry a fill: text, groups (art)
+    //    and arrays/clones. A clone's fill lives on its own entity and is
+    //    used as the default for every instance; per-contour fills (imported
+    //    multi-colour masters) are left untouched so clones keep their
+    //    master's look.
+    // 3) click-only fallback: the focused loop.
+    let count = 0;
+    for (const L of loops) {
+      if (loopShapeSelected(L)) {
+        for (const id of loopEntities(L)) applyTo(state.entities[id]);
+        count++;
+      }
+    }
+    for (const s of ui.selection) {
+      if (s.kind !== 'entity') continue;
+      const e = state.entities[s.id];
+      if (!e) continue;
+      if (e.type === 'text' || e.type === 'art' || e.type === 'array') {
+        applyTo(e);
+        count++;
+      }
+    }
+    if (!count && ui.focusLoop != null && loops[ui.focusLoop]) {
+      const L = loops[ui.focusLoop];
+      for (const id of loopEntities(L)) applyTo(state.entities[id]);
+      count = 1;
+    }
+    if (!count) {
       toast('Click a loop first');
       return;
     }
     pushHistory();
-    for (const id of loopEntities(loop)) {
-      const e = state.entities[id];
-      if (!e) continue;
-      if (fill === 'gray' || fill === 'yellow') e.fill = fill;
-      else delete e.fill;
-    }
     const name = fill === 'none' ? 'Fill cleared' : (fill === 'gray' ? 'Fill gray' : 'Fill yellow');
-    toast(name);
+    toast(name + (count > 1 ? ' · ' + count + ' objects' : ''));
     commit();
     updateUI();
   }
@@ -31419,7 +31567,7 @@ function cmdSplitCurve() {
     } catch (err) {
       cnc.busy = false;
       say(isHttps
-        ? 'Browser memblokir ws:// dari halaman HTTPS — buka MiniSketch lewat http://127.0.0.1:3000 untuk kirim ke KaryaCNC lokal'
+        ? 'Browser memblokir ws:// dari halaman HTTPS — buka MiniSketch lewat http://127.0.0.1:8090 untuk kirim ke KaryaCNC lokal'
         : 'Bad address: ' + url, 'error');
       return;
     }
@@ -31485,7 +31633,7 @@ function cmdSplitCurve() {
     };
     ws.onerror = () => {
       finish(isHttps
-        ? 'Koneksi ws:// lokal diblokir di HTTPS — buka MiniSketch lewat http://127.0.0.1:3000 atau izinkan konten lokal'
+        ? 'Koneksi ws:// lokal diblokir di HTTPS — buka MiniSketch lewat http://127.0.0.1:8090 atau izinkan konten lokal'
         : 'Cannot reach ' + host + ':' + cnc.port + ' — is KaryaCNC running with that WS port?', 'error', false);
     };
     ws.onclose = () => {
@@ -31949,15 +32097,18 @@ function cmdSplitCurve() {
     });
 
     document.querySelectorAll('[data-quick]').forEach(btn => {
-      const act = () => {
+      const act = (ev) => {
         const a = btn.dataset.quick;
+        const keep = !!(ev && ev.shiftKey);   // Shift = keep the original loops
         if (a === 'flip-x') quickFlip('x');
         else if (a === 'flip-y') quickFlip('y');
         else if (a === 'rot-ccw') quickRotate(90);
         else if (a === 'rot-cw') quickRotate(-90);
-        else if (a === 'union') cmdBoolean('union');
-        else if (a === 'cut') cmdBoolean('cut');
-        else if (a === 'intersect') cmdBoolean('intersect');
+        else if (a === 'union') cmdBoolean(keep ? 'union-keep' : 'union');
+        // Shift+click on Cut = cut & keep the tool (the browser eats
+        // Ctrl+Shift+- as zoom out, so the same gesture lives here).
+        else if (a === 'cut') cmdBoolean(keep ? 'cut-keep' : 'cut');
+        else if (a === 'intersect') cmdBoolean(keep ? 'intersect-keep' : 'intersect');
       };
       btn.addEventListener('click', act);
       // tablets: a held touch must not double-fire with the click
@@ -34256,23 +34407,25 @@ function cmdSplitCurve() {
         return;
       }
       // Boolean loops: union Ctrl++, cut Ctrl+-, intersection Ctrl+0.
-      // (Ctrl+B and its shift/alt variants are retired — one key per operation.)
+      // Shift+the chord runs the SAME operation but KEEPS every original loop
+      // (the result is added on top). Without Shift the inputs are consumed
+      // and replaced by the result.
       if ((ev.ctrlKey || ev.metaKey) && (ev.key === '+' || ev.key === '=')) {
         ev.preventDefault();
         ev.stopPropagation();
-        cmdBoolean('union');
+        cmdBoolean(ev.shiftKey ? 'union-keep' : 'union');
         return;
       }
       if ((ev.ctrlKey || ev.metaKey) && ev.key === '-') {
         ev.preventDefault();
         ev.stopPropagation();
-        cmdBoolean('cut');
+        cmdBoolean(ev.shiftKey ? 'cut-keep' : 'cut');
         return;
       }
       if ((ev.ctrlKey || ev.metaKey) && ev.key === '0') {
         ev.preventDefault();
         ev.stopPropagation();
-        cmdBoolean('intersect');
+        cmdBoolean(ev.shiftKey ? 'intersect-keep' : 'intersect');
         return;
       }
       // "\": sharp corner — the selected spline points drop their handles
@@ -34306,6 +34459,30 @@ function cmdSplitCurve() {
           return;
         }
         // Enter confirms: the primary button, else the last action button
+        const actions = modal.querySelectorAll('.modal-actions button');
+        const primary = modal.querySelector('.modal-actions .btn.primary') ||
+          modal.querySelector('.btn.primary') || actions[actions.length - 1];
+        if (primary) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          primary.click();
+        }
+        return;
+      }
+      if (ev.key === ' ') {
+        // Native dialogs accept Space to activate the focused button (and the
+        // default button when nothing else is focused). Only Enter worked in
+        // the app dialogs because the sketch shortcut handler swallowed Space.
+        // A focused button is clicked explicitly (same rule as Enter), a text
+        // field keeps typing spaces, anything else presses the primary action.
+        const t = ev.target;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable === true)) return;
+        if (modal.id === 'app-dialog-modal' && t && t.tagName === 'BUTTON' && t.closest('.modal-actions')) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          t.click();
+          return;
+        }
         const actions = modal.querySelectorAll('.modal-actions button');
         const primary = modal.querySelector('.modal-actions .btn.primary') ||
           modal.querySelector('.btn.primary') || actions[actions.length - 1];

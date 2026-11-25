@@ -17,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const { bridgeHandler } = require('./ai-bridge.js');
 
-const PORT = +(process.argv[2] || process.env.PORT || 3000);
+const PORT = +(process.argv[2] || process.env.PORT || 8090);
 const ROOT = path.resolve(__dirname, '..');
 
 const TYPES = {

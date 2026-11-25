@@ -174,6 +174,9 @@ function makeWorld() {
 function build(world) {
   const body = [
     slice('pickedLoops'),
+    slice('loopsSameRegion'),
+    slice('dedupeLoops'),
+    slice('orderLoopsBySelection'),
     slice('cmdBoolean'),
     slice('cmdBooleanExact'),
     slice('normalizeSplineWinding'),
@@ -206,6 +209,13 @@ function build(world) {
 // areas — holes subtract themselves. Endpoints are matched geometrically
 // (tolerance), not by key: the two outer arcs of a union end at the lens
 // intersection points, whose coordinates can differ in the last bits.
+//
+// A boolean result can be several rings: an outer outline plus inner counter
+// rings (holes). Whether the engine hands the counter clockwise or
+// counter-clockwise is not guaranteed, so orientation alone cannot tell a
+// hole from a solid. Count containment instead: a ring inside another ring is
+// a hole and subtracts; a ring inside two is solid again. That matches how
+// the app treats nested loops.
 function loopArea(world) {
   const near = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) < 1e-4 || Math.abs(a.x - b.x) + Math.abs(a.y - b.y) < 1e-9;
   const items = [];
@@ -229,7 +239,7 @@ function loopArea(world) {
     } else continue;
     if (pts.length > 1) items.push({ start: pts[0], end: pts[pts.length - 1], pts });
   }
-  let total = 0;
+  const rings = [];
   while (items.length) {
     let chain = items.shift();
     let guard = 0;
@@ -245,9 +255,39 @@ function loopArea(world) {
     let ar = 0;
     const pts = chain.pts;
     for (let i = 0; i < pts.length - 1; i++) ar += pts[i].x * pts[i + 1].y - pts[i + 1].x * pts[i].y;
-    total += ar / 2;
+    rings.push({ pts, ar: ar / 2 });
   }
-  return Math.abs(total);
+  const inside = (outer, p) => {
+    let hit = false;
+    const q = outer.pts;
+    for (let i = 0, j = q.length - 1; i < q.length; j = i++) {
+      const xi = q[i].x, yi = q[i].y, xj = q[j].x, yj = q[j].y;
+      if (((yi > p.y) !== (yj > p.y)) &&
+          (p.x < (xj - xi) * (p.y - yi) / (yj - yi) + xi)) hit = !hit;
+    }
+    return hit;
+  };
+  // a sample point for containment: the midpoint of the first segment, or a
+  // vertex when that midpoint lands exactly on another ring's edge
+  const sample = (ring) => {
+    const q = ring.pts;
+    for (let i = 0; i + 1 < q.length; i++) {
+      const p = { x: (q[i].x + q[i + 1].x) / 2, y: (q[i].y + q[i + 1].y) / 2 };
+      if (q.some((v, vi) => vi !== i && vi !== i + 1 && near(v, p))) continue;
+      return p;
+    }
+    return q[0];
+  };
+  let total = 0;
+  for (let i = 0; i < rings.length; i++) {
+    let depth = 0;
+    const p = sample(rings[i]);
+    for (let j = 0; j < rings.length; j++) {
+      if (j !== i && inside(rings[j], p)) depth++;
+    }
+    total += (depth % 2 === 0 ? 1 : -1) * Math.abs(rings[i].ar);
+  }
+  return total;
 }
 
 function circleEnt(world, cx, cy, r) {
@@ -301,7 +341,8 @@ console.log('\n== exact engine: rect minus circle keeps the hole exact ==');
     ids.push(id);
   }
   const hole = circleEnt(world, 50, 30, 10);
-  world.ui.selection = [{ kind: 'entity', id: hole }, ...ids.map(id => ({ kind: 'entity', id }))];
+  // tool (hole) selected LAST — cut takes the last selected loop as the tool
+  world.ui.selection = [...ids.map(id => ({ kind: 'entity', id })), { kind: 'entity', id: hole }];
   api.cmdBoolean('cut');
   const made = Object.values(world.state.entities);
   const arcs = made.filter(e => e.type === 'arc');
@@ -374,7 +415,7 @@ console.log('\n== degenerate inputs do not break the exact engine ==');
     world.state.entities[id] = { id, type: 'line', a: rps[i], b: rps[(i + 1) % 4], color: '#000000', layer: 1 };
     rids.push(id);
   }
-  world.ui.selection = [...rids.map(id => ({ kind: 'entity', id })), { kind: 'entity', id: sid }];
+  world.ui.selection = [{ kind: 'entity', id: sid }, ...rids.map(id => ({ kind: 'entity', id }))];
   api.cmdBoolean('cut');
   const made = Object.values(world.state.entities).filter(e => !rids.includes(e.id));
   check('duplicate closing node still cuts', made.length === 2, made.length);
@@ -400,8 +441,8 @@ console.log('\n== cut with more than two loops keeps every target ==');
     return ids;
   };
   const bar = rect(0,0,100,20), stem = rect(30,20,70,120), tool = rect(10,40,90,60);
-  // tool first, then BOTH targets — the old code silently dropped the stem
-  world.ui.selection = [...tool, ...bar, ...stem].map(id => ({ kind: 'entity', id }));
+  // targets first, THEN the tool — cut takes the last selected loop as tool
+  world.ui.selection = [...bar, ...stem, ...tool].map(id => ({ kind: 'entity', id }));
   api.cmdBoolean('cut');
   const made = Object.values(world.state.entities);
   check('both targets survive the cut', made.length === 2, made.length);

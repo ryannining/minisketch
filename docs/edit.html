@@ -82,7 +82,7 @@
             <tr><td><kbd>Ctrl+J</kbd></td><td>Offset (preview putus-putus; roda mouse ubah jarak).</td></tr>
             <tr><td><kbd>Ctrl+M</kbd></td><td>Transformasi (skala, putar, dan geser presisi lewat panel Transform).</td></tr>
             <tr><td><kbd>Ctrl+Shift+M</kbd></td><td>Move interaktif (klik titik referensi, lalu titik tujuan, konfirmasi dx/dy).</td></tr>
-            <tr><td><kbd>Ctrl++</kbd> / <kbd>Ctrl+-</kbd> / <kbd>Ctrl+0</kbd></td><td>Boolean union / cut / intersect pada loop.</td></tr>
+            <tr><td><kbd>Ctrl++</kbd> / <kbd>Ctrl+-</kbd> / <kbd>Ctrl+0</kbd></td><td>Boolean union / cut (target dulu, lalu alat terakhir) / intersect pada loop. Tahan <kbd>Shift</kbd> = simpan loop asli, hasil ditambahkan di atasnya.</td></tr>
             <tr><td><kbd>J</kbd> / <kbd>Alt+W</kbd></td><td>Join titik bersentuhan / Weld titik bercelah sesuai jarak dialog.</td></tr>
             <tr><td><kbd>F</kbd></td><td>Buat fillet pada sudut.</td></tr>
             <tr><td><kbd>Z</kbd> / <kbd>Shift+L</kbd></td><td>Bersihkan seleksi ke loop utuh / Deteksi ulang loop &amp; weld junction.</td></tr>
@@ -134,7 +134,7 @@
           </thead>
           <tbody>
             <tr><td>Union (Ctrl++)</td><td>Gabungkan loop terpilih menjadi satu bentuk.</td></tr>
-            <tr><td>Cut (Ctrl+-)</td><td>Potong: loop alat dulu, lalu target.</td></tr>
+            <tr><td>Cut (Ctrl+-)</td><td>Potong: loop target dulu, lalu loop alat TERAKHIR. Tahan <kbd>Shift</kbd> (atau <kbd>Shift</kbd>+klik tombol) pada Union/Cut/Intersect = menyimpan loop asli, hasil ditambahkan di atasnya.</td></tr>
             <tr><td>Intersect (Ctrl+0)</td><td>Bidang irisan kedua loop.</td></tr>
           </tbody>
         </table>

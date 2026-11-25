@@ -28,7 +28,19 @@
 const http = require('http');
 const https = require('https');
 
-const PORT = +(process.env.PORT || process.env.AI_BRIDGE_PORT || 3000);
+const PORT = +(process.env.PORT || process.env.AI_BRIDGE_PORT || 8090);
+
+// Idle timeout for the upstream provider socket: any packet from the provider
+// resets it, so a long reasoning stream is never killed — only a provider that
+// stays silent this long is considered hung. Provider queues can sit idle
+// >60 s, so the default is generous and configurable via AI_UPSTREAM_IDLE_S
+// (seconds). 0 disables the idle timeout entirely.
+const UPSTREAM_IDLE_MS = (() => {
+  const raw = process.env.AI_UPSTREAM_IDLE_S;
+  if (raw == null || String(raw).trim() === '') return 300000;
+  const v = Number(raw);
+  return Number.isFinite(v) && v > 0 ? Math.round(v * 1000) : 300000;
+})();
 
 // ---- CORS -----------------------------------------------------------------
 // The bridge forwards a paid API call, so a random web page must not be able to
@@ -186,10 +198,13 @@ function postUpstreamOnce(payload, register, cfg) {
       });
       res.on('end', () => finish());
     });
-    // Idle timeout, NOT total-time: the socket must show activity every 60 s or
-    // it is genuinely hung. A reasoning model streaming for minutes keeps
-    // resetting this on every packet, so long answers are never killed.
-    req.setTimeout(60000, () => req.destroy(new Error('upstream idle >60s — connection closed')));
+    // Idle timeout, NOT total-time: the socket must show activity every
+    // UPSTREAM_IDLE_MS (default 300 s) or it is genuinely hung. A reasoning
+    // model streaming for minutes keeps resetting this on every packet, so
+    // long answers are never killed. Slow provider queues get headroom; set
+    // AI_UPSTREAM_IDLE_S to tune.
+    req.setTimeout(UPSTREAM_IDLE_MS, () => req.destroy(new Error(
+      'upstream idle >' + (UPSTREAM_IDLE_MS / 1000) + 's — connection closed')));
     req.on('error', reject);
     if (register) register(req);         // caller aborts when its client leaves
     req.write(body);
@@ -355,9 +370,11 @@ function postGeminiOnce(payload, register, cfg) {
       res.on('end', () => finish());
       res.on('error', (err) => finish(err));
     });
-    // Idle timeout (same reasoning as Open:): a thinking model streaming for
-    // minutes keeps resetting this on every packet.
-    req.setTimeout(120000, () => req.destroy(new Error('upstream idle >120s — connection closed')));
+    // Idle timeout (same reasoning as OpenAI adapter): a thinking model
+    // streaming for minutes keeps resetting this on every packet. Default
+    // 300 s, tunable via AI_UPSTREAM_IDLE_S.
+    req.setTimeout(UPSTREAM_IDLE_MS, () => req.destroy(new Error(
+      'upstream idle >' + (UPSTREAM_IDLE_MS / 1000) + 's — connection closed')));
     req.on('error', (err) => reject(err));
     if (register) register(req);         // caller aborts when its client leaves
     req.write(body);

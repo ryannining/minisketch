@@ -83,13 +83,13 @@
 
         <h2>1. Mengaktifkan AI chat</h2>
         <ol>
-          <li>Jalankan server MiniSketch (<code>http://127.0.0.1:3000</code>, atau <code>node server/serve.js</code> pada port 8090).</li>
+          <li>Jalankan server MiniSketch: <code>node server/serve.js</code> (http://localhost:8090).</li>
           <li>Buka <b>Settings ▸ AI chat</b> dan isi:
             <ul>
-              <li><b>AI bridge URL</b> — kosongkan jika diakses lewat server yang melayani MiniSketch (butuh HTTP, bukan <code>file://</code>), atau isi mis. <code>http://127.0.0.1:3000</code>.</li>
+              <li><b>AI bridge URL</b> — kosongkan jika diakses lewat server yang melayani MiniSketch (butuh HTTP, bukan <code>file://</code>), atau isi mis. <code>http://127.0.0.1:8090</code>.</li>
               <li><b>Google Gemini</b> — centang bila memakai kunci Google Gemini API; biarkan kosong jika memakai endpoint OpenAI-compatible kustom di kolom <b>AI API base URL</b>.</li>
               <li><b>AI API key</b> — kunci API Anda sendiri.</li>
-              <li><b>AI model</b> — nama model (bisa juga dipilih langsung dari dropdown model di panel AI Chat setelah klik <b>&#128260;</b> refresh).</li>
+              <li><b>AI model</b> — bukan di Settings: pilih langsung dari <b>dropdown model di panel AI Chat</b> (klik <b>&#128260;</b> untuk memuat daftar model provider).</li>
               <li><b>AI reasoning level</b> — pilih <code>Off</code>, <code>Low</code>, atau <code>Normal</code> untuk model yang mendukung penalaran.</li>
               <li><b>Mode SVG (tanpa tools)</b> — jika aktif, AI menghasilkan SVG mentah yang langsung diimpor ke kanvas daripada memanggil alat gambar satu per satu.</li>
               <li><b>AI agent rounds</b> — berapa kali agen boleh looping sebelum jawaban akhir (default 4×).</li>

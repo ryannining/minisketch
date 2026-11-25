@@ -728,7 +728,7 @@
       case 'boolean': {
         const mode = a.mode === 'cut' ? 'cut' : a.mode === 'intersect' ? 'intersect' : 'union';
         if (mode !== 'union' && api.ui.selection.filter(s => s.kind === 'entity').length < 2) {
-          return { ok: false, error: mode + ' needs exactly 2+ loops: select tool loop first, then target' };
+          return { ok: false, error: mode + ' needs exactly 2+ loops: select the target loop first, then the tool loop last' };
         }
         api.cmdBoolean(mode);
         return { ok: true, mode };
@@ -1596,7 +1596,13 @@
           const at = NS.log.indexOf(m);
           if (at >= 0) {
             const userEntry = NS.log[at - 1];
-            NS.log.splice(userEntry && userEntry.role === 'user' ? at - 1 : at, NS.log.length);
+            const from = userEntry && userEntry.role === 'user' ? at - 1 : at;
+            // remember the images the original user turn carried, so the
+            // resend sends the same attachment (not just the text)
+            const imgs = userEntry && Array.isArray(userEntry.images) && userEntry.images.length
+              ? userEntry.images.slice() : null;
+            NS.log.splice(from, NS.log.length - from);
+            if (imgs) NS.pendingImages = imgs;
           }
           scheduleSave();
           send(m.retryText);
@@ -1793,6 +1799,10 @@
         const v = modelSel.value;
         if (v && window.setAiModelFromChat) window.setAiModelFromChat(v);
       });
+      // Tampilkan model aktif dari settings sejak awal (sebelum/apa pun hasil
+      // muat daftar provider) supaya pemilih panel chat tidak pernah kosong
+      // atau berbeda dari Settings.
+      if (window.syncAiModelSelect) window.syncAiModelSelect();
       loadM(true);   // isi otomatis saat panel dibuka (jika daftar tersedia)
     }
     const input = document.getElementById('chat-input');
