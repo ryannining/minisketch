@@ -260,6 +260,8 @@
   NS.register({
     id: 'textweld',
     label: 'Text weld',
+    version: '1.0.0',
+    icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 4h6M5.5 4v8M8.5 7.5h5M11 5v5"/></svg>',
     title: 'Text weld: weld the selected outer loops into one connected cut piece in place — exact boolean, curves preserved, the right object\'s overlap edge marked red. Replaces the originals. Double click to edit',
     modalId: 'tw-modal',
     guide: {

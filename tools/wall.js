@@ -447,6 +447,8 @@
   NS.register({
     id: 'wall',
     label: 'Extrude wall',
+    version: '1.0.0',
+    icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><ellipse cx="8" cy="4.5" rx="5" ry="2.2"/><path d="M3 4.5v6.5c0 1.2 2.2 2.2 5 2.2s5-1 5-2.2V4.5"/><path d="M5.5 7.5v3M8 8v3M10.5 7.5v3"/></svg>',
     title: 'Extrude wall: turn the selected closed loops into a flat-pack set — base with finger joint notches, bendable wall strip (hinge cuts only where the outline curves), lid and lid plug. Double click the result to edit its parameters',
     modalId: 'wall-modal',
     guide: {

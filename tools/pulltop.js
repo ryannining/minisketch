@@ -255,6 +255,8 @@
   NS.register({
     id: 'pulltopduo',
     label: 'Pull top duo',
+    version: '1.0.0',
+    icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="6.5" width="11" height="7" rx="0.8"/><path d="M7.5 3.5H2.5M4.2 2 2.5 3.5 4.2 5M8.5 3.5h5M11.8 2l1.7 1.5-1.7 1.5"/></svg>',
     title: 'Pull top duo: base, four walls and two sliding tops you pull apart, with clips that carry them and finger handles. The red marks show where the clips and handles are glued. Double click the result to edit its parameters',
     modalId: 'pulltopduo-modal',
     guide: {

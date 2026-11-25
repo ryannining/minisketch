@@ -195,6 +195,8 @@
   NS.register({
     id: 'flex',
     label: 'Flex pattern',
+    version: '1.0.0',
+    icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="2.5" width="12" height="11" rx="1"/><path d="M5 4.5v3M5 10v2M8 3.5v2M8 8v3.5M11 4.5v3M11 10v2"/></svg>',
     title: 'Flex pattern: living hinge mandiri — kolom slit dengan dua pola bridge interlocking; Length arah tekuk, Width panjang slit. Dobel-klik hasilnya untuk mengubah parameter',
     modalId: 'flex-modal',
     guide: {

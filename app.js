@@ -16398,9 +16398,20 @@
   function offsetClosedChains(contours, dist, opts) {
     const Lib = clipperLib();
     if (!Lib) return null;
+    const list = !contours ? []
+      : Array.isArray(contours) ? contours
+      : (typeof contours === 'object' && Array.isArray(contours.contours)) ? contours.contours
+      : (typeof contours === 'object' && Array.isArray(contours.rings)) ? contours.rings
+      : (typeof contours === 'object' && Array.isArray(contours.pts)) ? [contours]
+      : [];
+    const isPt = (p) => p && typeof p.x === 'number' && typeof p.y === 'number' && isFinite(p.x) && isFinite(p.y);
+    const ringList = (list.length >= 3 && isPt(list[0])) ? [{ pts: list }]
+      : list.map(c => (c && Array.isArray(c.pts)) ? c : (Array.isArray(c) && c.length >= 3 && isPt(c[0])) ? { pts: c } : null)
+        .filter(c => c && c.pts.length >= 3);
+    if (!ringList.length) return [];
     const o = opts || {};
     const miterLimit = isFinite(+o.miterLimit) ? +o.miterLimit : OFFSET_MITER;
-    const paths = contours.map(c => c.pts.map(pt => ({
+    const paths = ringList.map(c => c.pts.map(pt => ({
       X: Math.round(pt.x * OFFSET_SCALE),
       Y: Math.round(pt.y * OFFSET_SCALE)
     })));
@@ -18487,8 +18498,91 @@
   // the legacy Clipper path kept as the fallback. Returns result rings, or
   // null when neither library is available.
   function polyBoolOp(op, subjectRings, clipRings) {
-    const subject = (subjectRings || []).filter(r => r && r.length >= 3);
-    const clips = (clipRings || []).filter(r => r && r.length >= 3);
+    if (op && typeof op === 'object' && !Array.isArray(op) && typeof op.op === 'string') {
+      const cfg = op;
+      op = cfg.op;
+      subjectRings = cfg.subjectRings !== undefined ? cfg.subjectRings : (cfg.subject !== undefined ? cfg.subject : cfg.subj);
+      clipRings = cfg.clipRings !== undefined ? cfg.clipRings : (cfg.clip !== undefined ? cfg.clip : cfg.clips);
+    }
+    const normOp = (v) => {
+      if (typeof v !== 'string') return '';
+      const s = v.trim().toLowerCase();
+      if (s === 'union' || s === 'add' || s === 'merge' || s === 'combine' || s === 'or') return 'union';
+      if (s === 'difference' || s === 'diff' || s === 'cut' || s === 'sub' || s === 'subtract') return 'difference';
+      if (s === 'intersection' || s === 'intersect' || s === 'and') return 'intersection';
+      return '';
+    };
+    if (!normOp(op)) {
+      if (normOp(subjectRings)) {
+        const realOp = subjectRings;
+        subjectRings = op;
+        op = realOp;
+      } else if (normOp(clipRings)) {
+        const realOp = clipRings;
+        clipRings = subjectRings;
+        subjectRings = op;
+        op = realOp;
+      }
+    }
+    op = normOp(op);
+
+    const asPt = (p) => {
+      if (p && typeof p.x === 'number' && typeof p.y === 'number' && isFinite(p.x) && isFinite(p.y)) {
+        return { x: p.x, y: p.y };
+      }
+      if (Array.isArray(p) && p.length >= 2 && typeof p[0] === 'number' && typeof p[1] === 'number' && isFinite(p[0]) && isFinite(p[1])) {
+        return { x: p[0], y: p[1] };
+      }
+      return null;
+    };
+    const isPtLike = (p) => !!asPt(p);
+    const toRings = (input) => {
+      if (!input) return [];
+      if (input instanceof Set) return toRings(Array.from(input));
+      if (!Array.isArray(input)) {
+        if (typeof input === 'object') {
+          if (typeof input.type === 'string' && typeof entityWorldPolylines === 'function') {
+            try { return toRings(entityWorldPolylines(input)); } catch (e) { /* ignore */ }
+          }
+          for (const k of ['pts', 'points', 'vertices', 'path', 'poly', 'ring', 'contours', 'rings', 'paths']) {
+            if (Array.isArray(input[k])) return toRings(input[k]);
+          }
+          if (Array.isArray(input.outer)) {
+            const list = [input.outer];
+            if (Array.isArray(input.holes)) list.push(...input.holes);
+            return toRings(list);
+          }
+        }
+        return [];
+      }
+      if (input.length >= 3 && isPtLike(input[0])) {
+        const clean = input.map(asPt).filter(Boolean);
+        return clean.length >= 3 ? [clean] : [];
+      }
+      const out = [];
+      for (const r of input) {
+        if (Array.isArray(r)) {
+          if (r.length >= 3 && isPtLike(r[0])) {
+            const clean = r.map(asPt).filter(Boolean);
+            if (clean.length >= 3) out.push(clean);
+          }
+        } else if (r && typeof r === 'object') {
+          const arr = Array.isArray(r.pts) ? r.pts
+            : Array.isArray(r.points) ? r.points
+            : Array.isArray(r.vertices) ? r.vertices
+            : null;
+          if (arr && arr.length >= 3) {
+            const clean = arr.map(asPt).filter(Boolean);
+            if (clean.length >= 3) out.push(clean);
+          }
+        }
+      }
+      return out;
+    };
+
+    let subject = toRings(subjectRings);
+    const clips = toRings(clipRings);
+    if (op === 'union' && clips.length) subject = subject.concat(clips);
     if (!subject.length) return [];
     if (op !== 'union' && op !== 'difference' && op !== 'intersection') return null;
     const fromRings = (rings) => {
@@ -33560,6 +33654,15 @@ function cmdSplitCurve() {
       render();
     });
 
+    const btnExtPanel = document.getElementById('btn-extensions');
+    if (btnExtPanel) btnExtPanel.addEventListener('click', () => {
+      if (window.MiniSketchExtensions) window.MiniSketchExtensions.open('installed');
+    });
+    const btnExtMenu = document.getElementById('btn-extensions-menu');
+    if (btnExtMenu) btnExtMenu.addEventListener('click', () => {
+      if (window.MiniSketchExtensions) window.MiniSketchExtensions.open('installed');
+    });
+
     const btnSettings = document.getElementById('btn-settings');
     if (btnSettings) btnSettings.addEventListener('click', openSettingsModal);
     const settingsClose = document.getElementById('settings-close');
@@ -35693,6 +35796,7 @@ function cmdSplitCurve() {
     mountTools();
     paintKeyChips();
     installGlobalErrorHandler();
+    if (window.MiniSketchExtensions) window.MiniSketchExtensions.mount(toolApi());
     if (window.MiniSketchAI) window.MiniSketchAI.mount(toolApi());
     initModalBehavior();
     bindCanvas();

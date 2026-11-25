@@ -83,12 +83,16 @@ const server = http.createServer((req, res) => {
       }).end('not found: ' + rel);
       return;
     }
-    res.writeHead(200, {
+    const headers = {
       'Content-Type': TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream',
       'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
       'Pragma': 'no-cache',
       'Expires': '0'
-    });
+    };
+    if (rel.startsWith('/marketplace/')) {
+      headers['Access-Control-Allow-Origin'] = '*';
+    }
+    res.writeHead(200, headers);
     res.end(buf);
   });
 });

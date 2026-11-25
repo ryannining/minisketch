@@ -1671,31 +1671,66 @@ function interiorProbe(pts) {
 // same alternation KaryaCNC applies when it receives a job (luar, dalam, luar,
 // dalam). Without this an offset cannot tell "grow" from "shrink".
 function normalizeWinding(contours) {
-  const closed = (contours || []).filter(c => c && c.closed && c.pts && c.pts.length >= 3);
+  if (!contours) return [];
+  if (contours instanceof Set) contours = Array.from(contours);
+  if (!Array.isArray(contours)) {
+    if (typeof contours === 'object') {
+      if (Array.isArray(contours.contours)) return normalizeWinding(contours.contours);
+      if (Array.isArray(contours.rings)) return normalizeWinding(contours.rings);
+      if (Array.isArray(contours.pts) || Array.isArray(contours.points)) return normalizeWinding([contours]);
+    }
+    return [];
+  }
+  const isPt = (p) => p && typeof p.x === 'number' && typeof p.y === 'number' && isFinite(p.x) && isFinite(p.y);
+  // Single raw point ring [{x, y}, ...]
+  if (contours.length >= 3 && isPt(contours[0])) {
+    if (signedAreaPts(contours) < 0) contours.reverse();
+    return [contours];
+  }
+  // Support both [{ pts, closed: true }, ...] and raw ring arrays [[{x, y}, ...], ...]
+  const wrappers = [];
+  for (let i = 0; i < contours.length; i++) {
+    const c = contours[i];
+    if (c && c.closed !== false && Array.isArray(c.pts) && c.pts.length >= 3 && (c.closed || isPt(c.pts[0]))) {
+      wrappers.push({ target: c, key: 'pts', rawIdx: -1, pts: c.pts });
+    } else if (c && c.closed !== false && Array.isArray(c.points) && c.points.length >= 3 && isPt(c.points[0])) {
+      wrappers.push({ target: c, key: 'points', rawIdx: -1, pts: c.points });
+    } else if (Array.isArray(c) && c.length >= 3 && isPt(c[0])) {
+      wrappers.push({ target: null, key: '', rawIdx: i, pts: c });
+    }
+  }
   const probes = new Map();
-  for (const c of closed) probes.set(c, interiorProbe(c.pts));
-  for (const c of closed) {
-    const probe = probes.get(c);
+  for (const w of wrappers) probes.set(w, interiorProbe(w.pts));
+  for (const w of wrappers) {
+    const probe = probes.get(w);
     let depth = 0;
-    for (const other of closed) {
-      if (other === c) continue;
+    for (const other of wrappers) {
+      if (other === w) continue;
       if (pointInPoly(probe, other.pts)) depth++;
     }
-    c.depth = depth;
-    const area = signedAreaPts(c.pts);
+    const area = signedAreaPts(w.pts);
     const wantPositive = depth % 2 === 0;
-    if ((area > 0) !== wantPositive) c.pts = c.pts.slice().reverse();
+    const oriented = (area > 0) !== wantPositive ? w.pts.slice().reverse() : w.pts;
+    if (w.target) {
+      w.target.depth = depth;
+      w.target[w.key || 'pts'] = oriented;
+    } else if (w.rawIdx >= 0) {
+      contours[w.rawIdx] = oriented;
+    }
   }
-  for (const c of contours || []) {
-    if (c && c.depth == null) c.depth = 0;
+  for (const c of contours) {
+    if (c && typeof c === 'object' && !Array.isArray(c) && c.depth == null) c.depth = 0;
   }
-  return contours || [];
+  return contours;
 }
 
 // Join polylines that share endpoints, so a grouped drawing comes back as the
 // same closed loops when it is converted to lines again.
 function chainPolylines(chains, tol) {
-  const pool = chains.map(c => ({ pts: c.pts.slice(), closed: !!c.closed }));
+  if (!Array.isArray(chains)) return [];
+  const pool = chains
+    .filter(c => (c && Array.isArray(c.pts) && c.pts.length) || (Array.isArray(c) && c.length))
+    .map(c => Array.isArray(c) ? { pts: c.slice(), closed: false } : { pts: c.pts.slice(), closed: !!c.closed });
   const near = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) <= tol;
   const out = [];
   while (pool.length) {

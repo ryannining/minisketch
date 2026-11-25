@@ -166,6 +166,8 @@
   NS.register({
     id: 'slot',
     label: 'Slot',
+    version: '1.0.0',
+    icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="5.2" width="12" height="5.6" rx="2.8"/><path d="M5 8h6" stroke-dasharray="1.5 1.5"/></svg>',
     title: 'Slot: turn the selected lines, curves, arcs or circles into a slot outline with the given end diameter. Curved input is followed exactly and the result is fitted back to smooth curves. Double click the result to edit its parameters',
     modalId: 'slot-modal',
     guide: {

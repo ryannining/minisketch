@@ -225,6 +225,8 @@
   NS.register({
     id: 'slidetop',
     label: 'Slide top',
+    version: '1.0.0',
+    icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="6" width="11" height="7.5" rx="0.8"/><path d="M4 3.5h8.5M10.5 2 12.5 3.5 10.5 5"/></svg>',
     title: 'Slide top: base, four walls and a sliding lid with two rails — the lid runs in a groove the rails make against the side walls, and the red line marks where they are glued. Double click the result to edit its parameters',
     modalId: 'slidetop-modal',
     guide: {

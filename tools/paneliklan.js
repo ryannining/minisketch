@@ -140,6 +140,8 @@
   NS.register({
     id: 'paneliklan',
     label: 'Panel iklan',
+    version: '1.0.0',
+    icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="3.5" width="12" height="9" rx="1.8"/><circle cx="4.3" cy="5.8" r="0.8" fill="currentColor"/><circle cx="11.7" cy="5.8" r="0.8" fill="currentColor"/><circle cx="4.3" cy="10.2" r="0.8" fill="currentColor"/><circle cx="11.7" cy="10.2" r="0.8" fill="currentColor"/></svg>',
     title: 'Panel iklan: bidang bersudut membulat dengan lubang pen — 4 di sudut, 2 kiri-kanan atau 2 atas-bawah. Klik ganda hasilnya untuk mengubah parameter',
     modalId: 'pi-modal',
     guide: {

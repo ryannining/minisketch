@@ -40,13 +40,16 @@
   const SYSTEM_URL = assetUrl('system-prompt.txt');
   const TOOLS_URL = assetUrl('tools.json');
   const SVG_SYSTEM_URL = assetUrl('system-prompt-svg.txt');
+  const EXT_SYSTEM_URL = assetUrl('system-prompt-ext.txt');
 
   // ---- cached policy assets ----------------------------------------------
   let systemText = '';      // ai/system-prompt.txt (the base persona + rules)
   let svgSystemText = '';   // ai/system-prompt-svg.txt (SVG-only mode persona)
+  let extSystemText = '';   // ai/system-prompt-ext.txt (Extension Builder mode persona)
   let tools = [];           // ai/tools.json -> .tools (OpenAI function schemas)
   let skills = [];          // [{name, trigger:[words], body}]
   let loadPromise = null;
+  let extLoadPromise = null;
 
   function fetchText(url) {
     return fetch(url, { cache: 'no-cache' }).then(r => (r.ok ? r.text() : ''));
@@ -77,6 +80,18 @@
       return null;
     });
     return loadPromise;
+  }
+
+  function ensureExtPrompt() {
+    if (extSystemText) return Promise.resolve(extSystemText);
+    if (extLoadPromise) return extLoadPromise;
+    extLoadPromise = fetchText(EXT_SYSTEM_URL)
+      .then((txt) => {
+        extSystemText = String(txt || '').trim();
+        return extSystemText;
+      })
+      .catch(() => '');
+    return extLoadPromise;
   }
 
   // Skills live in ai/skills.js as window.MiniSketchAISkills (a plain array).
@@ -122,19 +137,22 @@
 
   // Build THIS turn's system message: base persona + current document state
   // (so the model sees the worksheet) + any active skill recipes.
-  // opts.svgMode switches to the SVG-only persona (no tools, no document dump —
-  // the model just has to produce one <svg>).
+  // opts.svgMode switches to the SVG-only persona; opts.extMode switches to
+  // the Extension Builder persona.
   function systemMessage(messages, stateSummary, requestedSkills, opts) {
+    const extMode = !!(opts && opts.extMode);
     const svgMode = !!(opts && opts.svgMode);
-    const base = svgMode ? (svgSystemText || systemText) : systemText;
+    const base = extMode
+      ? (extSystemText || systemText)
+      : (svgMode ? (svgSystemText || systemText) : systemText);
     if (!base) return null;
     let sys = base;
-    if (!svgMode && stateSummary) {
+    if (!svgMode && !extMode && stateSummary) {
       sys += '\n\nCURRENT DOCUMENT (world mm, Y-down: +X right, +Y down):\n' +
         JSON.stringify(stateSummary).slice(0, 4000);
     }
     const active = skillsFor(messages, requestedSkills);
-    if (active.length && !svgMode) {
+    if (active.length && !svgMode && !extMode) {
       sys += '\n\n' + active.map(s =>
         '=== ACTIVE SKILL: ' + s.name + ' ===\n' + s.body).join('\n\n');
     }
@@ -145,6 +163,7 @@
   function ready() { return load(); }
 
   NS.ready = ready;
+  NS.ensureExtPrompt = ensureExtPrompt;
   NS.systemMessage = systemMessage;
   NS.toolManifest = toolManifest;
   // exposed for debugging / tests

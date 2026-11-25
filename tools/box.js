@@ -67,6 +67,8 @@
   NS.register({
     id: 'box',
     label: 'Box maker',
+    version: '1.0.0',
+    icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 5.5 8 2.5l5.5 3v5L8 13.5l-5.5-3z"/><path d="M2.5 5.5 8 8.5l5.5-3M8 8.5v5"/></svg>',
     title: 'Box maker: generate a finger joint box (panels laid out flat, ready to cut)',
     modalId: 'box-modal',
     guide: {

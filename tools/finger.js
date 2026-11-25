@@ -516,6 +516,8 @@ function lineEnds(api, id) {
   NS.register({
     id: 'finger',
     label: 'Finger joint',
+    version: '1.0.0',
+    icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 5.5h3v3h3v-3h3v3h3"/><path d="M2 10.5h3v-3h3v3h3v-3h3" opacity="0.45"/></svg>',
     title: 'Finger joint: select line(s), Create — the finger row becomes a modifier of that line: it follows moves, and is re-derived automatically whenever a solve moves the line. Double click the result to edit its parameters',
     modalId: 'finger-modal',
     guide: {

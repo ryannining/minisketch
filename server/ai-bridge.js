@@ -22,6 +22,10 @@
 
 const http = require('http');
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+const crypto = require('crypto');
 
 const PORT = +(process.env.PORT || process.env.AI_BRIDGE_PORT || 8090);
 
@@ -554,6 +558,175 @@ function assembleCalls(raw) {
   return calls;
 }
 
+// ---- Persistent Extension Marketplace (catalog + publish on disk) ----------
+function marketplaceDir() {
+  const envDir = process.env.MARKETPLACE_DIR;
+  return envDir && String(envDir).trim()
+    ? path.resolve(String(envDir).trim())
+    : path.resolve(__dirname, '..', 'marketplace');
+}
+
+function marketplacePaths() {
+  const dir = marketplaceDir();
+  return {
+    dir,
+    extDir: path.join(dir, 'extensions'),
+    catalogFile: path.join(dir, 'catalog.json')
+  };
+}
+
+function publishKeyValid(supplied) {
+  const expected = String(process.env.MARKETPLACE_PUBLISH_KEY || '').trim();
+  if (!expected) return true;
+  const got = String(supplied || '').trim();
+  if (!got) return false;
+  const a = Buffer.from(expected, 'utf8');
+  const b = Buffer.from(got, 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+function readMarketplaceCatalog() {
+  const { catalogFile } = marketplacePaths();
+  try {
+    const raw = fs.readFileSync(catalogFile, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.extensions)) return parsed;
+  } catch (err) { /* fall back to empty catalog */ }
+  return {
+    marketplaceVersion: 1,
+    name: 'MiniSketch Extension Marketplace',
+    updatedAt: new Date().toISOString(),
+    extensions: []
+  };
+}
+
+function writeFileAtomic(targetPath, content) {
+  const dir = path.dirname(targetPath);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = targetPath + '.tmp-' + process.pid + '-' + Date.now();
+  fs.writeFileSync(tmp, content, 'utf8');
+  fs.renameSync(tmp, targetPath);
+}
+
+function validateExtensionPayload(meta, code) {
+  const m = meta && typeof meta === 'object' ? meta : {};
+  const id = String(m.id || '').trim().toLowerCase();
+  if (!/^[a-z][a-z0-9-]{1,39}$/.test(id)) {
+    return { ok: false, error: 'Extension ID must be 2-40 lowercase letters, digits, or hyphens (starting with a letter).' };
+  }
+  const name = String(m.name || '').trim().slice(0, 80);
+  if (!name) return { ok: false, error: 'Extension name is required.' };
+  const version = String(m.version || '1.0.0').trim().slice(0, 32);
+  if (!/^\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$/i.test(version)) {
+    return { ok: false, error: 'Version must use semantic format like 1.0.0.' };
+  }
+  const author = String(m.author || 'Community').trim().slice(0, 60) || 'Community';
+  const category = String(m.category || 'CNC Utility').trim().slice(0, 40) || 'CNC Utility';
+  const description = String(m.description || '').trim().slice(0, 240);
+  const src = String(code == null ? '' : code);
+  if (src.length < 40 || src.length > 200 * 1024) {
+    return { ok: false, error: 'Extension code must be between 40 bytes and 200 KB.' };
+  }
+  try {
+    new vm.Script(src, { filename: id + '.js' });
+  } catch (err) {
+    return { ok: false, error: 'JavaScript syntax error: ' + String(err && err.message || err) };
+  }
+  const hasRegister =
+    /(?:MiniSketchTools|NS)\s*\.\s*register\s*\(/.test(src) ||
+    (/\bMiniSketchTools\b/.test(src) && /\.register\s*\(/.test(src));
+  if (!hasRegister) {
+    return { ok: false, error: 'Extension must call MiniSketchTools.register({...}).' };
+  }
+  let registeredId = '';
+  try {
+    let captured = null;
+    const noop = () => {};
+    const stubDoc = {
+      getElementById: () => null,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      createElement: () => ({ classList: { add: noop, remove: noop, toggle: noop }, style: {}, appendChild: noop, addEventListener: noop })
+    };
+    const sandbox = {
+      MiniSketchTools: { register(t) { captured = t; } },
+      document: stubDoc,
+      localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
+      Math, Date, JSON, Array, Object, String, Number, Boolean, RegExp, Map, Set, parseInt, parseFloat, isFinite, isNaN
+    };
+    sandbox.window = sandbox;
+    sandbox.globalThis = sandbox;
+    const ctx = vm.createContext(sandbox);
+    new vm.Script(src, { filename: id + '.js' }).runInContext(ctx, { timeout: 250 });
+    if (captured && typeof captured.id === 'string') {
+      registeredId = captured.id.trim().toLowerCase();
+    }
+  } catch (err) {
+    const idMatch = src.match(/['"]?\bid['"]?\s*:\s*(['"`])([a-z0-9-]+)\1/i);
+    if (idMatch) registeredId = idMatch[2].toLowerCase();
+  }
+  if (!registeredId || registeredId !== id) {
+    return { ok: false, error: 'Code register({ id }) must match Extension ID "' + id + '".' };
+  }
+  const rawIcon = String(m.icon || '').trim();
+  const iconMatch = rawIcon.match(/<svg\b[^>]*>[\s\S]*?<\/svg>/i);
+  const safeIcon = (iconMatch && !/<\s*(script|foreignObject|iframe|object|embed|style)\b/i.test(iconMatch[0]) && !/\bon[a-z]+\s*=|javascript:/i.test(iconMatch[0]))
+    ? iconMatch[0].slice(0, 2048)
+    : '';
+  const now = new Date().toISOString();
+  return {
+    ok: true,
+    code: src,
+    entry: {
+      id,
+      name,
+      version,
+      author,
+      category,
+      description,
+      ...(safeIcon ? { icon: safeIcon } : {}),
+      scriptUrl: 'extensions/' + id + '.js',
+      minAppVersion: '1.0.0',
+      updatedAt: now
+    }
+  };
+}
+
+function publishMarketplaceExtension(entry, code, overwrite) {
+  const { extDir, catalogFile } = marketplacePaths();
+  const catalog = readMarketplaceCatalog();
+  const idx = catalog.extensions.findIndex(e => e && e.id === entry.id);
+  if (idx >= 0 && !overwrite) {
+    return { ok: false, status: 409, exists: true, error: 'Extension "' + entry.id + '" already exists in Marketplace (enable overwrite to update).' };
+  }
+  fs.mkdirSync(extDir, { recursive: true });
+  const targetScript = path.join(extDir, entry.id + '.js');
+  writeFileAtomic(targetScript, code);
+  if (idx >= 0) catalog.extensions[idx] = entry;
+  else catalog.extensions.push(entry);
+  catalog.updatedAt = entry.updatedAt;
+  writeFileAtomic(catalogFile, JSON.stringify(catalog, null, 2) + '\n');
+  return { ok: true, entry, catalog };
+}
+
+function deleteMarketplaceExtension(extId) {
+  const id = String(extId || '').trim().toLowerCase();
+  if (!/^[a-z][a-z0-9-]{1,39}$/.test(id)) {
+    return { ok: false, status: 400, error: 'Invalid extension ID.' };
+  }
+  const { extDir, catalogFile } = marketplacePaths();
+  const catalog = readMarketplaceCatalog();
+  const idx = catalog.extensions.findIndex(e => e && e.id === id);
+  if (idx < 0) return { ok: false, status: 404, error: 'Extension not found in catalog.' };
+  catalog.extensions.splice(idx, 1);
+  catalog.updatedAt = new Date().toISOString();
+  const targetScript = path.join(extDir, id + '.js');
+  try { if (fs.existsSync(targetScript)) fs.unlinkSync(targetScript); } catch (err) { /* ignore */ }
+  writeFileAtomic(catalogFile, JSON.stringify(catalog, null, 2) + '\n');
+  return { ok: true, catalog };
+}
+
 // ---- HTTP handler: /health, /api/chat, /api/models ------------------------
 function bridgeHandler(req, res) {
   const origin = req.headers.origin || '';
@@ -564,22 +737,116 @@ function bridgeHandler(req, res) {
   }
   res.setHeader('Access-Control-Allow-Origin', origin || '*');
   res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Publish-Key');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
   const reqPath = String(req.url || '').split('?')[0];
 
   if (req.method === 'GET' && reqPath === '/health') {
     const envCfg = resolveConfig({});
+    const pubKey = String(process.env.MARKETPLACE_PUBLISH_KEY || '').trim();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       ok: true,
       proxy: true,
       hasEnvKey: !!envCfg.key,
       hasEnvBase: !!envCfg.base,
-      envModel: envCfg.model || undefined
+      envModel: envCfg.model || undefined,
+      requiresPublishKey: !!pubKey
     }));
+    return;
+  }
+
+  if (reqPath === '/api/marketplace/catalog' && req.method === 'GET') {
+    const cat = readMarketplaceCatalog();
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ ok: true, ...cat }));
+    return;
+  }
+
+  if (reqPath === '/api/marketplace/publish' && req.method === 'POST') {
+    let raw = '';
+    let tooBig = false;
+    req.on('data', c => {
+      raw += c;
+      if (raw.length > 512 * 1024) { tooBig = true; req.destroy(); }
+    });
+    req.on('end', () => {
+      if (tooBig) {
+        if (!res.writableEnded) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Payload too large (max 512 KB).' }));
+        }
+        return;
+      }
+      let input = {};
+      try { input = JSON.parse(raw || '{}'); }
+      catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON body.' }));
+        return;
+      }
+      const suppliedKey = String((req.headers && req.headers['x-publish-key']) || input.publishKey || '').trim();
+      if (!publishKeyValid(suppliedKey)) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid or missing Publish Key.' }));
+        return;
+      }
+      const metaObj = (input.meta && typeof input.meta === 'object') ? input.meta : input;
+      const check = validateExtensionPayload(metaObj, input.code);
+      if (!check.ok) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: check.error }));
+        return;
+      }
+      const result = publishMarketplaceExtension(check.entry, check.code, !!input.overwrite);
+      if (!result.ok) {
+        res.writeHead(result.status || 409, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: result.error, exists: !!result.exists }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, scriptUrl: result.entry.scriptUrl, entry: result.entry, catalog: result.catalog }));
+    });
+    return;
+  }
+
+  if (reqPath.startsWith('/api/marketplace/extensions/') && req.method === 'GET') {
+    const rawId = decodeURIComponent(reqPath.slice('/api/marketplace/extensions/'.length)).trim().replace(/\.js$/i, '').toLowerCase();
+    if (!/^[a-z][a-z0-9-]{1,39}$/.test(rawId)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid extension ID.' }));
+      return;
+    }
+    const targetScript = path.join(marketplacePaths().extDir, rawId + '.js');
+    try {
+      const code = fs.readFileSync(targetScript, 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(code);
+    } catch (err) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Extension script not found.' }));
+    }
+    return;
+  }
+
+  if (reqPath.startsWith('/api/marketplace/extensions/') && req.method === 'DELETE') {
+    const extId = decodeURIComponent(reqPath.slice('/api/marketplace/extensions/'.length)).trim();
+    const suppliedKey = String((req.headers && req.headers['x-publish-key']) || '').trim();
+    if (!publishKeyValid(suppliedKey)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid or missing Publish Key.' }));
+      return;
+    }
+    const result = deleteMarketplaceExtension(extId);
+    if (!result.ok) {
+      res.writeHead(result.status || 400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: result.error }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, id: extId, catalog: result.catalog }));
     return;
   }
 
@@ -832,7 +1099,11 @@ if (require.main !== module) {
       geminiRequest,
       openaiRequest,
       assembleCalls,
-      sanitizeArgs
+      sanitizeArgs,
+      validateExtensionPayload,
+      readMarketplaceCatalog,
+      publishMarketplaceExtension,
+      deleteMarketplaceExtension
     }
   };
   return;

@@ -133,6 +133,8 @@
   NS.register({
     id: 'paintrack',
     label: 'Paint rack',
+    version: '1.0.0',
+    icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 13.5V4.5l11 3.5v5.5z"/><circle cx="6.2" cy="9" r="1.1"/><circle cx="9.8" cy="10" r="1.1"/></svg>',
     title: 'Paint storage rack: tiered shelves drilled with a hole grid, slotted into two side walls (flat, ready to cut)',
     modalId: 'paintrack-modal',
     guide: {

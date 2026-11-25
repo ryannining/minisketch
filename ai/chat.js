@@ -19,9 +19,9 @@
   NS.mode = 'chat';
   let api = null;
 
-  // Mode SVG adalah SATU-SATUNYA mode yang didukung (paling akurat untuk
-  // geometri vector). Mode agen (tool calls) dihapus.
-  NS.svgMode = () => true;
+  // Mode default = 'svg' (vector output) or 'ext' (AI Extension Builder).
+  NS.builderMode = 'svg';
+  NS.svgMode = () => NS.builderMode !== 'ext';
 
   function isLocalApiUrl(base) {
     try {
@@ -1233,6 +1233,11 @@
     renderLog();
     const url = bridgeUrl();
     if (!url) {
+      if (NS.builderMode === 'ext') {
+        pushLog('ai', 'Mode Extension Builder memerlukan koneksi bridge/AI. Jalankan "node server/serve.js" lalu buka http://127.0.0.1:8090 (atau isi AI bridge URL di Settings).');
+        renderLog();
+        return;
+      }
       const parsed = parseLocal(input);
       if (parsed && parsed.ops.length) {
         const r = await applyOps(parsed.ops);
@@ -1311,15 +1316,17 @@
     const stopWaitClock = () => { if (waitTimer) { clearInterval(waitTimer); waitTimer = null; } };
     try {
       await ensurePolicy();
-      const svgMode = NS.svgMode();
-      // SVG mode: no tool manifest at all — the model only returns <svg>.
-      const toolManifest = (!svgMode && P && P.toolManifest) ? P.toolManifest() : [];
+      const extMode = NS.builderMode === 'ext';
+      if (extMode && P && P.ensureExtPrompt) await P.ensureExtPrompt();
+      const svgMode = !extMode && NS.svgMode();
+      // SVG & Extension Builder modes send no CAD tool manifest — the model returns <svg> or tool JS directly.
+      const toolManifest = (!svgMode && !extMode && P && P.toolManifest) ? P.toolManifest() : [];
       for (let round = 1; round <= MAX_ROUNDS; round++) {
         // Rebuild systemMessage EVERY round so `use_skill` and fresh document
         // state take effect immediately on round 2+.
         const curState = stateSummary();
         const sysMsg = P && P.systemMessage
-          ? P.systemMessage(history, curState, NS.requestedSkills || [], { svgMode })
+          ? P.systemMessage(history, curState, NS.requestedSkills || [], { svgMode, extMode })
           : null;
         const messages = [...history];
         if (sysMsg) messages.unshift(sysMsg);
@@ -1651,7 +1658,9 @@
       }
       appendImageThumbs(li, m);
       // Render SVG preview + Insert/Copy whenever an AI reply contains <svg>
-      if (m.role === 'ai' && (NS.svgMode() || /<svg[\s\S]*?<\/svg>/i.test(m.text))) appendSvgBlock(li, m);
+      if (m.role === 'ai' && !extractExtensionCode(m.text) && (NS.svgMode() || /<svg[\s\S]*?<\/svg>/i.test(m.text))) appendSvgBlock(li, m);
+      // Render AI Extension Builder actions when reply contains MiniSketchTools.register(...)
+      if (m.role === 'ai' && extractExtensionCode(m.text)) appendExtensionBlock(li, m);
       if (m.thinking) {
         NS.thinkClosed = NS.thinkClosed || new WeakSet();
         const det = document.createElement('details');
@@ -1893,6 +1902,234 @@
     li.appendChild(row);
   }
 
+  // ---- AI Extension Builder mode -----------------------------------------
+  function extractExtensionCode(text) {
+    const raw = String(text == null ? '' : text);
+    const hasReg = (s) =>
+      /(?:MiniSketchTools|NS)\s*\.\s*register\s*\(/.test(s) ||
+      (/\bMiniSketchTools\b/.test(s) && /\.register\s*\(/.test(s));
+    if (!hasReg(raw)) return null;
+    const blocks = [];
+    const fenceRe = /```(?:js|javascript|ts)?\s*\n([\s\S]*?)```/gi;
+    let m;
+    while ((m = fenceRe.exec(raw)) !== null) {
+      if (hasReg(m[1])) blocks.push(m[1].trim());
+    }
+    if (blocks.length) return blocks[blocks.length - 1];
+    // Fallback: raw un-fenced code if the model omitted markdown fences
+    if (/^\s*(?:\(\(\)\s*=>|\(function\s*\(|\/\/|\/\*|(?:window\.)?MiniSketchTools\.register\s*\()/m.test(raw)) {
+      return raw.trim();
+    }
+    return null;
+  }
+
+  function downloadExtensionFile(filename, content) {
+    try {
+      const blob = new Blob([String(content || '')], { type: 'application/javascript;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  function appendExtensionBlock(li, m) {
+    const code = extractExtensionCode(m && m.text);
+    if (!code) return;
+    const reg = window.MiniSketchTools;
+    const val = (reg && reg.validateExtensionCode)
+      ? reg.validateExtensionCode(code)
+      : { ok: true, errors: [], warnings: [], extracted: { id: 'custom-tool', label: 'Custom Tool' } };
+    const meta = {
+      id: (val.extracted && val.extracted.id) || 'custom-tool',
+      name: (val.extracted && (val.extracted.label || val.extracted.id)) || 'Custom Tool',
+      label: (val.extracted && (val.extracted.label || val.extracted.id)) || 'Custom Tool',
+      title: (val.extracted && val.extracted.title) || '',
+      version: (val.extracted && val.extracted.version) || '1.0.0',
+      author: (val.extracted && val.extracted.author) || 'AI Builder',
+      category: (val.extracted && val.extracted.category) || 'AI Generated',
+      description: (val.extracted && val.extracted.description) || '',
+      icon: (val.extracted && val.extracted.icon) || ''
+    };
+
+    const card = document.createElement('div');
+    card.className = 'chat-ext';
+
+    const head = document.createElement('div');
+    head.className = 'chat-ext-head';
+    const title = document.createElement('span');
+    title.className = 'chat-ext-title';
+    if (reg && reg.sanitizeIconSvg) {
+      const ic = document.createElement('span');
+      ic.className = 'chat-ext-ic';
+      ic.innerHTML = reg.sanitizeIconSvg(meta.icon);
+      title.appendChild(ic);
+    }
+    const b = document.createElement('b');
+    b.textContent = meta.label || 'Extension';
+    const sub = document.createElement('span');
+    sub.className = 'muted';
+    sub.textContent = meta.id ? (' · ' + meta.id + ' · v' + meta.version) : '';
+    title.appendChild(b);
+    title.appendChild(sub);
+    head.appendChild(title);
+    card.appendChild(head);
+
+    const status = document.createElement('div');
+    status.className = 'chat-ext-status ' + (val.ok ? 'is-ok' : 'is-err');
+    if (!val.ok) {
+      status.textContent = 'Invalid: ' + val.errors[0];
+    } else if (val.warnings && val.warnings.length) {
+      status.textContent = 'Ready (' + val.warnings.length + ' warning: ' + val.warnings[0] + ')';
+    } else {
+      status.textContent = 'Ready — syntax & contract valid';
+    }
+    card.appendChild(status);
+
+    const actions = document.createElement('div');
+    actions.className = 'chat-ext-actions';
+
+    if (!val.ok) {
+      const fixBtn = document.createElement('button');
+      fixBtn.type = 'button';
+      fixBtn.className = 'btn small primary';
+      fixBtn.textContent = 'Minta AI Perbaiki';
+      fixBtn.disabled = !!NS.activeAbort;
+      fixBtn.title = 'Kirim daftar error validasi ke AI Extension Builder agar kodenya langsung diperbaiki';
+      fixBtn.addEventListener('click', () => {
+        if (NS.activeAbort) return;
+        const bExt = document.getElementById('chat-builder-ext');
+        if (bExt && NS.builderMode !== 'ext') bExt.click();
+        else NS.builderMode = 'ext';
+        const prompt =
+          'Kode ekstensi sebelumnya gagal validasi:\n- ' +
+          val.errors.join('\n- ') +
+          '\n\nTolong perbaiki error tersebut dan kirim ulang SATU blok kode ```js ... ``` yang lengkap dan valid untuk window.MiniSketchTools.register({...}).';
+        send(prompt);
+      });
+      actions.appendChild(fixBtn);
+    }
+
+    const testBtn = document.createElement('button');
+    testBtn.type = 'button';
+    testBtn.className = 'btn small';
+    testBtn.textContent = 'Test Run';
+    testBtn.disabled = !val.ok;
+    testBtn.title = val.ok
+      ? 'Load temporarily (not saved) and open the tool dialog to test'
+      : ('Tidak bisa dijalankan sebelum validasi lolos: ' + val.errors[0]);
+    testBtn.addEventListener('click', () => {
+      if (!reg || !reg.installExtension) return;
+      const res = reg.installExtension(meta, code, { preview: true });
+      if (!res.ok) {
+        status.className = 'chat-ext-status is-err';
+        status.textContent = res.error || 'Preview failed.';
+        return;
+      }
+      reg.open(res.tool.id);
+      status.className = 'chat-ext-status is-ok';
+      status.textContent = 'Preview active — test parameters, then click Install to keep.';
+    });
+
+    const installBtn = document.createElement('button');
+    installBtn.type = 'button';
+    installBtn.className = 'btn small' + (val.ok ? ' primary' : '');
+    installBtn.textContent = 'Install';
+    installBtn.disabled = !val.ok;
+    installBtn.title = val.ok
+      ? 'Save to LocalStorage and add permanently to the Extensions panel'
+      : ('Tidak bisa dipasang sebelum validasi lolos: ' + val.errors[0]);
+    installBtn.addEventListener('click', () => {
+      if (!reg || !reg.installExtension) return;
+      const res = reg.installExtension(meta, code, { source: 'ai' });
+      if (!res.ok) {
+        status.className = 'chat-ext-status is-err';
+        status.textContent = res.error || 'Install failed.';
+        return;
+      }
+      status.className = 'chat-ext-status is-ok';
+      status.textContent = 'Installed to Extensions panel (' + res.tool.id + ').';
+      if (api && api.toast) api.toast('Extension "' + (res.tool.label || res.tool.id) + '" installed');
+    });
+
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'btn small';
+    editBtn.textContent = 'Edit…';
+    editBtn.title = 'Buka kode ekstensi di editor tab Add / Import untuk diperiksa atau diubah manual';
+    editBtn.addEventListener('click', () => {
+      if (window.MiniSketchExtensions && window.MiniSketchExtensions.open) {
+        window.MiniSketchExtensions.open('import', { code });
+      } else if (api && api.toast) {
+        api.toast('Extension Manager is not loaded.');
+      }
+    });
+
+    const pubBtn = document.createElement('button');
+    pubBtn.type = 'button';
+    pubBtn.className = 'btn small';
+    pubBtn.textContent = 'Publish…';
+    pubBtn.disabled = !val.ok;
+    pubBtn.title = 'Publish permanently to MiniSketch Server or GitHub Marketplace';
+    pubBtn.addEventListener('click', () => {
+      if (window.MiniSketchExtensions && window.MiniSketchExtensions.openPublish) {
+        window.MiniSketchExtensions.openPublish(meta, code);
+      } else if (api && api.toast) {
+        api.toast('Extension Manager is not loaded.');
+      }
+    });
+
+    const dlBtn = document.createElement('button');
+    dlBtn.type = 'button';
+    dlBtn.className = 'btn small';
+    dlBtn.textContent = 'Download .js';
+    dlBtn.addEventListener('click', () => {
+      const fn = (meta.id || 'extension').replace(/[^a-z0-9-_]/gi, '-') + '.js';
+      const ok = downloadExtensionFile(fn, code);
+      status.className = 'chat-ext-status ' + (ok ? 'is-ok' : 'is-err');
+      status.textContent = ok ? ('Downloaded ' + fn) : 'Download failed.';
+    });
+
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'btn small';
+    copyBtn.textContent = 'Copy';
+    copyBtn.addEventListener('click', async () => {
+      const ok = await copyTextToClipboard(code);
+      status.className = 'chat-ext-status ' + (ok ? 'is-ok' : 'is-err');
+      status.textContent = ok ? 'Code copied to clipboard.' : 'Copy failed.';
+    });
+
+    actions.appendChild(testBtn);
+    actions.appendChild(installBtn);
+    actions.appendChild(editBtn);
+    actions.appendChild(pubBtn);
+    actions.appendChild(dlBtn);
+    actions.appendChild(copyBtn);
+    card.appendChild(actions);
+
+    const det = document.createElement('details');
+    det.className = 'chat-ext-code';
+    const sum = document.createElement('summary');
+    sum.textContent = 'View source (' + code.split('\n').length + ' lines)';
+    const pre = document.createElement('pre');
+    const codeEl = document.createElement('code');
+    codeEl.textContent = code;
+    pre.appendChild(codeEl);
+    det.appendChild(sum);
+    det.appendChild(pre);
+    card.appendChild(det);
+
+    li.appendChild(card);
+  }
+
   // follow the tail of a scrolling element unless the user scrolled up to read
   function stickToBottom(el) {
     if (!el) return;
@@ -1936,6 +2173,29 @@
     document.querySelectorAll('[data-chat-tab]').forEach(b => {
       b.addEventListener('click', () => setTab(b.dataset.chatTab));
     });
+
+    const bSvg = document.getElementById('chat-builder-svg');
+    const bExt = document.getElementById('chat-builder-ext');
+    const setBuilderMode = (mode) => {
+      NS.builderMode = mode === 'ext' ? 'ext' : 'svg';
+      if (bSvg) {
+        bSvg.classList.toggle('is-on', NS.builderMode === 'svg');
+        bSvg.setAttribute('aria-pressed', NS.builderMode === 'svg' ? 'true' : 'false');
+      }
+      if (bExt) {
+        bExt.classList.toggle('is-on', NS.builderMode === 'ext');
+        bExt.setAttribute('aria-pressed', NS.builderMode === 'ext' ? 'true' : 'false');
+      }
+      const inp = document.getElementById('chat-input');
+      if (inp) {
+        inp.placeholder = NS.builderMode === 'ext'
+          ? 'Describe a parametric CNC tool to build… (e.g. "coaster generator with inner pattern")'
+          : 'Describe a vector image… (Shift+Enter for a new line)';
+      }
+    };
+    if (bSvg) bSvg.addEventListener('click', () => setBuilderMode('svg'));
+    if (bExt) bExt.addEventListener('click', () => setBuilderMode('ext'));
+    setBuilderMode(NS.builderMode);
     // Pemilih model di panel chat: 🔄 memuat daftar dari provider aktif,
     // pilih -> tersimpan ke settings (judul panel ikut terupdate).
     const modelSel = document.getElementById('chat-model-sel');
@@ -1977,8 +2237,7 @@
       loadM(true);
     }
 
-    // Reasoning level quick-control (Off/Low/Normal). (Mode Agen/SVG and the
-    // Settings gear were removed — SVG is the only mode now.)
+    // Reasoning level quick-control (Off/Low/Normal).
     const thinkSel = document.getElementById('chat-think-sel');
     if (thinkSel) thinkSel.addEventListener('change', () => {
       if (window.setAiThinkLevelFromChat) window.setAiThinkLevelFromChat(thinkSel.value);
@@ -2066,4 +2325,5 @@
   NS.stateSummary = stateSummary;
   NS.renderLog = renderLog;
   NS.bridgeUrl = bridgeUrl;
+  NS.extractExtensionCode = extractExtensionCode;
 })();

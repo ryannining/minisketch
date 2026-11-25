@@ -63,6 +63,7 @@
           <button class="menu-item" id="btn-solve-now" role="menuitem">Solve now<span class="menu-key">F9</span></button>
           <button class="menu-item" id="btn-solve-mode" role="menuitem">Solver mode<span class="menu-key" id="menu-solve-mode-val">release</span></button>
           <div class="menu-sep"></div>
+          <button class="menu-item" id="btn-extensions-menu" role="menuitem">Extensions &amp; Marketplace&hellip;</button>
           <button class="menu-item" id="btn-settings" role="menuitem">Settings&hellip;</button>
           <button class="menu-item" id="btn-cnc" role="menuitem">Send to KaryaCNC&hellip;<span class="menu-key">Alt+Q</span></button>
         </div>
@@ -176,6 +177,9 @@
             </div>
             <div class="rb-panel">
               <button class="rb-btn" data-arrange="insert" title="Insert into green box — move every selected non-green object together as one group, centered in the green (guide) box, rotating the whole group 90° when that makes it fit. Relative positions are kept: loops never pile up at the box center."><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="2.5" width="13" height="15" fill="none" stroke="currentColor" stroke-dasharray="2 1.6"/><path d="M10 8.5 7 11.5h6z" fill="currentColor" opacity="0.7"/><path d="M10 5.5v5" stroke="currentColor"/></svg><span>Insert</span></button>
+            </div>
+            <div class="rb-panel">
+              <button class="rb-btn" id="btn-array" title="Clone array: grid or circular copies of the selection. Double click the array to edit its parameters or refresh the clones"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="5.5" height="5.5" rx="0.8" fill="none" stroke="currentColor"/><rect x="11.5" y="3" width="5.5" height="5.5" rx="0.8" fill="currentColor" opacity="0.7"/><rect x="3" y="11.5" width="5.5" height="5.5" rx="0.8" fill="currentColor" opacity="0.7"/><rect x="11.5" y="11.5" width="5.5" height="5.5" rx="0.8" fill="none" stroke="currentColor"/></svg><span>Array</span></button>
             </div>
           </div>
           <div class="ribbon-page hidden" data-rpage="parts" id="rpage-parts" role="tabpanel" aria-labelledby="rtab-parts">
@@ -359,6 +363,10 @@
             <button class="btn small" data-chat-tab="log">Log</button>
             <button class="btn small" id="chat-new" title="Move this conversation to LOG and start a new chat (the worksheet geometry is untouched)">New</button>
           </div>
+          <div class="row chat-builder-bar" role="group" aria-label="AI output mode">
+            <button type="button" class="btn small is-on" id="chat-builder-svg" aria-pressed="true" title="Generate vector SVG geometry on the worksheet">SVG Drawing</button>
+            <button type="button" class="btn small" id="chat-builder-ext" aria-pressed="false" title="Generate a parametric CNC extension tool for the Tools panel">Extension Builder</button>
+          </div>
           <div class="row chat-model-row">
             <select id="chat-model-sel" title="Model (🔄 loads the list for the active provider)" style="flex:1 1 auto;min-width:0;font:inherit;font-size:11px;padding:2px 5px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)"></select>
             <button class="btn small" id="chat-model-refresh" title="Load the model list from the active provider">🔄</button>
@@ -482,10 +490,12 @@
       </details>
 
       <details class="panel" id="tools-panel">
-        <summary class="panel-title">Tools</summary>
+        <summary class="panel-title">Extensions <span class="count" id="ext-panel-count">0</span></summary>
         <div class="panel-body">
-          <div class="row" id="tools-row">
-            <button class="btn small" id="btn-array" title="Clone array: grid or circular copies of the selection. Double click the array to edit its parameters or refresh the clones">Array</button>
+          <div class="row" id="tools-row"></div>
+          <div class="ext-panel-foot">
+            <button type="button" class="btn small" id="btn-ext-check-updates" title="Check installed extensions for updates from their saved sources">Check Updates</button>
+            <button type="button" class="btn small" id="btn-extensions" title="Manage installed extensions, browse Marketplace, or publish extensions">Marketplace&hellip;</button>
           </div>
         </div>
       </details>
@@ -944,6 +954,123 @@
     </div>
   </div>
 </div>
+<div id="ext-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="ext-title">
+  <div class="modal-box ext-box">
+    <div class="ext-head">
+      <div>
+        <h3 id="ext-title">Extensions &amp; Marketplace</h3>
+        <span class="ext-head-sub" id="ext-inst-count">0 active</span>
+      </div>
+      <button type="button" class="btn small" id="ext-close">Close</button>
+    </div>
+
+    <div class="ext-tabs" role="tablist">
+      <button type="button" class="btn small is-on" data-ext-tab="installed" role="tab" aria-selected="true">Installed</button>
+      <button type="button" class="btn small" data-ext-tab="marketplace" role="tab" aria-selected="false">Marketplace</button>
+      <button type="button" class="btn small" data-ext-tab="import" role="tab" aria-selected="false">Add / Import</button>
+      <button type="button" class="btn small" data-ext-tab="publish" role="tab" aria-selected="false">Publish</button>
+    </div>
+
+    <div class="ext-pane" data-ext-pane="installed">
+      <div class="ext-toolbar ext-toolbar-wrap">
+        <input type="search" id="ext-inst-search" class="ext-input" placeholder="Search installed extensions…" autocomplete="off">
+        <button type="button" class="btn small" id="ext-inst-check" title="Check extensions with saved source or Marketplace origin for newer versions">Check Updates</button>
+        <button type="button" class="btn small primary" id="ext-inst-update-all" hidden>Update All</button>
+        <label class="ext-toggle" title="Automatically check and install newer versions on startup"><input type="checkbox" id="ext-auto-update"><span>Auto-update</span></label>
+      </div>
+      <div class="ext-status" id="ext-inst-status"></div>
+      <div class="ext-list" id="ext-inst-list"></div>
+    </div>
+
+    <div class="ext-pane" data-ext-pane="marketplace" hidden>
+      <div class="ext-toolbar ext-toolbar-stack">
+        <div class="ext-toolbar-row">
+          <input type="text" id="ext-mkt-url" class="ext-input" placeholder="Catalog URL (api/marketplace/catalog or GitHub/jsDelivr catalog.json)" spellcheck="false" autocomplete="off">
+          <button type="button" class="btn small" id="ext-mkt-refresh">Refresh</button>
+          <button type="button" class="btn small" id="ext-mkt-reset" title="Reset to default MiniSketch Marketplace catalog">Default</button>
+        </div>
+        <div class="ext-toolbar-row">
+          <input type="search" id="ext-mkt-search" class="ext-input" placeholder="Search marketplace extensions…" autocomplete="off">
+          <select id="ext-mkt-cat" class="ext-select">
+            <option value="">All categories</option>
+          </select>
+        </div>
+      </div>
+      <div class="ext-status" id="ext-mkt-status"></div>
+      <div class="ext-list" id="ext-mkt-list"></div>
+    </div>
+
+    <div class="ext-pane" data-ext-pane="import" hidden>
+      <div class="ext-toolbar ext-toolbar-stack">
+        <div class="ext-toolbar-row">
+          <button type="button" class="btn small" id="ext-imp-pick">Load .js file…</button>
+          <input type="file" id="ext-imp-file" accept=".js,text/javascript" hidden>
+          <input type="text" id="ext-imp-url" class="ext-input" placeholder="Or paste raw .js URL (GitHub raw, jsDelivr, or local server)…" spellcheck="false" autocomplete="off">
+          <button type="button" class="btn small" id="ext-imp-fetch">Fetch URL</button>
+        </div>
+      </div>
+      <textarea id="ext-imp-code" class="ext-code" spellcheck="false" placeholder="// Paste MiniSketchTools.register({ ... }) JavaScript code here…"></textarea>
+      <div class="ext-status" id="ext-imp-status"></div>
+      <div class="ext-pane-actions">
+        <button type="button" class="btn small" id="ext-imp-validate">Validate</button>
+        <button type="button" class="btn small" id="ext-imp-test">Test Run</button>
+        <button type="button" class="btn small" id="ext-imp-publish">Publish…</button>
+        <button type="button" class="btn small primary" id="ext-imp-install">Install</button>
+      </div>
+    </div>
+
+    <div class="ext-pane" data-ext-pane="publish" hidden>
+      <div class="ext-publish-grid">
+        <label class="ext-field"><span>Extension ID</span><input type="text" id="ext-pub-id" class="ext-input" placeholder="coaster-maker" spellcheck="false"></label>
+        <label class="ext-field"><span>Display Name</span><input type="text" id="ext-pub-name" class="ext-input" placeholder="Coaster Maker" spellcheck="false"></label>
+        <label class="ext-field"><span>Version</span><input type="text" id="ext-pub-ver" class="ext-input" value="1.0.0" spellcheck="false"></label>
+        <label class="ext-field"><span>Author</span><input type="text" id="ext-pub-author" class="ext-input" placeholder="Your Name" spellcheck="false"></label>
+        <label class="ext-field"><span>Category</span><input type="text" id="ext-pub-cat" class="ext-input" value="CNC Utility" spellcheck="false"></label>
+        <label class="ext-field"><span>Target Host</span>
+          <select id="ext-pub-target" class="ext-select">
+            <option value="server">MiniSketch Server (Port 8090 / Hosted)</option>
+            <option value="github">GitHub Static Repo (Free CDN)</option>
+          </select>
+        </label>
+        <label class="ext-field ext-field-full"><span>Description</span><input type="text" id="ext-pub-desc" class="ext-input" placeholder="Short description of what this tool creates for CNC/laser cutting…"></label>
+      </div>
+
+      <div id="ext-pub-server-box" class="ext-target-box">
+        <div class="ext-publish-grid">
+          <label class="ext-field"><span>Server URL</span><input type="text" id="ext-pub-server-url" class="ext-input" placeholder="http://127.0.0.1:8090" spellcheck="false"></label>
+          <label class="ext-field" id="ext-pub-key-row"><span>Publish Key (if required)</span><input type="password" id="ext-pub-key" class="ext-input" placeholder="Optional unless server sets MARKETPLACE_PUBLISH_KEY" autocomplete="off"></label>
+        </div>
+        <div class="ext-toolbar-row ext-pub-row-actions">
+          <label class="ext-toggle"><input type="checkbox" id="ext-pub-overwrite" checked><span>Overwrite if ID already exists</span></label>
+          <button type="button" class="btn small primary" id="ext-pub-send-server">Publish to Server</button>
+        </div>
+      </div>
+
+      <div id="ext-pub-github-box" class="ext-target-box" hidden>
+        <div class="ext-publish-grid">
+          <label class="ext-field"><span>GitHub Repo (owner/repo)</span><input type="text" id="ext-pub-gh-repo" class="ext-input" placeholder="username/minisketch-marketplace" spellcheck="false"></label>
+          <label class="ext-field"><span>Branch</span><input type="text" id="ext-pub-gh-branch" class="ext-input" value="main" spellcheck="false"></label>
+          <label class="ext-field"><span>Extensions Folder</span><input type="text" id="ext-pub-gh-dir" class="ext-input" value="marketplace/extensions" spellcheck="false"></label>
+          <label class="ext-field"><span>Catalog JSON Path</span><input type="text" id="ext-pub-gh-cat" class="ext-input" value="marketplace/catalog.json" spellcheck="false"></label>
+          <label class="ext-field ext-field-full"><span>GitHub Token (contents:write, stays in browser only)</span><input type="password" id="ext-pub-gh-token" class="ext-input" placeholder="github_pat_… (leave blank for manual .js download + JSON export)" autocomplete="off"></label>
+        </div>
+        <div class="ext-toolbar-row ext-pub-row-actions">
+          <button type="button" class="btn small primary" id="ext-pub-send-gh">Push to GitHub Repo</button>
+          <button type="button" class="btn small" id="ext-pub-dl">Download .js</button>
+          <button type="button" class="btn small" id="ext-pub-copy-entry">Copy catalog.json entry</button>
+        </div>
+      </div>
+
+      <div class="ext-code-head">
+        <span>Extension Source Code</span>
+        <button type="button" class="btn small" id="ext-pub-autofill">Auto-fill metadata from code</button>
+      </div>
+      <textarea id="ext-pub-code" class="ext-code ext-code-sm" spellcheck="false" placeholder="// Extension source code to publish…"></textarea>
+      <div class="ext-status" id="ext-pub-status"></div>
+    </div>
+  </div>
+</div>
+
 <div id="app-dialog-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="app-dialog-title">
   <div class="modal-box app-dialog-box">
     <h3 id="app-dialog-title" class="hidden"></h3>
@@ -982,6 +1109,7 @@
 <script src="tools/finger.js"></script>
 <script src="tools/spiral.js"></script>
 <script src="tools/textweld.js"></script>
+<script src="extensions/manager.js"></script>
 <script src="ai/skills.js"></script>
 <script src="ai/ui-strings.js"></script>
 <script src="ai/prompt.js"></script>

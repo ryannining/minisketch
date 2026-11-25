@@ -311,6 +311,8 @@
   NS.register({
     id: 'hinge',
     label: 'Hinge box',
+    version: '1.0.0',
+    icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="7" width="11" height="6.5" rx="0.8"/><path d="M3.5 7 5 3h8l-1.5 4"/><circle cx="4.5" cy="7" r="1.4" fill="currentColor"/></svg>',
     title: 'Hinge box: six panels with round knuckle corners — walls carry finger-joint tabs into the base and lid, the side walls hook round a barrel instead of being finger jointed. Double click the result to edit its parameters',
     modalId: 'hinge-modal',
     guide: {

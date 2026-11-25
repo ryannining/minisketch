@@ -109,6 +109,8 @@
   NS.register({
     id: 'spiral',
     label: 'Spiral',
+    version: '1.0.0',
+    icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M8.4 8a.9.9 0 1 1-1.8 0 2.2 2.2 0 1 1 4.4 0 3.7 3.7 0 1 1-7.4 0 5.3 5.3 0 1 1 10.6 0"/></svg>',
     title: 'Spiral Archimedes: mulai dari lingkaran dalam (bukan titik tengah), melebar tiap lilitan sampai diameter luar; bisa 2 start atau lebih (lengan berselang-seling yang tidak saling memotong). Klik ganda hasilnya untuk mengubah parameter',
     modalId: 'spiral-modal',
     guide: {
