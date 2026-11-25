@@ -176,9 +176,19 @@
   }
 
   // Build THIS turn's system message: base persona + current document state
-  // (so the model sees the worksheet) + any active skill recipes.
+  // (so the model sees the worksheet) + any active skill recipes + the
+  // available font families (so generated text/addText uses a real font name).
   // opts.svgMode switches to the SVG-only persona; opts.extMode switches to
   // the Extension Builder persona.
+  function fontFamilies() {
+    const F = window.MiniSketchFonts;
+    if (!F || typeof F.index !== 'function') return [];
+    try {
+      const idx = F.index() || [];
+      return [...new Set(idx.map(e => e.family).filter(Boolean))];
+    } catch (err) { return []; }
+  }
+
   function systemMessage(messages, stateSummary, requestedSkills, opts) {
     const extMode = !!(opts && opts.extMode);
     const svgMode = !!(opts && opts.svgMode);
@@ -190,6 +200,14 @@
     if (!svgMode && !extMode && stateSummary) {
       sys += '\n\nCURRENT DOCUMENT (world mm, Y-down: +X right, +Y down):\n' +
         JSON.stringify(stateSummary).slice(0, 4000);
+    }
+    // Both SVG and Extension Builder modes may emit text: hand the model the
+    // real font family names so addText / <text font-family> use a font that
+    // actually exists in MiniSketch instead of an invented one.
+    const fams = fontFamilies();
+    if (fams.length) {
+      sys += '\n\nAVAILABLE FONTS (use one of these exact family names for text):\n' +
+        fams.join(', ');
     }
     const active = skillsFor(messages, requestedSkills);
     if (active.length && !svgMode && !extMode) {

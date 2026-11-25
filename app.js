@@ -15951,6 +15951,17 @@
   // tools/registry.js; this is the surface it gets. Keep it small: model
   // helpers, document ops, and the geometry / offset primitives a generator
   // needs. Anything a tool does not need here stays private to this file.
+  // Font family names available for text (deduped from the font catalogue).
+  // Exposed to extensions so a generated tool can populate a font dropdown
+  // with real names (window.MiniSketchFonts.index() holds the catalogue).
+  function listFonts() {
+    const F = window.MiniSketchFonts;
+    if (!F || typeof F.index !== 'function') return [];
+    try {
+      return [...new Set((F.index() || []).map(e => e.family).filter(Boolean))];
+    } catch (err) { return []; }
+  }
+
   function toolApi() {
     return {
       // `state` is let and REPLACED (undo, new, load, demo), so it must be read
@@ -15995,7 +16006,11 @@
       // (dozens of paths in one op) instead of one add_line call per stroke.
       exportSVG,
       svgImportParse,
-      svgImportInsert
+      svgImportInsert,
+      // Font family names available for text (from the font catalogue). Lets a
+      // generated extension populate a font dropdown with real names instead of
+      // guessing generic 'sans'/'serif'/'mono'.
+      listFonts
     };
   }
 
