@@ -53,8 +53,7 @@ window.MiniSketchTools = (() => {
       if (chat.activeAbort) return;
       // switch the chat to Extension Builder mode so the fix keeps the
       // register({...}) contract
-      const bExt = document.getElementById('chat-builder-ext');
-      if (bExt && chat.builderMode !== 'ext') bExt.click();
+      if (typeof chat.setBuilderMode === 'function') chat.setBuilderMode('ext');
       else chat.builderMode = 'ext';
       const code = tool.code || '';
       const prompt =

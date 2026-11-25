@@ -374,6 +374,7 @@
             <button class="btn small" id="chat-new" title="Start a new session — the current conversation moves to History (the worksheet geometry is untouched)">New Session</button>
           </div>
           <ul class="list" id="chat-log"></ul>
+          <div id="chat-ext-dock" class="chat-ext-dock" hidden></div>
           <div class="chat-pending" id="chat-pending" hidden></div>
           <div class="row chat-input-row" id="chat-input-row" style="margin-top:6px">
             <textarea id="chat-input" rows="1" placeholder='Describe a vector image… (Shift+Enter for a new line)' autocomplete="off" spellcheck="false"></textarea>
@@ -1005,7 +1006,10 @@
           <button type="button" class="btn small" id="ext-imp-fetch">Fetch URL</button>
         </div>
       </div>
-      <textarea id="ext-imp-code" class="ext-code" spellcheck="false" placeholder="// Paste MiniSketchTools.register({ ... }) JavaScript code here…"></textarea>
+      <div class="ext-code-wrap">
+        <pre class="ext-code-hl" aria-hidden="true"><code id="ext-imp-code-hl"></code></pre>
+        <textarea id="ext-imp-code" class="ext-code" spellcheck="false" placeholder="// Paste MiniSketchTools.register({ ... }) JavaScript code here…"></textarea>
+      </div>
       <div class="ext-status" id="ext-imp-status"></div>
       <div class="ext-pane-actions">
         <button type="button" class="btn small" id="ext-imp-validate">Validate</button>
@@ -1061,7 +1065,10 @@
         <span>Extension Source Code</span>
         <button type="button" class="btn small" id="ext-pub-autofill">Auto-fill metadata from code</button>
       </div>
-      <textarea id="ext-pub-code" class="ext-code ext-code-sm" spellcheck="false" placeholder="// Extension source code to publish…"></textarea>
+      <div class="ext-code-wrap ext-code-wrap-sm">
+        <pre class="ext-code-hl" aria-hidden="true"><code id="ext-pub-code-hl"></code></pre>
+        <textarea id="ext-pub-code" class="ext-code ext-code-sm" spellcheck="false" placeholder="// Extension source code to publish…"></textarea>
+      </div>
       <div class="ext-status" id="ext-pub-status"></div>
     </div>
   </div>

@@ -62,9 +62,17 @@ window.HELP_SEARCH_INDEX = [
   {
     id: "tools",
     title: "Tools — 13 Generator Parametrik & Clone",
-    desc: "Array, Box maker, Slot, Gear, Extrude wall, Hinge box, Slide top, Pull top duo, Paint rack, Panel iklan, Flex pattern, Finger joint, Spiral, dan Text weld.",
+    desc: "Array (tab Edit), Box maker, Slot, Gear, Extrude wall, Hinge box, Slide top, Pull top duo, Paint rack, Panel iklan, Flex pattern, Finger joint, Spiral, dan Text weld.",
     url: "tools.html",
     tags: ["tools", "generator", "parametrik", "box maker", "gear", "slot", "extrude wall", "hinge box", "slide top", "pull top duo", "paint rack", "panel iklan", "flex pattern", "living hinge", "finger joint", "spiral", "text weld", "array", "clone", "Ctrl+L"],
+  },
+  // ---------------------------------------------------------------- Extensions
+  {
+    id: "extensions",
+    title: "Extensions — Panel Ekstensi & Marketplace",
+    desc: "Panel Extensions di sidebar, tab Installed/Marketplace/Add-Import/Publish, editor kode syntax highlighting (JS/HTML/CSS), Check Updates, Test Run, dan AI Extension Builder.",
+    url: "extensions.html",
+    tags: ["extensions", "ekstensi", "panel extensions", "marketplace", "installed", "add", "import", "publish", "github", "check updates", "auto-update", "syntax highlight", "test run", "fix with ai", "MiniSketchTools", "custom tool"],
   },
   // ---------------------------------------------------------------- Parts
   {
@@ -133,9 +141,9 @@ window.HELP_SEARCH_INDEX = [
   {
     id: "settings",
     title: "Settings — Pengaturan",
-    desc: "Semua pengaturan: History, Renderer, Geometry, Comments, Curves, Text, Paste, CNC, dan AI chat (termasuk Google Gemini & Mode SVG).",
+    desc: "Semua pengaturan: History, Renderer, Geometry, Comments, Curves, Text, Paste, CNC, dan AI chat (Google Gemini, bridge URL, reasoning level).",
     url: "settings.html",
-    tags: ["settings", "pengaturan", "history", "renderer", "geometry", "comments", "curves", "text", "paste", "CNC", "AI chat", "gemini", "mode svg", "toleransi", "nudge", "chain tolerance", "join tolerance", "loop closure", "flatten", "undo", "anti-aliasing"],
+    tags: ["settings", "pengaturan", "history", "renderer", "geometry", "comments", "curves", "text", "paste", "CNC", "AI chat", "gemini", "reasoning", "toleransi", "nudge", "chain tolerance", "join tolerance", "loop closure", "flatten", "undo", "anti-aliasing"],
   },
   // ---------------------------------------------------------------- Layers
   {
@@ -164,9 +172,9 @@ window.HELP_SEARCH_INDEX = [
   // ---------------------------------------------------------------- AI
   {
     id: "ai",
-    title: "AI Chat (Bawa Kunci Sendiri)",
-    desc: "Panel chat AI: pilih model, Fork, lampirkan gambar (Vision), Google Gemini, reasoning level, dan Mode SVG (tanpa tools).",
+    title: "AI Chat (Mode SVG & Extension Builder)",
+    desc: "Panel chat AI: Mode SVG (desain vektor ke kanvas), Mode Extension dengan Panel Testing permanen di atas prompt, History, Fork, Vision (lampirkan gambar), dan reasoning level.",
     url: "ai.html",
-    tags: ["AI", "chat", "api", "kunci", "key", "bridge", "model", "gemini", "vision", "gambar", "fork", "mode svg", "reasoning", "BYOK", "offline", "perintah"],
+    tags: ["AI", "chat", "api", "kunci", "key", "bridge", "model", "gemini", "vision", "gambar", "fork", "history", "new session", "mode svg", "mode extension", "extension builder", "panel testing", "test run", "install", "minta ai perbaiki", "reasoning", "BYOK", "offline", "perintah"],
   },
 ];

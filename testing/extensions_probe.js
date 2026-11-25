@@ -581,12 +581,12 @@ function callBridge(bridgeHandler, method, url, headers, body) {
       sb.MiniSketchExtensions._debug.resolveUrl('extensions/coaster-maker.js', 'https://example.com/mkt/catalog.json') === 'https://example.com/mkt/extensions/coaster-maker.js' &&
       sb.MiniSketchExtensions._debug.resolveUrl('extensions/coaster-maker.js', 'http://127.0.0.1:8090/api/marketplace/catalog') === 'http://127.0.0.1:8090/marketplace/extensions/coaster-maker.js');
 
-    // Chat extension card rendering & recovery buttons
+    // Chat extension card rendering & recovery buttons (single pinned #chat-ext-dock above prompt)
     const { doc: cDoc, byId: cById, makeEl: cMakeEl } = makeFakeDom();
-    for (const cid of ['chat-log', 'chat-count', 'chat-input-row', 'chat-builder-ext', 'ext-modal', 'ext-imp-code', 'ext-imp-status', 'ext-imp-test', 'ext-imp-install', 'ext-imp-publish']) {
+    for (const cid of ['chat-log', 'chat-ext-dock', 'chat-count', 'chat-input-row', 'chat-builder-ext', 'ext-modal', 'ext-imp-code', 'ext-imp-status', 'ext-imp-test', 'ext-imp-install', 'ext-imp-publish']) {
       const n = cMakeEl(cid === 'ext-imp-code' ? 'TEXTAREA' : 'DIV');
       n.id = cid;
-      n.hidden = false;
+      n.hidden = cid === 'chat-ext-dock';
       cById.set(cid, n);
     }
     const tabBtns = [];
@@ -618,44 +618,37 @@ function callBridge(bridgeHandler, method, url, headers, body) {
       return out;
     }
 
+    const validAiTurn = {
+      role: 'ai',
+      done: true,
+      text: '```js\n(() => {\n  const ID = "keychain-tag";\n  MiniSketchTools.register({\n    id: ID,\n    label: "Keychain",\n    icon: \'<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5"/></svg>\',\n    modalId: "kc-m",\n    modal: \'<div id="kc-m"><input id="kc-w" value="40"></div>\',\n    apply(api) { const w = document.getElementById("kc-w").value; api.pushHistory(); api.cmdGroupSelection({noHistory:true}); const wrap = {name:"x"}; wrap.name = "Keychain " + w; api.commit(); }\n  });\n})();\n```'
+    };
+    const brokenAiTurn = {
+      role: 'ai',
+      done: true,
+      text: '```js\n(() => {\n  MiniSketchTools.register({\n    label: "Broken Keychain",\n    apply(api) {}\n  });\n})();\n```'
+    };
+
+    // Turn 1 -> Turn 2: older valid turn, latest broken turn
     cSb.MiniSketchAI.mode = 'chat';
-    cSb.MiniSketchAI.log = [
-      {
-        role: 'ai',
-        done: true,
-        text: '```js\n(() => {\n  const ID = "keychain-tag";\n  MiniSketchTools.register({\n    id: ID,\n    label: "Keychain",\n    icon: \'<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5"/></svg>\',\n    modalId: "kc-m",\n    modal: \'<div id="kc-m"><input id="kc-w" value="40"></div>\',\n    apply(api) { const w = document.getElementById("kc-w").value; api.pushHistory(); api.cmdGroupSelection({noHistory:true}); const wrap = {name:"x"}; wrap.name = "Keychain " + w; api.commit(); }\n  });\n})();\n```'
-      },
-      {
-        role: 'ai',
-        done: true,
-        text: '```js\n(() => {\n  MiniSketchTools.register({\n    label: "Broken Keychain",\n    apply(api) {}\n  });\n})();\n```'
-      }
-    ];
+    cSb.MiniSketchAI.log = [validAiTurn, brokenAiTurn];
     cSb.MiniSketchAI.renderLog();
     const chatHost = cDoc.getElementById('chat-log');
-    const cards = findAll(chatHost, n => n.className === 'chat-ext');
-    const validCard = cards[0];
-    const brokenCard = cards[1];
-    const validBtns = findAll(validCard, n => n.tagName === 'BUTTON');
+    const chatDock = cDoc.getElementById('chat-ext-dock');
+    const logCards = findAll(chatHost, n => n.className === 'chat-ext');
+    const dockCards1 = findAll(chatDock, n => n.className === 'chat-ext');
+    const brokenCard = dockCards1[0];
     const brokenBtns = findAll(brokenCard, n => n.tagName === 'BUTTON');
-    const validTestBtn = validBtns.find(b => b.textContent === 'Test Run');
-    const validInstBtn = validBtns.find(b => b.textContent === 'Install');
-    const validEditBtn = validBtns.find(b => b.textContent === 'Edit…');
-    const validIc = findAll(validCard, n => n.className === 'chat-ext-ic')[0];
-    const validSub = findAll(validCard, n => n.className === 'muted')[0];
     const brokenFixBtn = brokenBtns.find(b => b.textContent === 'Minta AI Perbaiki');
     const brokenEditBtn = brokenBtns.find(b => b.textContent === 'Edit…');
     const brokenTestBtn = brokenBtns.find(b => b.textContent === 'Test Run');
     const brokenInstBtn = brokenBtns.find(b => b.textContent === 'Install');
-    check('chat extension card enables Test Run & Install for const ID keychain tool and renders SVG icon',
-      cards.length === 2 &&
-      validTestBtn && !validTestBtn.disabled &&
-      validInstBtn && !validInstBtn.disabled &&
-      !!validEditBtn &&
-      validIc && /<svg/.test(validIc.innerHTML) &&
-      validSub && validSub.textContent.includes('keychain-tag') &&
-      !validBtns.some(b => b.textContent === 'Minta AI Perbaiki'));
-    check('chat extension card shows Minta AI Perbaiki and Edit… when validation fails',
+    check('session with 2 extension turns renders 0 cards inside #chat-log and 1 latest card in pinned #chat-ext-dock',
+      logCards.length === 0 &&
+      !chatDock.hidden &&
+      dockCards1.length === 1 &&
+      findAll(brokenCard, n => n.tagName === 'B')[0]?.textContent === 'Broken Keychain');
+    check('pinned dock shows Minta AI Perbaiki and Edit… when latest generated code fails validation',
       !!brokenFixBtn && !brokenFixBtn.disabled &&
       !!brokenEditBtn &&
       brokenTestBtn && brokenTestBtn.disabled &&
@@ -663,12 +656,44 @@ function callBridge(bridgeHandler, method, url, headers, body) {
     if (brokenEditBtn && brokenEditBtn.listeners.click) {
       brokenEditBtn.listeners.click.forEach(fn => fn());
     }
-    check('clicking Edit… opens import editor with code prefilled & validated',
+    check('clicking Edit… opens import editor with latest code prefilled & validated',
       cDoc.getElementById('ext-imp-code').value.includes('Broken Keychain') &&
       /Invalid/i.test(cDoc.getElementById('ext-imp-status').textContent));
 
-    check('index.html has extension modal, tools button, builder toggle, and manager script',
+    // Turn 3: AI repairs the extension -> dock replaces broken card with latest valid card
+    cSb.MiniSketchAI.log = [validAiTurn, brokenAiTurn, validAiTurn];
+    cSb.MiniSketchAI.renderLog();
+    const dockCards2 = findAll(chatDock, n => n.className === 'chat-ext');
+    const validCard = dockCards2[0];
+    const validBtns = findAll(validCard, n => n.tagName === 'BUTTON');
+    const validTestBtn = validBtns.find(b => b.textContent === 'Test Run');
+    const validInstBtn = validBtns.find(b => b.textContent === 'Install');
+    const validEditBtn = validBtns.find(b => b.tagName === 'BUTTON' && b.textContent === 'Edit…');
+    const validIc = findAll(validCard, n => n.className === 'chat-ext-ic')[0];
+    const validSub = findAll(validCard, n => n.className === 'muted')[0];
+    check('new valid extension turn replaces pinned dock content (still 1 card, Test Run & Install enabled)',
+      findAll(chatHost, n => n.className === 'chat-ext').length === 0 &&
+      dockCards2.length === 1 &&
+      validTestBtn && !validTestBtn.disabled &&
+      validInstBtn && !validInstBtn.disabled &&
+      !!validEditBtn &&
+      validIc && /<svg/.test(validIc.innerHTML) &&
+      validSub && validSub.textContent.includes('keychain-tag') &&
+      !validBtns.some(b => b.textContent === 'Minta AI Perbaiki'));
+
+    // Switching to History hides the dock; clearing session hides & empties it
+    cSb.MiniSketchAI.mode = 'log';
+    cSb.MiniSketchAI.renderLog();
+    check('History tab hides #chat-ext-dock', chatDock.hidden === true);
+    cSb.MiniSketchAI.mode = 'chat';
+    cSb.MiniSketchAI.log = [];
+    cSb.MiniSketchAI.renderLog();
+    check('New/empty session empties and hides #chat-ext-dock',
+      chatDock.hidden === true && findAll(chatDock, n => n.className === 'chat-ext').length === 0);
+
+    check('index.html has extension modal, pinned chat dock above prompt, builder toggle, and manager script',
       /id="ext-modal"/.test(html) &&
+      /id="chat-log"[\s\S]*?id="chat-ext-dock"[\s\S]*?id="chat-input-row"/.test(html) &&
       /id="btn-extensions"/.test(html) &&
       /id="btn-extensions-menu"/.test(html) &&
       /id="btn-ext-check-updates"/.test(html) &&
@@ -892,6 +917,159 @@ function callBridge(bridgeHandler, method, url, headers, body) {
     const offBad = offsetClosedChains('not-an-array', 1);
     check('offsetClosedChains handles raw point rings and scalar non-arrays safely',
       Array.isArray(offRaw) && offRaw.length === 1 && Array.isArray(offBad) && offBad.length === 0);
+  }
+
+  console.log('\n== 7. Prompt Efficiency (SVG / Ext) & Syntax Highlighting (JS/HTML/CSS) ==');
+  {
+    const skillsSrc = fs.readFileSync(path.join(ROOT, 'ai', 'skills.js'), 'utf8');
+    const promptSrc = fs.readFileSync(path.join(ROOT, 'ai', 'prompt.js'), 'utf8');
+    const mgrSrc = fs.readFileSync(path.join(ROOT, 'extensions', 'manager.js'), 'utf8');
+    const sysPrompt = fs.readFileSync(path.join(ROOT, 'ai', 'system-prompt.txt'), 'utf8');
+    const sysSvgPrompt = fs.readFileSync(path.join(ROOT, 'ai', 'system-prompt-svg.txt'), 'utf8');
+    const sysExtPrompt = fs.readFileSync(path.join(ROOT, 'ai', 'system-prompt-ext.txt'), 'utf8');
+    const coasterSrc = fs.readFileSync(path.join(ROOT, 'marketplace', 'extensions', 'coaster-maker.js'), 'utf8');
+    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+
+    const sb = {
+      console, setTimeout, clearTimeout, setInterval, clearInterval, performance: { now: () => Date.now() },
+      TextDecoder, TextEncoder, AbortController, URL,
+      MiniSketchFonts: { index: () => [{ family: 'Liberation Sans' }, { family: 'Liberation Serif' }] },
+      localStorage: createStorage(),
+      document: { currentScript: null, getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], addEventListener: () => {} },
+      fetch: async (url) => {
+        if (String(url).endsWith('system-prompt.txt')) return { ok: true, text: async () => sysPrompt };
+        if (String(url).endsWith('system-prompt-svg.txt')) return { ok: true, text: async () => sysSvgPrompt };
+        if (String(url).endsWith('system-prompt-ext.txt')) return { ok: true, text: async () => sysExtPrompt };
+        if (String(url).endsWith('tools.json')) return { ok: true, json: async () => ({ tools: [] }) };
+        throw new Error('unexpected fetch: ' + url);
+      }
+    };
+    sb.window = sb;
+    vm.runInNewContext(skillsSrc, sb);
+    vm.runInNewContext(promptSrc, sb);
+    await sb.MiniSketchAIPrompt.ready();
+    await sb.MiniSketchAIPrompt.ensureExtPrompt();
+
+    const cadMsg = sb.MiniSketchAIPrompt.systemMessage([{ role: 'user', content: 'buat tulisan' }], { count: 0 }, [], {});
+    const svgMsg = sb.MiniSketchAIPrompt.systemMessage([{ role: 'user', content: 'gambar bintang' }], { count: 2 }, [], { svgMode: true });
+    const extMsg = sb.MiniSketchAIPrompt.systemMessage([{ role: 'user', content: 'buat coaster' }], { count: 2 }, [], { extMode: true });
+
+    check('CAD mode injects AVAILABLE FONTS + CURRENT DOCUMENT while SVG & Ext skip font dump bloat',
+      cadMsg.content.includes('AVAILABLE FONTS') &&
+      cadMsg.content.includes('CURRENT DOCUMENT') &&
+      !svgMsg.content.includes('AVAILABLE FONTS') &&
+      !svgMsg.content.includes('CURRENT DOCUMENT') &&
+      !extMsg.content.includes('AVAILABLE FONTS') &&
+      !extMsg.content.includes('CURRENT DOCUMENT'));
+    check('Extension Builder prompt stays compact (< 7 KB, no 21 KB catalog dump) with accurate addSpline/polyBoolOp docs',
+      extMsg.content.length < 7000 &&
+      extMsg.content.includes('addSpline({ pts') &&
+      extMsg.content.includes('ARRAY OF RINGS') &&
+      !extMsg.content.includes('REFERENCE — BUILT-IN EXTENSIONS'));
+    check('SVG mode prompt stays concise (< 2 KB) with viewBox/mm, fill="none", <g>, <text>, and full CNC colors',
+      svgMsg.content.length < 2000 &&
+      svgMsg.content.includes('fill="none"') &&
+      svgMsg.content.includes('#00ffff') &&
+      svgMsg.content.includes('<text') &&
+      svgMsg.content.includes('<g id='));
+
+    vm.runInNewContext(mgrSrc, sb);
+    const hl = sb.MiniSketchExtensions.highlightCode;
+    check('MiniSketchExtensions.highlightCode is exported', typeof hl === 'function');
+
+    const unescapeHtml = (s) => String(s)
+      .replace(/<[^>]+>/g, '')
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&');
+
+    const sampleMixed = `// Test JS + HTML + CSS + SVG
+(() => {
+  const NS = window.MiniSketchTools;
+  const ID = 'test-hl';
+  const html = \`<style>.box { padding: 8px; color: #ff0000; }</style>
+<div id="\${ID}-modal" style="display:flex;gap:6px"><button onclick="return true">OK</button></div>\`;
+  const re = /foo\\/bar/i;
+  return { id: ID, html, re, count: 42 };
+})();\n`;
+    const hlMixed = hl(sampleMixed);
+    check('highlightCode preserves every character losslessly for JS+HTML+CSS',
+      unescapeHtml(hlMixed) === sampleMixed && unescapeHtml(hl(coasterSrc)) === coasterSrc);
+    check('highlightCode emits distinct token classes for JS, HTML tags/attrs, CSS props/nums, comments, and hex colors',
+      /class="hl-com"/.test(hlMixed) &&
+      /class="hl-kw"/.test(hlMixed) &&
+      /class="hl-api"/.test(hlMixed) &&
+      /class="hl-tag"/.test(hlMixed) &&
+      /class="hl-attr"/.test(hlMixed) &&
+      /class="hl-hex"/.test(hlMixed) &&
+      /class="hl-num"/.test(hlMixed) &&
+      /class="hl-str"/.test(hlMixed));
+    check('index.html wires backdrop <code id="ext-imp-code-hl"> and <code id="ext-pub-code-hl">',
+      /id="ext-imp-code-hl"/.test(html) && /id="ext-pub-code-hl"/.test(html));
+  }
+
+  console.log('\n== 8. AI Builder Mode Persistence & Docs Coverage ==');
+  {
+    const chatSrc = fs.readFileSync(path.join(ROOT, 'ai', 'chat.js'), 'utf8');
+    const storage = createStorage();
+
+    function mountChatSandbox() {
+      const { doc, byId, makeEl } = makeFakeDom();
+      for (const id of ['chat-builder-mode', 'chat-input', 'chat-model-sel', 'chat-model-refresh', 'chat-think-sel', 'chat-log', 'chat-count', 'chat-send', 'chat-new', 'chat-attach', 'chat-file', 'chat-pending', 'chat-input-row']) {
+        const node = makeEl(id === 'chat-input' ? 'TEXTAREA' : id.endsWith('-sel') || id === 'chat-builder-mode' ? 'SELECT' : 'DIV');
+        node.id = id;
+        node.style = {};
+        node.scrollHeight = 60;
+        byId.set(id, node);
+      }
+      const sb = {
+        console, setTimeout, clearTimeout, setInterval, clearInterval,
+        URL, TextDecoder, TextEncoder, AbortController,
+        localStorage: storage,
+        document: doc,
+        location: { protocol: 'http:', origin: 'http://127.0.0.1:8090', href: 'http://127.0.0.1:8090/' },
+        fetch: async () => ({ ok: false, json: async () => ({}) })
+      };
+      sb.window = sb;
+      vm.runInNewContext(chatSrc, sb);
+      sb.MiniSketchAI.mount({ settings: { aiModel: '', aiThinkLevel: 'normal' }, state: { entities: {} } });
+      return { sb, doc };
+    }
+
+    const first = mountChatSandbox();
+    check('AI builderMode defaults to svg on fresh storage',
+      first.sb.MiniSketchAI.builderMode === 'svg' && first.doc.getElementById('chat-builder-mode').value === 'svg');
+    first.sb.MiniSketchAI.setBuilderMode('ext');
+    check('Switching to Extension mode saves minisketch.chat.builderMode in localStorage',
+      storage.getItem('minisketch.chat.builderMode') === 'ext');
+
+    const reloaded = mountChatSandbox();
+    check('AI builderMode restores Extension mode & UI after simulated browser restart',
+      reloaded.sb.MiniSketchAI.builderMode === 'ext' &&
+      reloaded.doc.getElementById('chat-builder-mode').value === 'ext' &&
+      /parametric CNC tool/i.test(reloaded.doc.getElementById('chat-input').placeholder));
+
+    reloaded.sb.MiniSketchAI.setBuilderMode('svg');
+    const reloadedSvg = mountChatSandbox();
+    check('Switching back to SVG persists svg across simulated restart',
+      reloadedSvg.sb.MiniSketchAI.builderMode === 'svg' &&
+      reloadedSvg.doc.getElementById('chat-builder-mode').value === 'svg');
+
+    check('app.js syncAiQuickControls preserves Extension placeholder when builderMode === "ext"',
+      /MiniSketchAI\.builderMode === 'ext'/.test(fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8')));
+
+    const aiDoc = fs.readFileSync(path.join(ROOT, 'docs', 'ai.html'), 'utf8');
+    const extDoc = fs.readFileSync(path.join(ROOT, 'docs', 'extensions.html'), 'utf8');
+    const searchDoc = fs.readFileSync(path.join(ROOT, 'docs', 'search-data.js'), 'utf8');
+    check('docs/ai.html + screenshot + docs/extensions.html + search-data cover Mode SVG/Extension & Extensions panel',
+      fs.existsSync(path.join(ROOT, 'docs', 'img', 'screenshots', 'panel-ai-extension.png')) &&
+      /panel-ai-extension\.png/.test(aiDoc) &&
+      /Mode: SVG/.test(aiDoc) &&
+      /Mode: Extension/.test(aiDoc) &&
+      /Panel Testing Extension/.test(aiDoc) &&
+      /Panel Extensions/.test(extDoc) &&
+      /id:\s*"extensions"/.test(searchDoc));
   }
 
   console.log('\n' + (fail ? fail + ' FAILED, ' : 'all ') + pass + ' checks passed');

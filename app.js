@@ -1770,7 +1770,10 @@
     }
     const inp = document.getElementById('chat-input');
     if (inp) {
-      inp.placeholder = 'Describe a vector image… (Shift+Enter for a new line)';
+      const isExt = !!(window.MiniSketchAI && window.MiniSketchAI.builderMode === 'ext');
+      inp.placeholder = isExt
+        ? 'Describe a parametric CNC tool to build… (e.g. "coaster generator with inner pattern")'
+        : 'Describe a vector image… (Shift+Enter for a new line)';
     }
   }
   window.syncAiQuickControls = syncAiQuickControls;
@@ -4119,17 +4122,183 @@
     const refRads = new Set();
     const refEnts = new Set();
 
-    const arcIds = [];
-    for (const key in state.entities) {
-      if (state.entities[key].type === 'arc') arcIds.push(+key);
-    }
-
     // Text aspect lock: off as soon as both handle lines carry a driven
     // dimension, so a text with two dimensions resizes freely (no ratio).
     const aspectOff = new Set();
     for (const cid in state.constraints) {
       const c = state.constraints[cid];
       if (c.type === 'aspect' && textDimCount(c.entity) >= 2) aspectOff.add(cid);
+    }
+
+    const dragPtSet = new Set();
+    if (opts.dragPoints) {
+      for (const id of opts.dragPoints) dragPtSet.add(+id);
+    }
+    const dragEntSet = new Set();
+    if (opts.dragEntity != null) dragEntSet.add(+opts.dragEntity);
+    if (opts.dragRadiusTarget && opts.dragRadiusTarget.e != null) dragEntSet.add(+opts.dragRadiusTarget.e);
+    const hasDragScope = !!(opts.dragPoints || opts.dragEntity != null || opts.dragRadiusTarget);
+
+    const entPtsOf = (eid) => {
+      const e = state.entities[eid];
+      if (!e) return [];
+      if (e.type === 'line') return [+e.a, +e.b];
+      if (e.type === 'arc') return [+e.c, +e.s, +e.e];
+      if (e.type === 'circle') return [+e.c];
+      if (e.type === 'spline') return (e.pts || []).map(Number);
+      if (e.type === 'rect' || e.type === 'text') return [e.p0, e.pw, e.ph, e.p2].filter(v => v != null).map(Number);
+      return [];
+    };
+
+    const conItems = [];
+    const conTouchedPts = new Set();
+    const conTouchedEnts = new Set();
+    for (const cid in state.constraints) {
+      const c = state.constraints[cid];
+      if (!c || c.reference) continue;
+      if (c.type === 'aspect' && aspectOff.has(cid)) continue;
+      const pts = [];
+      const ents = [];
+      if (c.type === 'coincident' || c.type === 'distance' || c.type === 'horizontalPoints' || c.type === 'verticalPoints') {
+        if (c.p1 != null) pts.push(+c.p1);
+        if (c.p2 != null) pts.push(+c.p2);
+      } else if (c.type === 'fix') {
+        if (c.p != null) pts.push(+c.p);
+      } else if (c.type === 'aspect') {
+        if (c.p0 != null) pts.push(+c.p0);
+        if (c.pw != null) pts.push(+c.pw);
+        if (c.ph != null) pts.push(+c.ph);
+      } else if (c.type === 'horizontal' || c.type === 'vertical') {
+        if (c.entity != null) {
+          ents.push(+c.entity);
+          for (const pid of entPtsOf(c.entity)) pts.push(pid);
+        }
+      } else if (c.type === 'radius') {
+        if (c.entity != null) {
+          ents.push(+c.entity);
+          const e = state.entities[c.entity];
+          if (e && e.type === 'arc') { pts.push(+e.c, +e.s); }
+        }
+      } else if (c.type === 'pointDim' || c.type === 'pointOn' || c.type === 'midpoint') {
+        if (c.p != null) pts.push(+c.p);
+        if (c.entity != null) {
+          ents.push(+c.entity);
+          for (const pid of entPtsOf(c.entity)) pts.push(pid);
+        }
+      } else if (c.type === 'tangent' || c.type === 'tangentAt') {
+        if (c.p != null) pts.push(+c.p);
+        if (c.line != null) {
+          ents.push(+c.line);
+          for (const pid of entPtsOf(c.line)) pts.push(pid);
+        }
+        if (c.entity != null) {
+          ents.push(+c.entity);
+          for (const pid of entPtsOf(c.entity)) pts.push(pid);
+        }
+      } else if (c.type === 'equal' || c.type === 'parallel' || c.type === 'perpendicular' || c.type === 'angle') {
+        for (const eid of [c.line1, c.line2]) {
+          if (eid == null) continue;
+          ents.push(+eid);
+          const e = state.entities[eid];
+          if (e && (e.type === 'line' || e.type === 'arc')) {
+            for (const pid of entPtsOf(eid)) pts.push(pid);
+          }
+        }
+      }
+      for (const pid of pts) conTouchedPts.add(pid);
+      for (const eid of ents) conTouchedEnts.add(eid);
+      conItems.push({ cid, c, pts, ents });
+    }
+
+    // Collect only arcs that matter: coupled to an active constraint, drifted off
+    // equal-radius, or partially dragged (stretching/bending rather than moving rigidly).
+    const arcItems = [];
+    for (const key in state.entities) {
+      const e = state.entities[key];
+      if (!e || e.type !== 'arc') continue;
+      const eid = +key;
+      const cPt = state.points[e.c], sPt = state.points[e.s], ePt = state.points[e.e];
+      if (!cPt || !sPt || !ePt) continue;
+      const touchedByCon = conTouchedEnts.has(eid) || conTouchedPts.has(+e.c) || conTouchedPts.has(+e.s) || conTouchedPts.has(+e.e);
+      const drifted = Math.abs(dist(cPt, sPt) - dist(cPt, ePt)) > 1e-6;
+      let partialDrag = false;
+      if (hasDragScope) {
+        const inDrag = (dragPtSet.has(+e.c) ? 1 : 0) + (dragPtSet.has(+e.s) ? 1 : 0) + (dragPtSet.has(+e.e) ? 1 : 0);
+        partialDrag = (inDrag > 0 && inDrag < 3) || dragEntSet.has(eid);
+      }
+      if (!touchedByCon && !drifted && !partialDrag) continue;
+      arcItems.push({ eid, e, pts: [+e.c, +e.s, +e.e] });
+    }
+
+    // Empty system fast exit: nothing to probe or solve.
+    if (!conItems.length && !arcItems.length) {
+      if (opts.dragPoints || opts.dragEntity != null) {
+        return { cost: 0, iterations: 0, ok: false, skipped: true, moved: false };
+      }
+      return { cost: 0, iterations: 0, ok: true, moved: false };
+    }
+
+    // Connected-component scoping for drag solves: isolate the coupled cluster
+    // touching the dragged geometry so unrelated constraints/parts never bloat
+    // the Jacobian or fail an unrelated release solve.
+    let activeConItems = conItems;
+    let activeArcItems = arcItems;
+    if (hasDragScope) {
+      const compPts = new Set(dragPtSet);
+      const compEnts = new Set(dragEntSet);
+      if (opts.dragTargets) {
+        for (const t of opts.dragTargets) {
+          if (t && t.p != null) compPts.add(+t.p);
+        }
+      }
+      const pickCon = new Array(conItems.length).fill(false);
+      const pickArc = new Array(arcItems.length).fill(false);
+      let expanded = true;
+      while (expanded) {
+        expanded = false;
+        for (let i = 0; i < conItems.length; i++) {
+          if (pickCon[i]) continue;
+          const it = conItems[i];
+          let hit = false;
+          for (let j = 0; j < it.pts.length; j++) {
+            if (compPts.has(it.pts[j])) { hit = true; break; }
+          }
+          if (!hit) {
+            for (let j = 0; j < it.ents.length; j++) {
+              if (compEnts.has(it.ents[j])) { hit = true; break; }
+            }
+          }
+          if (hit) {
+            pickCon[i] = true;
+            expanded = true;
+            for (const pid of it.pts) compPts.add(pid);
+            for (const eid of it.ents) compEnts.add(eid);
+          }
+        }
+        for (let i = 0; i < arcItems.length; i++) {
+          if (pickArc[i]) continue;
+          const it = arcItems[i];
+          let hit = compEnts.has(it.eid);
+          if (!hit) {
+            for (let j = 0; j < it.pts.length; j++) {
+              if (compPts.has(it.pts[j])) { hit = true; break; }
+            }
+          }
+          if (hit) {
+            pickArc[i] = true;
+            expanded = true;
+            compEnts.add(it.eid);
+            for (const pid of it.pts) compPts.add(pid);
+          }
+        }
+      }
+      activeConItems = [];
+      for (let i = 0; i < conItems.length; i++) if (pickCon[i]) activeConItems.push(conItems[i]);
+      activeArcItems = [];
+      for (let i = 0; i < arcItems.length; i++) if (pickArc[i]) activeArcItems.push(arcItems[i]);
+      if (!activeConItems.length && !activeArcItems.length) {
+        return { cost: 0, iterations: 0, ok: false, skipped: true, moved: false };
+      }
     }
 
     const residual = (x) => {
@@ -4181,8 +4350,8 @@
       };
       const out = [];
 
-      for (const cid in state.constraints) {
-        const c = state.constraints[cid];
+      for (let ci = 0; ci < activeConItems.length; ci++) {
+        const c = activeConItems[ci].c;
         if (c.reference) continue;
         if (c.type === 'coincident') {
           if (!state.points[c.p1] || !state.points[c.p2]) continue;
@@ -4270,7 +4439,6 @@
           const p = GP(c.p);
           out.push((p.x - (a.x + b.x) / 2) * 2, (p.y - (a.y + b.y) / 2) * 2);
         } else if (c.type === 'aspect') {
-          if (aspectOff.has(cid)) continue;
           if (!state.points[c.p0] || !state.points[c.pw] || !state.points[c.ph]) continue;
           const t0 = GP(c.p0), t1 = GP(c.pw), t2 = GP(c.ph);
           const wa = Math.hypot(t1.x - t0.x, t1.y - t0.y);
@@ -4354,8 +4522,8 @@
         if (e) out.push((GR(t.e) - t.r) * ((t.w || DRAG_TARGET_W) / (opts.residualScale || 1)));
       }
 
-      for (const eid of arcIds) {
-        const e = state.entities[eid];
+      for (let ai = 0; ai < activeArcItems.length; ai++) {
+        const e = activeArcItems[ai].e;
         const c = GP(e.c);
         const s = GP(e.s);
         const en = GP(e.e);
@@ -4366,19 +4534,6 @@
     };
 
     // ---- Gate: can this drag change the answer at all? --------------------
-    // solveSketch only gives the solver points that some residual READS, so a
-    // dragged point no constraint touches is never a variable: LM returns the
-    // identical state with or without it, and it cannot pull the drag back
-    // either. Auto solve used to pay for that pointless solve — plus a full
-    // updateUI() and a synchronous repaint — on every interval slot, which is
-    // the hitch felt while dragging a free object around a drawing that has
-    // constraints somewhere else. Only a drag-carrying call pays for the
-    // extra probe: everything else still probes once, as before.
-    // Drag targets for points no constraint reads are dead weight: such a
-    // point is not a solver variable, so its target residual can never pull
-    // anything — it only enlarges the Jacobian (a select-all drag carried
-    // 16k targets for 4 constraints). Hold them out before the probe so the
-    // variable set stays the constraint-read points.
     if (opts.dragTargets && opts.dragTargets.length) {
       gateProbe = true;
       residual([]);
@@ -4388,46 +4543,31 @@
     }
     if (opts.dragPoints) {
       gateProbe = true;
-      residual([]);        // constraints only — the drag targets are held out
+      const rGate = residual([]);        // constraints only — the drag targets are held out
       gateProbe = false;
       let touched = false;
       for (const id of opts.dragPoints) {
         if (refPts.has(+id)) { touched = true; break; }
       }
-      // A radius handle is read by radius / equal / point-on residuals only;
-      // nothing else on the entity can change because of it.
       if (!touched && opts.dragEntity != null) touched = refEnts.has(+opts.dragEntity);
-      // A drag TARGET is not a constraint, but it IS work: the solve exists to
-      // pull the point onto the pointer. Skipping it because no constraint reads
-      // the dragged point is what left the point wherever the mouse put it while
-      // the rest of the system was never asked to follow.
       if (!touched && opts.dragRadiusTarget && refEnts.has(+opts.dragRadiusTarget.e)) touched = true;
       if (!touched) {
         let cost = 0;
-        const r = residual([]);
-        for (let i = 0; i < r.length; i++) cost += r[i] * r[i];
-        // Not solved, so the cost the status chip shows must not move either.
+        for (let i = 0; i < rGate.length; i++) cost += rGate[i] * rGate[i];
         return { cost, iterations: 0, ok: false, skipped: true, moved: false };
       }
     }
 
-    residual([]);           // probe: record which variables the residuals touch
+    const rProbe = residual([]);           // probe: record variables AND initial cost at x0
     recording = false;
+    let cost0 = 0;
+    for (let i = 0; i < rProbe.length; i++) cost0 += rProbe[i] * rProbe[i];
+    // Already satisfied to sub-0.00001mm precision: skip Jacobian build & LM solve
+    if (isFinite(cost0) && cost0 < 1e-10) {
+      return { cost: cost0, iterations: 0, ok: true, moved: false };
+    }
 
     // ---- Arc end-point rule -----------------------------------------------
-    // An arc's radius is the distance from its centre to its START point, so a
-    // solve that may move both ends AND the centre drifts the whole arc instead
-    // of bending it: the start "does not move" only because the centre moved
-    // with it.
-    //
-    // The rule: the end that carries no constraint is the one that moves; the
-    // other end is anchored. When neither end is constrained the centre is
-    // anchored as well, so dragging the free end changes the SWEEP, never the
-    // radius or the position of the arc.
-    //
-    //   end free            -> start (and centre) anchored, end follows
-    //   only the start free -> the END is anchored
-    //   both constrained    -> no rule (the user is steering both)
     const arcEndFree = (pid) => {
       for (const cid in state.constraints) {
         const c = state.constraints[cid];
@@ -4438,22 +4578,15 @@
       }
       return true;
     };
-    for (const key in state.entities) {
-      const e = state.entities[key];
-      if (!e || e.type !== 'arc') continue;
+    for (let ai = 0; ai < activeArcItems.length; ai++) {
+      const e = activeArcItems[ai].e;
       if (!state.points[e.s] || !state.points[e.e]) continue;
       const startFree = arcEndFree(e.s);
       const endFree = arcEndFree(e.e);
       if (endFree) {
-        // the END is the free one: the start stays, and so does the centre —
-        // pinning the centre is what keeps |c-s| (the arc's radius) constant
-        // while the free end swings. Without it the solver slid the whole arc
-        // around and the radius drifted with it.
         fixed.add(+e.s);
         if (arcEndFree(e.c) && state.points[e.c]) fixed.add(+e.c);
       } else if (startFree) {
-        // only the start is free: it is the one the user is dragging, and moving
-        // it legitimately changes the radius, so the centre stays free
         fixed.add(+e.e);
       }
     }
@@ -4480,20 +4613,12 @@
     });
 
     if (!vars.length) {
-      const r = residual([]);
-      const cost = r.reduce((s, v) => s + v * v, 0);
-      return { cost, iterations: 0, ok: cost < 1e-7, moved: false };
+      return { cost: cost0, iterations: 0, ok: cost0 < 1e-7, moved: false };
     }
 
-    // A step cap keeps one iteration from teleporting the shape across the
-    // plane; a solve with a drag target needs a slightly smaller cap than a
-    // deliberate re-solve, because the hand is the authority while dragging.
     const stepCap = opts.stepCap > 0 ? opts.stepCap
       : (opts.dragTargets && opts.dragTargets.length ? 8 : 25);
     const result = lmSolve(x0, residual, maxIter, stepCap);
-    // Ran out of budget mid-descent and the sketch is still far from a
-    // solution: write nothing. Committing that iterate is what made the shape
-    // jump somewhere the user never saw, one gesture after another.
     const stalled = !result.converged && !(result.cost < 1e-2);
     if (stalled) {
       markUnsolved();
@@ -4509,10 +4634,6 @@
         if (Math.abs(result.x[i] - state.points[v.id].y) > 1e-9) moved = true;
         state.points[v.id].y = result.x[i];
       } else {
-        // A radius may not run away: a nearly singular system can push it to
-        // absurd values, and a circle that jumps from r=3 to r=300 is never what
-        // the user meant. The solve may change it by at most 2x in either
-        // direction from where it started.
         const before = Math.max(0.01, state.entities[v.id].r);
         const lo = Math.max(0.01, before / RADIUS_SOLVE_LIMIT);
         const hi = before * RADIUS_SOLVE_LIMIT;
@@ -4576,11 +4697,17 @@
 
   // Every automatic solve goes through here.
   function requestSolve(a, b) {
-    if (ui.solveMode === 'manual') {
-      markUnsolved();
-      return null;
-    }
-    if (ui.solveMode === 'release' && dragSolveSuppressed) {
+    const isDeferredDrag = ui.solveMode === 'manual' || (ui.solveMode === 'release' && dragSolveSuppressed);
+    if (isDeferredDrag) {
+      // During a drag, only flag unsolved if the dragged object actually touches
+      // a currently violated constraint or stretched arc — free/normal objects and
+      // rigid translations of satisfied shapes stay silent.
+      if (typeof state !== 'undefined' && state && a &&
+          (a.dragPoints || a.dragEntity != null || a.dragRadiusTarget) &&
+          typeof dragHasConstraintViolation === 'function' &&
+          !dragHasConstraintViolation(a)) {
+        return { cost: 0, iterations: 0, ok: true, skipped: true, moved: false };
+      }
       markUnsolved();
       return null;
     }
@@ -4738,11 +4865,10 @@
   // somewhere else than the mouse is the exact complaint this fixes.
   function solveRelease(d) {
     const out = solveReleaseInner(d);
-    // requestSolve() used to own this flag cleanup, and pointerup stopped calling
-    // it: without this the status chip stayed "unsolved · F9" for ever, even
-    // though the release solve had just run. A stalled solve keeps the flag on,
-    // because the geometry really is still away from its constraints.
-    if (out && !out.skipped && !out.stalled) ui.solveDirty = false;
+    if (out && !out.stalled) {
+      if (!out.skipped) ui.solveDirty = false;
+      else if (typeof anyConstraintViolated === 'function' && !anyConstraintViolated()) ui.solveDirty = false;
+    }
     return out;
   }
 
@@ -4764,7 +4890,7 @@
     // has no single primary, so all of them are targets; use the first as the
     // one that has to be exact).
     const watch = primary != null ? primary : (held.length ? held[0] : null);
-    if (!watch) return requestSolve();
+    if (!watch) return { cost: ui.solverCost || 0, iterations: 0, ok: true, skipped: true, moved: false };
     const want = (() => {
       const t = targets.find(x => +x.p === +watch);
       return t ? { x: t.x, y: t.y } : null;
@@ -22223,6 +22349,235 @@
     return false;
   }
 
+  function constraintResidualSq(c) {
+    if (!c || c.reference) return 0;
+    const pt = (pid) => state.points[pid];
+    const radOf = (eid) => {
+      const e = state.entities[eid];
+      if (!e) return 1;
+      if (e.type === 'arc') {
+        const cc = pt(e.c), s = pt(e.s);
+        return (cc && s) ? Math.hypot(s.x - cc.x, s.y - cc.y) : 1;
+      }
+      return Math.max(0.01, e.r);
+    };
+    if (c.type === 'coincident') {
+      const a = pt(c.p1), b = pt(c.p2);
+      if (!a || !b) return 0;
+      const dx = a.x - b.x, dy = a.y - b.y;
+      return dx * dx + dy * dy;
+    }
+    if (c.type === 'distance') {
+      const a = pt(c.p1), b = pt(c.p2);
+      if (!a || !b) return 0;
+      const d = Math.hypot(b.x - a.x, b.y - a.y) - c.value;
+      return d * d;
+    }
+    if (c.type === 'radius') {
+      if (!state.entities[c.entity]) return 0;
+      const d = radOf(c.entity) - c.value;
+      return d * d;
+    }
+    if (c.type === 'horizontal' || c.type === 'vertical') {
+      const e = state.entities[c.entity];
+      if (!e || e.type !== 'line') return 0;
+      const a = pt(e.a), b = pt(e.b);
+      if (!a || !b) return 0;
+      const d = c.type === 'horizontal' ? (b.y - a.y) : (b.x - a.x);
+      return d * d;
+    }
+    if (c.type === 'horizontalPoints' || c.type === 'verticalPoints') {
+      const a = pt(c.p1), b = pt(c.p2);
+      if (!a || !b) return 0;
+      const d = c.type === 'horizontalPoints' ? (b.y - a.y) : (b.x - a.x);
+      return d * d;
+    }
+    if (c.type === 'pointDim') {
+      const p = pt(c.p), e = state.entities[c.entity];
+      if (!p || !e) return 0;
+      const eps = c.side == null ? 1 : c.side;
+      if (e.type === 'line') {
+        const a = pt(e.a), b = pt(e.b);
+        if (!a || !b) return 0;
+        const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+        if (len < 1e-9) return 0;
+        const r = ((p.x - a.x) * dy - (p.y - a.y) * dx) / len - eps * c.value;
+        return r * r;
+      }
+      const cc = pt(e.c);
+      if (!cc) return 0;
+      const r = Math.hypot(p.x - cc.x, p.y - cc.y) - radOf(c.entity) - eps * c.value;
+      return r * r;
+    }
+    if (c.type === 'pointOn') {
+      const p = pt(c.p), e = state.entities[c.entity];
+      if (!p || !e) return 0;
+      if (e.type === 'line') {
+        const a = pt(e.a), b = pt(e.b);
+        if (!a || !b) return 0;
+        const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+        if (len < 1e-9) return 0;
+        const r = 20 * (((p.x - a.x) * dy - (p.y - a.y) * dx) / len);
+        return r * r;
+      }
+      if (e.type === 'arc' || e.type === 'circle') {
+        const cc = pt(e.c);
+        if (!cc) return 0;
+        const r = 20 * (Math.hypot(p.x - cc.x, p.y - cc.y) - radOf(c.entity));
+        return r * r;
+      }
+      return 0;
+    }
+    if (c.type === 'tangent') {
+      const e1 = state.entities[c.line], e2 = state.entities[c.entity];
+      if (!e1 || !e2 || e1.type !== 'line' || (e2.type !== 'arc' && e2.type !== 'circle')) return 0;
+      const a = pt(e1.a), b = pt(e1.b), oc = pt(e2.c);
+      if (!a || !b || !oc) return 0;
+      const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+      if (len < 1e-9) return 0;
+      const perp = ((oc.x - a.x) * dy - (oc.y - a.y) * dx) / len;
+      const r = (c.side == null ? 1 : c.side) * perp - radOf(c.entity);
+      return r * r;
+    }
+    if (c.type === 'tangentAt') {
+      const e1 = state.entities[c.line], e2 = state.entities[c.entity], p = pt(c.p);
+      if (!e1 || !e2 || !p || e1.type !== 'line' || (e2.type !== 'arc' && e2.type !== 'circle')) return 0;
+      const a = pt(e1.a), b = pt(e1.b), oc = pt(e2.c);
+      if (!a || !b || !oc) return 0;
+      const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+      if (len < 1e-9) return 0;
+      const r = ((dx / len) * (p.x - oc.x) + (dy / len) * (p.y - oc.y)) * 10;
+      return r * r;
+    }
+    if (c.type === 'midpoint') {
+      const p = pt(c.p), e = state.entities[c.entity];
+      if (!p || !e || e.type !== 'line') return 0;
+      const a = pt(e.a), b = pt(e.b);
+      if (!a || !b) return 0;
+      const rx = (p.x - (a.x + b.x) / 2) * 2, ry = (p.y - (a.y + b.y) / 2) * 2;
+      return rx * rx + ry * ry;
+    }
+    if (c.type === 'aspect') {
+      if (textDimCount(c.entity) >= 2) return 0;
+      const t0 = pt(c.p0), t1 = pt(c.pw), t2 = pt(c.ph);
+      if (!t0 || !t1 || !t2) return 0;
+      const wa = Math.hypot(t1.x - t0.x, t1.y - t0.y);
+      const hb = Math.hypot(t2.x - t0.x, t2.y - t0.y);
+      if (!(wa > 1e-9)) return 0;
+      const r = 20 * (hb * (c.ratio || 1) - wa);
+      return r * r;
+    }
+    if (c.type === 'equal') {
+      const e1 = state.entities[c.line1], e2 = state.entities[c.line2];
+      if (!e1 || !e2) return 0;
+      const r1 = e1.type === 'circle' || e1.type === 'arc';
+      const r2 = e2.type === 'circle' || e2.type === 'arc';
+      if (r1 && r2) {
+        const r = 20 * (radOf(c.line1) - radOf(c.line2));
+        return r * r;
+      }
+      if (r1 || r2 || e1.type !== 'line' || e2.type !== 'line') return 0;
+      const a1 = pt(e1.a), b1 = pt(e1.b), a2 = pt(e2.a), b2 = pt(e2.b);
+      if (!a1 || !b1 || !a2 || !b2) return 0;
+      const l1 = Math.hypot(b1.x - a1.x, b1.y - a1.y);
+      const l2 = Math.hypot(b2.x - a2.x, b2.y - a2.y);
+      if (l1 < 1e-9 || l2 < 1e-9) return 0;
+      return (l1 - l2) * (l1 - l2);
+    }
+    if (c.type === 'parallel' || c.type === 'perpendicular') {
+      const e1 = state.entities[c.line1], e2 = state.entities[c.line2];
+      if (!e1 || !e2 || e1.type !== 'line' || e2.type !== 'line') return 0;
+      const a1 = pt(e1.a), b1 = pt(e1.b), a2 = pt(e2.a), b2 = pt(e2.b);
+      if (!a1 || !b1 || !a2 || !b2) return 0;
+      const d1x = b1.x - a1.x, d1y = b1.y - a1.y, d2x = b2.x - a2.x, d2y = b2.y - a2.y;
+      if (Math.hypot(d1x, d1y) < 1e-9 || Math.hypot(d2x, d2y) < 1e-9) return 0;
+      let a = wrapPi(Math.atan2(d2y, d2x) - Math.atan2(d1y, d1x));
+      if (a > Math.PI / 2) a -= Math.PI;
+      else if (a <= -Math.PI / 2) a += Math.PI;
+      if (c.type === 'parallel') return (a * 100) * (a * 100);
+      const target = a >= 0 ? Math.PI / 2 : -Math.PI / 2;
+      let diff = a - target;
+      if (diff > Math.PI / 2) diff -= Math.PI;
+      else if (diff <= -Math.PI / 2) diff += Math.PI;
+      return (diff * 100) * (diff * 100);
+    }
+    if (c.type === 'angle') {
+      const e1 = state.entities[c.line1], e2 = state.entities[c.line2];
+      if (!e1 || !e2 || e1.type !== 'line' || e2.type !== 'line') return 0;
+      const g = angleRays(pt(e1.a), pt(e1.b), pt(e2.a), pt(e2.b));
+      if (!g) return 0;
+      const r = wrapDeg(g.delta * 180 / Math.PI - c.value) * 2;
+      return r * r;
+    }
+    if (c.type === 'fix') {
+      const p = pt(c.p);
+      if (!p) return 0;
+      const rx = (p.x - c.x) * 800, ry = (p.y - c.y) * 800;
+      return rx * rx + ry * ry;
+    }
+    return 0;
+  }
+
+  function anyConstraintViolated() {
+    for (const cid in state.constraints) {
+      if (constraintResidualSq(state.constraints[cid]) > 1e-6) return true;
+    }
+    for (const eid in state.entities) {
+      const e = state.entities[eid];
+      if (!e || e.type !== 'arc') continue;
+      const cc = state.points[e.c], s = state.points[e.s], en = state.points[e.e];
+      if (!cc || !s || !en) continue;
+      const diff = (dist(cc, s) - dist(cc, en)) * 6;
+      if (diff * diff > 1e-6) return true;
+    }
+    return false;
+  }
+
+  function dragHasConstraintViolation(opts) {
+    const dp = new Set();
+    if (opts && opts.dragPoints) {
+      for (const id of opts.dragPoints) dp.add(+id);
+    }
+    const de = opts && opts.dragEntity != null ? +opts.dragEntity
+      : (opts && opts.dragRadiusTarget && opts.dragRadiusTarget.e != null ? +opts.dragRadiusTarget.e : null);
+    const hasEntPt = (eid) => {
+      const e = state.entities[eid];
+      if (!e) return false;
+      if (e.type === 'line') return dp.has(+e.a) || dp.has(+e.b);
+      if (e.type === 'arc') return dp.has(+e.c) || dp.has(+e.s) || dp.has(+e.e);
+      if (e.type === 'circle') return dp.has(+e.c);
+      if (e.type === 'spline') return (e.pts || []).some(pid => dp.has(+pid));
+      return false;
+    };
+    for (const cid in state.constraints) {
+      const c = state.constraints[cid];
+      if (!c || c.reference) continue;
+      let touches = false;
+      if (c.p != null && dp.has(+c.p)) touches = true;
+      else if (c.p1 != null && (dp.has(+c.p1) || dp.has(+c.p2))) touches = true;
+      else if (c.p0 != null && (dp.has(+c.p0) || dp.has(+c.pw) || dp.has(+c.ph))) touches = true;
+      else if (c.entity != null && (+c.entity === de || (c.type !== 'radius' && hasEntPt(c.entity)))) touches = true;
+      else if (c.line != null && (+c.line === de || hasEntPt(c.line))) touches = true;
+      else if (c.line1 != null && (+c.line1 === de || +c.line2 === de || hasEntPt(c.line1) || hasEntPt(c.line2))) touches = true;
+      if (touches && constraintResidualSq(c) > 1e-6) return true;
+    }
+    if (dp.size) {
+      for (const eid in state.entities) {
+        const e = state.entities[eid];
+        if (!e || e.type !== 'arc') continue;
+        const n = (dp.has(+e.c) ? 1 : 0) + (dp.has(+e.s) ? 1 : 0) + (dp.has(+e.e) ? 1 : 0);
+        if (n > 0 && n < 3) {
+          const cc = state.points[e.c], s = state.points[e.s], en = state.points[e.e];
+          if (cc && s && en) {
+            const diff = (dist(cc, s) - dist(cc, en)) * 6;
+            if (diff * diff > 1e-6) return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   // The dimensions-only dim tone. It used to be called `dimColor` as well, and
   // being the later declaration of the two in this scope it silently replaced
   // the memoized colour-mix version — so every art / clone / part dimmed to a
@@ -23440,6 +23795,9 @@
       const s = n + (n === 1 ? ' loop' : ' loops');
       if (loopsEl.textContent !== s) loopsEl.textContent = s;
     }
+    if (ui.solveDirty && !ui.drag && typeof anyConstraintViolated === 'function' && !anyConstraintViolated()) {
+      ui.solveDirty = false;
+    }
     const solverEl = document.getElementById('status-solver');
     let text;
     if (ui.solveDirty) text = 'unsolved \u00b7 F9';
@@ -23589,7 +23947,7 @@
       sig = 'mate:' + mateJob.stage;
     } else if (ui.tool === 'dragwall') {
       sig = 'dragwall:' + fmt(WALL_DRAG_MM);
-    } else if (ui.solveDirty) {
+    } else if (ui.solveDirty && !ui.drag) {
       sig = 'solve-dirty';
     }
 
@@ -28290,11 +28648,10 @@ function cmdSplitCurve() {
         d.lastResidualScale = 1;
         d.lastDx = dx;
         d.lastDy = dy;
-        // dragPoints lets the solver's gate skip the whole solve when no
-        // constraint reads the points being dragged (live mode would
-        // otherwise rebuild the Jacobian every move for nothing)
-        requestSolve({ dragTargets: targets, residualScale: 1, dragPoints: d.ids }, 90);
-        scheduleDragAutoSolve();
+        if (d.ids && d.ids.length) {
+          requestSolve({ dragTargets: targets, residualScale: 1, dragPoints: d.ids }, 90);
+          scheduleDragAutoSolve();
+        }
         scheduleRender();
         updateStatusCounts();
         return;
@@ -29615,10 +29972,10 @@ function cmdSplitCurve() {
           toast('Coincident constraint added');
         }
       }
+      ui.drag = null;
       if (d.moved && (d.kind === 'point' || d.kind === 'entity' || d.kind === 'radius')) {
         solveRelease(d);
         invalidateLoops();
-        updateUI();
       }
       // A drop onto the snap-crosshair target WELDS: merge the dragged point
       // into the target so both become one shared point.
@@ -29626,17 +29983,14 @@ function cmdSplitCurve() {
         weldPoints([[d.primary, weldTarget]], { checkDist: false });
         invalidateLoops();
         ui.selection = ui.selection.filter(s => !(s.kind === 'point' && +s.id === +d.primary));
-        updateUI();
       }
-      if (!ui.drag.moved) {
+      if (!d.moved) {
         history.pop();
         updateHistoryButtons();
-        updateUI();
       } else {
         scheduleSave();
-        updateUI();
       }
-      ui.drag = null;
+      updateUI();
       render();
     }
   }

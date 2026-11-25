@@ -140,6 +140,527 @@
     return new TextDecoder().decode(bytes);
   }
 
+  // ---- Syntax Highlighter (JS + embedded HTML/SVG + CSS) ------------------
+  function escHtml(s) {
+    return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  }
+
+  function spanTok(cls, text) {
+    if (!text) return '';
+    return cls ? '<span class="' + cls + '">' + escHtml(text) + '</span>' : escHtml(text);
+  }
+
+  function renderTextWithHex(text, baseCls) {
+    const s = String(text || '');
+    const re = /#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b/g;
+    let out = '';
+    let last = 0;
+    let m;
+    while ((m = re.exec(s)) !== null) {
+      if (m.index > last) out += spanTok(baseCls, s.slice(last, m.index));
+      const hex = m[0];
+      const deco = hex.length === 7
+        ? ' style="text-decoration:underline;text-decoration-color:' + hex + ';text-decoration-thickness:2px"'
+        : '';
+      out += '<span class="hl-hex"' + deco + '>' + escHtml(hex) + '</span>';
+      last = m.index + hex.length;
+    }
+    if (last < s.length) out += spanTok(baseCls, s.slice(last));
+    return out;
+  }
+
+  function highlightCssSegment(src, inlineDecls) {
+    const s = String(src || '');
+    const len = s.length;
+    let i = 0;
+    let out = '';
+    let inBlock = !!inlineDecls;
+    let expectValue = false;
+
+    while (i < len) {
+      const ch = s[i];
+      if (ch === '/' && s[i + 1] === '*') {
+        const end = s.indexOf('*/', i + 2);
+        const j = end < 0 ? len : end + 2;
+        out += spanTok('hl-com', s.slice(i, j));
+        i = j;
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        const q = ch;
+        let j = i + 1;
+        while (j < len) {
+          if (s[j] === '\\') { j += 2; continue; }
+          if (s[j] === q) { j++; break; }
+          j++;
+        }
+        out += renderTextWithHex(s.slice(i, j), 'hl-str');
+        i = j;
+        continue;
+      }
+      if (ch === '{') {
+        inBlock = true;
+        expectValue = false;
+        out += spanTok('hl-punct', ch);
+        i++;
+        continue;
+      }
+      if (ch === '}') {
+        inBlock = !!inlineDecls;
+        expectValue = false;
+        out += spanTok('hl-punct', ch);
+        i++;
+        continue;
+      }
+      if (ch === ':') {
+        if (inBlock) expectValue = true;
+        out += spanTok('hl-punct', ch);
+        i++;
+        continue;
+      }
+      if (ch === ';') {
+        expectValue = false;
+        out += spanTok('hl-punct', ch);
+        i++;
+        continue;
+      }
+      if (ch === '#') {
+        const m = s.slice(i).match(/^#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/);
+        if (m && (inBlock || expectValue)) {
+          out += renderTextWithHex(m[0], 'hl-hex');
+          i += m[0].length;
+          continue;
+        }
+      }
+      if (ch === '@' && !inBlock) {
+        const m = s.slice(i).match(/^@[a-zA-Z_-][\w-]*/);
+        if (m) {
+          out += spanTok('hl-kw', m[0]);
+          i += m[0].length;
+          continue;
+        }
+      }
+      if (inBlock && expectValue && (/\d/.test(ch) || (ch === '.' && /\d/.test(s[i + 1] || '')) || (ch === '-' && /[\d.]/.test(s[i + 1] || '')))) {
+        const m = s.slice(i).match(/^-?(?:\d+\.?\d*|\.\d+)(?:%|px|mm|cm|em|rem|vh|vw|dvh|deg|ms|s)?\b/);
+        if (m) {
+          out += spanTok('hl-num', m[0]);
+          i += m[0].length;
+          continue;
+        }
+      }
+      if (/[A-Za-z_.-]/.test(ch)) {
+        const m = s.slice(i).match(/^[A-Za-z_.-][\w-]*/);
+        if (m) {
+          const tok = m[0];
+          const next = s[i + tok.length] || '';
+          if (inBlock && !expectValue) {
+            out += spanTok('hl-attr', tok);
+          } else if (inBlock && expectValue) {
+            if (next === '(') out += spanTok('hl-fn', tok);
+            else if (/^(?:none|auto|inherit|initial|unset|block|inline|inline-block|flex|grid|hidden|visible|solid|dashed|dotted|relative|absolute|fixed|center|left|right|bold|normal|pointer|transparent|currentColor|!important)$/i.test(tok)) {
+              out += spanTok('hl-kw', tok);
+            } else {
+              out += escHtml(tok);
+            }
+          } else {
+            out += spanTok('hl-tag', tok);
+          }
+          i += tok.length;
+          continue;
+        }
+      }
+      if (/[(),>+~*=[\]!]/.test(ch)) {
+        out += spanTok('hl-punct', ch);
+        i++;
+        continue;
+      }
+      out += escHtml(ch);
+      i++;
+    }
+    return out;
+  }
+
+  function highlightHtmlSegment(src) {
+    const s = String(src || '');
+    const len = s.length;
+    let i = 0;
+    let out = '';
+
+    while (i < len) {
+      if (s.startsWith('<!--', i)) {
+        const end = s.indexOf('-->', i + 4);
+        const j = end < 0 ? len : end + 3;
+        out += spanTok('hl-com', s.slice(i, j));
+        i = j;
+        continue;
+      }
+      if (s[i] === '<') {
+        const mOpen = s.slice(i).match(/^<\/?([A-Za-z][A-Za-z0-9:_-]*)/);
+        if (mOpen) {
+          const isClose = s[i + 1] === '/';
+          const tagName = mOpen[1];
+          const isStyleOpen = !isClose && tagName.toLowerCase() === 'style';
+          out += spanTok('hl-punct', isClose ? '</' : '<');
+          out += spanTok('hl-tag', tagName);
+          i += mOpen[0].length;
+          let selfClose = false;
+          while (i < len) {
+            if (s[i] === '>') {
+              out += spanTok('hl-punct', '>');
+              i++;
+              break;
+            }
+            if (s[i] === '/' && s[i + 1] === '>') {
+              selfClose = true;
+              out += spanTok('hl-punct', '/>');
+              i += 2;
+              break;
+            }
+            if (/\s/.test(s[i])) {
+              let j = i + 1;
+              while (j < len && /\s/.test(s[j])) j++;
+              out += escHtml(s.slice(i, j));
+              i = j;
+              continue;
+            }
+            const mAttr = s.slice(i).match(/^[A-Za-z_:][\w:.-]*/);
+            if (mAttr) {
+              const attrName = mAttr[0];
+              out += spanTok('hl-attr', attrName);
+              i += attrName.length;
+              while (i < len && /\s/.test(s[i])) { out += escHtml(s[i]); i++; }
+              if (s[i] === '=') {
+                out += spanTok('hl-punct', '=');
+                i++;
+                while (i < len && /\s/.test(s[i])) { out += escHtml(s[i]); i++; }
+                if (s[i] === '"' || s[i] === "'") {
+                  const q = s[i];
+                  let j = i + 1;
+                  while (j < len && s[j] !== q) {
+                    if (s[j] === '\\') j += 2;
+                    else j++;
+                  }
+                  const hasEnd = j < len && s[j] === q;
+                  const inner = s.slice(i + 1, j);
+                  out += spanTok('hl-str', q);
+                  if (/^style$/i.test(attrName)) {
+                    out += highlightCssSegment(inner, true);
+                  } else if (/^on[a-z]+$/i.test(attrName)) {
+                    out += highlightJsSegment(inner);
+                  } else {
+                    out += renderTextWithHex(inner, 'hl-str');
+                  }
+                  if (hasEnd) {
+                    out += spanTok('hl-str', q);
+                    i = j + 1;
+                  } else {
+                    i = j;
+                  }
+                }
+              }
+              continue;
+            }
+            out += escHtml(s[i]);
+            i++;
+          }
+          if (isStyleOpen && !selfClose) {
+            const closeIdx = s.slice(i).search(/<\/style\s*>/i);
+            if (closeIdx >= 0) {
+              out += highlightCssSegment(s.slice(i, i + closeIdx), false);
+              i += closeIdx;
+            } else {
+              out += highlightCssSegment(s.slice(i), false);
+              i = len;
+            }
+          }
+          continue;
+        }
+      }
+      const nextTag = s.indexOf('<', i + 1);
+      const chunk = nextTag < 0 ? s.slice(i) : s.slice(i, nextTag);
+      out += renderTextWithHex(chunk, '');
+      i += chunk.length;
+    }
+    return out;
+  }
+
+  const JS_KEYWORDS = new Set([
+    'async', 'await', 'break', 'case', 'catch', 'class', 'const', 'continue',
+    'debugger', 'default', 'delete', 'do', 'else', 'export', 'extends', 'finally',
+    'for', 'function', 'if', 'import', 'in', 'instanceof', 'let', 'new', 'of',
+    'return', 'static', 'super', 'switch', 'this', 'throw', 'try', 'typeof',
+    'var', 'void', 'while', 'with', 'yield'
+  ]);
+  const JS_LITERALS = new Set(['true', 'false', 'null', 'undefined', 'NaN', 'Infinity']);
+  const JS_GLOBALS = new Set([
+    'MiniSketchTools', 'MiniSketchExtensions', 'MiniSketchFonts', 'MiniSketchAI',
+    'NS', 'api', 'window', 'document', 'localStorage', 'Math', 'JSON', 'Array',
+    'Object', 'Number', 'String', 'Boolean', 'Set', 'Map', 'Promise', 'Error',
+    'RegExp', 'Date', 'URL', 'FileReader', 'isFinite', 'isNaN', 'parseInt',
+    'parseFloat', 'console', 'setTimeout', 'clearTimeout', 'fetch', 'el'
+  ]);
+  const REGEX_PREV_KW = new Set([
+    'return', 'throw', 'case', 'in', 'of', 'typeof', 'void', 'delete', 'await', 'yield', 'new', 'else'
+  ]);
+
+  function looksLikeHtmlOrSvg(text) {
+    return /<(?:!DOCTYPE|!--|[A-Za-z][A-Za-z0-9:-]*)(?:[\s>/]|$)/.test(text);
+  }
+
+  function highlightStringOrTemplateBody(body) {
+    if (!body) return '';
+    if (looksLikeHtmlOrSvg(body)) return highlightHtmlSegment(body);
+    return renderTextWithHex(body, 'hl-str');
+  }
+
+  function highlightJsSegment(src) {
+    const s = String(src || '');
+    const len = s.length;
+    let i = 0;
+    let out = '';
+    let allowRegex = true;
+
+    while (i < len) {
+      const ch = s[i];
+      if (/\s/.test(ch)) {
+        let j = i + 1;
+        while (j < len && /\s/.test(s[j])) j++;
+        out += escHtml(s.slice(i, j));
+        i = j;
+        continue;
+      }
+      if (ch === '/' && s[i + 1] === '/') {
+        const nl = s.indexOf('\n', i + 2);
+        const j = nl < 0 ? len : nl;
+        out += spanTok('hl-com', s.slice(i, j));
+        i = j;
+        continue;
+      }
+      if (ch === '/' && s[i + 1] === '*') {
+        const end = s.indexOf('*/', i + 2);
+        const j = end < 0 ? len : end + 2;
+        out += spanTok('hl-com', s.slice(i, j));
+        i = j;
+        continue;
+      }
+      if (ch === '/' && allowRegex) {
+        let j = i + 1;
+        let inClass = false;
+        let closed = false;
+        while (j < len && s[j] !== '\n') {
+          if (s[j] === '\\') { j += 2; continue; }
+          if (s[j] === '[') inClass = true;
+          else if (s[j] === ']' && inClass) inClass = false;
+          else if (s[j] === '/' && !inClass) { j++; closed = true; break; }
+          j++;
+        }
+        if (closed) {
+          while (j < len && /[a-z]/i.test(s[j])) j++;
+          out += spanTok('hl-str', s.slice(i, j));
+          i = j;
+          allowRegex = false;
+          continue;
+        }
+      }
+      if (ch === '"' || ch === "'") {
+        const q = ch;
+        let j = i + 1;
+        while (j < len && s[j] !== '\n') {
+          if (s[j] === '\\') { j += 2; continue; }
+          if (s[j] === q) { break; }
+          j++;
+        }
+        const hasClose = j < len && s[j] === q;
+        const body = s.slice(i + 1, j);
+        out += spanTok('hl-str', q) + highlightStringOrTemplateBody(body) + (hasClose ? spanTok('hl-str', q) : '');
+        i = hasClose ? j + 1 : j;
+        allowRegex = false;
+        continue;
+      }
+      if (ch === '`') {
+        out += spanTok('hl-str', '`');
+        i++;
+        let segStart = i;
+        while (i < len) {
+          if (s[i] === '\\') {
+            i += 2;
+            continue;
+          }
+          if (s[i] === '`') {
+            out += highlightStringOrTemplateBody(s.slice(segStart, i));
+            out += spanTok('hl-str', '`');
+            i++;
+            break;
+          }
+          if (s[i] === '$' && s[i + 1] === '{') {
+            out += highlightStringOrTemplateBody(s.slice(segStart, i));
+            out += spanTok('hl-punct', '${');
+            i += 2;
+            const exprStart = i;
+            let depth = 1;
+            while (i < len && depth > 0) {
+              const c = s[i];
+              if (c === '\\') { i += 2; continue; }
+              if (c === '"' || c === "'") {
+                const q2 = c;
+                i++;
+                while (i < len && s[i] !== q2) {
+                  if (s[i] === '\\') i += 2;
+                  else i++;
+                }
+                if (i < len) i++;
+                continue;
+              }
+              if (c === '`') {
+                // Skip nested template cleanly
+                i++;
+                let nd = 0;
+                while (i < len) {
+                  if (s[i] === '\\') { i += 2; continue; }
+                  if (s[i] === '$' && s[i + 1] === '{') { nd++; i += 2; continue; }
+                  if (s[i] === '}' && nd > 0) { nd--; i++; continue; }
+                  if (s[i] === '`' && nd === 0) { i++; break; }
+                  i++;
+                }
+                continue;
+              }
+              if (c === '{') depth++;
+              else if (c === '}') {
+                depth--;
+                if (depth === 0) break;
+              }
+              i++;
+            }
+            out += highlightJsSegment(s.slice(exprStart, i));
+            if (i < len && s[i] === '}') {
+              out += spanTok('hl-punct', '}');
+              i++;
+            }
+            segStart = i;
+            continue;
+          }
+          i++;
+        }
+        if (i >= len && s[i - 1] !== '`') {
+          out += highlightStringOrTemplateBody(s.slice(segStart, len));
+        }
+        allowRegex = false;
+        continue;
+      }
+      if (/\d/.test(ch) || (ch === '.' && /\d/.test(s[i + 1] || ''))) {
+        const m = s.slice(i).match(/^(?:0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+|(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)\b/);
+        if (m) {
+          out += spanTok('hl-num', m[0]);
+          i += m[0].length;
+          allowRegex = false;
+          continue;
+        }
+      }
+      if (/[A-Za-z_$]/.test(ch)) {
+        const m = s.slice(i).match(/^[A-Za-z_$][\w$]*/);
+        const word = m[0];
+        let k = i + word.length;
+        while (k < len && /\s/.test(s[k])) k++;
+        const isCall = s[k] === '(';
+        const prevDot = i > 0 && s[i - 1] === '.';
+        let cls = '';
+        if (!prevDot && JS_KEYWORDS.has(word)) cls = 'hl-kw';
+        else if (!prevDot && JS_LITERALS.has(word)) cls = 'hl-num';
+        else if (!prevDot && JS_GLOBALS.has(word)) cls = 'hl-api';
+        else if (isCall) cls = 'hl-fn';
+        out += spanTok(cls, word);
+        i += word.length;
+        allowRegex = !prevDot && REGEX_PREV_KW.has(word);
+        continue;
+      }
+      if (/[{}()[\];,.?:!~%^&*+=<>|/-]/.test(ch)) {
+        const two = s.slice(i, i + 2);
+        const tok = (two === '=>' || two === '==' || two === '!=' || two === '<=' || two === '>=' || two === '&&' || two === '||' || two === '??' || two === '++' || two === '--')
+          ? two : ch;
+        out += spanTok('hl-punct', tok);
+        i += tok.length;
+        allowRegex = tok !== ')' && tok !== ']' && tok !== '++' && tok !== '--';
+        continue;
+      }
+      out += escHtml(ch);
+      i++;
+      allowRegex = false;
+    }
+    return out;
+  }
+
+  function highlightCode(src) {
+    const text = String(src == null ? '' : src);
+    if (!text) return '';
+    const trimmed = text.trimStart();
+    if (/^<(?:!DOCTYPE|!--|[A-Za-z][A-Za-z0-9:-]*)/i.test(trimmed)) {
+      return highlightHtmlSegment(text);
+    }
+    if (/^(?:\/\*(?:[\s\S]*?)\*\/\s*)?(?:@[a-z-]+|:root\b|[.#][A-Za-z_-][\w-]*\s*\{)/i.test(trimmed) && !/\b(?:function|const|let|var|MiniSketchTools)\b/.test(trimmed)) {
+      return highlightCssSegment(text, false);
+    }
+    return highlightJsSegment(text);
+  }
+  NS.highlightCode = highlightCode;
+
+  function syncCodeEditor(textareaId) {
+    const ta = el(textareaId);
+    const codeEl = el(textareaId + '-hl');
+    if (!ta || !codeEl) return;
+    const pre = codeEl.parentNode;
+    const wrap = pre && pre.parentNode;
+    if (wrap && wrap.classList) wrap.classList.add('is-hl');
+    const val = String(ta.value || '');
+    // Append one trailing space/newline when ending with \n so <pre> height matches <textarea>'s trailing empty line
+    codeEl.innerHTML = val ? (highlightCode(val) + (val.endsWith('\n') ? '\n' : '')) : '';
+    if (pre) {
+      pre.scrollTop = ta.scrollTop;
+      pre.scrollLeft = ta.scrollLeft;
+    }
+  }
+
+  function setEditorCode(textareaId, code) {
+    const ta = el(textareaId);
+    if (ta) ta.value = code == null ? '' : String(code);
+    syncCodeEditor(textareaId);
+  }
+
+  function wireCodeEditor(textareaId, onChange) {
+    const ta = el(textareaId);
+    const codeEl = el(textareaId + '-hl');
+    if (!ta) return;
+    if (codeEl) {
+      const pre = codeEl.parentNode;
+      const syncScroll = () => {
+        if (pre) {
+          pre.scrollTop = ta.scrollTop;
+          pre.scrollLeft = ta.scrollLeft;
+        }
+      };
+      ta.addEventListener('input', () => {
+        syncCodeEditor(textareaId);
+        if (onChange) onChange();
+      });
+      ta.addEventListener('scroll', syncScroll);
+      ta.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Tab' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+          ev.preventDefault();
+          const start = ta.selectionStart || 0;
+          const end = ta.selectionEnd || 0;
+          if (typeof ta.setRangeText === 'function') {
+            ta.setRangeText('  ', start, end, 'end');
+          } else {
+            ta.value = ta.value.slice(0, start) + '  ' + ta.value.slice(end);
+            ta.selectionStart = ta.selectionEnd = start + 2;
+          }
+          syncCodeEditor(textareaId);
+          if (onChange) onChange();
+        }
+      });
+      syncCodeEditor(textareaId);
+    }
+  }
+
   function setStatus(id, msg, kind) {
     const node = el(id);
     if (!node) return;
@@ -159,7 +680,8 @@
     });
     if (activeTab === 'installed') renderInstalled();
     if (activeTab === 'marketplace' && !mktItems.length && !mktLoading) refreshMarketplace();
-    if (activeTab === 'publish') checkServerHealth();
+    if (activeTab === 'import') syncCodeEditor('ext-imp-code');
+    if (activeTab === 'publish') { syncCodeEditor('ext-pub-code'); checkServerHealth(); }
   }
 
   function isAutoUpdateEnabled() {
@@ -303,7 +825,7 @@
         editBtn.className = 'btn small';
         editBtn.textContent = 'Edit';
         editBtn.addEventListener('click', () => {
-          if (el('ext-imp-code')) el('ext-imp-code').value = item.code;
+          setEditorCode('ext-imp-code', item.code);
           if (el('ext-imp-url') && item.sourceUrl) el('ext-imp-url').value = item.sourceUrl;
           setStatus('ext-imp-status', 'Loaded "' + item.id + '" into editor. Click Install after editing.', '');
           setTab('import');
@@ -821,7 +1343,7 @@
     if (el('ext-pub-author')) el('ext-pub-author').value = m.author || ex.author || 'Community';
     if (el('ext-pub-cat')) el('ext-pub-cat').value = m.category || ex.category || 'CNC Utility';
     if (el('ext-pub-desc')) el('ext-pub-desc').value = m.description || m.title || ex.description || '';
-    if (code != null && el('ext-pub-code')) el('ext-pub-code').value = code;
+    if (code != null) setEditorCode('ext-pub-code', code);
   }
 
   function readPublishForm() {
@@ -1056,7 +1578,7 @@
     if (tab === 'publish' && payload) {
       fillPublishForm(payload.meta || payload, payload.code);
     } else if (tab === 'import' && payload && payload.code) {
-      if (el('ext-imp-code')) el('ext-imp-code').value = payload.code;
+      setEditorCode('ext-imp-code', payload.code);
       setTab('import');
       validateImportEditor();
       return;
@@ -1160,7 +1682,7 @@
         if (!f) return;
         const reader = new FileReader();
         reader.onload = () => {
-          if (el('ext-imp-code')) el('ext-imp-code').value = String(reader.result || '');
+          setEditorCode('ext-imp-code', String(reader.result || ''));
           validateImportEditor();
         };
         reader.readAsText(f);
@@ -1176,12 +1698,14 @@
         const res = await fetch(url, { cache: 'no-cache' });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const text = await res.text();
-        if (el('ext-imp-code')) el('ext-imp-code').value = text;
+        setEditorCode('ext-imp-code', text);
         validateImportEditor();
       } catch (err) {
         setStatus('ext-imp-status', 'Fetch failed: ' + String(err && err.message || err), 'err');
       }
     });
+    wireCodeEditor('ext-imp-code');
+    wireCodeEditor('ext-pub-code');
     const impVal = el('ext-imp-validate');
     if (impVal) impVal.addEventListener('click', validateImportEditor);
     const impTest = el('ext-imp-test');

@@ -45,6 +45,7 @@
         <div class="help-nav-group">
           <div class="nav-sub">Part &amp; Mesin</div>
           <a href="tools.html" class="help-nav-item nav-sub-item">Tools — Generator Parametrik<span class="nav-kbd">13 Alat</span></a>
+          <a href="extensions.html" class="help-nav-item nav-sub-item">Extensions — Ekstensi &amp; Marketplace</a>
           <a href="parts.html" class="help-nav-item nav-sub-item">Parts — Part &amp; Assembly<span class="nav-kbd">Alt+T</span></a>
           <a href="karyacnc.html" class="help-nav-item nav-sub-item">KaryaCNC — Kirim ke Mesin<span class="nav-kbd">Alt+Q</span></a>
         </div>
@@ -211,9 +212,9 @@
             <tr><td>Google Gemini</td><td>Off</td><td>Centang jika menggunakan Gemini Developer API langsung (menggunakan endpoint resmi Google AI dan menyembunyikan Base URL kustom).</td></tr>
             <tr><td>AI API base URL</td><td>(kosong)</td><td>Endpoint OpenAI-compatible milik Anda, tanpa <code>/chat/completions</code> (diabaikan saat Google Gemini aktif).</td></tr>
             <tr><td>AI API key</td><td>(kosong, password)</td><td>Kunci API Anda. Dikirim ke bridge setiap permintaan dan tidak pernah disimpan di server.</td></tr>
-            <tr><td>AI model</td><td>—</td><td>Tidak ada lagi di Settings: pilih model di <b>panel AI Chat</b> (dropdown di bagian atas; tombol <b>🔄</b> memuat daftar model provider).</td></tr>
-            <tr><td>AI reasoning level</td><td>Off</td><td>Tingkat penalaran model (<code>Off</code> / <code>Low</code> / <code>Normal</code>) untuk model yang mendukung thinking/reasoning.</td></tr>
-            <tr><td>Mode SVG (tanpa tools)</td><td>Off</td><td>Model menghasilkan sketsa sebagai SVG langsung lalu diimpor ke kanvas, tanpa memanggil tool CAD langkah demi langkah.</td></tr>
+            <tr><td>AI model</td><td>(dari dropdown panel)</td><td>Isi nama model di Settings atau pilih langsung di <b>panel AI Chat</b> (dropdown atas; tombol <b>🔄</b> memuat daftar model provider).</td></tr>
+            <tr><td>AI reasoning level</td><td>Normal</td><td>Tingkat penalaran model (<code>Off</code> / <code>Low</code> / <code>Normal</code>) untuk model yang mendukung thinking/reasoning (bisa juga diganti cepat di panel AI Chat).</td></tr>
+            <tr><td>Mode output AI (SVG / Extension)</td><td>Mode: SVG</td><td>Dipilih langsung lewat dropdown di <b>panel AI Chat</b> (<a href="ai.html">Mode: SVG</a> atau <a href="ai.html#mode-extension">Mode: Extension</a>) dan otomatis tersimpan di browser agar tidak reset saat restart.</td></tr>
             <tr><td>AI agent rounds</td><td>4×</td><td>Berapa kali agen boleh looping (emit tool calls &rarr; execute &rarr; verify) sebelum harus memberi jawaban akhir.</td></tr>
           </tbody>
         </table>

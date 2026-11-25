@@ -85,53 +85,17 @@
   function ensureExtPrompt() {
     if (extSystemText) return Promise.resolve(extSystemText);
     if (extLoadPromise) return extLoadPromise;
-    // Load the persona AND the built-in extension sources (as reference
-    // examples) together, so a new tool can be modelled on an existing one
-    // instead of the model starting from scratch every time.
-    extLoadPromise = Promise.all([
-      fetchText(EXT_SYSTEM_URL),
-      loadBuiltinExtensionRefs()
-    ]).then(([txt, refs]) => {
+    // system-prompt-ext.txt already includes a concise canonical skeleton and
+    // complete toolApi() contract, avoiding ~21 KB of duplicate marketplace code
+    // on every Extension Builder turn.
+    extLoadPromise = fetchText(EXT_SYSTEM_URL).then((txt) => {
       extSystemText = String(txt || '').trim();
-      if (refs) extSystemText += '\n\n' + refs;
+      return extSystemText;
+    }).catch(() => {
+      extSystemText = extSystemText || '';
       return extSystemText;
     });
     return extLoadPromise;
-  }
-
-  // Fetch the marketplace catalog + each listed extension's source, and render
-  // them as a "REFERENCE: built-in extensions" block appended to the Extension
-  // Builder system prompt. Cached for the session; a failed fetch degrades to
-  // no references (the model still has the API docs in the persona text).
-  // NOTE: the marketplace lives at the app root (marketplace/), NOT under ai/,
-  // so these URLs must not go through assetUrl (which prepends ai/).
-  let extRefsCache = null;
-  function loadBuiltinExtensionRefs() {
-    if (extRefsCache) return Promise.resolve(extRefsCache);
-    const catUrl = 'marketplace/catalog.json';
-    return fetchJson(catUrl).then(async (cat) => {
-      const list = (cat && Array.isArray(cat.extensions)) ? cat.extensions : [];
-      if (!list.length) { extRefsCache = ''; return ''; }
-      const parts = [];
-      for (const m of list) {
-        if (!m.scriptUrl) continue;
-        try {
-          const src = await fetchText('marketplace/' + String(m.scriptUrl).replace(/^\.?\//, ''));
-          if (src && src.trim()) {
-            parts.push('### ' + (m.name || m.id) + ' (id: ' + m.id + ')' +
-              (m.description ? '\n// ' + m.description : '') +
-              '\n```js\n' + src.trim() + '\n```');
-          }
-        } catch (err) { /* skip an extension that fails to load */ }
-      }
-      extRefsCache = parts.length
-        ? 'REFERENCE — BUILT-IN EXTENSIONS (real, working examples of ' +
-          'window.MiniSketchTools.register({...}). Model new tools on these; ' +
-          'reuse their helpers and patterns instead of inventing from scratch):\n\n' +
-          parts.join('\n\n')
-        : '';
-      return extRefsCache;
-    }).catch(() => { extRefsCache = ''; return ''; });
   }
 
   // Skills live in ai/skills.js as window.MiniSketchAISkills (a plain array).
@@ -177,9 +141,8 @@
 
   // Build THIS turn's system message: base persona + current document state
   // (so the model sees the worksheet) + any active skill recipes + the
-  // available font families (so generated text/addText uses a real font name).
-  // opts.svgMode switches to the SVG-only persona; opts.extMode switches to
-  // the Extension Builder persona.
+  // available font families (only needed in CAD agent mode; extMode uses
+  // api.listFonts() dynamically and SVG import defaults to Liberation Sans).
   function fontFamilies() {
     const F = window.MiniSketchFonts;
     if (!F || typeof F.index !== 'function') return [];
@@ -201,18 +164,17 @@
       sys += '\n\nCURRENT DOCUMENT (world mm, Y-down: +X right, +Y down):\n' +
         JSON.stringify(stateSummary).slice(0, 4000);
     }
-    // Both SVG and Extension Builder modes may emit text: hand the model the
-    // real font family names so addText / <text font-family> use a font that
-    // actually exists in MiniSketch instead of an invented one.
-    const fams = fontFamilies();
-    if (fams.length) {
-      sys += '\n\nAVAILABLE FONTS (use one of these exact family names for text):\n' +
-        fams.join(', ');
-    }
-    const active = skillsFor(messages, requestedSkills);
-    if (active.length && !svgMode && !extMode) {
-      sys += '\n\n' + active.map(s =>
-        '=== ACTIVE SKILL: ' + s.name + ' ===\n' + s.body).join('\n\n');
+    if (!svgMode && !extMode) {
+      const fams = fontFamilies();
+      if (fams.length) {
+        sys += '\n\nAVAILABLE FONTS (use one of these exact family names for add_text):\n' +
+          fams.join(', ');
+      }
+      const active = skillsFor(messages, requestedSkills);
+      if (active.length) {
+        sys += '\n\n' + active.map(s =>
+          '=== ACTIVE SKILL: ' + s.name + ' ===\n' + s.body).join('\n\n');
+      }
     }
     return { role: 'system', content: sys };
   }

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>AI Chat (Bawa Kunci Sendiri) | Bantuan MiniSketch</title>
+<title>AI Chat (Mode SVG &amp; Extension) | Bantuan MiniSketch</title>
 <link rel="stylesheet" href="help.css">
 </head>
 <body>
@@ -14,8 +14,8 @@
     <div class="help-brand">
       <div class="help-mark">M</div>
       <div>
-        <div class="help-title">AI Chat (Bawa Kunci Sendiri)</div>
-        <div class="help-subtitle">Panel chat AI, bridge URL, API key, model, dan putaran agen</div>
+        <div class="help-title">AI Chat (Mode SVG &amp; Extension Builder)</div>
+        <div class="help-subtitle">Desain vektor SVG otomatis, buat alat CNC custom (Extension), uji langsung, Vision-to-sketch, dan riwayat sesi</div>
       </div>
     </div>
     <div class="help-spacer"></div>
@@ -45,6 +45,7 @@
         <div class="help-nav-group">
           <div class="nav-sub">Part &amp; Mesin</div>
           <a href="tools.html" class="help-nav-item nav-sub-item">Tools — Generator Parametrik<span class="nav-kbd">13 Alat</span></a>
+          <a href="extensions.html" class="help-nav-item nav-sub-item">Extensions — Ekstensi &amp; Marketplace</a>
           <a href="parts.html" class="help-nav-item nav-sub-item">Parts — Part &amp; Assembly<span class="nav-kbd">Alt+T</span></a>
           <a href="karyacnc.html" class="help-nav-item nav-sub-item">KaryaCNC — Kirim ke Mesin<span class="nav-kbd">Alt+Q</span></a>
         </div>
@@ -71,51 +72,92 @@
 
     <main class="help-content">
       <div class="help-page">
-        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> AI Chat (Bawa Kunci Sendiri)</div>
+        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> AI Chat (Mode SVG &amp; Extension)</div>
 
         <h1>Panel AI Chat</h1>
-        <p class="help-lead">Panel AI Chat ada di sidebar kanan. Memerlukan server AI bridge dan kunci API Anda sendiri (bring-your-own-key). Tidak ada kunci API yang dikirim bersama repositori.</p>
+        <p class="help-lead">Panel <b>AI Chat</b> ada di bagian atas sidebar kanan dengan dua mode utama: <b>Mode: SVG</b> untuk membuat desain vektor siap potong/engrave, dan <b>Mode: Extension</b> untuk membangun alat generator CNC parametrik baru secara instan. Berjalan dengan konsep <i>bring-your-own-key</i> (BYOK) melalui bridge lokal — tidak ada kunci API yang disimpan di repositori.</p>
 
         <div class="screenshot">
-          <img src="img/screenshots/panel-ai.png" alt="Panel AI Chat di sidebar">
-          <figcaption>Panel AI Chat di sidebar kanan: tab Chat/Log, tombol New, log percakapan, kolom perintah (mis. "kotak 100x60 di 0,0…"), dan tombol Kirim.</figcaption>
+          <img src="img/screenshots/panel-ai-extension.png" alt="Panel AI Chat terbaru dengan Mode Extension dan Panel Testing Extension permanen">
+          <figcaption>Panel AI Chat terbaru: tab <b>Chat / History</b>, pemilih <b>Model</b> + tombol <b>🔄</b> + <b>Reasoning level</b> (<code>Normal</code>), pemilih <b>Mode: SVG / Extension</b> + <b>New Session</b>, tombol <b>Fork</b> di bawah prompt pertama, <b>Panel Testing Extension permanen</b> tepat di atas kotak prompt (<code>Test Run</code>, <code>Install</code>, <code>Edit…</code>, <code>Publish…</code>, <code>Download .js</code>, <code>Copy</code>, <code>View source</code>), serta lampiran gambar (<b>🖼</b>) dan <b>Send</b>.</figcaption>
         </div>
 
-        <h2>1. Mengaktifkan AI chat</h2>
+        <h2>1. Mengaktifkan AI Chat</h2>
         <ol>
-          <li>Jalankan server MiniSketch: <code>node server/serve.js</code> (http://localhost:8090).</li>
-          <li>Buka <b>Settings ▸ AI chat</b> dan isi:
+          <li>Jalankan server MiniSketch: <code>node server/serve.js</code> lalu buka <code>http://127.0.0.1:8090</code>.</li>
+          <li>Buka <b>Tool ▸ Settings ▸ AI chat</b> dan atur:
             <ul>
-              <li><b>AI bridge URL</b> — kosongkan jika diakses lewat server yang melayani MiniSketch (butuh HTTP, bukan <code>file://</code>), atau isi mis. <code>http://127.0.0.1:8090</code>.</li>
-              <li><b>Google Gemini</b> — centang bila memakai kunci Google Gemini API; biarkan kosong jika memakai endpoint OpenAI-compatible kustom di kolom <b>AI API base URL</b>.</li>
-              <li><b>AI API key</b> — kunci API Anda sendiri.</li>
-              <li><b>AI model</b> — bukan di Settings: pilih langsung dari <b>dropdown model di panel AI Chat</b> (klik <b>&#128260;</b> untuk memuat daftar model provider).</li>
-              <li><b>AI reasoning level</b> — pilih <code>Off</code>, <code>Low</code>, atau <code>Normal</code> untuk model yang mendukung penalaran.</li>
-              <li><b>Mode SVG (tanpa tools)</b> — jika aktif, AI menghasilkan SVG mentah yang langsung diimpor ke kanvas daripada memanggil alat gambar satu per satu.</li>
-              <li><b>AI agent rounds</b> — berapa kali agen boleh looping sebelum jawaban akhir (default 4×).</li>
+              <li><b>AI bridge URL</b> — kosongkan jika diakses lewat server MiniSketch sendiri, atau isi mis. <code>http://127.0.0.1:8090</code>.</li>
+              <li><b>Google Gemini</b> — centang bila memakai kunci Google Gemini API (Base URL otomatis mengarah ke endpoint resmi Gemini); matikan jika memakai endpoint OpenAI-compatible kustom (DeepSeek, z.ai, Ollama, dll.) di kolom <b>AI API base URL</b>.</li>
+              <li><b>AI API key</b> — kunci API Anda sendiri (klik tombol uji koneksi di Settings untuk memeriksa).</li>
+              <li><b>AI reasoning level</b> — pilih <code>Off</code> (tercepat/hemat), <code>Low</code>, atau <code>Normal</code> (paling teliti). Dapat diganti cepat langsung dari dropdown di panel AI Chat.</li>
+              <li><b>AI agent rounds</b> — batas maksimum putaran agen per permintaan (default <code>4×</code>).</li>
             </ul>
           </li>
           <li>Klik <b>Apply</b> di Settings.</li>
-          <li>Buka panel <b>AI Chat</b> di sidebar kanan: pilih model atau klik <b>&#128260;</b> untuk memuat daftar model, gunakan <b>&#128444;</b> (atau paste/seret gambar) untuk <b>Vision-to-sketch</b>, ketik perintah, lalu klik <b>Kirim</b>. Tombol <b>Fork</b> menyalin percakapan ke cabang baru, dan <b>Stop</b> menghentikan respons yang sedang berjalan.</li>
+          <li>Di panel <b>AI Chat</b>, pilih model lewat dropdown model (klik <b>🔄</b> bila daftar belum muncul), pilih mode output (<b>Mode: SVG</b> atau <b>Mode: Extension</b> — pilihan ini <b>otomatis tersimpan</b> di browser walau browser ditutup), ketik perintah, lalu klik <b>Send</b>. Saat respons berjalan, tombol berubah menjadi <b>■ Stop</b> untuk membatalkan kapan saja.</li>
         </ol>
 
-        <div class="callout warn"><b>Keamanan:</b> kunci API dikirim ke bridge dengan setiap permintaan dan tidak pernah disimpan oleh bridge (dilupakan saat berhenti). Kunci yang dibakar ke dalam source code bocor bersama source — tidak ada kunci di sini, Anda menyetel sendiri. CORS adalah allowlist (local file, localhost, LAN) sehingga halaman web acak tidak bisa mencuri kunci Anda.</div>
+        <div class="callout warn"><b>Keamanan:</b> kunci API Anda dikirim hanya saat request ke bridge dan tidak pernah disimpan permanen di server maupun repositori. CORS bridge memakai allowlist (file lokal, localhost, LAN) agar situs eksternal tidak bisa mengakses bridge lokal Anda.</div>
 
-        <h2>2. Mode offline</h2>
-        <p>Jika tidak ada server sama sekali, tab chat kembali ke <b>mode offline</b>: mem-parsing perintah sederhana Bahasa Indonesia / Inggris langsung, tanpa LLM yang diperlukan.</p>
+        <h2>2. Dua Mode Output AI Chat</h2>
+        <p>Gunakan dropdown <b>Mode</b> tepat di bawah pemilih model untuk berpindah antara dua alur kerja berikut. Pilihan mode tersimpan otomatis di <code>localStorage</code> sehingga tetap sama saat browser dibuka ulang.</p>
 
-        <h2>3. Contoh perintah</h2>
+        <h3 id="mode-svg">A. Mode: SVG (Desain Vektor ke Kanvas)</h3>
+        <p>Cocok untuk membuat gambar, ornamen, papan nama, pola kotak, stensil, atau komponen 2D berukuran milimeter nyata.</p>
         <ul>
-          <li><code>kotak 100x60 di 0,0</code> — buat kotak 100×60 mm di koordinat 0,0.</li>
-          <li><code>lingkaran diameter 50 di tengah</code> — buat lingkaran di tengah kanvas.</li>
-          <li>Perintah lain sesuai dukungan parser offline atau model AI yang dikonfigurasi.</li>
+          <li>AI menghasilkan kode <code>&lt;svg&gt;</code> dengan koordinat milimeter (1:1 terhadap kanvas) dan kode warna operasi CNC resmi: <b>Hitam</b> (<code>#000000</code> Cut), <b>Biru</b> (<code>#0000ff</code> Engrave), <b>Merah</b> (<code>#ff0000</code> Mark/Drill/Gores), <b>Cyan</b> (<code>#00ffff</code> V-Carve), <b>Ungu</b> (<code>#800080</code> Pocket), dan <b>Hijau</b> (<code>#00ff00</code> Construction).</li>
+          <li>Di bawah balasan AI langsung tampil <b>pratinjau visual SVG</b> (klik gambar untuk memperbesar) bersama dua tombol:
+            <ul>
+              <li><b>Insert to workspace</b> — mengimpor SVG langsung ke kanvas dalam satu langkah Undo (<kbd>Ctrl+Z</kbd>), ditempatkan rapi di sisi <b>kanan atas konten yang sudah ada (+20 mm)</b> agar tidak menumpuk gambar lama. Teks SVG otomatis menjadi objek Teks yang masih bisa diedit.</li>
+              <li><b>Copy SVG</b> — menyalin kode mentah <code>&lt;svg&gt;</code> ke clipboard.</li>
+            </ul>
+          </li>
         </ul>
 
-        <div class="callout info"><b>Geometri di worksheet tidak disentuh</b> oleh operasi chat kecuali agen AI secara spesifik meminta perubahan dan Anda menyetujui.</div>
+        <h3 id="mode-extension">B. Mode: Extension (AI Extension Builder &amp; Panel Testing)</h3>
+        <p>Cocok saat Anda ingin membuat <b>alat/generator parametrik baru</b> yang bisa dipakai berulang kali (seperti pembuat gantungan kunci, coaster berpola, rak custom, atau pembungkus objek terpilih) tanpa harus menulis kode secara manual.</p>
+        <ul>
+          <li>AI menghasilkan satu skrip JavaScript tervalidasi untuk <code>window.MiniSketchTools.register({...})</code> lengkap dengan dialog input parameter, ikon SVG, serta dukungan grup parametrik dan Undo.</li>
+          <li>Di dalam satu sesi chat, hanya ada <b>satu Panel Testing Extension permanen</b> yang terpasang tetap <b>tepat di atas kotak teks prompt</b> (tidak ikut ter-scroll saat Anda membaca percakapan panjang). Panel ini selalu menampilkan ekstensi terbaru hasil generasi AI pada sesi tersebut, sedangkan balasan chat lama diberi penanda singkat agar riwayat tetap rapi.</li>
+        </ul>
+
+        <table class="kb">
+          <thead>
+            <tr><th style="width:24%">Bagian Panel Testing</th><th>Kegunaan</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><b>Status Validasi</b></td><td>Menampilkan apakah sintaks JS, kontrak API, keamanan ikon SVG, dan ID elemen dialog sudah valid (hijau <i>Ready</i> atau merah <i>Invalid</i>).</td></tr>
+            <tr><td><b>Test Run</b></td><td>Memuat ekstensi <b>sementara</b> (belum disimpan permanen) dan langsung membuka dialog parameternya agar Anda bisa langsung menguji hasil potongannya di kanvas.</td></tr>
+            <tr><td><b>Install</b></td><td>Menyimpan ekstensi secara permanen ke browser dan menambahkan tombolnya ke <a href="extensions.html">Panel Extensions</a> di sidebar kanan.</td></tr>
+            <tr><td><b>Edit…</b></td><td>Membuka kode sumber ekstensi ke editor <b>Add / Import</b> milik Extension Manager yang sudah dilengkapi pewarnaan sintaks HTML, JS, dan CSS.</td></tr>
+            <tr><td><b>Publish…</b></td><td>Membuka tab <b>Publish</b> untuk mengunggah ekstensi ke MiniSketch Server atau GitHub Marketplace.</td></tr>
+            <tr><td><b>Download .js / Copy</b></td><td>Mengunduh skrip ekstensi sebagai file <code>.js</code> atau menyalinnya ke clipboard.</td></tr>
+            <tr><td><b>Minta AI Perbaiki</b></td><td>Muncul otomatis bila kode gagal validasi; satu klik langsung mengirim daftar error ke AI untuk diperbaiki. (Jika error muncul saat <i>Test Run</i> di kanvas, tombol <b>Fix with AI</b> juga otomatis muncul di dialog alat tersebut.)</td></tr>
+            <tr><td><b>▸ View source</b></td><td>Lipatan pratinjau kode lengkap dengan pewarnaan sintaks (<i>syntax highlighting</i>) untuk memeriksa detail implementasi tanpa keluar dari chat.</td></tr>
+          </tbody>
+        </table>
+
+        <h2>3. Riwayat Sesi, Fork &amp; Vision-to-Sketch</h2>
+        <ul>
+          <li><b>Tab Chat &amp; History:</b> sesi berjalan tersimpan otomatis di browser (IndexedDB, termasuk gambar lampiran). Klik <b>New Session</b> untuk memulai percakapan baru sambil memindahkan sesi saat ini ke tab <b>History</b> agar bisa dibuka kembali atau dihapus kapan saja.</li>
+          <li><b>Tombol Fork:</b> muncul tepat di bawah pesan pertama Anda. Klik <b>Fork</b> untuk menyalin prompt pertama (teks beserta gambar terlampir) ke sesi baru — sangat berguna setelah mengganti model AI agar Anda bisa membandingkan hasil antar-model.</li>
+          <li><b>Vision-to-sketch (Lampirkan Gambar):</b> klik ikon <b>🖼</b>, seret file gambar ke kotak input chat, atau tempel tangkapan layar (<kbd>Ctrl+V</kbd> saat kursor berada di dalam kotak ketik chat) untuk meminta AI meniru atau merancang sketsa/ekstensi berdasarkan referensi gambar. (Paste gambar saat kursor di luar panel chat tetap membuka Image Trace kanvas seperti biasa.)</li>
+        </ul>
+
+        <h2>4. Mode Offline &amp; Contoh Perintah</h2>
+        <p>Jika tidak ada bridge server atau koneksi API, tab chat tetap berjalan dalam <b>mode offline</b> dengan parser perintah sederhana Bahasa Indonesia / Inggris tanpa LLM:</p>
+        <ul>
+          <li><b>Perintah offline:</b> <code>kotak 100x60 di 0,0</code>, <code>lingkaran d50</code>, <code>pindah 10,0</code>, <code>hapus</code>.</li>
+          <li><b>Contoh Mode: SVG:</b> <i>"buatkan gantungan nama ukuran 80x30mm sudut membulat dengan lubang diameter 4mm di kiri dan teks KOPI biru engrave di tengah"</i>.</li>
+          <li><b>Contoh Mode: Extension:</b> <i>"buatkan tools untuk menjadikan objek terpilih gantungan kunci, parameter diameter lubang dan offset luar, objek asli jadi biru engrave dan base luar hitam cut"</i>.</li>
+        </ul>
+
+        <div class="callout info"><b>Geometri kanvas aman:</b> di Mode: SVG maupun Mode: Extension, desain pada kanvas tidak berubah sebelum Anda mengklik <b>Insert to workspace</b>, <b>Test Run</b>, atau tombol <b>Create</b> pada dialog alat.</div>
 
         <div class="help-footer">
-          <span>AI Chat (Bawa Kunci Sendiri)</span>
-          <span>Sebelumnya: <a href="shortcuts.html">Pintasan Keyboard Lengkap</a></span>
+          <span>AI Chat (Mode SVG &amp; Extension Builder)</span>
+          <span>Sebelumnya: <a href="shortcuts.html">Pintasan Keyboard Lengkap</a> &nbsp;•&nbsp; Lihat juga: <a href="extensions.html">Panel Extensions &amp; Marketplace</a></span>
         </div>
       </div>
     </main>

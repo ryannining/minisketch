@@ -19,8 +19,14 @@
   NS.mode = 'chat';
   let api = null;
 
+  const BUILDER_MODE_KEY = 'minisketch.chat.builderMode';
+  const lsGet = (k) => { try { return localStorage.getItem(k); } catch (err) { return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (err) { /* private mode */ } };
+  const lsDel = (k) => { try { localStorage.removeItem(k); } catch (err) { /* ignore */ } };
+
   // Mode default = 'svg' (vector output) or 'ext' (AI Extension Builder).
-  NS.builderMode = 'svg';
+  // Disimpan di localStorage agar pilihan mode bertahan saat browser dibuka ulang.
+  NS.builderMode = lsGet(BUILDER_MODE_KEY) === 'ext' ? 'ext' : 'svg';
   NS.svgMode = () => NS.builderMode !== 'ext';
 
   function isLocalApiUrl(base) {
@@ -297,9 +303,6 @@
   const META = 'meta';
   const CURRENT_ID_KEY = 'minisketch.chat.currentId';
   const LEGACY_CHAT_KEY = 'minisketch.chat.v1';   // v0 localStorage record, migrated once
-  const lsGet = (k) => { try { return localStorage.getItem(k); } catch (err) { return null; } };
-  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (err) { /* private mode */ } };
-  const lsDel = (k) => { try { localStorage.removeItem(k); } catch (err) { /* ignore */ } };
   let _db = null;
   const dbOpen = () => new Promise((resolve, reject) => {
     if (_db) return resolve(_db);
@@ -1511,8 +1514,10 @@
   function setChatInputVisible(on) {
     const row = document.getElementById('chat-input-row');
     const tray = document.getElementById('chat-pending');
+    const dock = document.getElementById('chat-ext-dock');
     if (row) row.hidden = !on;
     if (tray) tray.hidden = !on || !(NS.pendingImages && NS.pendingImages.length);
+    if (!on && dock) dock.hidden = true;
     // Chat-only chrome: model row and the mode combo + New Session bar. The
     // History tab is purely the archived-session list, so these are hidden
     // there (the input row above already hides textarea + attach + Send).
@@ -1597,6 +1602,78 @@
     }, 100);
   }
 
+  function getExtDock() {
+    let dock = document.getElementById('chat-ext-dock');
+    if (dock) return dock;
+    const row = document.getElementById('chat-input-row');
+    if (row && row.parentNode && typeof row.parentNode.insertBefore === 'function') {
+      dock = document.createElement('div');
+      dock.id = 'chat-ext-dock';
+      dock.className = 'chat-ext-dock';
+      dock.hidden = true;
+      const tray = document.getElementById('chat-pending');
+      const anchor = (tray && tray.parentNode === row.parentNode) ? tray : row;
+      row.parentNode.insertBefore(dock, anchor);
+      return dock;
+    }
+    return null;
+  }
+
+  function findLatestExtEntry(items) {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const m = items[i];
+      if (m && m.role === 'ai') {
+        const code = extractExtensionCode(m.text);
+        if (code) return { msg: m, code };
+      }
+    }
+    return null;
+  }
+
+  function renderExtDock(items) {
+    const dock = getExtDock();
+    if (!dock) return;
+    const latest = findLatestExtEntry(items || []);
+    if (!latest) {
+      dock.innerHTML = '';
+      dock.hidden = true;
+      dock._dockSig = '';
+      return;
+    }
+    dock.hidden = false;
+    const sig = latest.code + '::' + (NS.activeAbort ? 1 : 0);
+    if (dock._dockSig === sig && dock.children && dock.children.length) return;
+    dock.innerHTML = '';
+    appendExtensionBlock(dock, latest.msg);
+    dock._dockSig = sig;
+  }
+
+  function formatMessageHtml(m, isLatestExt) {
+    const who = m.role === 'user' ? '<b>you</b>' : m.role === 'ai' ? '<b>ai</b>' : '<b class="muted">sys</b>';
+    const body = String(m.text == null ? '' : m.text);
+    let html;
+    if (m.role === 'ai' && extractExtensionCode(body)) {
+      const hasReg = (s) =>
+        /(?:MiniSketchTools|NS)\s*\.\s*register\s*\(/.test(s) ||
+        (/\bMiniSketchTools\b/.test(s) && /\.register\s*\(/.test(s));
+      const hadFence = /```(?:js|javascript|ts)?\s*\n[\s\S]*?```/i.test(body);
+      let stripped = hadFence
+        ? body.replace(/```(?:js|javascript|ts)?\s*\n([\s\S]*?)```/gi, (full, inner) => (hasReg(inner) ? '' : full))
+        : '';
+      stripped = stripped.replace(/\n{3,}/g, '\n\n').trim();
+      const note = isLatestExt
+        ? '<span class="muted">[Kode ekstensi terbaru ditampilkan di panel testing di bawah]</span>'
+        : '<span class="muted">[Kode ekstensi versi sebelumnya]</span>';
+      html = who + (stripped ? (' ' + escapeHtml(stripped).replace(/\n/g, '<br>') + '<br>' + note) : (' ' + note));
+    } else {
+      html = who + ' ' + escapeHtml(body).replace(/\n/g, '<br>');
+    }
+    if (m.ops && m.ops.length) {
+      html += '<br><span class="muted">' + m.ops.map(o => escapeHtml(o.name)).join(', ') + '</span>';
+    }
+    return html;
+  }
+
   function renderLog() {
     const host = document.getElementById('chat-log');
     const count = document.getElementById('chat-count');
@@ -1635,23 +1712,21 @@
     }
     host.innerHTML = '';
     const items = NS.log.filter(m => m.role !== 'sys');
+    renderExtDock(items);
     if (!items.length) {
       const li = document.createElement('li');
       li.innerHTML = '<span class="muted">Ask or describe something… e.g. "100x60 box at 0,0", "4x d5 holes in the corners", "build a 120x80x60 box tool".</span>';
       host.appendChild(li);
       return;
     }
+    const latestExt = findLatestExtEntry(items);
     const fmtTok = (n) => n >= 1000 ? (Math.round(n / 100) / 10) + 'k' : String(n);
     // The Fork button (copy the first prompt to a new session) sits right under
     // the FIRST user turn, per the requested layout — it is about that turn.
     let forkPlaced = false;
     for (const m of items.slice(-60)) {
       const li = document.createElement('li');
-      const who = m.role === 'user' ? '<b>you</b>' : m.role === 'ai' ? '<b>ai</b>' : '<b class="muted">sys</b>';
-      let html = who + ' ' + escapeHtml(m.text).replace(/\n/g, '<br>');
-      if (m.ops && m.ops.length) {
-        html += '<br><span class="muted">' + m.ops.map(o => escapeHtml(o.name)).join(', ') + '</span>';
-      }
+      const html = formatMessageHtml(m, !!(latestExt && latestExt.msg === m));
       const textSpan = document.createElement('span');
       textSpan.innerHTML = html;
       li.appendChild(textSpan);
@@ -1674,8 +1749,6 @@
       appendImageThumbs(li, m);
       // Render SVG preview + Insert/Copy whenever an AI reply contains <svg>
       if (m.role === 'ai' && !extractExtensionCode(m.text) && (NS.svgMode() || /<svg[\s\S]*?<\/svg>/i.test(m.text))) appendSvgBlock(li, m);
-      // Render AI Extension Builder actions when reply contains MiniSketchTools.register(...)
-      if (m.role === 'ai' && extractExtensionCode(m.text)) appendExtensionBlock(li, m);
       if (m.thinking) {
         NS.thinkClosed = NS.thinkClosed || new WeakSet();
         const det = document.createElement('details');
@@ -2053,8 +2126,7 @@
       fixBtn.title = 'Send the validation errors to AI Extension Builder so the code gets fixed';
       fixBtn.addEventListener('click', () => {
         if (NS.activeAbort) return;
-        const bExt = document.getElementById('chat-builder-ext');
-        if (bExt && NS.builderMode !== 'ext') bExt.click();
+        if (typeof NS.setBuilderMode === 'function') NS.setBuilderMode('ext');
         else NS.builderMode = 'ext';
         const prompt =
           'Kode ekstensi sebelumnya gagal validasi:\n- ' +
@@ -2169,7 +2241,11 @@
     sum.textContent = 'View source (' + code.split('\n').length + ' lines)';
     const pre = document.createElement('pre');
     const codeEl = document.createElement('code');
-    codeEl.textContent = code;
+    if (window.MiniSketchExtensions && typeof window.MiniSketchExtensions.highlightCode === 'function') {
+      codeEl.innerHTML = window.MiniSketchExtensions.highlightCode(code);
+    } else {
+      codeEl.textContent = code;
+    }
     pre.appendChild(codeEl);
     det.appendChild(sum);
     det.appendChild(pre);
@@ -2227,6 +2303,7 @@
     const modeSel = document.getElementById('chat-builder-mode');
     const setBuilderMode = (mode) => {
       NS.builderMode = mode === 'ext' ? 'ext' : 'svg';
+      lsSet(BUILDER_MODE_KEY, NS.builderMode);
       if (modeSel) {
         modeSel.value = NS.builderMode === 'ext' ? 'ext' : 'svg';
       }
@@ -2237,7 +2314,10 @@
           : 'Describe a vector image… (Shift+Enter for a new line)';
       }
     };
+    NS.setBuilderMode = setBuilderMode;
     if (modeSel) modeSel.addEventListener('change', () => setBuilderMode(modeSel.value));
+    const savedMode = lsGet(BUILDER_MODE_KEY);
+    if (savedMode === 'ext' || savedMode === 'svg') NS.builderMode = savedMode;
     setBuilderMode(NS.builderMode);
     // Pemilih model di panel chat: 🔄 memuat daftar dari provider aktif,
     // pilih -> tersimpan ke settings (judul panel ikut terupdate).

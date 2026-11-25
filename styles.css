@@ -47,6 +47,17 @@
   --toast-bg: #e6ebf2;
   --toast-ink: #0f1319;
   --loop-dot: #4ade80;
+  --hl-kw: #c792ea;
+  --hl-str: #a5e075;
+  --hl-num: #f78c6c;
+  --hl-com: #6c7a8d;
+  --hl-fn: #82aaff;
+  --hl-api: #56d4dd;
+  --hl-tag: #ff7b72;
+  --hl-attr: #ffcb6b;
+  --hl-hex: #7dd3fc;
+  --hl-punct: #8896ab;
+  --hl-sel: rgba(79, 140, 255, 0.30);
 }
 
 :root[data-theme="light"] {
@@ -89,6 +100,17 @@
   --toast-bg: #111827;
   --toast-ink: #ffffff;
   --loop-dot: #16a34a;
+  --hl-kw: #7c3aed;
+  --hl-str: #15803d;
+  --hl-num: #c2410c;
+  --hl-com: #6b7280;
+  --hl-fn: #2563eb;
+  --hl-api: #0f766e;
+  --hl-tag: #be123c;
+  --hl-attr: #b45309;
+  --hl-hex: #0369a1;
+  --hl-punct: #64748b;
+  --hl-sel: rgba(37, 99, 235, 0.22);
 }
 
 
@@ -4044,6 +4066,18 @@ details.chat-ext-code pre {
   line-height: 1.4;
   white-space: pre;
 }
+.chat-ext-dock {
+  margin-top: 6px;
+  flex: 0 0 auto;
+}
+.chat-ext-dock[hidden] { display: none; }
+.chat-ext-dock .chat-ext {
+  margin-top: 0;
+  border-color: var(--line-strong, var(--line));
+}
+.chat-ext-dock details.chat-ext-code pre {
+  max-height: 150px;
+}
 
 .ext-panel-foot {
   margin-top: 6px;
@@ -4255,23 +4289,106 @@ details.chat-ext-code pre {
 }
 .ext-empty.is-err { color: #dc2626; }
 
-.ext-code {
+.ext-code-wrap {
+  position: relative;
   width: 100%;
-  min-height: 210px;
-  resize: vertical;
-  box-sizing: border-box;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.45;
-  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--input, var(--bg));
-  color: var(--ink);
+  overflow: hidden;
 }
+.ext-code-wrap:focus-within {
+  border-color: var(--accent);
+}
+.ext-code-hl,
+.ext-code {
+  margin: 0;
+  padding: 8px 10px;
+  width: 100%;
+  min-height: 210px;
+  box-sizing: border-box;
+  border: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  letter-spacing: 0;
+  tab-size: 2;
+  font-variant-ligatures: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  overflow-y: scroll;
+  overflow-x: hidden;
+}
+.ext-code-wrap-sm .ext-code-hl,
 .ext-code-sm {
   min-height: 120px;
 }
+.ext-code-hl {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: transparent;
+  color: var(--ink);
+  scrollbar-color: transparent transparent;
+}
+.ext-code-hl::-webkit-scrollbar,
+.ext-code::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.ext-code-hl::-webkit-scrollbar-thumb,
+.ext-code-hl::-webkit-scrollbar-track {
+  background: transparent;
+}
+.ext-code::-webkit-scrollbar-track {
+  background: transparent;
+}
+.ext-code::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 6px;
+}
+.ext-code-hl code {
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  display: block;
+}
+.ext-code {
+  position: relative;
+  z-index: 2;
+  display: block;
+  resize: vertical;
+  background: transparent;
+  color: var(--ink);
+  outline: none;
+}
+.ext-code-wrap.is-hl .ext-code {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: var(--ink);
+}
+.ext-code-wrap.is-hl .ext-code::placeholder {
+  color: var(--faint);
+  -webkit-text-fill-color: var(--faint);
+  opacity: 1;
+}
+.ext-code-wrap.is-hl .ext-code::selection {
+  background: var(--hl-sel);
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+.ext-code-hl .hl-kw, details.chat-ext-code .hl-kw { color: var(--hl-kw); }
+.ext-code-hl .hl-str, details.chat-ext-code .hl-str { color: var(--hl-str); }
+.ext-code-hl .hl-num, details.chat-ext-code .hl-num { color: var(--hl-num); }
+.ext-code-hl .hl-com, details.chat-ext-code .hl-com { color: var(--hl-com); }
+.ext-code-hl .hl-fn, details.chat-ext-code .hl-fn { color: var(--hl-fn); }
+.ext-code-hl .hl-api, details.chat-ext-code .hl-api { color: var(--hl-api); }
+.ext-code-hl .hl-tag, details.chat-ext-code .hl-tag { color: var(--hl-tag); }
+.ext-code-hl .hl-attr, details.chat-ext-code .hl-attr { color: var(--hl-attr); }
+.ext-code-hl .hl-hex, details.chat-ext-code .hl-hex { color: var(--hl-hex); }
+.ext-code-hl .hl-punct, details.chat-ext-code .hl-punct { color: var(--hl-punct); }
 .ext-code-head {
   display: flex;
   align-items: center;
