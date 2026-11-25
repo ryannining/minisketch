@@ -203,7 +203,7 @@
           <div class="ribbon-page hidden" data-rpage="machine" id="rpage-machine" role="tabpanel" aria-labelledby="rtab-machine">
             <div class="rb-panel">
               <button class="rb-btn" id="qb-cnc" title="Send to KaryaCNC (Alt+Q)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 12v4h14v-4M10 3v10M6.5 9.5 10 13l3.5-3.5" fill="none" stroke="currentColor"/></svg><span>Send&nbsp;CNC</span></button>
-              <button class="rb-btn" id="qb-cost" title="Estimasi biaya jasa cutting (Alt+C)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M12.6 7.4c-.5-.7-1.5-1.1-2.6-1.1-1.5 0-2.6.7-2.6 1.7 0 1 .9 1.4 2.6 1.7 1.9.3 2.8.8 2.8 1.9 0 1.1-1.2 1.8-2.8 1.8-1.2 0-2.2-.4-2.7-1.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M10 4.7v10.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><span>Biaya</span></button>
+              <button class="rb-btn" id="qb-cost" title="Estimasi biaya jasa cutting (Alt+C)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M12.6 7.4c-.5-.7-1.5-1.1-2.6-1.1-1.5 0-2.6.7-2.6 1.7 0 1 .9 1.4 2.6 1.7 1.9.3 2.8.8 2.8 1.9 0 1.1-1.2 1.8-2.8 1.8-1.2 0-2.2-.4-2.7-1.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M10 4.7v10.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><span>Cost</span></button>
             </div>
           </div>
         </div>
@@ -357,37 +357,27 @@
           <div class="row tab-bar" style="margin-bottom:6px">
             <button class="btn small is-on" data-chat-tab="chat">Chat</button>
             <button class="btn small" data-chat-tab="log">Log</button>
-            <button class="btn small" id="chat-new" title="Pindahkan percakapan ini ke LOG dan mulai chat baru (geometri di worksheet tidak disentuh)">New</button>
+            <button class="btn small" id="chat-new" title="Move this conversation to LOG and start a new chat (the worksheet geometry is untouched)">New</button>
           </div>
           <div class="row chat-model-row">
-            <span class="muted">Model</span>
-            <select id="chat-model-sel" title="Pilih model untuk provider aktif (klik 🔄 untuk memuat daftar)" style="flex:1 1 auto;min-width:0;font:inherit;font-size:11px;padding:2px 5px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)"></select>
-            <button class="btn small" id="chat-model-refresh" title="Muat daftar model dari provider aktif">🔄</button>
-            <button class="btn small" id="chat-fork" style="margin-left:4px" title="Fork: salin perintah pertama (teks + gambar tertanam) ke sesi baru — berguna setelah ganti model. Sesi saat ini dipindahkan ke LOG, lalu perintah langsung dikirim ke AI.">Fork</button>
-          </div>
-          <div class="row chat-quick-row" id="chat-quick-row">
-            <div class="chat-mode-seg" role="group" aria-label="Mode AI">
-              <button type="button" class="btn small is-on" id="chat-mode-agent" title="Mode Agen: AI memanggil tool CAD MiniSketch secara langsung">Agen</button>
-              <button type="button" class="btn small" id="chat-mode-svg" title="Mode SVG: AI menghasilkan satu dokumen SVG utuh untuk pratinjau &amp; impor">SVG</button>
-            </div>
-            <label class="chat-think-wrap" title="Tingkat reasoning model (Off lebih cepat &amp; hemat, Normal paling teliti)">
-              <span class="muted">Think</span>
-              <select id="chat-think-sel">
-                <option value="off">Off</option>
-                <option value="low">Low</option>
-                <option value="normal" selected>Normal</option>
-              </select>
-            </label>
-            <button type="button" class="btn small" id="chat-settings-btn" title="Buka Settings › AI chat (provider, API key, batas putaran)">⚙</button>
+            <select id="chat-model-sel" title="Model (🔄 loads the list for the active provider)" style="flex:1 1 auto;min-width:0;font:inherit;font-size:11px;padding:2px 5px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)"></select>
+            <button class="btn small" id="chat-model-refresh" title="Load the model list from the active provider">🔄</button>
+            <select id="chat-think-sel" title="Reasoning level (Off = faster &amp; cheaper, Normal = most thorough)">
+              <option value="off">Off</option>
+              <option value="low">Low</option>
+              <option value="normal" selected>Normal</option>
+            </select>
+            <button class="btn small" id="chat-fork" title="Fork: copy the first prompt (text + attached image) to a new session — handy after switching models. The current session moves to LOG, then the prompt is sent straight to the AI.">Fork</button>
           </div>
           <ul class="list" id="chat-log"></ul>
           <div class="chat-pending" id="chat-pending" hidden></div>
           <div class="row chat-input-row" id="chat-input-row" style="margin-top:6px">
-            <button class="btn small" id="chat-attach" title="Lampirkan gambar untuk ditelusuri jadi sketch (atau tempel/drag-drop)">🖼</button>
-            <input type="file" id="chat-file" accept="image/*" multiple hidden>
-            <textarea id="chat-input" rows="1" placeholder='kotak 100x60 di 0,0… (Shift+Enter baris baru)' autocomplete="off" spellcheck="false"></textarea>
-            <button class="btn small danger" id="chat-stop" hidden title="Hentikan permintaan yang sedang berjalan">■ Stop</button>
-            <button class="btn small primary" id="chat-send">Kirim</button>
+            <textarea id="chat-input" rows="1" placeholder='Describe a vector image… (Shift+Enter for a new line)' autocomplete="off" spellcheck="false"></textarea>
+            <div class="chat-side-btns">
+              <button class="btn small" id="chat-attach" title="Attach an image to trace into a sketch (or paste/drag-drop)">🖼</button>
+              <input type="file" id="chat-file" accept="image/*" multiple hidden>
+              <button class="btn small primary" id="chat-send">Send</button>
+            </div>
           </div>
         </div>
       </details>
@@ -458,31 +448,30 @@
         <summary class="panel-title">Nesting <span class="count" id="nest-count">0</span></summary>
         <div class="panel-body">
           <div class="ngrid">
-            <label class="field ngrid-full"><span>Kualitas</span>
-              <select id="nest-preset" title="Preset kualitas True NFP/IFP: Cepat untuk banyak part, Seimbang untuk pemakaian harian, Maksimal untuk bentuk cekung &amp; huruf rumit">
-                <option value="fast">Cepat</option>
-                <option value="balanced" selected>Seimbang</option>
-                <option value="max">Maksimal</option>
-                <option value="custom">Kustom</option>
+            <label class="field ngrid-full"><span>Quality</span>
+              <select id="nest-preset" title="True NFP/IFP quality preset: Fast for many parts, Balanced for daily use, Max for concave shapes &amp; complex letters">
+                <option value="fast">Fast</option>
+                <option value="balanced" selected>Balanced</option>
+                <option value="max">Max</option>
+                <option value="custom">Custom</option>
               </select>
             </label>
-            <label class="field ngrid-half"><span>Sp</span><input type="number" id="nest-spacing" value="2" min="0" step="0.5" title="Spacing between parts in mm (offsets each part by half the value on every side before packing)"></label>
-            <label class="field ngrid-half"><span>Rot</span><input type="text" id="nest-rotation" value="0,90,180,270" spellcheck="false" title="Allowed rotations: angles list (0,90), a preset (1,2,3,4,8), or a range 0-360:90. Same syntax as nestjs2"></label>
-            <label class="field check ngrid-half" title="Otomatis tambah lembar jika hanya memilih 1 kotak hijau tanpa note. Jika memilih beberapa kotak hijau atau memberi note angka di dalam kotak hijau, jumlah lembar mengikuti stok tersebut dan part sisa diletakkan di luar."><input type="checkbox" id="nest-multisheet" checked><span>Multi-lembar</span></label>
-            <label class="field check ngrid-half"><input type="checkbox" id="nest-flip"><span>Flip</span></label>
+            <label class="field ngrid-half"><span>Space</span><input type="number" id="nest-spacing" value="2" min="0" step="0.5" title="Spacing between parts in mm (offsets each part by half the value on every side before packing)"></label>
+            <label class="field check"><input type="checkbox" id="nest-flip"><span>Flip</span></label>
+            <label class="field" style="grid-column:span 1"><span>Rot</span><input type="text" id="nest-rotation" value="0,90,180,270" spellcheck="false" title="Allowed rotations: angles list (0,90), a preset (1,2,3,4,8), or a range 0-360:90. Same syntax as nestjs2"></label>
           </div>
           <details class="nest-adv" id="nest-adv">
-            <summary>Opsi lanjutan</summary>
+            <summary>Advanced options</summary>
             <div class="ngrid">
               <label class="field"><span>Pop</span><input type="number" id="nest-pop" value="8" min="2" max="40" step="1" title="GA population size"></label>
               <label class="field"><span>Gen</span><input type="number" id="nest-gen" value="6" min="1" max="60" step="1" title="GA generations"></label>
               <label class="field"><span>Mut</span><input type="number" id="nest-mut" value="0.12" min="0" max="1" step="0.05" title="GA mutation rate (0 = keep the parents' order, 1 = always reshuffle)"></label>
               <label class="field"><span>LS</span><input type="number" id="nest-ls" value="8" min="0" max="60" step="1" title="Local-search hill-climb trials after the GA (swap, insertion, and rotation moves; 0 = off)"></label>
-              <label class="field ngrid-half"><span>Grid</span><input type="number" id="nest-grid" value="4" min="1" max="100" step="1" title="Fallback grid step in mm (digunakan hanya jika mode exact NFP fallback)"></label>
+              <label class="field ngrid-half"><span>Grid</span><input type="number" id="nest-grid" value="4" min="1" max="100" step="1" title="Fallback grid step in mm (used only in exact NFP fallback mode)"></label>
             </div>
           </details>
           <div class="row nest-buttons">
-            <button class="btn small primary" id="nest-start" title="Nest loop terpilih ke lembar hijau (bisa 1 atau beberapa kotak hijau, atau beri note angka di dalam kotak hijau untuk jumlah lembar)">Start</button>
+            <button class="btn small primary" id="nest-start" title="Nest the selected loops onto the green sheet (1 or several green boxes, or place a number note inside a green box for that sheet count)">Start</button>
             <button class="btn small" id="nest-again" disabled title="Nest the same parts again without re-selecting (replaces the previous result)">Re-nest</button>
             <button class="btn small" id="nest-stop" hidden title="Stop and keep the best result so far">Stop</button>
             <label class="check" title="Keep re-nesting in Web Workers with warm NFP cache until Stop; live-applies the best layout"><input type="checkbox" id="nest-infinite">&infin;</label>

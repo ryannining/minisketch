@@ -1500,8 +1500,6 @@
     { group: 'AI chat', key: 'aiThinkLevel', label: 'AI reasoning level', unit: '',
       choices: [['off', 'Off'], ['low', 'Low'], ['normal', 'Normal']], def: 'normal',
       help: 'Off = model menjawab langsung, tanpa berpikir (paling cepat/murah). Low = reasoning singkat — disarankan untuk glm/Gemini agar tidak terlalu lama "mikir" pada permintaan biasa. Normal = reasoning penuh (lebih teliti untuk tugas rumit, lebih lambat/mahal).' },
-    { group: 'AI chat', key: 'aiModeSvg', label: 'Mode SVG (tanpa tools)', unit: '', bool: true, def: false,
-      help: 'AI fokus murni menghasilkan SATU <svg> — tanpa tool MiniSketch (cocok untuk model yang belum dilatih dengan tools ini, mis. Gemini). Hasil muncul sebagai pratinjau + tombol "Masukkan ke MiniSketch" dan "Salin SVG". Matikan untuk mode agen penuh (tool calls).' },
     { group: 'AI chat', key: 'aiMaxRounds', label: 'AI agent rounds', unit: '×',
       def: 4, min: 1, max: 8, step: 1,
       help: 'How many times the agent may loop (emit tool calls → execute → verify) before it must give a final answer. Each round is one provider request. 2–3 is cheaper; more rounds give the model more chances to self-correct complex jobs.' }
@@ -1761,14 +1759,10 @@
   }
   window.syncAiModelSelect = syncAiModelSelect;
 
-  // Kontrol cepat Mode (Agen/SVG), Reasoning (Off/Low/Normal), dan pintasan
-  // Settings di panel AI Chat — tetap tersinkron dua arah dengan modal Settings.
+  // Kontrol cepat Reasoning (Off/Low/Normal) dan pintasan Settings di panel AI
+  // Chat — tetap tersinkron dua arah dengan modal Settings. (Mode Agen/SVG
+  // dihapus: SVG adalah satu-satunya mode, jadi tidak ada lagi toggle mode.)
   function syncAiQuickControls() {
-    const svgOn = !!settings.aiModeSvg;
-    const btnAg = document.getElementById('chat-mode-agent');
-    const btnSvg = document.getElementById('chat-mode-svg');
-    if (btnAg) btnAg.classList.toggle('is-on', !svgOn);
-    if (btnSvg) btnSvg.classList.toggle('is-on', svgOn);
     const thinkSel = document.getElementById('chat-think-sel');
     if (thinkSel) {
       const lv = String(settings.aiThinkLevel || 'normal');
@@ -1776,23 +1770,10 @@
     }
     const inp = document.getElementById('chat-input');
     if (inp) {
-      inp.placeholder = svgOn
-        ? 'Mode SVG: deskripsikan gambar vector… (Shift+Enter baris baru)'
-        : 'kotak 100x60 di 0,0… (Shift+Enter baris baru)';
+      inp.placeholder = 'Describe a vector image… (Shift+Enter for a new line)';
     }
   }
   window.syncAiQuickControls = syncAiQuickControls;
-
-  window.setAiModeSvgFromChat = function (on) {
-    settings.aiModeSvg = !!on;
-    saveSettings();
-    const el = document.getElementById('set-aiModeSvg');
-    if (el) el.checked = !!on;
-    syncAiQuickControls();
-    try {
-      if (window.MiniSketchAI && window.MiniSketchAI.renderLog) window.MiniSketchAI.renderLog();
-    } catch (err) { /* ignore */ }
-  };
 
   window.setAiThinkLevelFromChat = function (level) {
     const v = (level === 'off' || level === 'low' || level === 'normal') ? level : 'normal';
@@ -14397,10 +14378,7 @@
     set('nest-gen', saved.gen);
     set('nest-mut', saved.mut);
     set('nest-ls', saved.ls);
-    if (typeof saved.multiSheet === 'boolean') {
-      const el = document.getElementById('nest-multisheet');
-      if (el) el.checked = saved.multiSheet;
-    }
+    // multiSheet removed from the UI: auto-added sheets are always allowed.
     if (typeof saved.flip === 'boolean') {
       const el = document.getElementById('nest-flip');
       if (el) el.checked = saved.flip;
@@ -14414,7 +14392,6 @@
   function nestPrefsSave() {
     const val = (id) => { const el = document.getElementById(id); return el ? el.value : null; };
     const flip = document.getElementById('nest-flip');
-    const ms = document.getElementById('nest-multisheet');
     const inf = document.getElementById('nest-infinite');
     try {
       localStorage.setItem(NEST_PREFS_KEY, JSON.stringify({
@@ -14423,7 +14400,6 @@
         rotation: val('nest-rotation'),
         pop: val('nest-pop'), gen: val('nest-gen'), mut: val('nest-mut'),
         ls: val('nest-ls'),
-        multiSheet: ms ? ms.checked : true,
         flip: flip ? flip.checked : false,
         infinite: inf ? inf.checked : false
       }));
@@ -14844,8 +14820,11 @@
     let localSearch = lsEl ? parseInt(lsEl.value, 10) : 8;
     if (!isFinite(localSearch)) localSearch = 8;
     localSearch = Math.max(0, Math.min(60, localSearch));
-    const msEl = document.getElementById('nest-multisheet');
-    const multiSheet = msEl ? !!msEl.checked : false;
+    // multiSheet is no longer user-toggled (the checkbox was removed). Sheets
+    // now follow the user's selection only: the green boxes (or green boxes
+    // with a sheet-count note) define the fixed stock. Parts that do not fit
+    // are left OUTSIDE the sheet instead of spawning an auto-added sheet.
+    const multiSheet = false;
     const presetEl = document.getElementById('nest-preset');
     const preset = presetEl ? presetEl.value : 'balanced';
     const maxVerts = preset === 'fast' ? 40 : (preset === 'max' ? 72 : 56);
@@ -30807,6 +30786,11 @@ function cmdSplitCurve() {
       case 'd': {
         // D = driving dimension; Shift+D (with no dimension selected) = Measure.
         // The badge-toggle case is handled earlier in this keydown.
+        // createDimension opens a value prompt and focuses its input within
+        // this same keydown task — without preventDefault the key's DEFAULT
+        // action fires on the newly-focused prompt input and inserts a literal
+        // "d" in front of the dimension value.
+        ev.preventDefault();
         createDimension({ reference: ev.shiftKey });
         break;
       }
@@ -32985,7 +32969,7 @@ function cmdSplitCurve() {
       nestPrefsSave();
       updateNestPanel();
     };
-    for (const id of ['nest-spacing', 'nest-rotation', 'nest-flip', 'nest-multisheet', 'nest-infinite']) {
+    for (const id of ['nest-spacing', 'nest-rotation', 'nest-flip', 'nest-infinite']) {
       const el = document.getElementById(id);
       if (el) el.addEventListener('change', nestSetting);
     }

@@ -3579,46 +3579,6 @@ body.wall-drag-active .stage::after {
   font-size: 10.5px;
   white-space: nowrap;
 }
-.chat-quick-row {
-  margin-bottom: 6px;
-  gap: 5px;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: nowrap;
-}
-.chat-mode-seg {
-  display: inline-flex;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  overflow: hidden;
-  flex: 0 0 auto;
-}
-.chat-mode-seg .btn {
-  border: 0;
-  border-radius: 0;
-  padding: 2px 7px;
-  min-height: 22px;
-}
-.chat-mode-seg .btn + .btn {
-  border-left: 1px solid var(--line);
-}
-.chat-mode-seg .btn.is-on {
-  background: var(--accent-soft, color-mix(in srgb, var(--accent) 16%, transparent));
-  color: var(--accent-ink, var(--ink));
-  font-weight: 600;
-}
-.chat-think-wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex: 1 1 auto;
-  min-width: 0;
-  justify-content: flex-end;
-}
-.chat-think-wrap .muted {
-  font-size: 10.5px;
-  white-space: nowrap;
-}
 #chat-think-sel {
   font: inherit;
   font-size: 11px;
@@ -3631,18 +3591,22 @@ body.wall-drag-active .stage::after {
   max-width: 82px;
 }
 .chat-input-row {
-  align-items: flex-start;
+  align-items: stretch;
   gap: 5px;
 }
-.chat-input-row > .btn {
-  align-self: flex-start;
-  flex-shrink: 0;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
+/* Attach image + Send stack vertically beside the textarea, which is sized to
+   about two button heights so both buttons fit without growing the row. */
+.chat-side-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.chat-side-btns > .btn {
   margin: 0;
+  box-sizing: border-box;
+  height: 28px;
+  flex: 0 0 auto;
 }
 #chat-input {
   flex: 1 1 auto;
@@ -3659,8 +3623,10 @@ body.wall-drag-active .stage::after {
   resize: none;
   overflow-y: hidden;
   box-sizing: border-box;
-  min-height: 28px;
-  max-height: 108px;
+  /* ~2 stacked buttons (28px each + 4px gap): attach image + Send sit beside
+     the textarea, so the column of buttons must not stretch the row */
+  min-height: 60px;
+  max-height: 140px;
 }
 #chat-input:focus {
   outline: none;
@@ -3727,8 +3693,8 @@ body.wall-drag-active .stage::after {
   margin-top: 6px;
 }
 .chat-svg-preview {
-  max-width: 160px;
-  max-height: 90px;
+  max-width: 260px;
+  max-height: 160px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #fff;
@@ -3779,7 +3745,8 @@ details.chat-think summary:hover { color: #00c96a; }
 .chat-lightbox[hidden] { display: none; }
 .chat-lightbox-card {
   position: relative;
-  max-width: min(92vw, 960px);
+  width: min(92vw, 960px);
+  max-width: 92vw;
   max-height: 90vh;
   background: var(--panel, #fff);
   border: 1px solid var(--line);
@@ -3799,8 +3766,12 @@ details.chat-think summary:hover { color: #00c96a; }
   color: var(--ink);
 }
 .chat-lightbox-img {
-  max-width: min(88vw, 920px);
-  max-height: calc(86vh - 48px);
+  /* scale the SVG up to fill the card (an SVG <img> only has max-* by default,
+     so it would otherwise render at its small intrinsic size) */
+  width: 100%;
+  max-width: none;
+  height: auto;
+  max-height: calc(88vh - 60px);
   object-fit: contain;
   background: #fff;
   border-radius: 6px;
@@ -3856,7 +3827,7 @@ details.chat-think summary:hover { color: #00c96a; }
 .ai-test-status.is-ok { color: #16a34a; }
 .ai-test-status.is-err { color: #dc2626; }
 @media (pointer: coarse) {
-  .chat-mode-seg .btn,
+  .chat-side-btns > .btn,
   #chat-think-sel,
   #chat-settings-btn {
     min-height: 32px;

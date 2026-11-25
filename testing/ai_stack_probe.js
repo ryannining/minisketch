@@ -375,7 +375,10 @@ function callBridge(method, url, headers, body) {
     const r2UserFb = capturedPayloads[1].messages[capturedPayloads[1].messages.length - 1].content;
     check('Round 2 receives queryResults from get_bounds', r2UserFb.includes('"query":"get_bounds"') && r2UserFb.includes('"maxX":110'));
     const r2Sys = capturedPayloads[1].messages[0].content;
-    check('Round 2 system prompt injects use_skill(stencil-bridges)', r2Sys.includes('ACTIVE SKILL: stencil-bridges'));
+    // SVG-only mode: skills are gated behind !svgMode, so the tool-call skill
+    // recipes are intentionally NOT injected anymore.
+    check('Round 2 system prompt does NOT inject agent skills (SVG-only mode)',
+      !r2Sys.includes('ACTIVE SKILL: stencil-bridges'));
     check('Multi-round turn (read-only + add + rotate) calls pushHistory EXACTLY ONCE', historyCalls === 1, 'got ' + historyCalls);
     check('rotate_selection executed in round 3', rotateCalls === 1);
     const finalMsg = sandbox.MiniSketchAI.log[sandbox.MiniSketchAI.log.length - 1];
@@ -396,10 +399,13 @@ function callBridge(method, url, headers, body) {
   }
 
   console.log('\n== 5. UI Quick Controls & Settings Wiring ==');
-  check('index.html has Mode quick toggle (#chat-mode-agent / #chat-mode-svg)',
-    /id="chat-mode-agent"/.test(html) && /id="chat-mode-svg"/.test(html));
+  // Mode Agen/SVG toggle and the Settings gear were removed: SVG is the only
+  // mode, so there is no mode toggle and no gear in the panel.
+  check('index.html removed Mode quick toggle (SVG-only mode)',
+    !/id="chat-mode-agent"/.test(html) && !/id="chat-mode-svg"/.test(html));
   check('index.html has Reasoning quick select (#chat-think-sel)', /id="chat-think-sel"/.test(html));
-  check('index.html has Settings shortcut (#chat-settings-btn)', /id="chat-settings-btn"/.test(html));
+  check('index.html removed Settings gear (moved to Settings › AI chat only)',
+    !/id="chat-settings-btn"/.test(html));
   check('index.html upgraded #chat-input to textarea', /<textarea[^>]*id="chat-input"/.test(html));
   check('app.js has Test koneksi button (#ai-test-conn)', /id = 'ai-test-conn'/.test(appSrc));
   check('app.js exposes rotateSelection, mirrorSelection, duplicateSelection, selectionBounds, undo in toolApi()',

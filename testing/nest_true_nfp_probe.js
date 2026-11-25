@@ -397,8 +397,10 @@ console.log('\n== 7. Curved High-Vertex Benchmark & UI Wiring ==');
 
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8');
-  check('index.html has #nest-preset, #nest-multisheet, #nest-adv',
-    html.includes('id="nest-preset"') && html.includes('id="nest-multisheet"') && html.includes('id="nest-adv"'));
+  check('index.html has #nest-preset, #nest-adv (no multi-sheet toggle)',
+    html.includes('id="nest-preset"') && !html.includes('id="nest-multisheet"') && html.includes('id="nest-adv"'));
+  check('app.js reads no nest-multisheet (sheets follow selection only)',
+    !/getElementById\('nest-multisheet'\)/.test(app));
   check('app.js wires NEST_PRESETS and nestApplyPreset',
     /const NEST_PRESETS\b/.test(app) && /function nestApplyPreset/.test(app));
   check('app.js uses Web Workers for infinite mode too',

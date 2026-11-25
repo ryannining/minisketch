@@ -19,9 +19,9 @@
   NS.mode = 'chat';
   let api = null;
 
-  // Settings > AI chat > "Mode SVG (tanpa tools)": the model produces ONE
-  // <svg> instead of driving MiniSketch's tools. Preview + import buttons.
-  NS.svgMode = () => !!(api && api.settings && api.settings.aiModeSvg);
+  // Mode SVG adalah SATU-SATUNYA mode yang didukung (paling akurat untuk
+  // geometri vector). Mode agen (tool calls) dihapus.
+  NS.svgMode = () => true;
 
   function isLocalApiUrl(base) {
     try {
@@ -140,7 +140,7 @@
   function fileToDataURL(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onerror = () => reject(new Error('gagal membaca berkas'));
+      reader.onerror = () => reject(new Error('failed to read file'));
       reader.onload = () => {
         const src = String(reader.result || '');
         const img = new Image();
@@ -173,7 +173,7 @@
       try {
         NS.pendingImages.push(await fileToDataURL(f));
       } catch (err) {
-        pushLog('sys', 'Gagal memuat gambar: ' + (err && err.message || err));
+        pushLog('sys', 'Failed to load image: ' + (err && err.message || err));
       }
     }
     renderPending();
@@ -1681,7 +1681,7 @@
         const retry = document.createElement('button');
         retry.className = 'btn small chat-retry';
         retry.textContent = 'Retry';
-        retry.title = 'Kirim ulang perintah terakhir ini';
+        retry.title = 'Resend the last prompt';
         retry.addEventListener('click', () => {
           // drop the error entry and every turn after it, then resend
           const at = NS.log.indexOf(m);
@@ -1727,7 +1727,7 @@
       const closeBtn = document.createElement('button');
       closeBtn.type = 'button';
       closeBtn.className = 'btn small';
-      closeBtn.textContent = '× Tutup';
+      closeBtn.textContent = '× Close';
       closeBtn.addEventListener('click', closeLightbox);
       head.appendChild(cap);
       head.appendChild(closeBtn);
@@ -1745,8 +1745,8 @@
     }
     const imgEl = _lightboxEl.querySelector('.chat-lightbox-img');
     const capEl = _lightboxEl.querySelector('.chat-lightbox-cap');
-    if (imgEl) { imgEl.src = src; imgEl.alt = title || 'pratinjau'; }
-    if (capEl) capEl.textContent = title || 'Pratinjau';
+    if (imgEl) { imgEl.src = src; imgEl.alt = title || 'preview'; }
+    if (capEl) capEl.textContent = title || 'Preview';
     _lightboxEl.hidden = false;
   }
 
@@ -1853,9 +1853,9 @@
     try { img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); }
     catch (err) { return; }
     img.className = 'chat-svg-preview';
-    img.alt = 'pratinjau SVG';
-    img.title = 'Pratinjau SVG — klik untuk perbesar';
-    img.addEventListener('click', () => openLightbox(img.src, 'Pratinjau SVG'));
+    img.alt = 'SVG preview';
+    img.title = 'SVG preview — click to enlarge';
+    img.addEventListener('click', () => openLightbox(img.src, 'SVG Preview'));
     const actions = document.createElement('div');
     actions.className = 'chat-svg-actions';
     const status = document.createElement('span');
@@ -1864,26 +1864,26 @@
     paste.type = 'button';
     paste.className = 'btn small';
     paste.textContent = 'Insert to workspace';
-    paste.title = 'Impor SVG ini ke worksheet: posisi top-right dari konten saat ini + gap kanan 20mm (satu Undo)';
+    paste.title = 'Import this SVG to the worksheet: top-right of current content + 20mm right gap (one Undo)';
     paste.addEventListener('click', async () => {
       const n = await importUserSvg(svg);
       if (n > 0) {
-        status.textContent = '✓ ' + n + ' objek dimasukkan (top-right + 20mm).';
+        status.textContent = '✓ ' + n + ' objects inserted (top-right + 20mm).';
         try { api.render && api.render(); } catch (err) { /* ignore */ }
       } else if (n === 0) {
-        status.textContent = 'Tidak ada bentuk vektor yang terbaca.';
+        status.textContent = 'No vector shapes were recognized.';
       } else {
-        status.textContent = 'Impor gagal (SVG tidak valid?).';
+        status.textContent = 'Import failed (invalid SVG?).';
       }
     });
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
     copyBtn.className = 'btn small';
-    copyBtn.textContent = 'Salin SVG';
-    copyBtn.title = 'Salin kode <svg> ke clipboard';
+    copyBtn.textContent = 'Copy SVG';
+    copyBtn.title = 'Copy the <svg> code to the clipboard';
     copyBtn.addEventListener('click', async () => {
       const ok = await copyTextToClipboard(svg);
-      status.textContent = ok ? '✓ SVG disalin ke clipboard.' : 'Gagal menyalin SVG.';
+      status.textContent = ok ? '✓ SVG copied to clipboard.' : 'Failed to copy SVG.';
     });
     actions.appendChild(paste);
     actions.appendChild(copyBtn);
@@ -1960,7 +1960,7 @@
       const loadM = (silent) => {
         return fetchProviderModels().then(models => {
           if (models) fill(models);
-          else if (!silent && modelSel) modelSel.title = 'Gagal memuat model — cek provider/key di Settings';
+          else if (!silent && modelSel) modelSel.title = 'Failed to load models — check provider/key in Settings';
         });
       };
       if (modelRefresh) {
@@ -1977,45 +1977,36 @@
       loadM(true);
     }
 
-    // Kontrol cepat Mode (Agen/SVG), Reasoning (Off/Low/Normal), dan Settings
-    const modeAgBtn = document.getElementById('chat-mode-agent');
-    const modeSvgBtn = document.getElementById('chat-mode-svg');
+    // Reasoning level quick-control (Off/Low/Normal). (Mode Agen/SVG and the
+    // Settings gear were removed — SVG is the only mode now.)
     const thinkSel = document.getElementById('chat-think-sel');
-    const settingsBtn = document.getElementById('chat-settings-btn');
-    if (modeAgBtn) modeAgBtn.addEventListener('click', () => {
-      if (window.setAiModeSvgFromChat) window.setAiModeSvgFromChat(false);
-    });
-    if (modeSvgBtn) modeSvgBtn.addEventListener('click', () => {
-      if (window.setAiModeSvgFromChat) window.setAiModeSvgFromChat(true);
-    });
     if (thinkSel) thinkSel.addEventListener('change', () => {
       if (window.setAiThinkLevelFromChat) window.setAiThinkLevelFromChat(thinkSel.value);
-    });
-    if (settingsBtn) settingsBtn.addEventListener('click', () => {
-      if (window.openAiSettings) window.openAiSettings();
     });
     if (window.syncAiQuickControls) window.syncAiQuickControls();
 
     const input = document.getElementById('chat-input');
     const btn = document.getElementById('chat-send');
-    const stopBtn = document.getElementById('chat-stop');
     const resizeInput = () => {
       if (!input || input.tagName !== 'TEXTAREA') return;
       input.style.height = 'auto';
-      const maxH = 108;
+      const maxH = 140;
       const next = Math.min(input.scrollHeight, maxH);
-      input.style.height = Math.max(26, next) + 'px';
+      input.style.height = Math.max(60, next) + 'px';
       input.style.overflowY = input.scrollHeight > maxH ? 'auto' : 'hidden';
     };
     if (input && input.tagName === 'TEXTAREA') {
       input.addEventListener('input', resizeInput);
       resizeInput();
     }
-    if (stopBtn) stopBtn.addEventListener('click', () => {
-      if (NS.activeAbort) NS.activeAbort.abort();
-    });
+    // Satu tombol: Kirim (idle) ↔ Stop (saat permintaan berjalan). Stop
+    // memanggil abort() lalu tombol kembali jadi Kirim ketika turn selesai
+    // (NS.activeAbort = null + setStopVisible(false) di akhir send()).
     NS.setStopVisible = (on) => {
-      if (stopBtn) stopBtn.hidden = !on;
+      if (!btn) return;
+      btn.classList.toggle('is-stop', !!on);
+      btn.textContent = on ? '■ Stop' : 'Send';
+      btn.title = on ? 'Hentikan permintaan yang sedang berjalan' : '';
     };
     const forkBtn = document.getElementById('chat-fork');
     if (forkBtn) forkBtn.addEventListener('click', () => {
@@ -2055,6 +2046,9 @@
       });
     });
     const go = () => {
+      // When a request is running the single button is Stop: abort instead of
+      // sending a new message.
+      if (NS.activeAbort) { NS.activeAbort.abort(); return; }
       const v = input ? input.value : '';
       if (input) { input.value = ''; resizeInput(); }
       send(v);
