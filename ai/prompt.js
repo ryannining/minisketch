@@ -85,13 +85,53 @@
   function ensureExtPrompt() {
     if (extSystemText) return Promise.resolve(extSystemText);
     if (extLoadPromise) return extLoadPromise;
-    extLoadPromise = fetchText(EXT_SYSTEM_URL)
-      .then((txt) => {
-        extSystemText = String(txt || '').trim();
-        return extSystemText;
-      })
-      .catch(() => '');
+    // Load the persona AND the built-in extension sources (as reference
+    // examples) together, so a new tool can be modelled on an existing one
+    // instead of the model starting from scratch every time.
+    extLoadPromise = Promise.all([
+      fetchText(EXT_SYSTEM_URL),
+      loadBuiltinExtensionRefs()
+    ]).then(([txt, refs]) => {
+      extSystemText = String(txt || '').trim();
+      if (refs) extSystemText += '\n\n' + refs;
+      return extSystemText;
+    });
     return extLoadPromise;
+  }
+
+  // Fetch the marketplace catalog + each listed extension's source, and render
+  // them as a "REFERENCE: built-in extensions" block appended to the Extension
+  // Builder system prompt. Cached for the session; a failed fetch degrades to
+  // no references (the model still has the API docs in the persona text).
+  // NOTE: the marketplace lives at the app root (marketplace/), NOT under ai/,
+  // so these URLs must not go through assetUrl (which prepends ai/).
+  let extRefsCache = null;
+  function loadBuiltinExtensionRefs() {
+    if (extRefsCache) return Promise.resolve(extRefsCache);
+    const catUrl = 'marketplace/catalog.json';
+    return fetchJson(catUrl).then(async (cat) => {
+      const list = (cat && Array.isArray(cat.extensions)) ? cat.extensions : [];
+      if (!list.length) { extRefsCache = ''; return ''; }
+      const parts = [];
+      for (const m of list) {
+        if (!m.scriptUrl) continue;
+        try {
+          const src = await fetchText('marketplace/' + String(m.scriptUrl).replace(/^\.?\//, ''));
+          if (src && src.trim()) {
+            parts.push('### ' + (m.name || m.id) + ' (id: ' + m.id + ')' +
+              (m.description ? '\n// ' + m.description : '') +
+              '\n```js\n' + src.trim() + '\n```');
+          }
+        } catch (err) { /* skip an extension that fails to load */ }
+      }
+      extRefsCache = parts.length
+        ? 'REFERENCE — BUILT-IN EXTENSIONS (real, working examples of ' +
+          'window.MiniSketchTools.register({...}). Model new tools on these; ' +
+          'reuse their helpers and patterns instead of inventing from scratch):\n\n' +
+          parts.join('\n\n')
+        : '';
+      return extRefsCache;
+    }).catch(() => { extRefsCache = ''; return ''; });
   }
 
   // Skills live in ai/skills.js as window.MiniSketchAISkills (a plain array).

@@ -30,6 +30,45 @@ window.MiniSketchTools = (() => {
   const DISABLED_KEY = 'minisketch.v1.ext.disabled';
   const INSTALLED_KEY = 'minisketch.v1.ext.installed';
 
+  // When a non-built-in extension throws at runtime (only surfaces with a real
+  // selection), add a "Fix with AI" button to its modal. Clicking it switches
+  // the AI Chat to Extension Builder mode and sends the error + the extension's
+  // own source back to the model, so it can revise instead of the user having
+  // to hand-copy the error. This mirrors the "Minta AI Perbaiki" path that
+  // validation errors already have.
+  function addFixWithAI(tool, err) {
+    const modal = document.getElementById(tool.modalId);
+    if (!modal) return;
+    const actions = modal.querySelector('.modal-actions');
+    if (!actions) return;
+    if (actions.querySelector('.ext-fix-ai')) return;   // already added
+    const chat = window.MiniSketchAI;
+    if (!chat || typeof chat.send !== 'function') return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn small ext-fix-ai';
+    btn.textContent = 'Fix with AI';
+    btn.title = 'Send this runtime error and the extension code to the AI to fix';
+    btn.addEventListener('click', () => {
+      if (chat.activeAbort) return;
+      // switch the chat to Extension Builder mode so the fix keeps the
+      // register({...}) contract
+      const bExt = document.getElementById('chat-builder-ext');
+      if (bExt && chat.builderMode !== 'ext') bExt.click();
+      else chat.builderMode = 'ext';
+      const code = tool.code || '';
+      const prompt =
+        'Ekstensi "' + (tool.label || tool.id) + '" melempar error saat dijalankan:\n' +
+        String(err && err.message || err) + '\n\n' +
+        (code ? 'Kode ekstensinya:\n```js\n' + code + '\n```\n\n' : '') +
+        'Perbaiki error tersebut dan kirim ulang SATU blok kode ```js ... ``` yang lengkap dan valid untuk window.MiniSketchTools.register({...}).';
+      if (chat.setTab) chat.setTab('chat');
+      chat.send(prompt);
+      NS.close(tool.id);
+    });
+    actions.appendChild(btn);
+  }
+
   let disabledIds = new Set();
   let installedRecords = [];
   let captureFn = null;
@@ -105,27 +144,31 @@ window.MiniSketchTools = (() => {
       holder.innerHTML = tool.modal.trim();
       while (holder.firstChild) document.body.appendChild(holder.firstChild);
     }
-    const modal = modalOf(tool);
-    if (modal) {
-      applyToolLang(tool);
-      const ok = modal.querySelector('.modal-actions .btn.primary');
-      if (ok) ok.addEventListener('click', () => {
-        if (tool.builtIn) {
-          tool.apply(NS.api);
-          return;
-        }
-        try {
-          tool.apply(NS.api);
-        } catch (err) {
-          console.warn('[minisketch] Extension apply error (' + tool.id + '):', err);
-          if (NS.api && NS.api.toast) {
-            NS.api.toast((tool.label || tool.id) + ' error: ' + String(err && err.message || err));
+      const modal = modalOf(tool);
+      if (modal) {
+        applyToolLang(tool);
+        const ok = modal.querySelector('.modal-actions .btn.primary');
+        if (ok) ok.addEventListener('click', () => {
+          if (tool.builtIn) {
+            tool.apply(NS.api);
+            return;
           }
-        }
-      });
-      const cancel = modal.querySelector('[id$="-cancel"]');
-      if (cancel) cancel.addEventListener('click', () => NS.close(tool.id));
-    }
+          try {
+            tool.apply(NS.api);
+          } catch (err) {
+            console.warn('[minisketch] Extension apply error (' + tool.id + '):', err);
+            if (NS.api && NS.api.toast) {
+              NS.api.toast((tool.label || tool.id) + ' error: ' + String(err && err.message || err));
+            }
+            // Runtime errors (only appear with a real selection) get a path
+            // back to the AI, same as validation errors have "Minta AI
+            // Perbaiki": without this the user just saw a dead-end toast.
+            addFixWithAI(tool, err);
+          }
+        });
+        const cancel = modal.querySelector('[id$="-cancel"]');
+        if (cancel) cancel.addEventListener('click', () => NS.close(tool.id));
+      }
     if (tool.wire && NS.api) {
       if (tool.builtIn) tool.wire(NS.api);
       else {
