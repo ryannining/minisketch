@@ -675,8 +675,9 @@ function callBridge(bridgeHandler, method, url, headers, body) {
       /id="ext-inst-check"/.test(html) &&
       /id="ext-inst-update-all"/.test(html) &&
       /id="ext-auto-update"/.test(html) &&
-      /id="chat-builder-svg"/.test(html) &&
-      /id="chat-builder-ext"/.test(html) &&
+      /id="chat-builder-mode"/.test(html) &&
+      /value="svg"/.test(html) &&
+      /value="ext"/.test(html) &&
       /extensions\/manager\.js/.test(html) &&
       !/id="chat-mode-agent"/.test(html) &&
       !/id="chat-mode-svg"/.test(html));

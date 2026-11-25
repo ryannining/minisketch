@@ -1846,7 +1846,6 @@
     if (cnc) cnc.tol = settings.cncFlatten;
     // the text tracer caches by raster size, so drop it whenever it changes
     if (textTraceCache && textTraceCache.clear) textTraceCache.clear();
-    syncWallInput();
     syncWallIndicator();
     invalidateLoops();
     if (W > 1) resize();   // pick up the new canvas quality and repaint
@@ -23543,14 +23542,6 @@
     return base + ' Frame: Alt+R jumps to L/T/W/H (+20 = move +20, Tab = next box). Dimension: select 2 points / 1–2 lines / circle, then D (driving) or Shift+D (measure). Constraints: H V P Q O G M . [ F J on a selection.';
   }
 
-  function syncWallInput() {
-    const el = document.getElementById('wall-mm');
-    if (!el) return;
-    if (document.activeElement === el) return;   // never overwrite what is being typed
-    const v = String(Math.round(clamp(+settings.wallDragMm || 0, 0, 50) * 100) / 100);
-    if (el.value !== v) el.value = v;
-  }
-
   // The mode has to be visible even when the Arrange ribbon is on another page
   // or the panels are collapsed: a top-right pill plus an amber stage frame.
   function syncWallIndicator() {
@@ -23821,7 +23812,6 @@
     document.querySelectorAll('.tool-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.tool === ui.tool);
     });
-    syncWallInput();
     syncWallIndicator();
     // Every line colour used by the selection gets a dot, not just the first:
     // a selection mixing red and black (or a multi-colour group / array) has to
@@ -32714,25 +32704,6 @@ function cmdSplitCurve() {
     document.querySelectorAll('.tool-btn').forEach(btn => {
       btn.addEventListener('click', () => toolIconTapped(btn.dataset.tool));
     });
-
-    // Drag wall thickness: one field, shared with Settings and the wheel.
-    (function bindWallInput() {
-      const el = document.getElementById('wall-mm');
-      if (!el) return;
-      const commit = () => {
-        const sp = settingSpec('wallDragMm');
-        settings.wallDragMm = clampSetting(sp, el.value === '' ? sp.def : el.value);
-        applySettings();
-        saveSettings();
-        el.value = String(settings.wallDragMm);
-        updateUI();
-        render();
-      };
-      el.addEventListener('change', commit);
-      el.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter') { ev.preventDefault(); el.blur(); }
-      });
-    })();
 
     // Collapse / expand the left edit+layers stack. A phone cannot spare two
     // cards' worth of canvas, so one slim tab hides them; the choice sticks.
