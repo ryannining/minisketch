@@ -22,12 +22,12 @@ PROCEDURE (the proven order — do not reorder):
    upper-third, one horizontal lower-third, or one vertical + one horizontal).
 3. Union bars with ALL inner objects: set_selection [C, bar1, bar2] then
    boolean union. Result U = counter + bars as ONE solid (originals are consumed).
-4. Cut U out of the outer loop: set_selection [U, E] then boolean cut
-   (the FIRST selected loop is the tool, the SECOND is the target). The result is the
-   O-shaped paint hole WITH bridge gaps in it.
-5. If the request includes a sheet/plate rectangle: set_selection [hole, sheet] and
-   boolean cut again (hole is the tool, sheet the target) so the letter window opens in
-   the sheet.
+4. Cut U out of the outer loop: set_selection [E, U] then boolean cut
+   (TARGET loop FIRST, TOOL loop LAST — E is the target, U is the cutter). The result is
+   the O-shaped paint hole WITH bridge gaps in it.
+5. If the request includes a sheet/plate rectangle: set_selection [sheet, hole] and
+   boolean cut again (sheet is the target first, hole is the tool last) so the letter
+   window opens in the sheet.
 6. Verify with get_loops: the counter must no longer be a separate loop from the sheet
    and the loop count must match expectation (say the count out loud in your summary).
 
@@ -43,10 +43,10 @@ RULES
 
 WORKED EXAMPLE — "buat stencil huruf O tinggi 80mm dengan jembatan"
 - add_text {text:"O", height:80, color:"#000000", x:0, y:0}
-- text_to_curves  -> loops E, C (get_selection to read their ids)
+- text_to_curves  -> loops E, C (describe_selection to identify outer E vs counter C)
 - add_panel bars: [{x:-5,y:38},{x:105,y:38},{x:105,y:41},{x:-5,y:41}] and
   [{x:-5,y:-41},{x:105,y:-41},{x:105,y:-38},{x:-5,y:-38}] (80mm letter centred at 0,0:
   bars cross the counter and poke 5mm past the outer ellipse)
 - set_selection [C, bar1, bar2]; boolean union  -> U
-- set_selection [U, E]; boolean cut  -> O hole with 2 bridge gaps
+- set_selection [E, U]; boolean cut  -> O hole with 2 bridge gaps (target E first, tool U last)
 - get_loops to verify, then reply with the summary line.

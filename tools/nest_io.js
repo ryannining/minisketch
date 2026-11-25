@@ -4,9 +4,9 @@
 //
 // The worker receives the engine *entries* (built by nestBuildEntries on the
 // main thread) as plain data: each variant is its aligned/rotated GEOM-space
-// rings. It rebuilds MiniSketchNest.Path objects, runs the GA, and returns a
-// plain placement list (originIndex + variantIdx + bounds) that the app can
-// feed straight into nestApplyResult.
+// rings. It rebuilds MiniSketchNest.Path objects, runs the GA (single or
+// multi-sheet), and returns plain placement lists (originIndex + variantIdx +
+// bounds) that the app feeds into nestApplyResult.
 (function (root) {
   'use strict';
 
@@ -45,12 +45,8 @@
     });
   }
 
-  // Plain result the worker returns: placements + the block bounds. nestApplyResult
-  // needs p.getBounds() / p.originIndex / p._variantIdx / p.lcolor — the app wraps
-  // each placement with a getBounds() that returns `.bounds`.
-  function buildWorkerResult(ga, res) {
-    var n = ga.calculateTotalBounds(res.placements);
-    var placements = (res.placements || []).map(function (p) {
+  function serializePlacements(list) {
+    return (list || []).map(function (p) {
       var g = p.getBounds();
       return {
         originIndex: p.originIndex,
@@ -59,19 +55,55 @@
         bounds: { x: g.x, y: g.y, width: g.width, height: g.height }
       };
     });
+  }
+
+  // Plain result the worker returns: placements + blockBounds + optional multi-sheet
+  // breakdown + utilization + bestOrder seed (for island migration in infinite mode).
+  function buildWorkerResult(ga, res) {
+    var GEOM = root.MiniSketchNest.GEOM_SCALE;
+    var placements = serializePlacements(res.placements);
+    var n = ga.calculateTotalBounds(res.placements);
+    var sheets = null;
+    if (Array.isArray(res.sheets) && res.sheets.length > 0) {
+      sheets = res.sheets.map(function (s, idx) {
+        var sb = s.blockBounds || ga.calculateTotalBounds(s.placements);
+        return {
+          sheetIndex: s.sheetIndex != null ? s.sheetIndex : idx,
+          sheetOriginIndex: s.sheetOriginIndex != null ? s.sheetOriginIndex : 0,
+          placements: serializePlacements(s.placements),
+          blockBounds: { x: sb.x, y: sb.y, width: sb.width, height: sb.height },
+          blockW: sb.width / GEOM,
+          blockH: sb.height / GEOM,
+          placedCount: s.placedCount != null ? s.placedCount :
+            (s.placements || []).filter(function (p) { return p.lcolor !== '#00ff00'; }).length,
+          utilization: s.utilization || 0
+        };
+      });
+    }
+    var totalPlaced = res.totalPlaced != null
+      ? res.totalPlaced
+      : placements.filter(function (p) { return p.lcolor !== '#00ff00'; }).length;
     return {
       placements: placements,
+      sheets: sheets,
+      totalPlaced: totalPlaced,
       blockBounds: { x: n.x, y: n.y, width: n.width, height: n.height },
-      blockW: n.width / root.MiniSketchNest.GEOM_SCALE,
-      blockH: n.height / root.MiniSketchNest.GEOM_SCALE,
+      blockW: n.width / GEOM,
+      blockH: n.height / GEOM,
       unplaced: res.unplaced,
+      utilization: res.utilization || 0,
       cancelled: !!res.cancelled,
       fitness: res.fitness,
-      stats: res.stats
+      stats: res.stats,
+      bestOrder: res.bestOrder || null
     };
   }
 
-  var api = { serializeEntries: serializeEntries, deserializeEntries: deserializeEntries, buildWorkerResult: buildWorkerResult };
+  var api = {
+    serializeEntries: serializeEntries,
+    deserializeEntries: deserializeEntries,
+    buildWorkerResult: buildWorkerResult
+  };
   root.NestIO = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })((function () { return typeof self !== 'undefined' ? self : globalThis; })());

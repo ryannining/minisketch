@@ -247,7 +247,7 @@
       "type": "function",
       "function": {
         "name": "add_polyline",
-        "description": "Draw an open sharp-corner polyline. Use for kerf slits (through = #000000), score lines (surface = #0000ff) and construction guides (#00ff00, never machined). Minimum 2 points.",
+        "description": "Draw an open sharp-corner polyline. Use for kerf slits (through = #000000), surface score/marking lines (#ff0000), and construction guides (#00ff00, never machined). Minimum 2 points.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -284,7 +284,7 @@
       "type": "function",
       "function": {
         "name": "add_note",
-        "description": "Place a text COMMENT (yellow, never machined) at a world position. Use ONLY for annotations the laser must ignore. For any text that must be CUT as glyph outlines (house numbers, labels, signs), use add_text instead.",
+        "description": "Place a yellow non-machined workshop comment (also used as copy-count number inside a part or green sheet for Nesting). NEVER use for visible lettering on the finished part — use add_text for that.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -350,6 +350,15 @@
             "color": {
               "type": "string",
               "description": "#000000 = cut through, #0000ff = engrave"
+            },
+            "fill": {
+              "type": "string",
+              "enum": [
+                "none",
+                "gray",
+                "yellow"
+              ],
+              "description": "Optional KaryaCNC fill mode (outline fonts only): none, gray (material boundary/flip inside), yellow (flip offset direction)"
             }
           },
           "required": [
@@ -472,19 +481,104 @@
     {
       "type": "function",
       "function": {
+        "name": "rotate_selection",
+        "description": "Rotate the current selection by angle degrees (+ = clockwise in Y-down/SVG, - = counter-clockwise) about pivot ox, oy (defaults to selection centre when omitted).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "angle": {
+              "type": "number",
+              "description": "Rotation angle in degrees (+ clockwise, - counter-clockwise)"
+            },
+            "ox": {
+              "type": "number",
+              "description": "Optional pivot X in mm (defaults to selection centre)"
+            },
+            "oy": {
+              "type": "number",
+              "description": "Optional pivot Y in mm (defaults to selection centre)"
+            }
+          },
+          "required": [
+            "angle"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mirror_selection",
+        "description": "Mirror (flip) the current selection across axis 'x' (horizontal left-right flip) or 'y' (vertical top-bottom flip) about pivot ox, oy (defaults to selection centre when omitted).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "axis": {
+              "type": "string",
+              "enum": [
+                "x",
+                "y"
+              ],
+              "description": "'x' flips left-right across vertical line x=ox; 'y' flips top-bottom across horizontal line y=oy"
+            },
+            "ox": {
+              "type": "number",
+              "description": "Optional mirror pivot X in mm (defaults to selection centre)"
+            },
+            "oy": {
+              "type": "number",
+              "description": "Optional mirror pivot Y in mm (defaults to selection centre)"
+            }
+          },
+          "required": [
+            "axis"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "duplicate_selection",
+        "description": "Duplicate the current selection in the same undo step, select the new copy, and optionally shift it by dx, dy mm.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "dx": {
+              "type": "number",
+              "description": "Optional horizontal offset in mm for the duplicate (default 0)"
+            },
+            "dy": {
+              "type": "number",
+              "description": "Optional vertical offset in mm for the duplicate (default 0)"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
         "name": "set_selection_color",
-        "description": "Recolor the current selection. The color IS the machine operation: #000000=cut through (also drilled holes), #0000ff=engrave, #ff0000=low-power marking line (scores, never through), #00ff00=construction (never machined).",
+        "description": "Set KaryaCNC stroke color and/or fill mode on the current selection (curves/loops, text, groups/art). Overrides all contours uniformly inside groups. Arrays/clones are read-only and always inherit from their master. Pass color and/or fill.",
         "parameters": {
           "type": "object",
           "properties": {
             "color": {
               "type": "string",
-              "description": "Hex color, e.g. #ff0000"
+              "description": "Optional stroke hex color (#000000=cut, #0000ff=engrave, #ff0000=mark/drill, #800080=pocket, #00ffff=v-carve, #00ff00=mark/construction, #800000=tab, #008080=start, #ffff00=clip)"
+            },
+            "fill": {
+              "type": "string",
+              "enum": [
+                "none",
+                "gray",
+                "yellow"
+              ],
+              "description": "Optional KaryaCNC fill mode: none (clear), gray (material boundary — flips everything inside), yellow (flip offset direction of contour)"
             }
           },
-          "required": [
-            "color"
-          ]
+          "required": []
         }
       }
     },
@@ -644,7 +738,7 @@
       "type": "function",
       "function": {
         "name": "boolean",
-        "description": "Boolean op on selected closed loops: union (merge all), cut (first selected loop punches through the second), intersect (keep only overlap). ORDER MATTERS for cut/intersect: select the TOOL loop first, then the TARGET. This is how stencil counters and holes are made.",
+        "description": "Boolean op on selected closed loops: union (merge all), cut (last selected loop punches through the first), intersect (keep only overlap). ORDER MATTERS for cut: select the TARGET loop FIRST, then the TOOL (cutter) loop LAST — e.g. set_selection [target, tool].",
         "parameters": {
           "type": "object",
           "properties": {

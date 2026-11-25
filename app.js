@@ -1547,6 +1547,18 @@
         el.setAttribute('aria-pressed', pickFilter[k] ? 'true' : 'false');
       }
     }
+    const isSelectMode = !pickFilter.point && !pickFilter.line && pickFilter.loop;
+    const isNodeMode = pickFilter.point || pickFilter.line;
+    const f1 = document.getElementById('mode-f1');
+    const f2 = document.getElementById('mode-f2');
+    if (f1) {
+      f1.classList.toggle('is-on', isSelectMode);
+      f1.setAttribute('aria-pressed', isSelectMode ? 'true' : 'false');
+    }
+    if (f2) {
+      f2.classList.toggle('is-on', isNodeMode);
+      f2.setAttribute('aria-pressed', isNodeMode ? 'true' : 'false');
+    }
   }
   // F1/F2 modes (Inkscape-style). F1 = select/move: points and lines are not
   // editable (pick filter locks them) and node markers are hidden. F2 = node
@@ -1749,6 +1761,59 @@
   }
   window.syncAiModelSelect = syncAiModelSelect;
 
+  // Kontrol cepat Mode (Agen/SVG), Reasoning (Off/Low/Normal), dan pintasan
+  // Settings di panel AI Chat — tetap tersinkron dua arah dengan modal Settings.
+  function syncAiQuickControls() {
+    const svgOn = !!settings.aiModeSvg;
+    const btnAg = document.getElementById('chat-mode-agent');
+    const btnSvg = document.getElementById('chat-mode-svg');
+    if (btnAg) btnAg.classList.toggle('is-on', !svgOn);
+    if (btnSvg) btnSvg.classList.toggle('is-on', svgOn);
+    const thinkSel = document.getElementById('chat-think-sel');
+    if (thinkSel) {
+      const lv = String(settings.aiThinkLevel || 'normal');
+      if (thinkSel.value !== lv) thinkSel.value = lv;
+    }
+    const inp = document.getElementById('chat-input');
+    if (inp) {
+      inp.placeholder = svgOn
+        ? 'Mode SVG: deskripsikan gambar vector… (Shift+Enter baris baru)'
+        : 'kotak 100x60 di 0,0… (Shift+Enter baris baru)';
+    }
+  }
+  window.syncAiQuickControls = syncAiQuickControls;
+
+  window.setAiModeSvgFromChat = function (on) {
+    settings.aiModeSvg = !!on;
+    saveSettings();
+    const el = document.getElementById('set-aiModeSvg');
+    if (el) el.checked = !!on;
+    syncAiQuickControls();
+    try {
+      if (window.MiniSketchAI && window.MiniSketchAI.renderLog) window.MiniSketchAI.renderLog();
+    } catch (err) { /* ignore */ }
+  };
+
+  window.setAiThinkLevelFromChat = function (level) {
+    const v = (level === 'off' || level === 'low' || level === 'normal') ? level : 'normal';
+    settings.aiThinkLevel = v;
+    saveSettings();
+    const el = document.getElementById('set-aiThinkLevel');
+    if (el) el.value = v;
+    syncAiQuickControls();
+  };
+
+  window.openAiSettings = function () {
+    openSettingsModal();
+    setTimeout(() => {
+      const grp = document.querySelector('#settings-groups details.settings-group[data-group="AI chat"]');
+      if (grp) {
+        grp.open = true;
+        try { grp.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { grp.scrollIntoView(); }
+      }
+    }, 40);
+  };
+
   // Push the numbers into the working constants.
   function applySettings() {
     TEXT_TOL_MM = settings.textTol;
@@ -1808,6 +1873,7 @@
     // AI model changes (Settings > AI chat) must reach the chat panel's model
     // selector immediately; the selector is the single visible picker there.
     syncAiModelSelect();
+    syncAiQuickControls();
   }
 
   function buildSettingsForm() {
@@ -2083,9 +2149,10 @@
     }
     // ---- AI provider presets (profil URL + key) ------------------------
     // Pemilihan model tidak ada di Settings — hanya di panel chat AI.
-    const groupHost = (() => {
+    const groupBody = (() => {
       const ref = document.getElementById('set-aiProviderGoogle');
-      return ref ? ref.closest('.settings-group') : null;
+      const grp = ref ? ref.closest('.settings-group') : null;
+      return grp ? (grp.querySelector('.settings-group-body') || grp) : null;
     })();
 
     const effGoogle = () => {
@@ -2104,11 +2171,10 @@
 
     // Pemilih preset provider (pilih -> kolom URL/key/model terisi otomatis)
     let sel = document.getElementById('ai-provider-sel');
-    if (groupHost && !sel) {
+    if (groupBody && !sel) {
       const prow = document.createElement('div');
-      prow.className = 'settings-row';
-      prow.style.gridTemplateColumns = 'max-content 1fr auto auto';
-      prow.style.alignItems = 'center';
+      prow.className = 'settings-row ai-provider-row';
+      prow.dataset.search = 'provider tersimpan preset ai chat';
       const lab = document.createElement('span');
       lab.className = 'settings-name';
       lab.textContent = 'Provider tersimpan';
@@ -2128,7 +2194,7 @@
       prow.appendChild(sel);
       prow.appendChild(saveBtn);
       prow.appendChild(delBtn);
-      groupHost.appendChild(prow);
+      groupBody.appendChild(prow);
 
       const fillSel = () => {
         sel.innerHTML = '';
@@ -2191,6 +2257,77 @@
         fillSel();
         sel.value = '';
         toast('Preset “' + p.name + '” dihapus.');
+      });
+    }
+
+    // Tombol Test koneksi (menguji langsung nilai form saat ini tanpa harus klik Apply dulu)
+    if (groupBody && !document.getElementById('ai-test-conn')) {
+      const trow = document.createElement('div');
+      trow.className = 'settings-row ai-test-row';
+      trow.dataset.search = 'uji koneksi test koneksi ai chat';
+      const tlab = document.createElement('span');
+      tlab.className = 'settings-name';
+      tlab.textContent = 'Uji koneksi';
+      const testBtn = document.createElement('button');
+      testBtn.type = 'button';
+      testBtn.id = 'ai-test-conn';
+      testBtn.className = 'btn small';
+      testBtn.textContent = 'Test koneksi';
+      testBtn.title = 'Uji URL, API key, dan bridge AI menggunakan nilai form saat ini';
+      const statusEl = document.createElement('span');
+      statusEl.id = 'ai-test-status';
+      statusEl.className = 'ai-test-status';
+      statusEl.textContent = '—';
+      trow.appendChild(tlab);
+      trow.appendChild(testBtn);
+      trow.appendChild(statusEl);
+      groupBody.appendChild(trow);
+
+      testBtn.addEventListener('click', async () => {
+        const bridgeEl = document.getElementById('set-aiBridgeUrl');
+        let bridgeBase = String((bridgeEl && bridgeEl.value) || settings.aiBridgeUrl || '').trim().replace(/\/+$/, '');
+        if (!bridgeBase) {
+          try { if (/^https?:$/.test(location.protocol)) bridgeBase = location.origin.replace(/\/+$/, ''); }
+          catch (e) { bridgeBase = ''; }
+        }
+        const base = effBase();
+        const key = effKey();
+        statusEl.className = 'ai-test-status';
+        if (!bridgeBase) {
+          statusEl.className = 'ai-test-status is-err';
+          statusEl.textContent = 'Bridge URL kosong (mode offline file://)';
+          return;
+        }
+        if (!base) {
+          statusEl.className = 'ai-test-status is-err';
+          statusEl.textContent = 'Isi AI API base URL atau centang Google Gemini';
+          return;
+        }
+        testBtn.disabled = true;
+        statusEl.textContent = 'Menguji koneksi…';
+        try {
+          const r = await fetch(bridgeBase + '/api/models', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ settings: { baseUrl: base, apiKey: key } })
+          });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
+          const list = Array.isArray(j.models) ? j.models : [];
+          statusEl.className = 'ai-test-status is-ok';
+          statusEl.textContent = '✓ Terhubung (' + list.length + ' model tersedia)';
+          statusEl.title = list.slice(0, 12).join(', ');
+          if (list.length && window.MiniSketchAI && window.MiniSketchAI.fillModelList) {
+            window.MiniSketchAI.fillModelList(list);
+          }
+        } catch (err) {
+          statusEl.className = 'ai-test-status is-err';
+          const msg = String(err && err.message || err);
+          statusEl.textContent = '✕ ' + msg;
+          statusEl.title = msg;
+        } finally {
+          testBtn.disabled = false;
+        }
       });
     }
 
@@ -6107,6 +6244,95 @@
     refreshSelectionDimensions(pids, eids, sx, sy);
   }
 
+  // Programmatic selection rotation (used by AI tool rotate_selection).
+  // `deg` is clockwise-positive in Y-down world mm (matches SVG rotate(deg)).
+  // Does not push history or commit — caller batches inside its own Undo step.
+  function rotateSelection(deg, ox, oy) {
+    if (!isFinite(deg)) return { ok: false, error: 'bad angle' };
+    const b = selectionBounds();
+    if (!b) return { ok: false, error: 'nothing selected' };
+    const ents = selectedEntities();
+    if (ents.some(e => e.type === 'part')) {
+      return { ok: false, error: 'parts are pose-driven and cannot be rotated with rotate_selection' };
+    }
+    const cx = isFinite(ox) ? ox : (b.minX + b.maxX) / 2;
+    const cy = isFinite(oy) ? oy : (b.minY + b.maxY) / 2;
+    const pids = selectionPointIds();
+    const eids = new Set(ents.map(e => +e.id));
+    const phi = deg * Math.PI / 180;
+    const c = Math.cos(phi), s = Math.sin(phi);
+    for (const cid in state.constraints) {
+      const con = state.constraints[cid];
+      const drop =
+        ((con.type === 'horizontal' || con.type === 'vertical') && eids.has(+con.entity)) ||
+        ((con.type === 'horizontalPoints' || con.type === 'verticalPoints') &&
+          pids.has(+con.p1) && pids.has(+con.p2)) ||
+        ((con.type === 'perpendicular' || con.type === 'parallel') &&
+          (eids.has(+con.line1) || eids.has(+con.line2))) ||
+        (con.type === 'aspect' && eids.has(+con.entity));
+      if (drop) delete state.constraints[cid];
+    }
+    const rot = (x, y) => {
+      const dx = x - cx, dy = y - cy;
+      return { x: cx + c * dx - s * dy, y: cy + s * dx + c * dy };
+    };
+    for (const pid of pids) {
+      const p = state.points[pid];
+      if (!p) continue;
+      const q = rot(p.x, p.y);
+      p.x = q.x; p.y = q.y;
+    }
+    for (const e of ents) {
+      if (e.type === 'array' && e.kind === 'clone') {
+        const M = [c, s, -s, c, cx - (c * cx - s * cy), cy - (s * cx + c * cy)];
+        e.instances = (e.instances || []).map(inst => (
+          inst && inst.m ? { ...inst, m: matMul(M, inst.m) } : inst));
+        delete e.shapes;
+        continue;
+      }
+      if (e.type !== 'spline' || !e.hs) continue;
+      for (const arr of [e.hs.o, e.hs.i]) {
+        for (const h of (arr || [])) {
+          if (!h) continue;
+          const q = rot(h.x, h.y);
+          h.x = q.x; h.y = q.y;
+        }
+      }
+    }
+    for (const cid in state.constraints) {
+      const con = state.constraints[cid];
+      if (con.type === 'fix' && pids.has(+con.p)) {
+        const pt = P(con.p);
+        if (pt) { con.x = pt.x; con.y = pt.y; }
+      }
+    }
+    invalidateLoops();
+    return { ok: true, count: ents.length, pivot: { x: round2(cx), y: round2(cy) } };
+  }
+
+  // Programmatic selection mirror (used by AI tool mirror_selection).
+  // axis === 'x' flips horizontally across x=ox; axis === 'y' flips vertically across y=oy.
+  // Swaps arc start/end endpoints so reflected arcs keep their visual sweep.
+  function mirrorSelection(axis, ox, oy) {
+    const ax = String(axis || '').toLowerCase();
+    if (ax !== 'x' && ax !== 'y') return { ok: false, error: 'axis must be "x" or "y"' };
+    const b = selectionBounds();
+    if (!b) return { ok: false, error: 'nothing selected' };
+    const cx = isFinite(ox) ? ox : (b.minX + b.maxX) / 2;
+    const cy = isFinite(oy) ? oy : (b.minY + b.maxY) / 2;
+    const ents = selectedEntities();
+    scaleSelection(ax === 'x' ? -1 : 1, ax === 'y' ? -1 : 1, cx, cy);
+    for (const e of ents) {
+      if (e && e.type === 'arc') {
+        const tmp = e.s;
+        e.s = e.e;
+        e.e = tmp;
+      }
+    }
+    invalidateLoops();
+    return { ok: true, count: ents.length, axis: ax, pivot: { x: round2(cx), y: round2(cy) } };
+  }
+
   // Alt+R landing spot: focus L with its content selected, so typing +10 or
   // 10- shifts relative to the current value (see evalFormula). Warns when
   // there is no selection instead of focusing a dead field.
@@ -6135,15 +6361,18 @@
     const hasEnts = ents.length > 0 && !!b;
     if (wel) wel.disabled = !hasEnts;
     if (zel) zel.disabled = !hasEnts;
+    const toggleLbl = document.getElementById('tf-toggle-label');
     if (!b) {
       for (const el of els) if (force || document.activeElement !== el) el.value = '';
       if (wel && (force || document.activeElement !== wel)) wel.value = '';
       if (zel && (force || document.activeElement !== zel)) zel.value = '';
+      if (toggleLbl) toggleLbl.textContent = 'L/T/W/H';
       return;
     }
     // World Y runs DOWN (canvas), so the visual top-left is (minX, minY):
     // T edits the top edge, and W/H grow away from that corner.
     const vals = [b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY];
+    if (toggleLbl) toggleLbl.textContent = fmt(vals[2]) + ' \u00d7 ' + fmt(vals[3]) + ' mm';
     els.forEach((el, i) => {
       if (!force && document.activeElement === el) return;
       el.value = fmt(vals[i]);
@@ -6717,7 +6946,7 @@
       toast('Clipboard is empty');
       return false;
     }
-    pushHistory();
+    if (!o.noHistory) pushHistory();
     let offsetX, offsetY;
     if (o.at === 'same') {
       offsetX = 0;
@@ -6902,8 +7131,10 @@
     }
     ui.focusLoop = null;
     invalidateLoops();
-    requestSolve();
-    commit();
+    if (!o.noCommit) {
+      requestSolve();
+      commit();
+    }
     if (o.toast !== '') {
       toast(o.toast || 'Pasted — the new copy is selected, drag it to move');
     }
@@ -6951,6 +7182,39 @@
     if (pasteClipboard({ from: payload, at: 'same', toast: '' })) {
       toast('Duplicated ' + what + ' — nudge with the arrow keys');
     }
+  }
+
+  // Programmatic duplicate for AI tool duplicate_selection (noHistory / noCommit
+  // so the caller keeps the entire agent turn in a single Undo step).
+  function duplicateSelection(dx, dy) {
+    const cloneSel = selectedEntities().filter(e => e.type === 'array' && e.kind === 'clone');
+    if (cloneSel.length && cloneSel.length === ui.selection.length) {
+      const made = [];
+      for (const src of cloneSel) {
+        const id = newId();
+        state.entities[id] = {
+          id, type: 'array', kind: 'clone',
+          params: {}, color: src.color, layer: src.layer,
+          masters: (src.masters || []).slice(),
+          instances: (src.instances || []).map(i => ({
+            m: i.m.slice(), ...(i.a ? { a: i.a.slice() } : {})
+          }))
+        };
+        made.push(id);
+      }
+      ui.selection = made.map(id => ({ kind: 'entity', id }));
+      if ((dx && isFinite(dx)) || (dy && isFinite(dy))) moveSelection(dx || 0, dy || 0);
+      invalidateLoops();
+      return { ok: true, ids: made };
+    }
+    const payload = clipboardPayload();
+    if (!payload) return { ok: false, error: 'nothing selected' };
+    const ok = pasteClipboard({ from: payload, at: 'same', toast: '', noHistory: true, noCommit: true });
+    if (!ok) return { ok: false, error: 'duplicate failed' };
+    if ((dx && isFinite(dx)) || (dy && isFinite(dy))) moveSelection(dx || 0, dy || 0);
+    invalidateLoops();
+    const ids = selectedEntities().map(e => +e.id);
+    return { ok: true, ids };
   }
 
   // --- Transform (rotate / scale) mode --------------------------------------
@@ -7837,6 +8101,7 @@
       else x = Math.max(6, minX - GAP - w);
     }
     x = clamp(x, 6, Math.max(6, SW - w - 6));
+    y = clamp(y, 6, Math.max(6, SH - h - 6));
     panel.style.left = Math.round(x) + 'px';
     panel.style.top = Math.round(y) + 'px';
   }
@@ -11951,18 +12216,44 @@
     const zy = view.zoom / m.height;
     const isSel = selected('entity', +e.id);
     const isHover = ui.hover && ui.hover.kind === 'entity' && ui.hover.id === +e.id;
+    // Optional fill (Gray / Yellow) BEHIND the glyph strokes, like loop and
+    // art fills: combine ALL glyph loops into ONE Path2D and fill with
+    // 'evenodd' so inner holes (O, A, B, D, P, R, 8, 0) stay cleanly punched
+    // out instead of being painted solid. Single-line fonts have closed:false
+    // and never receive an area fill.
+    if (e.fill === 'gray' || e.fill === 'yellow') {
+      const tw = textOutlineWorld(e);
+      if (tw && tw.closed && tw.loops && tw.loops.length) {
+        const combined = new Path2D();
+        let hasLoop = false;
+        for (const loop of tw.loops) {
+          if (!loop || loop.length < 3) continue;
+          const s0 = w2s(loop[0].x, loop[0].y);
+          combined.moveTo(s0.x, s0.y);
+          for (let k = 1; k < loop.length; k++) {
+            const s = w2s(loop[k].x, loop[k].y);
+            combined.lineTo(s.x, s.y);
+          }
+          combined.closePath();
+          hasLoop = true;
+        }
+        if (hasLoop) {
+          ctx.save();
+          ctx.fillStyle = LOOP_FILL_TINT[e.fill];
+          ctx.fill(combined, 'evenodd');
+          ctx.restore();
+        }
+      }
+    }
     ctx.save();
     // Local (0,0) is the top-left corner; +x runs along the width line and +y
     // along the height line, so rotation and skew come straight from the frame.
     ctx.translate(o.x, o.y);
     ctx.transform(gg.A.x * zx, gg.A.y * zx, gg.B.x * zy, gg.B.y * zy, 0, 0);
     // Wireframe like every other entity: outline only, one device pixel wide,
-    // in the stroke colour the user picked (no fill). A SELECTED text reads
-    // like every other picked object: glyphs take the amber selection mix and
-    // stroke at the Selected line width — the old draw kept the glyphs at the
-    // exact plain colour, so a picked text was only told apart by its faint
-    // dashed frame (and brightening could not show on a white/black themed
-    // glyph at all: pushing white toward white changes nothing).
+    // in the stroke colour the user picked. A SELECTED text reads like every
+    // other picked object: glyphs take the amber selection mix and stroke at
+    // the Selected line width.
     const scaleX = Math.hypot(gg.A.x * zx, gg.A.y * zx) || 1;
     const scaleY = Math.hypot(gg.B.x * zy, gg.B.y * zy) || 1;
     ctx.lineWidth = (isSel ? SEL_WIDTH : 1) / Math.max(1e-6, Math.min(scaleX, scaleY));
@@ -11991,28 +12282,6 @@
       }
       if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
       ctx.restore();
-    }
-    // Optional fill (Gray / Yellow) behind the glyph strokes, like loop and
-    // art fills: the outline is filled in screen space from the world outline.
-    if (e.fill === 'gray' || e.fill === 'yellow') {
-      const tw = textOutlineWorld(e);
-      if (tw && tw.loops) {
-        ctx.save();
-        ctx.fillStyle = LOOP_FILL_TINT[e.fill];
-        for (const loop of tw.loops) {
-          if (!loop || loop.length < 3) continue;
-          const p = new Path2D();
-          const s0 = w2s(loop[0].x, loop[0].y);
-          p.moveTo(s0.x, s0.y);
-          for (let k = 1; k < loop.length; k++) {
-            const s = w2s(loop[k].x, loop[k].y);
-            p.lineTo(s.x, s.y);
-          }
-          if (tw.closed) p.closePath();
-          ctx.fill(p, 'evenodd');
-        }
-        ctx.restore();
-      }
     }
     // frame outline in screen space, so the box reads at any zoom
     const corners = [
@@ -14015,7 +14284,9 @@
     const out = [];
     for (const sh of (e.shapes || [])) {
       out.push({
-        color: sh.color, closed: !!sh.closed,
+        color: sh.color,
+        fill: (sh.fill === 'gray' || sh.fill === 'yellow') ? sh.fill : null,
+        closed: !!sh.closed,
         pts: sh.pts.map(p => arrayXformPoint(t, p[0], p[1]))
       });
     }
@@ -14097,10 +14368,28 @@
   let nestJobSeq = 0;
   let nestLastSpec = null; // last run's entity ids + params, for Re-nest / ∞
 
+  const NEST_PRESETS = {
+    fast:     { pop: 4,  gen: 2,  mut: 0.12, ls: 3,  grid: 6, maxVerts: 40 },
+    balanced: { pop: 8,  gen: 6,  mut: 0.12, ls: 8,  grid: 4, maxVerts: 56 },
+    max:      { pop: 14, gen: 12, mut: 0.15, ls: 16, grid: 2, maxVerts: 72 }
+  };
+
+  function nestApplyPreset(presetName) {
+    const p = NEST_PRESETS[presetName];
+    if (!p) return;
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = String(v); };
+    set('nest-pop', p.pop);
+    set('nest-gen', p.gen);
+    set('nest-mut', p.mut);
+    set('nest-ls', p.ls);
+    set('nest-grid', p.grid);
+  }
+
   function nestPrefsLoad() {
     let saved = {};
     try { saved = JSON.parse(localStorage.getItem(NEST_PREFS_KEY) || '{}') || {}; } catch (err) { saved = {}; }
     const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+    set('nest-preset', saved.preset);
     set('nest-spacing', saved.spacing);
     set('nest-grid', saved.grid);
     set('nest-rotation', saved.rotation);
@@ -14108,6 +14397,10 @@
     set('nest-gen', saved.gen);
     set('nest-mut', saved.mut);
     set('nest-ls', saved.ls);
+    if (typeof saved.multiSheet === 'boolean') {
+      const el = document.getElementById('nest-multisheet');
+      if (el) el.checked = saved.multiSheet;
+    }
     if (typeof saved.flip === 'boolean') {
       const el = document.getElementById('nest-flip');
       if (el) el.checked = saved.flip;
@@ -14121,13 +14414,16 @@
   function nestPrefsSave() {
     const val = (id) => { const el = document.getElementById(id); return el ? el.value : null; };
     const flip = document.getElementById('nest-flip');
+    const ms = document.getElementById('nest-multisheet');
     const inf = document.getElementById('nest-infinite');
     try {
       localStorage.setItem(NEST_PREFS_KEY, JSON.stringify({
+        preset: val('nest-preset'),
         spacing: val('nest-spacing'), grid: val('nest-grid'),
         rotation: val('nest-rotation'),
         pop: val('nest-pop'), gen: val('nest-gen'), mut: val('nest-mut'),
         ls: val('nest-ls'),
+        multiSheet: ms ? ms.checked : true,
         flip: flip ? flip.checked : false,
         infinite: inf ? inf.checked : false
       }));
@@ -14362,13 +14658,86 @@
         });
       }
     }
-    // sheet: exactly one green loop, same space as the parts (world mm)
-    if (sheetLoops.length === 1) {
-      const rec = sheetLoops[0];
-      const paths = [nestEnginePoly(rec.loop.poly, GEOM)];
-      const sheetPath = new MiniSketchNest.Path(paths, 0, null, '#00ff00');
-      sheetPath.align();
-      entries.push({ originIndex: 0, lcolor: '#00ff00', childIndex: [], variants: [sheetPath], _rec: { outer: rec, holes: [] } });
+    // Sheets: one or more green loops, same space as the parts (world mm).
+    // Ordered left-to-right (minX), then bottom-to-top (minY), so Sheet 1
+    // matches the leftmost green box on canvas.
+    // A numeric note placed inside a green sheet loop (and NOT inside any part
+    // polygon) sets how many copies of that sheet are available. Sheet origin
+    // indices are 0, -1, -2, ... so sheet 0 keeps 0 and parts stay 1..N.
+    if (sheetLoops && sheetLoops.length >= 1) {
+      const sheetBox = (rec) => {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const p of rec.loop.poly) {
+          if (p.x < minX) minX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y > maxY) maxY = p.y;
+        }
+        return { minX, minY, maxX, maxY };
+      };
+      const sortedSheets = sheetLoops.slice().sort((a, b) => {
+        const ba = sheetBox(a), bb = sheetBox(b);
+        if (Math.abs(ba.minX - bb.minX) > 1e-3) return ba.minX - bb.minX;
+        return ba.minY - bb.minY;
+      });
+      const sheetCounts = new Map();
+      const sheetExplicit = new Map();
+      const maxSheetCopies = 50;
+      for (const id in state.entities) {
+        const e = state.entities[id];
+        if (!e || e.type !== 'note' || e.p == null) continue;
+        const anchor = P(e.p);
+        if (!anchor || !isFinite(anchor.x) || !isFinite(anchor.y)) continue;
+        const m = String(e.text || '').match(/\d+/);
+        if (!m) continue;
+        const n = parseInt(m[0], 10);
+        if (!(n >= 1 && n <= NEST_MAX_COPIES)) continue;
+        // Notes inside a part outer polygon belong to that part, not to an enclosing sheet.
+        let insidePart = false;
+        for (let oi = 0; oi < objects.length; oi++) {
+          const op = objects[oi].outer && objects[oi].outer.loop && objects[oi].outer.loop.poly;
+          if (op && op.length > 2 && pointInPoly(anchor, op)) { insidePart = true; break; }
+        }
+        if (insidePart) continue;
+        // Assign to the smallest-area green sheet containing this note.
+        let owner = null, ownerArea = Infinity;
+        for (const srec of sortedSheets) {
+          const sp = srec.loop && srec.loop.poly;
+          if (!sp || sp.length < 3) continue;
+          if (pointInPoly(anchor, sp)) {
+            const area = Math.abs(srec.loop.area || 0);
+            if (area < ownerArea) { owner = srec; ownerArea = area; }
+          }
+        }
+        if (owner) {
+          const clamped = Math.min(maxSheetCopies, n);
+          const prev = sheetCounts.get(owner) || 0;
+          if (clamped > prev) sheetCounts.set(owner, clamped);
+          sheetExplicit.set(owner, true);
+        }
+      }
+      let nextSheetOrigin = 0;
+      let totalEmitted = 0;
+      for (const rec of sortedSheets) {
+        const copies = sheetCounts.get(rec) || 1;
+        const explicitNote = !!sheetExplicit.get(rec);
+        const baseRing = nestEnginePoly(rec.loop.poly, GEOM);
+        for (let c = 0; c < copies && totalEmitted < maxSheetCopies; c++) {
+          const sOrigin = nextSheetOrigin--;
+          const ringCopy = baseRing.map(pt => pt.clone());
+          const sheetPath = new MiniSketchNest.Path([ringCopy], sOrigin, null, '#00ff00');
+          sheetPath.align();
+          entries.push({
+            originIndex: sOrigin,
+            lcolor: '#00ff00',
+            childIndex: [],
+            variants: [sheetPath],
+            _rec: { outer: rec, holes: [] },
+            _sheetExplicitNote: explicitNote
+          });
+          totalEmitted++;
+        }
+      }
     }
     return entries;
   }
@@ -14430,13 +14799,11 @@
     }
     const sel = nestCollectLoops();
     if (sel.sheetLoops.length === 0 && sel.partLoops.length === 0) {
-      toast('Pilih loop yang mau dinesting + satu loop hijau sebagai lembar');
+      toast('Pilih loop yang mau dinesting + minimal satu loop hijau sebagai lembar');
       return null;
     }
-    if (sel.sheetLoops.length !== 1) {
-      toast(sel.sheetLoops.length === 0
-        ? 'Pilih satu loop garis hijau sebagai lembar (sheet)'
-        : 'Pilih hanya satu loop hijau sebagai lembar — sekarang ada ' + sel.sheetLoops.length);
+    if (sel.sheetLoops.length === 0) {
+      toast('Pilih minimal satu loop garis hijau sebagai lembar (sheet)');
       return null;
     }
     if (sel.partLoops.length === 0) {
@@ -14451,37 +14818,41 @@
       spacing: params.spacing, gridMm: params.gridMm,
       rotation: params.rotation, flip: params.flip,
       popSize: params.popSize, generations: params.generations,
-      mutation: params.mutation, infinite: params.infinite,
+      mutation: params.mutation, localSearch: params.localSearch,
+      multiSheet: params.multiSheet, preset: params.preset,
+      maxVerts: params.maxVerts, infinite: params.infinite,
       partLoops: sel.partLoops
     };
   }
 
   // Read the nest control-panel parameters straight from the live inputs. Kept
   // separate from nestPrepare() so Re-nest can pick up the CURRENT values (Sp/
-  // Grid/Rot/flip/GA/infinite) while still resolving the geometry from the last
-  // run's entity ids.
+  // Grid/Rot/flip/GA/multiSheet/infinite) while still resolving the geometry
+  // from the last run's entity ids.
   function nestReadParams() {
     const spacing = Math.max(0, parseFloat(document.getElementById('nest-spacing').value) || 0);
-    // Grid snap: the NFP scanline step in mm (reference "Grid Snap", default
-    // 4). Kept SEPARATE from spacing: spacing=0 must not shrink the scan step
-    // to 1 mm (that made runs without spacing crawl).
     const gridMm = Math.max(1, parseFloat(document.getElementById('nest-grid').value) || 4);
     const rotation = document.getElementById('nest-rotation').value;
     const flip = document.getElementById('nest-flip').checked;
-    const popSize = Math.max(2, parseInt(document.getElementById('nest-pop').value, 10) || 6);
-    const generations = Math.max(1, parseInt(document.getElementById('nest-gen').value, 10) || 5);
+    const popSize = Math.max(2, parseInt(document.getElementById('nest-pop').value, 10) || 8);
+    const generations = Math.max(1, parseInt(document.getElementById('nest-gen').value, 10) || 6);
     const mutEl = document.getElementById('nest-mut');
-    let mutation = mutEl ? parseFloat(mutEl.value) : 0.1;
-    if (!isFinite(mutation)) mutation = 0.1;
+    let mutation = mutEl ? parseFloat(mutEl.value) : 0.12;
+    if (!isFinite(mutation)) mutation = 0.12;
     mutation = Math.min(1, Math.max(0, mutation));
     const lsEl = document.getElementById('nest-ls');
-    let localSearch = lsEl ? parseInt(lsEl.value, 10) : 6;
-    if (!isFinite(localSearch)) localSearch = 6;
+    let localSearch = lsEl ? parseInt(lsEl.value, 10) : 8;
+    if (!isFinite(localSearch)) localSearch = 8;
     localSearch = Math.max(0, Math.min(60, localSearch));
+    const msEl = document.getElementById('nest-multisheet');
+    const multiSheet = msEl ? !!msEl.checked : false;
+    const presetEl = document.getElementById('nest-preset');
+    const preset = presetEl ? presetEl.value : 'balanced';
+    const maxVerts = preset === 'fast' ? 40 : (preset === 'max' ? 72 : 56);
     const infEl = document.getElementById('nest-infinite');
     return {
       spacing, gridMm, rotation, flip, popSize, generations, mutation,
-      localSearch,
+      localSearch, multiSheet, preset, maxVerts,
       infinite: infEl ? infEl.checked : false
     };
   }
@@ -14493,6 +14864,7 @@
   function nestSpecIds(spec) {
     return {
       sheetIds: (spec.sheetLoops[0].entityIds || []).slice(),
+      sheetIdsList: spec.sheetLoops.map(s => (s.entityIds || []).slice()),
       objects: spec.objects.map(o => ({
         outerIds: (o.outer.entityIds || []).slice(),
         holeIds: o.holeRecs.map(h => (h.entityIds || []).slice()),
@@ -14502,7 +14874,9 @@
       params: {
         spacing: spec.spacing, gridMm: spec.gridMm, rotation: spec.rotation,
         flip: spec.flip, popSize: spec.popSize, generations: spec.generations,
-        mutation: spec.mutation, infinite: spec.infinite
+        mutation: spec.mutation, localSearch: spec.localSearch,
+        multiSheet: !!spec.multiSheet, preset: spec.preset || 'balanced',
+        maxVerts: spec.maxVerts || 56, infinite: spec.infinite
       }
     };
   }
@@ -14544,8 +14918,16 @@
   function nestResolveSpec() {
     const mem = nestLastSpec;
     if (!mem) return null;
-    const sheet = nestFindLoop(mem.sheetIds);
-    if (!sheet) return null;
+    const sheetLists = (Array.isArray(mem.sheetIdsList) && mem.sheetIdsList.length)
+      ? mem.sheetIdsList
+      : (mem.sheetIds ? [mem.sheetIds] : []);
+    const sheetLoops = [];
+    for (const sids of sheetLists) {
+      const sh = nestFindLoop(sids);
+      if (!sh) return null;
+      sheetLoops.push(sh);
+    }
+    if (!sheetLoops.length) return null;
     const objects = [];
     for (const o of mem.objects) {
       const outer = o.text ? nestTextRecById(o.outerIds[0]) : nestEntityRec(o.outerIds);
@@ -14560,9 +14942,11 @@
     if (!objects.length) return null;
     const p = mem.params;
     return {
-      sheetLoops: [sheet], objects,
+      sheetLoops, objects,
       spacing: p.spacing, gridMm: p.gridMm, rotation: p.rotation, flip: p.flip,
       popSize: p.popSize, generations: p.generations, mutation: p.mutation,
+      localSearch: p.localSearch, multiSheet: !!p.multiSheet,
+      preset: p.preset || 'balanced', maxVerts: p.maxVerts || 56,
       infinite: p.infinite
     };
   }
@@ -14582,10 +14966,6 @@
       toast('Re-nest: geometri dari hasil sebelumnya sudah berubah — pilih loop lagi');
       return;
     }
-    // Re-nest honors the CURRENT panel parameters (spacing/grid/rotation/flip/
-    // GA sizes, infinite) while still resolving the geometry from the last
-    // run's entity ids — so editing Sp/Grid/… now takes effect without having
-    // to re-select the loops.
     const params = nestReadParams();
     spec.spacing = params.spacing;
     spec.gridMm = params.gridMm;
@@ -14595,6 +14975,9 @@
     spec.generations = params.generations;
     spec.mutation = params.mutation;
     spec.localSearch = params.localSearch;
+    spec.multiSheet = params.multiSheet;
+    spec.preset = params.preset;
+    spec.maxVerts = params.maxVerts;
     spec.infinite = params.infinite;
     nestRun(spec);
   }
@@ -14604,17 +14987,24 @@
     const stateAtStart = state;
     const entries = nestBuildEntries(spec.sheetLoops, spec.objects, spec.spacing, spec.rotation, spec.flip);
     const sheetLoop = spec.sheetLoops[0].loop;
+    // Union bounds across ALL selected green sheets so output starts cleanly to
+    // the right of every original green frame.
     let sxMin = Infinity, syMin = Infinity, sxMax = -Infinity, syMax = -Infinity;
-    for (const p of sheetLoop.poly) {
-      sxMin = Math.min(sxMin, p.x); syMin = Math.min(syMin, p.y);
-      sxMax = Math.max(sxMax, p.x); syMax = Math.max(syMax, p.y);
+    for (const srec of spec.sheetLoops) {
+      for (const p of srec.loop.poly) {
+        sxMin = Math.min(sxMin, p.x); syMin = Math.min(syMin, p.y);
+        sxMax = Math.max(sxMax, p.x); syMax = Math.max(syMax, p.y);
+      }
     }
     const ga = new MiniSketchNest.NFPGA();
     ga.setSpacing(spec.spacing);
     ga.setAllowFlip(spec.flip);
     ga.setGAParams(spec.popSize, spec.generations, spec.mutation);
     if (spec.localSearch != null) ga.localSearchBudget = spec.localSearch;
+    if (spec.maxVerts != null) ga.maxVerts = spec.maxVerts;
 
+    const sheetEntries = entries.filter(e => e.lcolor === '#00ff00');
+    const finiteSheets = sheetEntries.length > 1 || sheetEntries.some(e => e._sheetExplicitNote);
     const nParts = entries.filter(e => e.lcolor !== '#00ff00').length;
     nestJob = {
       stateAtStart, entries, sheetLoop,
@@ -14623,21 +15013,28 @@
       gridMm: spec.gridMm,
       variantAngles: nestRotationAngles(spec.rotation),
       flip: spec.flip,
+      multiSheet: !!spec.multiSheet,
+      finiteSheets,
+      sheetStockCount: sheetEntries.length,
+      preset: spec.preset || 'balanced',
+      maxVerts: spec.maxVerts || 56,
       cancelled: false, running: true, done: 0, total: 1,
       partsPerEval: nParts,
       evals: spec.popSize * (spec.generations + 1) + 1,
       infinite: !!spec.infinite, stopRequested: false,
       iteration: 1, best: null, seed: null,
       popSize: spec.popSize, generations: spec.generations, mutation: spec.mutation,
-      localSearch: spec.localSearch != null ? spec.localSearch : 6,
+      localSearch: spec.localSearch != null ? spec.localSearch : 8,
       ga, gridSize: spec.gridMm * MiniSketchNest.GEOM_SCALE,
       t0: performance.now(), steps: 0, stepMsTotal: 0, stepMsMax: 0,
       id: ++nestJobSeq
     };
     nestLog('start: ' + nParts + ' parts (' +
-      spec.objects.reduce((n, o) => n + o.holeRecs.length, 0) + ' holes), sheet ' +
-      Math.round(sxMax - sxMin) + '×' + Math.round(syMax - syMin) + ' mm, Sp=' + spec.spacing +
-      ' Grid=' + spec.gridMm + ' Rot=' + spec.rotation + (spec.flip ? ' +flip' : '') +
+      spec.objects.reduce((n, o) => n + o.holeRecs.length, 0) + ' holes), ' +
+      (finiteSheets ? (sheetEntries.length + ' sheet stock') : ('sheet ' + Math.round(sxMax - sxMin) + '×' + Math.round(syMax - syMin) + ' mm')) +
+      ', Sp=' + spec.spacing +
+      ' Rot=' + spec.rotation + (spec.flip ? ' +flip' : '') +
+      (finiteSheets ? ' finite-sheets' : (spec.multiSheet ? ' auto-multi-sheet' : '')) +
       ', GA ' + spec.popSize + 'x' + spec.generations + ' M=' + spec.mutation +
       ' LS=' + (spec.localSearch != null ? spec.localSearch : ga.localSearchBudget) +
       (spec.infinite ? ' infinite' : ''));
@@ -14652,16 +15049,16 @@
     if (stopBtn) stopBtn.hidden = false;
     if (prog) prog.hidden = false;
     nestSetStatus('Nesting…');
-    if (spec.infinite || !nestCanUseWorkers()) {
+    // Both normal and Infinite mode now run in Web Workers (with warm NFP cache).
+    // Main-thread generator stays as fallback if Workers are unavailable.
+    if (!nestCanUseWorkers()) {
       nestRunIteration(nestJob);
     } else {
       nestStartWorkers(nestJob);
     }
   }
 
-  // One GA run over the job's entries. `job.seed` (the previous iteration's
-  // winner) becomes an extra individual, so an infinite run keeps improving on
-  // what it already found instead of restarting from scratch.
+  // Synchronous main-thread fallback (used only when Web Workers are blocked).
   function nestRunIteration(job) {
     const ga = job.ga;
     ga._lastPlaceMs = 0;
@@ -14673,10 +15070,17 @@
     job.stepMsTotal = 0;
     job.stepMsMax = 0;
     const stateAtStart = job.stateAtStart;
-    const gen = ga.findBestPositionGen(job.entries, { width: 1, height: 1 }, job.gridSize, {
+    const opts = {
       shouldCancel: () => job.cancelled || state !== stateAtStart,
-      seedOrder: job.seed
-    });
+      seedOrder: job.seed,
+      multiSheet: !!job.multiSheet,
+      finiteSheets: !!job.finiteSheets,
+      nfpCache: ga.nfpCache
+    };
+    const useMulti = (job.multiSheet || job.finiteSheets) && typeof ga.findBestMultiSheetGen === 'function';
+    const gen = useMulti
+      ? ga.findBestMultiSheetGen(job.entries, { width: 1, height: 1 }, job.gridSize, opts)
+      : ga.findBestPositionGen(job.entries, { width: 1, height: 1 }, job.gridSize, opts);
 
     const step = () => {
       if (!nestJob || nestJob !== job) return;
@@ -14692,22 +15096,10 @@
           job.steps++;
           job.stepMsTotal += stepMs;
           job.stepMsMax = Math.max(job.stepMsMax, stepMs);
-          if (stepMs > 400 && NEST_DEBUG) {
-            console.log('[nest][slowstep] part ' + job.done + '/' + job.total + ' · ' + stepMs.toFixed(0) + ' ms');
-          }
           if (n.done) {
-            // ONE human-readable line per run: compare Sp/grid/Mut here
             const s = n.value && n.value.stats;
             nestLog('done in ' + Math.round(performance.now() - job.t0) + ' ms' +
-              ' (place ' + Math.round(ga._lastPlaceMs || 0) + ' ms, ' +
-              job.steps + ' part-steps, avg ' +
-              Math.round(job.stepMsTotal / Math.max(1, job.steps)) + ' ms, max ' +
-              Math.round(job.stepMsMax) + ' ms' +
-              (s ? ', ' + s.collisionChecks + ' collision checks, ' + s.evaluations + ' evals' : '') + ')');
-            // Paint 100% before finishing: the generator's final yield is
-            // consumed as `done` and handled below, so without this the bar
-            // freezes below full and (in infinite mode) resets to 0 before
-            // you ever see it complete.
+              (s ? ' (' + s.collisionChecks + ' collision checks, ' + s.evaluations + ' evals)' : ''));
             if (job.total > 0) {
               job.done = job.total;
               nestPaintProgress();
@@ -14735,18 +15127,19 @@
     const job = nestJob;
     let res = value;
     if (!res) {
-      // cancelled: drain generator until done to obtain the return value
       let n;
       try {
-        do {
-          n = gen.next();
-        } while (!n.done);
+        do { n = gen.next(); } while (!n.done);
         res = n.value;
       } catch (err) {
         console.warn('[nest] gen drain failed', err);
       }
     }
-    const hasPlacements = res && Array.isArray(res.placements) && res.placements.some(p => p.lcolor !== '#00ff00');
+    const sheets = (res && Array.isArray(res.sheets) && res.sheets.length > 0) ? res.sheets : null;
+    const totalPlaced = sheets
+      ? sheets.reduce((s, sh) => s + (sh.placedCount || 0), 0)
+      : (res && Array.isArray(res.placements) ? res.placements.filter(p => p.lcolor !== '#00ff00').length : 0);
+    const hasPlacements = totalPlaced > 0;
     if (!hasPlacements && !job.best) {
       job.running = false;
       nestJob = null;
@@ -14758,51 +15151,38 @@
 
     let entry = null;
     if (hasPlacements) {
-      // nestjs2's "Recompact": slide every part up / left 1 mm at a time while it
-      // stays collision free (the sheet contour is still enforced, so nothing
-      // escapes the frame). Tens of ms on a normal job and it tightens the block
-      // measurably — measured 57% -> 63% utilisation on 12 dense parts — which is
-      // the pass the reference had and this port never ran.
-      let compactMs = 0;
-      try {
-        const tc = performance.now();
-        // res.placements = job.ga.compactSolution(res.placements, {
-        //   width: job.sheetBounds.maxX - job.sheetBounds.minX,
-        //   height: job.sheetBounds.maxY - job.sheetBounds.minY
-        // });
-        // compactMs = performance.now() - tc;
-      } catch (err) {
-        console.error('[nest] compact failed', err);
-      }
       const G = MiniSketchNest.GEOM_SCALE;
-      const placedCount = res.placements.filter(p => p.lcolor !== '#00ff00').length;
-      const unplacedCount = job.entries.filter(e => e.lcolor !== '#00ff00').length - placedCount;
+      const totalParts = job.entries.filter(e => e.lcolor !== '#00ff00').length;
+      const unplacedCount = Math.max(0, totalParts - totalPlaced);
       const bb = job.ga.calculateTotalBounds(res.placements);
       const blockW = bb.width / G;
       const blockH = bb.height / G;
+      const sheetCount = sheets ? sheets.length : 1;
       entry = {
-        placements: res.placements, placedCount, unplacedCount,
-        cancelled: !!res.cancelled, blockW, blockH,
-        area: blockW * blockH, seed: res.bestOrder || null
+        placements: res.placements,
+        sheets,
+        placedCount: totalPlaced,
+        unplacedCount,
+        sheetCount,
+        utilization: res.utilization || 0,
+        fitness: isFinite(res.fitness) ? res.fitness : (blockW * blockH),
+        cancelled: !!res.cancelled,
+        blockW, blockH,
+        area: blockW * blockH,
+        seed: res.bestOrder || null
       };
       const better = !job.best ||
         entry.placedCount > job.best.placedCount ||
-        (entry.placedCount === job.best.placedCount && entry.area < job.best.area - 1e-6);
+        (entry.placedCount === job.best.placedCount && entry.sheetCount < job.best.sheetCount) ||
+        (entry.placedCount === job.best.placedCount && entry.sheetCount === job.best.sheetCount && entry.fitness < job.best.fitness - 1e-6);
       if (better) job.best = entry;
-      if (NEST_DEBUG) {
-        nestLog('iter ' + job.iteration + ': compact ' + Math.round(compactMs) + ' ms, block ' +
-          Math.round(blockW) + '×' + Math.round(blockH) + ' mm' +
-          (better ? ' (best)' : ' (kept best ' + Math.round(job.best.blockW) + '×' + Math.round(job.best.blockH) + ' mm)'));
-      }
     }
 
-    // Infinite: keep mutating/decoding the same job until Stop.
-    // Display the best solution so far on every cycle.
     if (job.infinite && !job.stopRequested && state === job.stateAtStart) {
       const best = job.best || entry;
       if (best) {
         try {
-          nestApplyResult(job, best.placements, best.placedCount, best.unplacedCount, best.cancelled, true);
+          nestApplyResult(job, best.placements, best.placedCount, best.unplacedCount, best.cancelled, true, best.sheets);
         } catch (err) {
           console.error('[nest] apply failed', err);
           toast('Nesting gagal diterapkan: ' + err.message);
@@ -14810,10 +15190,10 @@
       }
       job.iteration++;
       job.seed = job.best ? job.best.seed : (entry ? entry.seed : null);
-      nestSetStatus('∞ iter ' + job.iteration + ' · best blok ' +
-        Math.round(job.best.blockW) + '×' + Math.round(job.best.blockH) + ' mm · ' +
-        job.best.placedCount + '/' + (job.best.placedCount + job.best.unplacedCount) +
-        (job.best.unplacedCount ? ' · ' + job.best.unplacedCount + ' tidak muat' : ''));
+      const bestSh = job.best.sheetCount > 1 ? job.best.sheetCount + ' lembar · ' : '';
+      const utilTxt = job.best.utilization > 0 ? ' · util ' + Math.round(job.best.utilization) + '%' : '';
+      nestSetStatus('∞ iter ' + job.iteration + ' · ' + bestSh +
+        job.best.placedCount + '/' + (job.best.placedCount + job.best.unplacedCount) + utilTxt);
       nestRunIteration(job);
       return;
     }
@@ -14824,7 +15204,7 @@
     nestUIIdle();
     if (best) {
       try {
-        nestApplyResult(job, best.placements, best.placedCount, best.unplacedCount, best.cancelled, false);
+        nestApplyResult(job, best.placements, best.placedCount, best.unplacedCount, best.cancelled, false, best.sheets);
       } catch (err) {
         console.error('[nest] apply failed', err);
         toast('Nesting gagal diterapkan: ' + err.message);
@@ -14838,6 +15218,9 @@
     if (nestJob) {
       nestJob.cancelled = true;
       nestJob.stopRequested = true;
+      if (nestJob._stopTimer) { clearTimeout(nestJob._stopTimer); nestJob._stopTimer = null; }
+      for (const w of (nestJob.workers || [])) { try { w.terminate(); } catch (e) {} }
+      nestJob.workers = [];
     }
     nestJob = null;
     nestUIIdle();
@@ -14846,9 +15229,11 @@
 
   function nestUIIdle() {
     const startBtn = document.getElementById('nest-start');
+    const againBtn = document.getElementById('nest-again');
     const stopBtn = document.getElementById('nest-stop');
     const prog = document.getElementById('nest-progress');
     if (startBtn) startBtn.disabled = false;
+    if (againBtn && nestLastSpec) againBtn.disabled = false;
     if (stopBtn) stopBtn.hidden = true;
     if (prog) prog.hidden = true;
   }
@@ -14860,20 +15245,25 @@
       fill.style.width = Math.min(100, Math.round(100 * nestJob.done / nestJob.total)) + '%';
     }
     if (nestJob.workers && nestJob.workers.length) {
+      if (nestJob.infinite) {
+        const b = nestJob.bestWorkerResult;
+        const iter = nestJob.workerIter || 1;
+        if (b) {
+          const nSh = (b.sheets && b.sheets.length) || 1;
+          const shTxt = nSh > 1 ? nSh + ' lembar · ' : '';
+          const utilTxt = b.utilization > 0 ? ' · util ' + Math.round(b.utilization) + '%' : '';
+          nestSetStatus('∞ ' + nestJob.workers.length + 'W iter ' + iter + ' · ' + shTxt +
+            (b.totalPlaced || 0) + '/' + ((b.totalPlaced || 0) + (b.unplaced || 0)) + utilTxt);
+        } else {
+          nestSetStatus('∞ ' + nestJob.workers.length + ' worker · iter ' + iter + '…');
+        }
+        return;
+      }
       nestSetStatus('Nesting… ' + nestJob.workers.length + ' worker');
       return;
     }
     const evalNum = Math.floor(nestJob.done / Math.max(1, nestJob.partsPerEval || 1)) + 1;
     const partNum = ((nestJob.done - 1) % Math.max(1, nestJob.partsPerEval || 1)) + 1;
-    // Per-eval UI trace: log once each time the displayed eval number changes.
-    if (NEST_DEBUG) {
-      if (nestJob._lastLogEval !== evalNum) {
-        nestJob._lastLogEval = evalNum;
-        console.log('[nest][ui] eval ' + evalNum + '/' + nestJob.evals + ' · part ' +
-          partNum + '/' + (nestJob.partsPerEval || 1) + ' · bar ' +
-          Math.round(100 * nestJob.done / Math.max(1, nestJob.total)) + '%');
-      }
-    }
     const head = nestJob.infinite
       ? '∞ iter ' + nestJob.iteration + (nestJob.best ? ' (best ' + Math.round(nestJob.best.blockW) + '×' + Math.round(nestJob.best.blockH) + ' mm)' : '') + ' · '
       : 'Nesting… ';
@@ -14886,19 +15276,22 @@
     if (el) el.textContent = text;
   }
 
-  function nestApplyResult(job, placements, placedCount, unplacedCount, wasCancelled, isIntermediate = false) {
+  function nestApplyResult(job, placements, placedCount, unplacedCount, wasCancelled, isIntermediate = false, sheets = null) {
     const GEOM = MiniSketchNest.GEOM_SCALE;
-    // Engine space == world mm, Y-down (KaryaCNC screen convention): the
-    // engine packs from its y=0 downward; the finished block is anchored
-    // with its top at the TOP of the sheet frame, right of the sheet.
-    const outX = job.sheetBounds.maxX + NEST_OUT_GAP;
-    // total bounds of the placed parts (engine units; sheet frame excluded)
-    const bounds = job.ga.calculateTotalBounds(placements);
-    const blockW = bounds.width / GEOM;
-    const blockH = bounds.height / GEOM;
-    const outY = job.sheetBounds.minY; // world y of the block's top
+    const baseOutX = job.sheetBounds.maxX + NEST_OUT_GAP;
+    const outY = job.sheetBounds.minY;
 
-    // master entity ids per originIndex (1-based parts; 0 = sheet frame)
+    // Normalize single-sheet and multi-sheet inputs into a uniform sheet list.
+    const sheetList = (Array.isArray(sheets) && sheets.length > 0)
+      ? sheets
+      : [{
+          sheetIndex: 0,
+          sheetOriginIndex: 0,
+          placements: placements || [],
+          blockBounds: job.ga.calculateTotalBounds(placements || []),
+          utilization: job._lastUtilization || 0
+        }];
+
     const recsByOrigin = new Map();
     for (const e of job.entries) recsByOrigin.set(e.originIndex, e._rec);
 
@@ -14906,8 +15299,7 @@
       pushHistory();
       job._hasPushedHistory = true;
     }
-    // Idempotent re-runs: the previous run's clones are dropped in the SAME undo
-    // step as the new ones, so Start / Re-nest / infinite never stack layouts.
+    // Idempotent re-runs: drop previous nest clones in the SAME undo step.
     const stale = [];
     for (const id in state.entities) {
       const e = state.entities[id];
@@ -14918,82 +15310,110 @@
       const gone = new Set(stale.map(String));
       ui.selection = (ui.selection || []).filter(s => !(s.kind === 'entity' && gone.has(String(s.id))));
     }
+
     const newIds = [];
-    // 1. the sheet itself becomes the FRAME of the result: one green clone
-    //    translated to the right of the original sheet.
-    const sheetRec = recsByOrigin.get(0);
-    let frameId = null;
-    if (sheetRec) {
-      const frameM = [1, 0, 0, 1, outX - job.sheetBounds.minX, 0];
-      const frameMasters = sheetRec.outer.entityIds.filter(id => state.entities[id]);
-      if (frameMasters.length) {
-        const anchor = nestAnchorOf(frameMasters);
-        const inst = { m: frameM };
+    const fallbackSheetRec = recsByOrigin.get(0);
+    const inset = job.spacing / 2;
+    const placedOrigins = new Set();
+    let firstBlockW = 0, firstBlockH = 0;
+    let maxBlockBottom = job.sheetBounds.maxY;
+    let cursorOutX = baseOutX;
+
+    for (let si = 0; si < sheetList.length; si++) {
+      const sh = sheetList[si];
+      const shPlacements = sh.placements || [];
+      const bounds = sh.blockBounds || job.ga.calculateTotalBounds(shPlacements);
+      const bW = bounds.width / GEOM;
+      const bH = bounds.height / GEOM;
+      if (si === 0) { firstBlockW = bW; firstBlockH = bH; }
+
+      const sOrig = sh.sheetOriginIndex != null ? sh.sheetOriginIndex : 0;
+      const sheetRec = recsByOrigin.get(sOrig) || fallbackSheetRec;
+      let sMinX = job.sheetBounds.minX, sMinY = job.sheetBounds.minY;
+      let sMaxX = job.sheetBounds.maxX, sMaxY = job.sheetBounds.maxY;
+      if (sheetRec && sheetRec.outer && sheetRec.outer.loop && sheetRec.outer.loop.poly && sheetRec.outer.loop.poly.length) {
+        sMinX = Infinity; sMinY = Infinity; sMaxX = -Infinity; sMaxY = -Infinity;
+        for (const pt of sheetRec.outer.loop.poly) {
+          if (pt.x < sMinX) sMinX = pt.x;
+          if (pt.y < sMinY) sMinY = pt.y;
+          if (pt.x > sMaxX) sMaxX = pt.x;
+          if (pt.y > sMaxY) sMaxY = pt.y;
+        }
+      }
+      const curSheetW = Math.max(0, sMaxX - sMinX);
+      const curSheetH = Math.max(0, sMaxY - sMinY);
+      if (outY + curSheetH > maxBlockBottom) maxBlockBottom = outY + curSheetH;
+      if (outY + bH > maxBlockBottom) maxBlockBottom = outY + bH;
+
+      const outX = cursorOutX;
+      cursorOutX += (curSheetW > 0 ? curSheetW : Math.max(bW, 50)) + NEST_OUT_GAP;
+
+      // 1. Sheet frame clone for this sheet (each sheet clones its own green master)
+      if (sheetRec) {
+        const frameM = [1, 0, 0, 1, outX - sMinX, outY - sMinY];
+        const frameMasters = sheetRec.outer.entityIds.filter(id => state.entities[id]);
+        if (frameMasters.length) {
+          const anchor = nestAnchorOf(frameMasters);
+          const inst = { m: frameM };
+          if (anchor) inst.a = anchor;
+          const id = newId();
+          state.entities[id] = {
+            id, type: 'array', kind: 'clone',
+            params: { origin: 'nest', role: 'frame', sheet: si },
+            color: colorOf(state.entities[frameMasters[0]]),
+            layer: ui.activeLayer,
+            masters: frameMasters, instances: [inst]
+          };
+          delete state.entities[id].shapes;
+          newIds.push(id);
+        }
+      }
+
+      // 2. Placed parts on this sheet
+      for (const p of shPlacements) {
+        if (p.lcolor === '#00ff00') continue;
+        const rec = recsByOrigin.get(p.originIndex);
+        if (!rec) continue;
+        placedOrigins.add(p.originIndex);
+        const masters = rec.outer.entityIds.concat(...(rec.holes || []).map(h => h.entityIds))
+          .filter(id => state.entities[id]);
+        if (!masters.length) continue;
+        const pb = p.getBounds();
+        const px = outX + (pb.x - bounds.x) / GEOM + inset;
+        const py = outY + (pb.y - bounds.y) / GEOM + inset;
+        const variantIdx = p._variantIdx != null ? p._variantIdx : 0;
+        const M = nestPlacementMatrixAt(job, rec, variantIdx, px, py);
+        const anchor = nestAnchorOf(masters);
+        const inst = { m: M };
         if (anchor) inst.a = anchor;
         const id = newId();
         state.entities[id] = {
           id, type: 'array', kind: 'clone',
-          params: { origin: 'nest', role: 'frame' },
-          color: colorOf(state.entities[frameMasters[0]]),
+          params: { origin: 'nest', sheet: si },
+          color: colorOf(state.entities[masters[0]]),
           layer: ui.activeLayer,
-          masters: frameMasters, instances: [inst]
+          masters, instances: [inst]
         };
         delete state.entities[id].shapes;
         newIds.push(id);
-        frameId = id;
       }
     }
-    // 2. placed parts: engine bbox -> world (no mirror). The engine placed
-    //    the GROWN shape (offset spacing/2 per side); the clone draws the
-    //    MASTER, whose bbox min corner sits spacing/2 inside the grown bbox.
-    //    Landing the master's own bbox min corner at the grown bbox's min
-    //    corner shifted the parts by spacing/2 — now the inset is explicit.
-    const inset = job.spacing / 2;
-    for (const p of placements) {
-      if (p.lcolor === '#00ff00') continue; // sheet marker in the engine result
-      const rec = recsByOrigin.get(p.originIndex);
-      if (!rec) continue;
-      const masters = rec.outer.entityIds.concat(...(rec.holes || []).map(h => h.entityIds))
-        .filter(id => state.entities[id]);
-      if (!masters.length) continue;
-      const pb = p.getBounds();
-      const px = outX + (pb.x - bounds.x) / GEOM + inset;
-      const py = outY + (pb.y - bounds.y) / GEOM + inset;
-      const variantIdx = p._variantIdx != null ? p._variantIdx : 0;
-      const M = nestPlacementMatrixAt(job, rec, variantIdx, px, py);
-      const anchor = nestAnchorOf(masters);
-      const inst = { m: M };
-      if (anchor) inst.a = anchor;
-      const id = newId();
-      state.entities[id] = {
-        id, type: 'array', kind: 'clone',
-        params: { origin: 'nest' },
-        color: colorOf(state.entities[masters[0]]),
-        layer: ui.activeLayer,
-        masters, instances: [inst]
-      };
-      delete state.entities[id].shapes;
-      newIds.push(id);
-    }
-    // 3. unplaced parts: stack BELOW the framed block (outside the frame),
-    //    world order top -> bottom
+
+    // 3. Unplaced (e.g. oversized or single-sheet overflow) parts stacked below Sheet 1
     if (unplacedCount > 0) {
-      const placedIdx = new Set(placements.filter(p => p.lcolor !== '#00ff00').map(p => p.originIndex));
-      let cursorY = Math.max(outY + blockH, job.sheetBounds.maxY) + NEST_OUT_GAP; // world y of the stack top
-      const stackX = outX;
+      let cursorY = maxBlockBottom + NEST_OUT_GAP;
+      const stackX = baseOutX;
       for (const e of job.entries) {
-        if (e.lcolor === '#00ff00' || placedIdx.has(e.originIndex)) continue;
+        if (e.lcolor === '#00ff00' || placedOrigins.has(e.originIndex)) continue;
         const rec = e._rec;
         const masters = rec.outer.entityIds.concat(...(rec.holes || []).map(h => h.entityIds))
           .filter(id => state.entities[id]);
         if (!masters.length) continue;
-        // master bbox in world mm
         let minX = Infinity, minY = Infinity, maxY = -Infinity;
         for (const p of rec.outer.loop.poly) {
           minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
         }
         const h = maxY - minY;
-        // bbox TOP (smallest Y-down world y) lands at cursorY; stack flows downward
         const M = [1, 0, 0, 1, stackX - minX, cursorY - minY];
         const anchor = nestAnchorOf(masters);
         const inst = { m: M };
@@ -15011,29 +15431,31 @@
         cursorY += h + Math.max(2, job.spacing);
       }
     }
+
     if (newIds.length) {
       ui.selection = newIds.map(id => ({ kind: 'entity', id }));
     }
     invalidateLoops();
     commit();
     if (!isIntermediate) {
-      const msg = 'Nesting selesai: ' + placedCount + ' diletakkan' +
+      const sheetCount = sheetList.length;
+      const avgUtil = sheetList.reduce((s, sh) => s + (sh.utilization || 0), 0) / Math.max(1, sheetCount);
+      const utilStr = avgUtil > 0 ? ' · util ' + Math.round(avgUtil) + '%' : '';
+      const shLabel = sheetCount > 1 ? sheetCount + ' lembar · ' : '';
+      const msg = 'Nesting selesai: ' + shLabel + placedCount + ' diletakkan' +
         (unplacedCount ? ', ' + unplacedCount + ' tidak muat (di bawah hasil)' : '') +
         (wasCancelled ? ' (dihentikan — best so far)' : '') +
-        ' — blok ' + Math.round(blockW) + '×' + Math.round(blockH) + ' mm';
+        (sheetCount === 1 ? ' — blok ' + Math.round(firstBlockW) + '×' + Math.round(firstBlockH) + ' mm' : '') +
+        utilStr;
       toast(msg);
-      nestSetStatus('Placed ' + placedCount + '/' + (placedCount + unplacedCount) +
-        ' · blok ' + Math.round(blockW) + '×' + Math.round(blockH) + ' mm' +
+      nestSetStatus(shLabel + 'Placed ' + placedCount + '/' + (placedCount + unplacedCount) +
+        (sheetCount === 1 ? ' · blok ' + Math.round(firstBlockW) + '×' + Math.round(firstBlockH) + ' mm' : '') +
+        utilStr +
         (wasCancelled ? ' · stopped' : ''));
     }
   }
 
-  // ---- Worker-based nesting (multi-core) -------------------------------
-  // The GA/NFP2 search is pure computation, so it runs in Web Workers off the
-  // main thread — the UI never freezes and several workers can trial different
-  // seeds simultaneously (the "multi-CPU try-more-positions" advantage). The
-  // old synchronous generator path (nestRunIteration) stays as the fallback
-  // for infinite mode and when Workers are unavailable.
+  // ---- Worker-based nesting (multi-core + warm-cache infinite mode) ----
   const NEST_WORKERS_MAX = 4;
   function nestCanUseWorkers() {
     return typeof Worker !== 'undefined' && typeof NestIO !== 'undefined';
@@ -15046,6 +15468,37 @@
     return o;
   }
 
+  function nestWrapWorkerSheets(res) {
+    if (!res || !Array.isArray(res.sheets) || !res.sheets.length) return null;
+    return res.sheets.map(sh => ({
+      sheetIndex: sh.sheetIndex,
+      sheetOriginIndex: sh.sheetOriginIndex != null ? sh.sheetOriginIndex : 0,
+      placements: (sh.placements || []).map(nestWorkerPlacement),
+      blockBounds: sh.blockBounds,
+      placedCount: sh.placedCount,
+      utilization: sh.utilization || 0
+    }));
+  }
+
+  function nestIsBetterWorkerResult(cand, best) {
+    if (!cand) return false;
+    if (!best) return true;
+    const cPlaced = cand.totalPlaced != null
+      ? cand.totalPlaced
+      : (cand.placements || []).filter(p => p.lcolor !== '#00ff00').length;
+    const bPlaced = best.totalPlaced != null
+      ? best.totalPlaced
+      : (best.placements || []).filter(p => p.lcolor !== '#00ff00').length;
+    if (cPlaced !== bPlaced) return cPlaced > bPlaced;
+    const cSheets = (cand.sheets && cand.sheets.length) || 1;
+    const bSheets = (best.sheets && best.sheets.length) || 1;
+    if (cSheets !== bSheets) return cSheets < bSheets;
+    if (isFinite(cand.fitness) && isFinite(best.fitness)) {
+      return cand.fitness < best.fitness - 1e-6;
+    }
+    return ((cand.blockW || 0) * (cand.blockH || 0)) < ((best.blockW || 0) * (best.blockH || 0));
+  }
+
   function nestStartWorkers(job) {
     const nw = Math.min(NEST_WORKERS_MAX, Math.max(1, navigator.hardwareConcurrency || 2));
     const entriesData = NestIO.serializeEntries(job.entries);
@@ -15053,31 +15506,35 @@
       entriesData,
       spacing: job.spacing,
       flip: job.flip,
+      multiSheet: !!job.multiSheet,
+      finiteSheets: !!job.finiteSheets,
+      maxVerts: job.maxVerts || 56,
+      infinite: !!job.infinite,
       popSize: job.popSize,
       generations: job.generations,
       mutation: job.mutation,
       ls: job.localSearch,
-      grid: job.gridSize, // GEOM units — same value the main-thread path passes
+      grid: job.gridSize,
       seed: null
     };
     job.workers = [];
     job.workerResults = [];
+    job.bestWorkerResult = null;
     job.workerDone = 0;
+    job.workerIter = 1;
     job._prog = {};
     for (let i = 0; i < nw; i++) {
       let w;
       try { w = new Worker(SCRIPT_BASE + 'tools/nest_worker.js'); } catch (err) { break; }
       job.workers.push(w);
       const wid = String(i);
-      w.postMessage({ jobId: wid, input });
+      w.postMessage({ cmd: 'start', jobId: wid, input });
       w.onmessage = (e) => nestWorkerOnMessage(job, wid, e.data);
       w.onerror = (e) => {
         console.error('[nest][worker] error', e);
         try { w.terminate(); } catch (err) { /* ignore */ }
         const at = job.workers.indexOf(w);
         if (at >= 0) job.workers.splice(at, 1);
-        // every worker failed to load (subpath 404, file:// policy): nest
-        // synchronously instead of hanging with zero results
         if (!job.workers.length && !job.workerDone && !job._syncFallback) {
           job._syncFallback = true;
           nestRunIteration(job);
@@ -15086,19 +15543,54 @@
     }
     if (!job.workers.length) { nestRunIteration(job); return; }
     job.running = true;
-    nestSetStatus('Nesting… ' + job.workers.length + ' worker');
+    nestSetStatus((job.infinite ? '∞ ' : 'Nesting… ') + job.workers.length + ' worker');
   }
 
   function nestWorkerOnMessage(job, wid, msg) {
     if (!nestJob || nestJob !== job) return;
+    if (state !== job.stateAtStart) { nestAbort(); return; }
     if (msg.type === 'progress') {
       job._prog[wid] = { done: msg.done, total: msg.total };
+      if (msg.iter && msg.iter > (job.workerIter || 1)) job.workerIter = msg.iter;
       let d = 0, t = 0;
       for (const k in job._prog) { d += job._prog[k].done; t += job._prog[k].total; }
       job.done = d; job.total = t;
       nestPaintProgress();
+    } else if (msg.type === 'best') {
+      if (msg.iter && msg.iter > (job.workerIter || 1)) job.workerIter = msg.iter;
+      const cand = msg.result;
+      if (cand && nestIsBetterWorkerResult(cand, job.bestWorkerResult)) {
+        job.bestWorkerResult = cand;
+        job.workerResults.push(cand);
+        // Live-preview the improved layout on canvas
+        const placements = (cand.placements || []).map(nestWorkerPlacement);
+        const sheets = nestWrapWorkerSheets(cand);
+        job._lastUtilization = cand.utilization || 0;
+        job.ga = { calculateTotalBounds: function () { return cand.blockBounds; } };
+        const placedCount = cand.totalPlaced != null
+          ? cand.totalPlaced
+          : placements.filter(p => p.lcolor !== '#00ff00').length;
+        try {
+          nestApplyResult(job, placements, placedCount, cand.unplaced || 0, false, true, sheets);
+        } catch (err) {
+          console.error('[nest] live apply failed', err);
+        }
+        // Island migration: share winning seed with sibling workers
+        if (cand.bestOrder) {
+          for (let i = 0; i < job.workers.length; i++) {
+            if (String(i) === wid) continue;
+            try { job.workers[i].postMessage({ cmd: 'seed', jobId: String(i), seed: cand.bestOrder }); } catch (e) {}
+          }
+        }
+        nestPaintProgress();
+      }
     } else if (msg.type === 'result') {
-      if (msg.result) job.workerResults.push(msg.result);
+      if (msg.result) {
+        job.workerResults.push(msg.result);
+        if (nestIsBetterWorkerResult(msg.result, job.bestWorkerResult)) {
+          job.bestWorkerResult = msg.result;
+        }
+      }
       job.workerDone++;
       if (job.workerDone >= job.workers.length) nestFinishWorkers(job);
     } else if (msg.type === 'error') {
@@ -15111,19 +15603,17 @@
   function nestBestWorkerResult(results) {
     let best = null;
     for (const r of results) {
-      if (!r) continue;
-      const pc = (r.placements || []).filter(p => p.lcolor !== '#00ff00').length;
-      const area = (r.blockW || 0) * (r.blockH || 0);
-      if (!best || pc > best.pc || (pc === best.pc && area < best.area)) best = { r, pc, area };
+      if (nestIsBetterWorkerResult(r, best)) best = r;
     }
-    return best ? best.r : null;
+    return best;
   }
 
   function nestFinishWorkers(job) {
+    if (job._stopTimer) { clearTimeout(job._stopTimer); job._stopTimer = null; }
     job.running = false;
     for (const w of (job.workers || [])) { try { w.terminate(); } catch (e) {} }
     job.workers = [];
-    const best = nestBestWorkerResult(job.workerResults);
+    const best = job.bestWorkerResult || nestBestWorkerResult(job.workerResults);
     const wasStop = job.cancelled;
     nestJob = null;
     nestUIIdle();
@@ -15133,9 +15623,13 @@
       return;
     }
     const placements = (best.placements || []).map(nestWorkerPlacement);
+    const sheets = nestWrapWorkerSheets(best);
+    job._lastUtilization = best.utilization || 0;
     job.ga = { calculateTotalBounds: function () { return best.blockBounds; } };
-    const placedCount = placements.filter(p => p.lcolor !== '#00ff00').length;
-    nestApplyResult(job, placements, placedCount, best.unplaced, best.cancelled, false);
+    const placedCount = best.totalPlaced != null
+      ? best.totalPlaced
+      : placements.filter(p => p.lcolor !== '#00ff00').length;
+    nestApplyResult(job, placements, placedCount, best.unplaced || 0, wasStop || !!best.cancelled, false, sheets);
   }
 
   // Rebuild the placement matrix for one variant. Engine space == world mm
@@ -15212,7 +15706,7 @@
     const parts = sel.partLoops.length;
     badge.textContent = String(parts);
     if (startBtn) {
-      startBtn.disabled = !(parts > 0 && sel.sheetLoops.length === 1);
+      startBtn.disabled = !(parts > 0 && sel.sheetLoops.length >= 1);
     }
     const againBtn = document.getElementById('nest-again');
     if (againBtn) againBtn.disabled = !nestLastSpec;
@@ -15445,7 +15939,8 @@
     state.constraints[cHdim] = { id: cHdim, type: 'distance', p1: p0, p2: phId, value: thH, offset: 10 };
     const id = newId();
     const font = typeof o.font === 'string' && o.font ? o.font : 'sans-serif';
-    state.entities[id] = {
+    const single = HERSHEY_FAMILIES.includes(font);
+    const ent = {
       id, type: 'text', p0, pw: pwId, ph: phId, guide: [idW, idH],
       text: t,
       font,
@@ -15454,10 +15949,12 @@
       tracking: isFinite(+o.tracking) ? clamp(+o.tracking, -30, 60) : 0,
       leading: textStyleLeading(o.leading),
       align: o.align === 'center' || o.align === 'right' ? o.align : 'left',
-      single: HERSHEY_FAMILIES.includes(font),
+      single,
       color: (o.color && /^#[0-9a-fA-F]{6}$/.test(o.color)) ? o.color : ui.color,
       fitCurve: loadTextFit()
     };
+    if (!single && (o.fill === 'gray' || o.fill === 'yellow')) ent.fill = o.fill;
+    state.entities[id] = ent;
     ensureTextAspect(state.entities[id]);
     requestSolve();
     commit();
@@ -15498,11 +15995,14 @@
       offsetScale: OFFSET_SCALE,
       offsetPrecision: OFFSET_PRECISION,
       offsetMiter: () => OFFSET_MITER,
-      pushHistory, commit, toast,
+      pushHistory, undo, commit, toast,
       // document geometry: create, replace, inspect
       entityPointIds, removeEntity, removeEntities, deleteSelection,
-      moveSelection, scaleSelection, cmdConvertToCurve, cmdUngroupSelection,
+      selectionBounds, moveSelection, scaleSelection, rotateSelection,
+      mirrorSelection, duplicateSelection, cmdConvertToCurve, cmdUngroupSelection,
       cmdBoolean, selectedEntities,
+      setSelectionColor: applyStrokeColorToSelection,
+      setSelectionFill: setLoopFill,
       addPoint: privatePoint,
       addLine: toolAddLine, addCircle: toolAddCircle, addArc: toolAddArc,
       addSpline: toolAddSpline, addConstraint: toolAddConstraint,
@@ -16076,6 +16576,7 @@
     refreshOffsetPreview();
     toast('Offset · wheel to change, Enter to confirm, Esc to cancel');
     updateStatusCounts();
+    updateContextBar();
     render();
   }
 
@@ -16084,7 +16585,42 @@
     ui.offsetJob = null;
     toast('Offset cancelled');
     updateStatusCounts();
+    updateContextBar();
     render();
+  }
+
+  function applyOffsetValue(raw) {
+    const job = ui.offsetJob;
+    if (!job) return false;
+    const value = typeof raw === 'number' ? raw : evalFormula(raw, job.dist);
+    if (!isFinite(value)) {
+      toast('Enter a number or a formula');
+      return false;
+    }
+    const off = offsetChains(job.chains, value, {
+      tol: OFFSET_TOL, miterLimit: OFFSET_MITER, join: OFFSET_JOIN, arcTol: OFFSET_ARC_TOL
+    });
+    if (!off.length) {
+      toast('That offset collapses the shape — try a smaller value');
+      return false;
+    }
+    pushHistory();
+    const id = addFramedObject(off, { color: job.color, layer: job.layer });
+    if (id == null) {
+      history.pop();
+      updateHistoryButtons();
+      toast('Nothing left at that offset');
+      return false;
+    }
+    ui.offsetJob = null;
+    ui.selection = [{ kind: 'entity', id }];
+    invalidateLoops();
+    commit();
+    const holes = off.filter(c => (c.depth || 0) % 2 === 1).length;
+    toast('Offset ' + fmt(value) + ' mm \u00b7 ' + off.length + ' contour' + (off.length === 1 ? '' : 's') +
+      (holes ? ' (' + (off.length - holes) + ' outside, ' + holes + ' hole' + (holes === 1 ? '' : 's') + ')' : '') +
+      ' \u00b7 Ctrl+O again for another');
+    return true;
   }
 
   function confirmOffset() {
@@ -16092,34 +16628,7 @@
     if (!job) return;
     return uiPrompt('Offset in mm (positive = outward, negative = inward)', fmt(job.dist)).then((input) => {
       if (input == null) return;                       // stay in drafting
-      const value = evalFormula(input, job.dist);
-      if (!isFinite(value)) {
-        toast('Enter a number or a formula');
-        return;
-      }
-      const off = offsetChains(job.chains, value, {
-        tol: OFFSET_TOL, miterLimit: OFFSET_MITER, join: OFFSET_JOIN, arcTol: OFFSET_ARC_TOL
-      });
-      if (!off.length) {
-        toast('That offset collapses the shape — try a smaller value');
-        return;
-      }
-      pushHistory();
-      const id = addFramedObject(off, { color: job.color, layer: job.layer });
-      if (id == null) {
-        history.pop();
-        updateHistoryButtons();
-        toast('Nothing left at that offset');
-        return;
-      }
-      ui.offsetJob = null;
-      ui.selection = [{ kind: 'entity', id }];
-      invalidateLoops();
-      commit();
-      const holes = off.filter(c => (c.depth || 0) % 2 === 1).length;
-      toast('Offset ' + fmt(value) + ' mm \u00b7 ' + off.length + ' contour' + (off.length === 1 ? '' : 's') +
-        (holes ? ' (' + (off.length - holes) + ' outside, ' + holes + ' hole' + (holes === 1 ? '' : 's') + ')' : '') +
-        ' \u00b7 Ctrl+O again for another');
+      applyOffsetValue(input);
     });
   }
 
@@ -22845,22 +23354,32 @@
       if (loopsEl.textContent !== s) loopsEl.textContent = s;
     }
     const solverEl = document.getElementById('status-solver');
+    let text;
+    if (ui.solveDirty) text = 'unsolved \u00b7 F9';
+    else if (ui.solverCost == null) text = 'solver idle';
+    else if (ui.solverCost < 1e-6) text = 'solver ok';
+    else if (ui.solverCost < 1e-2) text = 'solver near';
+    else text = 'solver residual';
+    const stext = text +
+      (ui.solveMode === 'live' ? '' : ' \u00b7 ' + (ui.solveMode === 'manual' ? 'manual' : 'release'));
+    const stitle = SOLVE_MODE_LABEL[ui.solveMode] +
+      ' \u2014 click to switch (on release \u2192 manual \u2192 live). F9 solves now' +
+      (ui.solveDirty ? '. The geometry has moved away from its constraints since the last solve.' : '');
     if (solverEl) {
-      let text;
-      if (ui.solveDirty) text = 'unsolved \u00b7 F9';
-      else if (ui.solverCost == null) text = 'solver idle';
-      else if (ui.solverCost < 1e-6) text = 'solver ok';
-      else if (ui.solverCost < 1e-2) text = 'solver near';
-      else text = 'solver residual';
-      const stext = text +
-        (ui.solveMode === 'live' ? '' : ' \u00b7 ' + (ui.solveMode === 'manual' ? 'manual' : 'release'));
       if (solverEl.textContent !== stext) solverEl.textContent = stext;
       solverEl.classList.toggle('unsolved', !!ui.solveDirty);
-      const stitle = SOLVE_MODE_LABEL[ui.solveMode] +
-        ' \u2014 click to switch (on release \u2192 manual \u2192 live). F9 solves now' +
-        (ui.solveDirty ? '. The geometry has moved away from its constraints since the last solve.' : '');
       if (solverEl.title !== stitle) solverEl.title = stitle;
     }
+    const menuModeEl = document.getElementById('menu-solve-mode-val');
+    if (menuModeEl && menuModeEl.textContent !== ui.solveMode) menuModeEl.textContent = ui.solveMode;
+    const sideModeEl = document.getElementById('sidebar-solve-mode');
+    if (sideModeEl) {
+      if (sideModeEl.textContent !== stext) sideModeEl.textContent = stext;
+      if (sideModeEl.title !== stitle) sideModeEl.title = stitle;
+    }
+    const sideRowEl = document.getElementById('sidebar-solver-row');
+    if (sideRowEl) sideRowEl.classList.toggle('unsolved', !!ui.solveDirty);
+    updateContextBar();
   }
 
   function statusHint() {
@@ -22968,6 +23487,229 @@
     if (stateEl && stateEl.textContent !== label) stateEl.textContent = label;
   }
 
+  // Contextual floating action bar (bottom thumb zone): exposes keyboard/wheel/
+  // right-click-only flows (Offset distance/join/apply, Curve/Line finish/close/
+  // undo-step, Move/Mate cancel, Drag Wall thickness, dirty manual Solver F9)
+  // with zero DOM churn when the mode signature has not changed.
+  function updateContextBar() {
+    const bar = document.getElementById('ctx-bar');
+    if (!bar) return;
+
+    let sig = 'none';
+    if (ui.offsetJob) {
+      sig = 'offset:' + OFFSET_JOIN;
+    } else if (ui.draft) {
+      const d = ui.draft;
+      const n = d.type === 'curve' ? (d.nodes ? d.nodes.length : 0)
+        : (d.type === 'line' ? (d.chain ? d.chain.length : 0)
+        : (d.stage || 0));
+      sig = 'draft:' + d.type + ':' + n;
+    } else if (ui.moveJob) {
+      sig = 'move:' + ui.moveJob.stage;
+    } else if (mateJob) {
+      sig = 'mate:' + mateJob.stage;
+    } else if (ui.tool === 'dragwall') {
+      sig = 'dragwall:' + fmt(WALL_DRAG_MM);
+    } else if (ui.solveDirty) {
+      sig = 'solve-dirty';
+    }
+
+    if (sig === 'none') {
+      if (bar.__sig !== 'none') {
+        bar.__sig = 'none';
+        bar.classList.add('hidden');
+        bar.innerHTML = '';
+      }
+      return;
+    }
+
+    // Offset distance can change continuously via wheel/buttons without rebuilding DOM
+    if (ui.offsetJob && bar.__sig === sig) {
+      const inp = document.getElementById('ctx-offset-val');
+      if (inp && document.activeElement !== inp) {
+        const v = fmt(ui.offsetJob.dist);
+        if (inp.value !== v) inp.value = v;
+      }
+      return;
+    }
+
+    if (bar.__sig === sig) return;
+    bar.__sig = sig;
+    bar.classList.remove('hidden');
+    bar.innerHTML = '';
+
+    const addEl = (tag, cls, text) => {
+      const el = document.createElement(tag);
+      if (cls) el.className = cls;
+      if (text != null) el.textContent = text;
+      bar.appendChild(el);
+      return el;
+    };
+    const addBtn = (text, cls, onClick, opts) => {
+      const b = addEl('button', 'ctx-btn' + (cls ? ' ' + cls : ''), text);
+      b.type = 'button';
+      if (opts && opts.title) b.title = opts.title;
+      if (opts && opts.disabled) b.disabled = true;
+      b.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        onClick(ev);
+      });
+      return b;
+    };
+
+    if (ui.offsetJob) {
+      addEl('span', 'ctx-label', 'Offset');
+      const stepOffset = (dir) => {
+        if (!ui.offsetJob) return;
+        const step = ui.shiftToggle ? 0.1 : (ui.altToggle ? 5 : 1);
+        ui.offsetJob.dist = Math.round((ui.offsetJob.dist + dir * step) * 100) / 100;
+        refreshOffsetPreview();
+        const inp = document.getElementById('ctx-offset-val');
+        if (inp) inp.value = fmt(ui.offsetJob.dist);
+        const hintEl = document.getElementById('status-hint');
+        if (hintEl) hintEl.textContent = offsetHintText();
+        render();
+      };
+      addBtn('\u2212', 'step', () => stepOffset(-1), { title: 'Kurangi jarak offset (Shift=0.1, Alt=5 mm)' });
+      const inp = addEl('input', 'ctx-input');
+      inp.id = 'ctx-offset-val';
+      inp.type = 'text';
+      inp.inputMode = 'decimal';
+      inp.spellcheck = false;
+      inp.value = fmt(ui.offsetJob.dist);
+      inp.title = 'Jarak offset (mm): positif keluar, negatif ke dalam';
+      inp.addEventListener('input', () => {
+        if (!ui.offsetJob) return;
+        const v = evalFormula(inp.value, ui.offsetJob.dist);
+        if (isFinite(v)) {
+          ui.offsetJob.dist = v;
+          refreshOffsetPreview();
+          const hintEl = document.getElementById('status-hint');
+          if (hintEl) hintEl.textContent = offsetHintText();
+          render();
+        }
+      });
+      inp.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          applyOffsetValue(inp.value);
+        } else if (ev.key === 'Escape') {
+          ev.preventDefault();
+          cancelOffset();
+        }
+      });
+      addEl('span', 'ctx-unit', 'mm');
+      addBtn('+', 'step', () => stepOffset(1), { title: 'Tambah jarak offset (Shift=0.1, Alt=5 mm)' });
+      const joinLabel = OFFSET_JOIN === 'round' ? 'Round' : (OFFSET_JOIN === 'square' ? 'Square' : 'Sharp');
+      addBtn(joinLabel, '', () => {
+        const order = ['sharp', 'round', 'square'];
+        const next = order[(order.indexOf(OFFSET_JOIN) + 1) % order.length];
+        settings.offsetJoin = next;
+        applySettings();
+        saveSettings();
+        refreshOffsetPreview();
+        const hintEl = document.getElementById('status-hint');
+        if (hintEl) hintEl.textContent = offsetHintText();
+        updateContextBar();
+        render();
+      }, { title: 'Ganti sudut offset (Sharp / Round / Square)' });
+      addEl('span', 'ctx-sep');
+      addBtn('Apply', 'primary', () => {
+        const cur = document.getElementById('ctx-offset-val');
+        applyOffsetValue(cur ? cur.value : (ui.offsetJob ? ui.offsetJob.dist : 0));
+      }, { title: 'Terapkan offset (Enter)' });
+      addBtn('Cancel', 'danger', () => cancelOffset(), { title: 'Batalkan offset (Esc)' });
+      return;
+    }
+
+    if (ui.draft) {
+      const d = ui.draft;
+      if (d.type === 'curve') {
+        const n = d.nodes ? d.nodes.length : 0;
+        addEl('span', 'ctx-label', 'Curve · ' + n + ' pt' + (n === 1 ? '' : 's'));
+        addBtn('Undo pt', '', () => undoLastDraftStep(), { title: 'Batalkan titik terakhir (Esc)' });
+        addBtn('Close', '', () => {
+          finishCurve(true);
+          updateUI();
+          render();
+        }, { disabled: n < 2, title: 'Tutup kurva jadi loop tertutup' });
+        addBtn('Finish', 'primary', () => {
+          finishCurve(false);
+          updateUI();
+          render();
+        }, { disabled: n < 2, title: 'Selesaikan kurva terbuka (Enter / klik kanan)' });
+        addBtn('Cancel', 'danger', () => {
+          cancelDraft();
+          updateUI();
+          render();
+        }, { title: 'Batalkan seluruh kurva' });
+      } else if (d.type === 'line') {
+        const n = d.chain ? d.chain.length : 0;
+        addEl('span', 'ctx-label', n ? ('Line · ' + n + ' seg') : 'Line');
+        addBtn('Undo', '', () => undoLastDraftStep(), { title: 'Tarik balik segmen terakhir (Esc)' });
+        addBtn('Finish', 'primary', () => {
+          cancelDraft();
+          updateUI();
+          render();
+        }, { title: 'Selesai menggambar rantai garis (Enter / klik kanan)' });
+      } else {
+        const names = { arc: 'Arc', circle: 'Circle', box: 'Box', poly: 'Poly' };
+        addEl('span', 'ctx-label', names[d.type] || 'Draft');
+        if (d.type === 'arc' && d.stage === 2) {
+          addBtn('Back', '', () => undoLastDraftStep(), { title: 'Kembali ke titik awal busur' });
+        }
+        addBtn('Cancel', 'danger', () => {
+          cancelDraft();
+          updateUI();
+          render();
+        }, { title: 'Batalkan (Esc)' });
+      }
+      return;
+    }
+
+    if (ui.moveJob) {
+      addEl('span', 'ctx-label', ui.moveJob.stage === 'ref' ? 'Move · pilih titik asal' : 'Move · pilih titik tujuan');
+      addBtn('Cancel', 'danger', () => {
+        ui.moveJob = null;
+        toast('Move cancelled');
+        updateUI();
+        render();
+      }, { title: 'Batalkan Move (Esc)' });
+      return;
+    }
+
+    if (mateJob) {
+      addEl('span', 'ctx-label', mateJob.stage === 'a' ? 'Mate ① · pilih marker part A' : 'Mate ② · pilih marker/sisi part B');
+      addBtn('Cancel', 'danger', () => {
+        cancelMateJob();
+        updateUI();
+        render();
+      }, { title: 'Batalkan Mate (Esc)' });
+      return;
+    }
+
+    if (ui.tool === 'dragwall') {
+      const stepWall = (dir) => {
+        const step = ui.shiftToggle ? 0.1 : (ui.altToggle ? 1 : 0.5);
+        settings.wallDragMm = clamp(Math.round((+settings.wallDragMm + dir * step) * 100) / 100, 0, 50);
+        applySettings();
+        saveSettings();
+        updateUI();
+        render();
+      };
+      addEl('span', 'ctx-label', 'Wall ' + fmt(WALL_DRAG_MM) + ' mm');
+      addBtn('\u2212', 'step', () => stepWall(-1), { title: 'Kurangi tebal wall' });
+      addBtn('+', 'step', () => stepWall(1), { title: 'Tambah tebal wall' });
+      addBtn('Done', 'primary', () => setTool('select'), { title: 'Keluar dari Drag wall' });
+      return;
+    }
+
+    if (ui.solveDirty) {
+      addEl('span', 'ctx-label', 'Constraints unsolved');
+      addBtn('Solve (F9)', 'warn', () => solveAll(), { title: 'Jalankan constraint solver (F9)' });
+    }
+  }
+
   function updateUI() {
     // quickbar (tablet toolbar): flip / rotate / boolean need a selection;
     // the L T W H fields follow updateTransformPanel's own disabled logic
@@ -22994,12 +23736,29 @@
     syncWallInput();
     syncWallIndicator();
     // Every line colour used by the selection gets a dot, not just the first:
-    // a selection mixing red and black has to show both, since both are real
-    // machine operations.
-    const selColors = new Set(selectedEntities().map(e => colorOf(e)));
+    // a selection mixing red and black (or a multi-colour group / array) has to
+    // show all of them, since each colour is a real machine operation.
+    const selColors = new Set();
+    for (const e of resolveStyleTargetEntities()) {
+      if (e.type === 'note' || e.type === 'image') continue;
+      if (e.type === 'art') {
+        if (Array.isArray(e.contourColors) && e.contourColors.length) {
+          for (const cc of e.contourColors) selColors.add(String(cc || colorOf(e)).toLowerCase());
+        } else {
+          selColors.add(colorOf(e).toLowerCase());
+        }
+      } else if (e.type === 'array') {
+        arrayEnsureShapes(e);
+        for (const sh of (e.shapes || [])) {
+          if (sh && sh.color) selColors.add(String(sh.color).toLowerCase());
+        }
+      } else {
+        selColors.add(colorOf(e).toLowerCase());
+      }
+    }
     document.querySelectorAll('.swatch-wrap').forEach(w => {
       w.classList.toggle('active', w.dataset.color === ui.color);
-      w.classList.toggle('sel-color', selColors.has(w.dataset.color));
+      w.classList.toggle('sel-color', selColors.has(String(w.dataset.color || '').toLowerCase()));
     });
     updateHistoryButtons();
     updateCanvasCursor();
@@ -23019,6 +23778,7 @@
       hintEl.title = hint;
     }
     updateStatusCounts();
+    updateContextBar();
     xfUpdatePanel();
   }
 
@@ -23793,30 +24553,47 @@
   function updateLoopFillRow() {
     const row = document.getElementById('loop-fill-row');
     if (!row) return;
-    // Current fill shown in the strip: a fully-selected loop's fill first,
-    // then any selected text/group/array's own fill.
-    let fill = null;
+    // Collect every fill mode present in the current selection (fully-selected
+    // loops, text, groups/art, plus read-only master fills of selected arrays).
+    // Only highlight a single fill button when all selected items agree; mixed
+    // fills stay unhighlighted so the indicator never misleads.
+    const fills = new Set();
     const loops = getLoops();
+    const coveredLoopEntIds = new Set();
     for (const L of loops) {
-      if (loopShapeSelected(L)) { fill = loopFill(L); break; }
-    }
-    if (fill == null) {
-      for (const s of ui.selection) {
-        if (s.kind !== 'entity') continue;
-        const e = state.entities[s.id];
-        if (!e) continue;
-        if (e.type === 'text' || e.type === 'art' || e.type === 'array') {
-          fill = (e.fill === 'gray' || e.fill === 'yellow') ? e.fill : 'none';
-          break;
-        }
+      if (loopShapeSelected(L)) {
+        fills.add(loopFill(L));
+        for (const id of loopEntities(L)) coveredLoopEntIds.add(+id);
       }
     }
-    if (fill == null) {
-      const loop = ui.focusLoop != null ? loops[ui.focusLoop] : null;
-      if (loop) fill = loopFill(loop);
+    for (const e of resolveStyleTargetEntities()) {
+      if (e.type === 'text') {
+        fills.add((e.fill === 'gray' || e.fill === 'yellow') ? e.fill : 'none');
+      } else if (e.type === 'art') {
+        const base = (e.fill === 'gray' || e.fill === 'yellow') ? e.fill : 'none';
+        if (Array.isArray(e.contourFills) && e.contourFills.length) {
+          for (const cf of e.contourFills) {
+            fills.add((cf === 'gray' || cf === 'yellow') ? cf : base);
+          }
+        } else {
+          fills.add(base);
+        }
+      } else if (e.type === 'array') {
+        // Read-only indicator: reflect master fills of this array/clone
+        arrayEnsureShapes(e);
+        for (const sh of (e.shapes || [])) {
+          fills.add((sh && (sh.fill === 'gray' || sh.fill === 'yellow')) ? sh.fill : 'none');
+        }
+      } else if ((e.type === 'circle' || (e.type === 'spline' && e.closed)) && !coveredLoopEntIds.has(+e.id)) {
+        fills.add((e.fill === 'gray' || e.fill === 'yellow') ? e.fill : 'none');
+      }
     }
+    if (!fills.size && ui.focusLoop != null && loops[ui.focusLoop]) {
+      fills.add(loopFill(loops[ui.focusLoop]));
+    }
+    const activeFill = fills.size === 1 ? Array.from(fills)[0] : null;
     row.querySelectorAll('[data-fill]').forEach(b => {
-      b.classList.toggle('active', b.dataset.fill === fill);
+      b.classList.toggle('active', b.dataset.fill === activeFill);
     });
   }
 
@@ -28795,6 +29572,7 @@ function cmdSplitCurve() {
       refreshOffsetPreview();
       const hintEl = document.getElementById('status-hint');
       if (hintEl) hintEl.textContent = offsetHintText();
+      updateContextBar();
       render();
       return;
     }
@@ -30376,54 +31154,240 @@ function cmdSplitCurve() {
     return 'none';
   }
 
-  function setLoopFill(fill) {
-    const loops = getLoops();
+  function normalizeFillValue(fill) {
+    if (fill === 'gray' || fill === 'yellow' || fill === 'none') return fill;
+    if (fill === '' || fill == null) return 'none';
+    const s = String(fill).trim().toLowerCase();
+    if (s === 'gray' || s === 'grey' || s === '#808080' || s === '#808000' || s === 'abu' || s === 'abu-abu') return 'gray';
+    if (s === 'yellow' || s === '#ffff00' || s === 'kuning') return 'yellow';
+    if (s === 'none' || s === 'clear' || s === 'off' || s === 'kosong' || s === 'hapus') return 'none';
+    return null;
+  }
 
-    // Apply one fill to one entity (loop member, text, group/art, array).
-    const applyTo = (e) => {
-      if (!e) return;
-      if (fill === 'gray' || fill === 'yellow') e.fill = fill;
-      else delete e.fill;
+  // Resolve all entities targeted by a stroke/fill action:
+  // 1) directly selected entities;
+  // 2) host entities of selected points (node/segment/frame handle selection);
+  // 3) containers captured by a marquee point box (selectedEntitiesForExport).
+  // Owned guide lines (internal green frame lines of text/art/image/array) are
+  // excluded so clicking a frame point never recolors its construction frame.
+  function resolveStyleTargetEntities() {
+    const guides = ownedGuideIds();
+    const seen = new Set();
+    const out = [];
+    const add = (e) => {
+      if (!e || seen.has(+e.id) || guides.has(+e.id)) return;
+      seen.add(+e.id);
+      out.push(e);
     };
-
-    // Targets:
-    // 1) every FULLY-selected loop (marquee / multi-click) — as before;
-    // 2) selected container entities that carry a fill: text, groups (art)
-    //    and arrays/clones. A clone's fill lives on its own entity and is
-    //    used as the default for every instance; per-contour fills (imported
-    //    multi-colour masters) are left untouched so clones keep their
-    //    master's look.
-    // 3) click-only fallback: the focused loop.
-    let count = 0;
-    for (const L of loops) {
-      if (loopShapeSelected(L)) {
-        for (const id of loopEntities(L)) applyTo(state.entities[id]);
-        count++;
-      }
-    }
+    for (const e of selectedEntities()) add(e);
     for (const s of ui.selection) {
-      if (s.kind !== 'entity') continue;
-      const e = state.entities[s.id];
-      if (!e) continue;
-      if (e.type === 'text' || e.type === 'art' || e.type === 'array') {
-        applyTo(e);
-        count++;
+      if (!s || s.kind !== 'point') continue;
+      for (const e of (pointUses(+s.id) || [])) add(e);
+    }
+    if (selectionIndex().point.size) {
+      for (const e of selectedEntitiesForExport()) add(e);
+    }
+    return out;
+  }
+
+  // Single source of truth for applying a KaryaCNC stroke colour to one entity:
+  // - array / clone: strictly master-linked (read-only, skipped);
+  // - note / image: non-vector (skipped);
+  // - art (Group): uniformly overrides e.color, contourColors[], and curveSrc[].c
+  //   so canvas, Ungroup, SVG export, and KaryaCNC stay 100% consistent;
+  // - line / arc / circle / spline / text / part: sets e.color.
+  function applyStrokeColorToEntity(e, hex) {
+    if (!e) return 'skipped';
+    if (e.type === 'array') return 'skipped_array';
+    if (e.type === 'note' || e.type === 'image') return 'skipped_other';
+    e.color = hex;
+    if (e.type === 'art') {
+      if (Array.isArray(e.contours)) {
+        e.contourColors = e.contours.map(() => hex);
+      }
+      if (Array.isArray(e.curveSrc)) {
+        for (const sub of e.curveSrc) {
+          if (sub) sub.c = hex;
+        }
       }
     }
-    if (!count && ui.focusLoop != null && loops[ui.focusLoop]) {
-      const L = loops[ui.focusLoop];
-      for (const id of loopEntities(L)) applyTo(state.entities[id]);
-      count = 1;
+    return 'updated';
+  }
+
+  function applyStrokeColorToSelection(hex, opts) {
+    const o = opts || {};
+    const color = String(hex || '').trim().toLowerCase();
+    if (!/^#[0-9a-f]{6}$/.test(color)) return { ok: false, error: 'bad color' };
+    if (o.setDefault !== false) ui.color = color;
+    const targets = resolveStyleTargetEntities();
+    if (!targets.length) {
+      updateUI();
+      return { ok: true, count: 0, skippedArrays: 0, skippedOther: 0 };
     }
-    if (!count) {
-      toast('Click a loop first');
-      return;
+    const mutable = [];
+    let skippedArrays = 0;
+    let skippedOther = 0;
+    for (const e of targets) {
+      if (e.type === 'array') skippedArrays++;
+      else if (e.type === 'note' || e.type === 'image') skippedOther++;
+      else mutable.push(e);
     }
-    pushHistory();
-    const name = fill === 'none' ? 'Fill cleared' : (fill === 'gray' ? 'Fill gray' : 'Fill yellow');
-    toast(name + (count > 1 ? ' · ' + count + ' objects' : ''));
+    if (!mutable.length) {
+      if (!o.quiet) {
+        if (skippedArrays > 0) {
+          toast('Array/Clone mengikuti warna masternya — ubah warna pada objek master');
+        } else if (skippedOther > 0) {
+          toast('Catatan/gambar tidak memiliki warna garis vektor');
+        }
+      }
+      updateUI();
+      return {
+        ok: false,
+        error: skippedArrays > 0 ? 'array/clone follows master color' : 'entity has no vector stroke color',
+        count: 0,
+        skippedArrays,
+        skippedOther
+      };
+    }
+    if (!o.noHistory) pushHistory();
+    for (const e of mutable) applyStrokeColorToEntity(e, color);
+    // commit() bumps geometryEpoch + clears artContourCache so any live
+    // array/clone referencing a modified master refreshes immediately.
     commit();
     updateUI();
+    if (!o.quiet && skippedArrays > 0) {
+      toast('Warna diterapkan · ' + mutable.length + ' objek (' + skippedArrays + ' array/clone ikut master)');
+    }
+    return { ok: true, count: mutable.length, skippedArrays, skippedOther };
+  }
+
+  // Single source of truth for applying KaryaCNC 3-mode fill ('none' | 'gray' |
+  // 'yellow') to one entity:
+  // - array / clone: strictly master-linked (read-only, skipped);
+  // - part / note / image: non-CNC (skipped);
+  // - art (Group): uniformly overrides e.fill, contourFills[], and curveSrc[].f;
+  // - text: sets/deletes e.fill (flags single-line font so caller can warn);
+  // - line / arc / circle / spline: sets/deletes e.fill.
+  function applyFillToEntity(e, fill) {
+    if (!e) return 'skipped';
+    if (e.type === 'array') return 'skipped_array';
+    if (e.type === 'part' || e.type === 'note' || e.type === 'image') return 'skipped_non_cnc';
+    const val = (fill === 'gray' || fill === 'yellow') ? fill : null;
+    if (val) e.fill = val;
+    else delete e.fill;
+    if (e.type === 'art') {
+      if (Array.isArray(e.contours)) {
+        e.contourFills = e.contours.map(() => val);
+      }
+      if (Array.isArray(e.curveSrc)) {
+        for (const sub of e.curveSrc) {
+          if (sub) sub.f = val;
+        }
+      }
+      return 'updated';
+    }
+    if (e.type === 'text' && val && isSingleLineFont(e)) {
+      return 'updated_single_line';
+    }
+    return 'updated';
+  }
+
+  function setLoopFill(fill, opts) {
+    const o = opts || {};
+    const norm = normalizeFillValue(fill);
+    if (!norm) return { ok: false, error: 'fill must be "none", "gray", or "yellow"' };
+    const loops = getLoops();
+
+    // Plan all targets BEFORE mutating so pushHistory() captures the clean
+    // pre-change state and read-only arrays never spend an empty Undo entry.
+    const toMutate = [];
+    const seenMutate = new Set();
+    const queueEntity = (e) => {
+      if (!e || seenMutate.has(+e.id)) return false;
+      seenMutate.add(+e.id);
+      toMutate.push(e);
+      return true;
+    };
+
+    let logicalCount = 0;
+    let skippedArrays = 0;
+    let skippedNonCnc = 0;
+
+    // 1) Every FULLY-selected closed loop
+    for (const L of loops) {
+      if (loopShapeSelected(L)) {
+        let addedAny = false;
+        for (const id of loopEntities(L)) {
+          if (queueEntity(state.entities[id])) addedAny = true;
+        }
+        if (addedAny) logicalCount++;
+      }
+    }
+
+    // 2) Selected container / closed entities (text, art/group, closed circle/spline)
+    //    Arrays/clones are NEVER mutated — they always inherit from their master.
+    for (const e of resolveStyleTargetEntities()) {
+      if (e.type === 'array') {
+        skippedArrays++;
+        continue;
+      }
+      if (e.type === 'part' || e.type === 'note' || e.type === 'image') {
+        skippedNonCnc++;
+        continue;
+      }
+      if (e.type === 'text' || e.type === 'art') {
+        if (queueEntity(e)) logicalCount++;
+      } else if (e.type === 'circle' || (e.type === 'spline' && e.closed)) {
+        if (queueEntity(e)) logicalCount++;
+      }
+    }
+
+    // 3) Click-only fallback: the focused loop (only when nothing else was selected)
+    if (!toMutate.length && !skippedArrays && !skippedNonCnc && ui.focusLoop != null && loops[ui.focusLoop]) {
+      const L = loops[ui.focusLoop];
+      for (const id of loopEntities(L)) queueEntity(state.entities[id]);
+      if (toMutate.length) logicalCount = 1;
+    }
+
+    if (!toMutate.length) {
+      if (!o.quiet) {
+        if (skippedArrays > 0) {
+          toast('Array/Clone mengikuti fill masternya — ubah fill pada objek master');
+        } else if (skippedNonCnc > 0) {
+          toast('Objek ini (part/catatan/gambar) tidak menggunakan fill CNC');
+        } else {
+          toast('Pilih loop tertutup, teks, atau grup terlebih dahulu');
+        }
+      }
+      updateUI();
+      return {
+        ok: false,
+        error: skippedArrays > 0
+          ? 'array/clone follows master fill'
+          : (skippedNonCnc > 0 ? 'entity does not support CNC fill' : 'no closed loop, text, or group selected'),
+        count: 0,
+        skippedArrays,
+        skippedNonCnc
+      };
+    }
+
+    if (!o.noHistory) pushHistory();
+    let singleLineWarn = 0;
+    for (const e of toMutate) {
+      const res = applyFillToEntity(e, norm);
+      if (res === 'updated_single_line') singleLineWarn++;
+    }
+    commit();
+    updateUI();
+
+    if (!o.quiet) {
+      const name = norm === 'none' ? 'Fill cleared' : (norm === 'gray' ? 'Fill gray' : 'Fill yellow');
+      let msg = name + (logicalCount > 1 ? ' · ' + logicalCount + ' objects' : '');
+      if (skippedArrays > 0) msg += ' (' + skippedArrays + ' array/clone ikut master)';
+      if (singleLineWarn > 0) msg += ' · font single-line tetap garis terbuka';
+      toast(msg);
+    }
+    return { ok: true, count: logicalCount, mutated: toMutate.length, skippedArrays, skippedNonCnc, singleLineWarn };
   }
 
   // ONE tolerance, two windows. It used to live in two places: Settings > CNC >
@@ -31096,9 +32060,10 @@ function cmdSplitCurve() {
     }
     if (e.type === 'text') {
       const out2 = textOutlineWorld(e);
+      const tFill = out2.closed ? ownFill : 'none';
       for (const loop of out2.loops) {
-        if (!loop || loop.length < 3) continue;
-        out.push({ pts: loop.map(p => [p.x, p.y]), closed: out2.closed, color: colorOf(e), fill: ownFill });
+        if (!loop || loop.length < (out2.closed ? 3 : 2)) continue;
+        out.push({ pts: loop.map(p => [p.x, p.y]), closed: out2.closed, color: colorOf(e), fill: tFill });
       }
       return out;
     }
@@ -31205,7 +32170,9 @@ function cmdSplitCurve() {
             const pts = cncCleanPts(loop.pts.map(p => [p.x, p.y]));
             if (pts.length < (loop.closed ? 3 : 2)) continue;
             if (loop.closed) pts.push([pts[0][0], pts[0][1]]);
-            list.push({ color, fill, group: color + '|' + fill, pts, closed: loop.closed, sortWeight: e.sortWeight || 0, depth: e.depth || 0 });
+            const col = cncColorStroke(loop.color || color);
+            const fl = (loop.fill === 'gray' || loop.fill === 'yellow') ? loop.fill : fill;
+            list.push({ color: col, fill: fl, group: col + '|' + fl, pts, closed: loop.closed, sortWeight: e.sortWeight || 0, depth: e.depth || 0 });
             any = true;
           }
         }
@@ -31218,7 +32185,7 @@ function cmdSplitCurve() {
       if (e.type === 'text') {
         const outline = textOutlineWorld(e);
         const color = cncColorStroke(colorOf(e));
-        const fill = (e.fill === 'gray' || e.fill === 'yellow') ? e.fill : 'none';
+        const fill = outline.closed && (e.fill === 'gray' || e.fill === 'yellow') ? e.fill : 'none';
         let any = false;
         for (const loop of outline.loops) {
           const pts = cncCleanPts(loop.map(p => [p.x, p.y]));
@@ -31236,17 +32203,26 @@ function cmdSplitCurve() {
       }
       // Clone arrays contribute every virtual instance to the machine.
       //
-      // The clones are re-tessellated from their masters here instead of using
-      // the cached on-screen snapshot: the snapshot follows the render chord,
-      // the machine follows the flatten tolerance, and mixing the two made an
-      // arrayed circle cut smoother than the same circle on its own.
+      // Every instance strictly inherits colour and fill from its master
+      // shapes — never overridden by any stale colour/fill on the array entity.
       if (e.type === 'array') {
-        const baseFill = (e.fill === 'gray' || e.fill === 'yellow') ? e.fill : 'none';
         const baseShapes = [];
         for (const mid of (e.masters || [])) {
           const m = state.entities[mid];
           if (!m) continue;
           for (const sh of cncShapesOf(m)) baseShapes.push(sh);
+        }
+        // Detached snapshot clones (no live masters) fall back to e.shapes
+        if (!baseShapes.length && Array.isArray(e.shapes) && e.shapes.length) {
+          for (const sh of e.shapes) {
+            if (!sh || !sh.pts || sh.pts.length < 2) continue;
+            baseShapes.push({
+              pts: sh.pts,
+              closed: !!sh.closed,
+              color: sh.color || '#000000',
+              fill: (sh.fill === 'gray' || sh.fill === 'yellow') ? sh.fill : 'none'
+            });
+          }
         }
         for (const t of arrayInstanceOffsets(e)) {
           for (const sh of baseShapes) {
@@ -31259,8 +32235,8 @@ function cmdSplitCurve() {
             if (closed && (pts[0][0] !== pts[pts.length - 1][0] || pts[0][1] !== pts[pts.length - 1][1])) {
               pts.push([pts[0][0], pts[0][1]]);
             }
-            const color = cncColorStroke(sh.color || colorOf(e));
-            const fill = sh.fill || baseFill;
+            const color = cncColorStroke(sh.color || '#000000');
+            const fill = (sh.fill === 'gray' || sh.fill === 'yellow') ? sh.fill : 'none';
             list.push({ color, fill, group: color + '|' + fill, pts, closed, sortWeight: e.sortWeight || 0, depth: e.depth || 0 });
           }
         }
@@ -31712,27 +32688,7 @@ function cmdSplitCurve() {
       b.title = c.name;
       b.style.background = c.value;
       b.addEventListener('click', () => {
-        ui.color = c.value;
-        // A segment / node selection carries POINTS, not entities, so
-        // selectedEntities() alone is empty and the click painted nothing
-        // (the user had to press N first). Resolve the host entities of every
-        // selected point: a curve is coloured as a whole, so picking one of its
-        // segments and clicking a swatch repaints the entire curve.
-        const seen = new Set();
-        const ents = [];
-        const add = (e) => { if (e && !seen.has(+e.id)) { seen.add(+e.id); ents.push(e); } };
-        for (const e of selectedEntities()) add(e);
-        for (const s of ui.selection) {
-          if (!s || s.kind !== 'point') continue;
-          for (const e of (pointUses(+s.id) || [])) add(e);
-        }
-        if (ents.length) {
-          pushHistory();
-          for (const e of ents) e.color = c.value;
-          scheduleSave();
-          render();
-        }
-        updateUI();
+        applyStrokeColorToSelection(c.value);
       });
       // The swatch paints itself through an S-shaped mask, and a mask clips the
       // element's own box-shadow and pseudo-elements with it. The "this colour
@@ -31747,10 +32703,19 @@ function cmdSplitCurve() {
 
     const themeBtn = document.getElementById('btn-theme');
     const sidebarBtn = document.getElementById('btn-sidebar');
+    const sidebarCloseBtn = document.getElementById('btn-sidebar-close');
+    const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+    const closeSidebar = () => {
+      if (!document.body.classList.contains('sidebar-open')) return;
+      document.body.classList.remove('sidebar-open');
+      resize();
+    };
     if (sidebarBtn) sidebarBtn.addEventListener('click', () => {
       document.body.classList.toggle('sidebar-open');
       resize();
     });
+    if (sidebarCloseBtn) sidebarCloseBtn.addEventListener('click', closeSidebar);
+    if (sidebarBackdrop) sidebarBackdrop.addEventListener('click', closeSidebar);
     // tapping the canvas closes the slide-over (tablet UX)
     (function bindCanvasTapClose() {
       const c = document.getElementById('canvas');
@@ -31761,6 +32726,40 @@ function cmdSplitCurve() {
         }
       }, true);
     })();
+
+    // Collapsible L/T/W/H bar for narrow phones/tablets (<=900px)
+    (function bindCollapsibleLth() {
+      const strip = document.getElementById('tf-strip');
+      const toggleBtn = document.getElementById('tf-toggle-btn');
+      const closeBtn = document.getElementById('tf-close-btn');
+      if (!strip || !toggleBtn) return;
+      const setOpen = (on) => {
+        strip.classList.toggle('lth-open', !!on);
+        toggleBtn.setAttribute('aria-expanded', on ? 'true' : 'false');
+        if (stage) stage.classList.toggle('lth-expanded', !!on);
+      };
+      toggleBtn.addEventListener('click', () => setOpen(!strip.classList.contains('lth-open')));
+      if (closeBtn) closeBtn.addEventListener('click', () => setOpen(false));
+    })();
+
+    // F1 / F2 / F3 mode switcher inside the left Layers card
+    const modeF1 = document.getElementById('mode-f1');
+    const modeF2 = document.getElementById('mode-f2');
+    const modeF3 = document.getElementById('mode-f3');
+    if (modeF1) modeF1.addEventListener('click', () => setMode('select'));
+    if (modeF2) modeF2.addEventListener('click', () => setMode('node'));
+    if (modeF3) modeF3.addEventListener('click', () => cmdSelectJunctionPoints());
+
+    // Tool menu + Selection panel solver controls (reachable on touch & narrow viewports)
+    const btnSolveNow = document.getElementById('btn-solve-now');
+    const btnSolveMode = document.getElementById('btn-solve-mode');
+    const sideSolveNow = document.getElementById('sidebar-solve-now');
+    const sideSolveMode = document.getElementById('sidebar-solve-mode');
+    if (btnSolveNow) btnSolveNow.addEventListener('click', () => solveAll());
+    if (btnSolveMode) btnSolveMode.addEventListener('click', () => cycleSolveMode());
+    if (sideSolveNow) sideSolveNow.addEventListener('click', () => solveAll());
+    if (sideSolveMode) sideSolveMode.addEventListener('click', () => cycleSolveMode());
+
     if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
     document.getElementById('btn-save').addEventListener('click', () => {
       // Same contract as Ctrl+S: always a real file.
@@ -31955,17 +32954,44 @@ function cmdSplitCurve() {
       nestJob.cancelled = true;
       nestJob.stopRequested = true;
       if (nestJob.workers && nestJob.workers.length) {
-        nestFinishWorkers(nestJob);
+        if (nestJob.bestWorkerResult || (nestJob.workerResults && nestJob.workerResults.length)) {
+          nestFinishWorkers(nestJob);
+          return;
+        }
+        // Ask workers to flush their partial best-so-far before terminating
+        const j = nestJob;
+        for (let i = 0; i < j.workers.length; i++) {
+          try { j.workers[i].postMessage({ cmd: 'stop', jobId: String(i) }); } catch (e) {}
+        }
+        nestSetStatus('Stop — mengambil hasil terbaik…');
+        j._stopTimer = setTimeout(() => {
+          if (nestJob === j) nestFinishWorkers(j);
+        }, 450);
         return;
       }
       nestSetStatus(nestJob.infinite ? 'Stop — memakai hasil terbaik…' : 'Stop — memakai best so far…');
     });
     const nestAgainBtn = document.getElementById('nest-again');
     if (nestAgainBtn) nestAgainBtn.addEventListener('click', nestAgain);
+    const nestPresetEl = document.getElementById('nest-preset');
+    if (nestPresetEl) nestPresetEl.addEventListener('change', () => {
+      if (nestPresetEl.value !== 'custom') nestApplyPreset(nestPresetEl.value);
+      nestPrefsSave();
+      updateNestPanel();
+    });
     const nestSetting = () => { nestPrefsSave(); updateNestPanel(); };
-    for (const id of ['nest-spacing', 'nest-grid', 'nest-rotation', 'nest-pop', 'nest-gen', 'nest-mut', 'nest-ls', 'nest-flip', 'nest-infinite']) {
+    const nestAdvSetting = () => {
+      if (nestPresetEl) nestPresetEl.value = 'custom';
+      nestPrefsSave();
+      updateNestPanel();
+    };
+    for (const id of ['nest-spacing', 'nest-rotation', 'nest-flip', 'nest-multisheet', 'nest-infinite']) {
       const el = document.getElementById(id);
       if (el) el.addEventListener('change', nestSetting);
+    }
+    for (const id of ['nest-grid', 'nest-pop', 'nest-gen', 'nest-mut', 'nest-ls']) {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', nestAdvSetting);
     }
     nestPrefsLoad();
     const mateOk = document.getElementById('mate-ok');
@@ -32099,7 +33125,7 @@ function cmdSplitCurve() {
     document.querySelectorAll('[data-quick]').forEach(btn => {
       const act = (ev) => {
         const a = btn.dataset.quick;
-        const keep = !!(ev && ev.shiftKey);   // Shift = keep the original loops
+        const keep = !!((ev && ev.shiftKey) || ui.shiftToggle);   // Shift = keep the original loops
         if (a === 'flip-x') quickFlip('x');
         else if (a === 'flip-y') quickFlip('y');
         else if (a === 'rot-ccw') quickRotate(90);
@@ -34044,9 +35070,20 @@ function cmdSplitCurve() {
     // catches every click, and a laser/CAM import would try to cut it.
     parts.push('<g transform="scale(' + String(k) + ')" fill="none" stroke-linecap="round" stroke-linejoin="round" style="-inkscape-stroke: hairline;">');
 
-    // lines are chained first (per colour): a loop drawn as four lines must
-    // arrive in Inkscape as ONE closed path, not four separate segments
-    const lineByColor = new Map();
+    const svgFillAttr = (fill, closed, evenodd) => {
+      if (!closed || (fill !== 'gray' && fill !== 'yellow')) return '';
+      return ' fill="' + CNC_FILL[fill] + '"' + (evenodd ? ' fill-rule="evenodd"' : '');
+    };
+    const svgPolyPathD = (pts, closed) => {
+      let d = 'M ' + fmt(pts[0].x) + ' ' + fmt(pts[0].y);
+      for (let i = 1; i < pts.length; i++) d += ' L ' + fmt(pts[i].x) + ' ' + fmt(pts[i].y);
+      if (closed) d += ' Z';
+      return d;
+    };
+
+    // lines are chained first (per colour + fill): a loop drawn as four lines
+    // must arrive in Inkscape as ONE closed path with its KaryaCNC fill intact.
+    const lineByStyle = new Map();
     for (const id in state.entities) {
       const e = state.entities[id];
       if (!svgEntityAllowed(e, opts)) continue;
@@ -34054,18 +35091,18 @@ function cmdSplitCurve() {
       const a = P(e.a), c = P(e.b);
       if (!a || !c) continue;
       const color = colorOf(e);
-      if (!lineByColor.has(color)) lineByColor.set(color, []);
-      lineByColor.get(color).push({ pts: [{ x: a.x, y: a.y }, { x: c.x, y: c.y }], closed: false });
+      const fill = (e.fill === 'gray' || e.fill === 'yellow') ? e.fill : 'none';
+      const key = color + '|' + fill;
+      if (!lineByStyle.has(key)) lineByStyle.set(key, { color, fill, polys: [] });
+      lineByStyle.get(key).polys.push({ pts: [{ x: a.x, y: a.y }, { x: c.x, y: c.y }], closed: false });
     }
-    for (const [color, polys] of lineByColor) {
+    for (const { color, fill, polys } of lineByStyle.values()) {
       let chains;
       try { chains = chainPolylines(polys, 0.05); } catch (err) { chains = polys; }
       for (const ch of chains) {
         if (!ch.pts || ch.pts.length < 2) continue;
-        let d = 'M ' + fmt(ch.pts[0].x) + ' ' + fmt(ch.pts[0].y);
-        for (let i = 1; i < ch.pts.length; i++) d += ' L ' + fmt(ch.pts[i].x) + ' ' + fmt(ch.pts[i].y);
-        if (ch.closed) d += ' Z';
-        parts.push('<path d="' + d + '" stroke="' + color + '" stroke-width="1.6"/>');
+        parts.push('<path d="' + svgPolyPathD(ch.pts, ch.closed) + '" stroke="' + color + '"' +
+          svgFillAttr(fill, ch.closed, false) + ' stroke-width="1.6"/>');
       }
     }
 
@@ -34073,10 +35110,12 @@ function cmdSplitCurve() {
       const e = state.entities[id];
       if (!svgEntityAllowed(e, opts)) continue;
       const color = colorOf(e);
+      const ownFill = (e.fill === 'gray' || e.fill === 'yellow') ? e.fill : 'none';
       if (e.type === 'circle') {
         const c = P(e.c);
         if (!c) continue;
-        parts.push('<circle cx="' + c.x + '" cy="' + (c.y) + '" r="' + e.r + '" stroke="' + color + '" stroke-width="1.6"/>');
+        parts.push('<circle cx="' + c.x + '" cy="' + (c.y) + '" r="' + e.r + '" stroke="' + color + '"' +
+          svgFillAttr(ownFill, true, false) + ' stroke-width="1.6"/>');
       } else if (e.type === 'spline') {
         ensureSplineHandles(e);
         const cps = entityPointIds(e).map(pid => P(pid)).filter(Boolean);
@@ -34098,52 +35137,76 @@ function cmdSplitCurve() {
             d += ' C ' + P1.x + ' ' + P1.y + ' ' + P2.x + ' ' + P2.y + ' ' + P3.x + ' ' + P3.y;
           }
           if (loop) d += ' Z';
-          parts.push('<path d="' + d + '" stroke="' + color + '" stroke-width="1.6"/>');
+          parts.push('<path d="' + d + '" stroke="' + color + '"' +
+            svgFillAttr(ownFill, loop, false) + ' stroke-width="1.6"/>');
         }
       } else if (e.type === 'art') {
-        // generated groups (Box / Gear / Slot, potrace art): their geometry
-        // lives in world contours, not in points — emit one path per contour
+        // generated groups (Box / Gear / Slot, potrace art): group filled closed
+        // contours by (stroke, fill) into one evenodd path so holes stay punched
+        // out; unfilled or open contours emit one path per contour.
+        const filledGroups = new Map();
         for (const c of artContoursWorld(e)) {
           if (!c || !c.pts || c.pts.length < 2) continue;
           const cc = c.color || color;
-          let d = 'M ' + fmt(c.pts[0].x) + ' ' + fmt(c.pts[0].y);
-          for (let i = 1; i < c.pts.length; i++) d += ' L ' + fmt(c.pts[i].x) + ' ' + fmt(c.pts[i].y);
-          if (c.closed) d += ' Z';
-          parts.push('<path d="' + d + '" stroke="' + cc + '" stroke-width="1.6"/>');
+          const fl = (c.fill === 'gray' || c.fill === 'yellow') ? c.fill : ownFill;
+          const d = svgPolyPathD(c.pts, c.closed);
+          if (c.closed && (fl === 'gray' || fl === 'yellow')) {
+            const k = cc + '|' + fl;
+            if (!filledGroups.has(k)) filledGroups.set(k, { color: cc, fill: fl, ds: [] });
+            filledGroups.get(k).ds.push(d);
+          } else {
+            parts.push('<path d="' + d + '" stroke="' + cc + '" stroke-width="1.6"/>');
+          }
+        }
+        for (const g of filledGroups.values()) {
+          parts.push('<path d="' + g.ds.join(' ') + '" stroke="' + g.color + '"' +
+            svgFillAttr(g.fill, true, true) + ' stroke-width="1.6"/>');
         }
       } else if (e.type === 'arc') {
         const d = svgArcPath(e);
         if (d) parts.push('<path d="' + d + '" stroke="' + color + '" stroke-width="1.6"/>');
       } else if (e.type === 'text') {
         // A text exports as its glyph outlines (the same loops drawn on
-        // screen), so it needs no font on the other side. A single-line font
-        // yields open strokes, a filled font closed contours.
+        // screen), so it needs no font on the other side. When filled & closed,
+        // combine all glyph loops into ONE evenodd path so counters (O, A, B,
+        // P, R, 8) stay punched out cleanly.
         const out = textOutlineWorld(e);
-        for (const loop of out.loops) {
-          if (!loop || loop.length < 2) continue;
-          let d = 'M ' + fmt(loop[0].x) + ' ' + fmt(loop[0].y);
-          for (let i = 1; i < loop.length; i++) {
-            d += ' L ' + fmt(loop[i].x) + ' ' + fmt(loop[i].y);
+        if (out.closed && (ownFill === 'gray' || ownFill === 'yellow')) {
+          const ds = [];
+          for (const loop of out.loops) {
+            if (!loop || loop.length < 3) continue;
+            ds.push(svgPolyPathD(loop, true));
           }
-          if (out.closed) d += ' Z';
-          parts.push('<path d="' + d + '" stroke="' + color + '" stroke-width="1.6"/>');
+          if (ds.length) {
+            parts.push('<path d="' + ds.join(' ') + '" stroke="' + color + '"' +
+              svgFillAttr(ownFill, true, true) + ' stroke-width="1.6"/>');
+          }
+        } else {
+          for (const loop of out.loops) {
+            if (!loop || loop.length < 2) continue;
+            parts.push('<path d="' + svgPolyPathD(loop, out.closed) + '" stroke="' + color + '" stroke-width="1.6"/>');
+          }
         }
       } else if (e.type === 'array') {
-        // Clone arrays were dropped from the export entirely. Each instance is
-        // written as its own path, in the master's own colours.
-        // arrayInstancePolylines() hands back {x, y} points — reading them as
-        // [x, y] pairs made every coordinate NaN and the whole array landed on
-        // "M 0 0", so the clones were silently missing from the file.
+        // Clone arrays always export strictly in their master's stroke & fill.
         for (const t of arrayInstanceOffsets(e)) {
+          const filledGroups = new Map();
           for (const pl of arrayInstancePolylines(e, t)) {
             if (!pl.pts || pl.pts.length < 2) continue;
-            let d = 'M ' + fmt(pl.pts[0].x) + ' ' + fmt(pl.pts[0].y);
-            for (let i = 1; i < pl.pts.length; i++) {
-              d += ' L ' + fmt(pl.pts[i].x) + ' ' + fmt(pl.pts[i].y);
+            const cc = pl.color || '#000000';
+            const fl = (pl.fill === 'gray' || pl.fill === 'yellow') ? pl.fill : 'none';
+            const d = svgPolyPathD(pl.pts, pl.closed);
+            if (pl.closed && (fl === 'gray' || fl === 'yellow')) {
+              const k = cc + '|' + fl;
+              if (!filledGroups.has(k)) filledGroups.set(k, { color: cc, fill: fl, ds: [] });
+              filledGroups.get(k).ds.push(d);
+            } else {
+              parts.push('<path d="' + d + '" stroke="' + cc + '" stroke-width="1.6"/>');
             }
-            if (pl.closed) d += ' Z';
-            parts.push('<path d="' + d + '" stroke="' + (pl.color || color) +
-              '" stroke-width="1.6"/>');
+          }
+          for (const g of filledGroups.values()) {
+            parts.push('<path d="' + g.ds.join(' ') + '" stroke="' + g.color + '"' +
+              svgFillAttr(g.fill, true, true) + ' stroke-width="1.6"/>');
           }
         }
       }
@@ -34537,21 +35600,35 @@ function cmdSplitCurve() {
     if (!split || !side) return;
     const MIN = 200;
     const keyStep = 16;
+    const slideOverMQ = window.matchMedia('(max-width: 1100px), (pointer: coarse) and (max-width: 1400px)');
+    const isSlideOver = () => !!(slideOverMQ && slideOverMQ.matches);
 
     const maxWidth = () => Math.max(MIN, window.innerWidth - 380);
     const setWidth = (px) => {
+      if (isSlideOver()) {
+        side.style.width = '';
+        return null;
+      }
       const w = clamp(Math.round(px), MIN, maxWidth());
       side.style.width = w + 'px';
       return w;
     };
+    const restoreSaved = () => {
+      if (isSlideOver()) {
+        side.style.width = '';
+        return;
+      }
+      try {
+        const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null');
+        if (saved && isFinite(saved.side)) setWidth(saved.side);
+      } catch (err) { /* ignore */ }
+    };
     const save = () => {
+      if (isSlideOver()) return;
       try { localStorage.setItem(LAYOUT_KEY, JSON.stringify({ side: side.offsetWidth })); } catch (err) { /* blocked */ }
     };
 
-    try {
-      const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null');
-      if (saved && isFinite(saved.side)) setWidth(saved.side);
-    } catch (err) { /* ignore */ }
+    restoreSaved();
 
     let dragging = false;
     const onMove = (ev) => {
@@ -34567,6 +35644,7 @@ function cmdSplitCurve() {
       resize();
     };
     split.addEventListener('pointerdown', (ev) => {
+      if (isSlideOver()) return;
       dragging = true;
       split.setPointerCapture(ev.pointerId);
       document.body.classList.add('vsplit-drag');
@@ -34577,6 +35655,7 @@ function cmdSplitCurve() {
     split.addEventListener('pointercancel', onUp);
     // keyboard: arrows nudge, Home/End snap to the limits
     split.addEventListener('keydown', (ev) => {
+      if (isSlideOver()) return;
       const w = side.offsetWidth;
       if (ev.key === 'ArrowLeft') setWidth(w + keyStep);
       else if (ev.key === 'ArrowRight') setWidth(w - keyStep);
@@ -34587,8 +35666,14 @@ function cmdSplitCurve() {
       save();
       resize();
     });
-    // a window resize can leave the panel wider than the new viewport allows
-    window.addEventListener('resize', () => { setWidth(side.offsetWidth); resize(); });
+    // a window resize can leave the panel wider than the new viewport allows,
+    // or transition between docked desktop and slide-over tablet/phone modes
+    window.addEventListener('resize', () => {
+      if (isSlideOver()) side.style.width = '';
+      else if (side.style.width) setWidth(side.offsetWidth);
+      else restoreSaved();
+      resize();
+    });
   }
 
   // The app shell is sized in CSS, but a mobile browser reports 100% against

@@ -92,12 +92,25 @@
     })).filter(s => s.name && s.body);
   }
 
+  // Extract plain text from either string content or OpenAI multimodal parts[].
+  function messageText(m) {
+    const c = m && m.content;
+    if (typeof c === 'string') return c;
+    if (Array.isArray(c)) {
+      return c
+        .filter(p => p && p.type === 'text' && p.text)
+        .map(p => String(p.text))
+        .join(' ');
+    }
+    return '';
+  }
+
   // Pick skills whose trigger word appears in the latest user message, plus any
   // the model explicitly asked for with use_skill. Domain knowledge on demand,
   // without bloating every prompt.
   function skillsFor(messages, requested) {
     const lastUser = [...(messages || [])].reverse().find(m => m && m.role === 'user');
-    const text = String(lastUser ? lastUser.content : '').toLowerCase();
+    const text = messageText(lastUser).toLowerCase();
     const out = [];
     const seen = new Set();
     for (const s of skills) {

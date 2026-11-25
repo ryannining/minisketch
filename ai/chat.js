@@ -23,18 +23,28 @@
   // <svg> instead of driving MiniSketch's tools. Preview + import buttons.
   NS.svgMode = () => !!(api && api.settings && api.settings.aiModeSvg);
 
+  function isLocalApiUrl(base) {
+    try {
+      const h = new URL(String(base || '')).hostname.toLowerCase();
+      return h === 'localhost' || h === '127.0.0.1' || h === '::1' ||
+        /^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
+    } catch (err) { return false; }
+  }
+
   // Daftar model dari provider AKTIF (Gemini: ListModels; OpenAI-compatible:
   // GET {base}/models). Dipakai oleh pemilih model di panel chat.
   async function fetchProviderModels() {
     if (!api) return null;
+    const ep = bridgeUrl();
+    if (!ep) return null;
     const g = !!(api.settings && api.settings.aiProviderGoogle);
     const base = g
       ? 'https://generativelanguage.googleapis.com/v1beta'
       : String((api.settings && api.settings.aiApiUrl) || '').trim();
     const key = String((api.settings && api.settings.aiApiKey) || '').trim();
-    if (!base || !key) return null;
+    if (!base || (!key && !isLocalApiUrl(base))) return null;
     try {
-      const r = await fetch('/api/models', {
+      const r = await fetch(ep + '/api/models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ settings: { baseUrl: base, apiKey: key } })
@@ -511,6 +521,16 @@
       const e = st.entities[id];
       if (!e) return { id, missing: true };
       const d = { id, type: e.type, color: e.color || '#000000' };
+      if (e.fill === 'gray' || e.fill === 'yellow') d.fill = e.fill;
+      if (e.type === 'art') {
+        if (Array.isArray(e.contourColors) && e.contourColors.length) {
+          d.colors = Array.from(new Set(e.contourColors.map(c => c || e.color || '#000000')));
+        }
+        if (Array.isArray(e.contourFills) && e.contourFills.length) {
+          d.fills = Array.from(new Set(e.contourFills.map(f => (f === 'gray' || f === 'yellow') ? f : (e.fill || 'none'))));
+        }
+      }
+      if (e.type === 'array') d.readOnlyStyle = true;
       if (e.type === 'text') d.text = e.text;
       if (e.name) d.name = e.name;
       if (e.group) d.group = e.group;
@@ -604,23 +624,19 @@
         return id ? { ok: true, id } : { ok: false, error: 'need 2+ points' };
       }
       case 'add_note': {
-        // The model keeps reaching for add_note for lettering that must appear
-        // ON the part (an editable text object), which is wrong: a note is a
-        // non-machined yellow comment. Rather than trust the prompt alone, the
-        // executor REDIRECTS add_note -> add_text so the user always gets real,
-        // editable text. A workshop-only annotation is rare and not worth the
-        // confusion this causes when the model misroutes visible lettering.
+        // Real yellow workshop comment (also used as copy-count number for Nesting).
+        // Visible lettering on the part uses add_text (enforced by system prompt).
         if (typeof a.text !== 'string' || !a.text.trim()) return { ok: false, error: 'need text' };
-        const id = api.addText(a.text, clampN(a.x), clampN(a.y), {
-          height: a.height, color: a.color
-        });
-        return id ? { ok: true, id } : { ok: false, error: 'bad note->text params' };
+        const id = api.addNote(a.text, clampN(a.x), clampN(a.y));
+        return id ? { ok: true, id } : { ok: false, error: 'bad note params' };
       }
       case 'add_text': {
         if (typeof a.text !== 'string' || !a.text.trim()) return { ok: false, error: 'need text' };
+        const fillVal = (a.fill === 'gray' || a.fill === 'yellow') ? a.fill : undefined;
         const id = api.addText(a.text, clampN(a.x), clampN(a.y), {
           height: a.height, font: a.font, weight: a.weight,
-          italic: a.italic, tracking: a.tracking, align: a.align, color: a.color
+          italic: a.italic, tracking: a.tracking, align: a.align,
+          color: a.color, fill: fillVal
         });
         return id ? { ok: true, id } : { ok: false, error: 'bad text params' };
       }
@@ -670,20 +686,58 @@
         if (!isFinite(sx) || !isFinite(sy) || !sx || !sy) return { ok: false, error: 'bad scale' };
         let ox = +a.ox, oy = +a.oy;
         if (!isFinite(ox) || !isFinite(oy)) {
-          const b = api.contentBounds ? api.contentBounds() : null;
+          const b = (api.selectionBounds && api.selectionBounds()) || (api.contentBounds ? api.contentBounds() : null);
           ox = b ? (b.minX + b.maxX) / 2 : 0;
           oy = b ? (b.minY + b.maxY) / 2 : 0;
         }
         api.scaleSelection(sx, sy, ox, oy);
         return { ok: true };
       }
+      case 'rotate_selection': {
+        const deg = +a.angle;
+        if (!isFinite(deg)) return { ok: false, error: 'bad angle' };
+        const ox = a.ox != null && isFinite(+a.ox) ? clampN(a.ox) : NaN;
+        const oy = a.oy != null && isFinite(+a.oy) ? clampN(a.oy) : NaN;
+        return api.rotateSelection(deg, ox, oy);
+      }
+      case 'mirror_selection': {
+        const axis = String(a.axis || '').toLowerCase();
+        if (axis !== 'x' && axis !== 'y') return { ok: false, error: 'axis must be "x" or "y"' };
+        const ox = a.ox != null && isFinite(+a.ox) ? clampN(a.ox) : NaN;
+        const oy = a.oy != null && isFinite(+a.oy) ? clampN(a.oy) : NaN;
+        return api.mirrorSelection(axis, ox, oy);
+      }
+      case 'duplicate_selection': {
+        const dx = a.dx != null && isFinite(+a.dx) ? clampN(a.dx) : 0;
+        const dy = a.dy != null && isFinite(+a.dy) ? clampN(a.dy) : 0;
+        const r = api.duplicateSelection(dx, dy);
+        if (!r || !r.ok) return r || { ok: false, error: 'duplicate failed' };
+        return { ok: true, id: (r.ids && r.ids[0]) || undefined, ids: r.ids || [], count: (r.ids || []).length };
+      }
       case 'set_selection_color': {
-        const col = normColor(a.color);
-        if (!col) return { ok: false, error: 'bad color' };
-        const ents = api.selectedEntities();
-        if (!ents.length) return { ok: false, error: 'nothing selected' };
-        for (const e of ents) e.color = col;
-        return { ok: true, count: ents.length };
+        const hasColor = a.color != null && String(a.color).trim() !== '';
+        const hasFill = a.fill != null && String(a.fill).trim() !== '';
+        if (!hasColor && !hasFill) return { ok: false, error: 'provide color and/or fill' };
+        if (!api.ui.selection.length) return { ok: false, error: 'nothing selected' };
+        const out = { ok: true };
+        if (hasColor) {
+          const col = normColor(a.color);
+          if (!col) return { ok: false, error: 'bad color' };
+          const rc = api.setSelectionColor(col, { noHistory: true, quiet: true, setDefault: false });
+          if (!rc || !rc.ok) return { ok: false, error: (rc && rc.error) || 'color update failed', skippedArrays: rc && rc.skippedArrays };
+          out.color = col;
+          out.count = rc.count;
+          if (rc.skippedArrays) out.skippedArrays = rc.skippedArrays;
+        }
+        if (hasFill) {
+          const rf = api.setSelectionFill(a.fill, { noHistory: true, quiet: true });
+          if (!rf || !rf.ok) return { ok: false, error: (rf && rf.error) || 'fill update failed', skippedArrays: rf && rf.skippedArrays };
+          out.fill = a.fill;
+          out.fillCount = rf.count;
+          if (rf.skippedArrays) out.skippedArrays = Math.max(out.skippedArrays || 0, rf.skippedArrays);
+          if (rf.singleLineWarn) out.singleLineWarn = rf.singleLineWarn;
+        }
+        return out;
       }
       case 'set_default_color': {
         const col = normColor(a.color);
@@ -906,27 +960,36 @@
     return { ok: true, generator: kind };
   }
 
+  const READ_ONLY_OPS = new Set([
+    'get_entities', 'get_svg', 'get_bounds', 'get_loops',
+    'get_selection', 'describe_selection', 'use_skill',
+    'set_selection', 'clear_selection'
+  ]);
+
   // One batch of ops. `opts.noHistory` continues an agent turn that already
   // pushed history (round 2+ of the verify loop), so the whole agent run
-  // stays ONE undo step. Returns per-op results for the agent loop feedback.
+  // stays ONE undo step. Pure read-only batches skip pushing an empty snapshot.
   async function applyOps(ops, opts) {
     const o = opts || {};
     const list = (ops || []).filter(Boolean);
-    if (!list.length) return { made: 0, errors: ['no ops'], results: [] };
-    // import_svg with textMode:'text' creates REAL text objects, whose frame is
-    // fitted from font metrics. If the face isn't loaded yet, fit() measures the
-    // fallback font and the frame comes out wrong — the text is invisible until
-    // a reload re-creates it with the font ready. Await the face first (same as
-    // the PDF/CDR import path). Idempotent/cached, so this is free after once.
-    if (list.some(op => op.name === 'import_svg') && window.MiniSketchFonts) {
-      // Load BOTH faces the AI is allowed to use (Liberation Sans/Serif) so the
-      // fit() inside import uses real metrics whichever one the SVG names.
-      try {
-        await Promise.all([
-          window.MiniSketchFonts.load('Liberation Sans', 400, 'normal'),
-          window.MiniSketchFonts.load('Liberation Serif', 400, 'normal')
-        ]);
-      } catch (err) { /* fall back to whatever metrics we have */ }
+    if (!list.length) return { made: 0, ids: [], queryResults: [], errors: ['no ops'], results: [], pushedHistory: false };
+    // Preload fonts needed by import_svg or add_text so frame metrics are accurate immediately.
+    if (window.MiniSketchFonts) {
+      const fontsToLoad = new Set();
+      if (list.some(op => op.name === 'import_svg')) {
+        fontsToLoad.add('Liberation Sans');
+        fontsToLoad.add('Liberation Serif');
+      }
+      for (const op of list) {
+        if (op.name === 'add_text' && op.arguments && op.arguments.font) {
+          fontsToLoad.add(String(op.arguments.font));
+        }
+      }
+      if (fontsToLoad.size) {
+        try {
+          await Promise.all([...fontsToLoad].map(f => window.MiniSketchFonts.load(f, 400, 'normal')));
+        } catch (err) { /* fall back to whatever metrics we have */ }
+      }
     }
     if (list.length === 1 && (list[0].name === 'call_generator' || list[0].generator)) {
       const g = list[0].name === 'call_generator'
@@ -934,18 +997,13 @@
         : list[0].generator;
       const r = runGenerator(g.kind, g.params || {});
       api.commit();
-      return { made: r.ok ? 1 : 0, errors: r.ok ? [] : [r.error], results: [{ op: 'call_generator', ok: r.ok, error: r.error }], generator: g.kind };
+      return { made: r.ok ? 1 : 0, ids: [], queryResults: [], errors: r.ok ? [] : [r.error], results: [{ op: 'call_generator', ok: r.ok, error: r.error }], generator: g.kind, pushedHistory: true };
     }
-    // Destructive ops (remove_entity / delete_selection) used to block on a
-    // modal confirm EVERY round, which broke the agent's self-revision loop.
-    // Now: always push ONE undo step, run the batch, then decide —
-    //   • if everything that disappeared was created by the AI this batch, the
-    //     deletion was the agent cleaning up its own draft: accept silently;
-    //   • if anything PRE-EXISTING (the user's own geometry) was removed, undo
-    //     the batch and ask. One Undo reverts it either way.
+    const hasMutation = list.some(op => !READ_ONLY_OPS.has(op.name));
     const destructive = list.some(op => op.name === 'remove_entity' || op.name === 'delete_selection');
     const preIds = destructive ? new Set(Object.keys(api.state.entities)) : null;
-    api.pushHistory();
+    const pushedHistory = hasMutation && !o.noHistory;
+    if (pushedHistory) api.pushHistory();
     const madeIds = [];
     const queryResults = [];
     const errors = [];
@@ -958,26 +1016,23 @@
         continue;
       }
       let r;
-      // Surface the EXACT tool call so misroutes (e.g. add_note for lettering)
-      // are visible in the Console instead of only showing up as wrong output.
-      // The millisecond figure shows which op blocks: a big number here means
-      // the freeze is inside this tool's execution, not in the streaming UI.
       const tOp = performance.now();
       try { r = runOp(op); }
       catch (err) { r = { ok: false, error: String(err && err.message || err) }; }
       console.log('[AI tool]', op.name, '(' + Math.round(performance.now() - tOp) + 'ms)',
         JSON.stringify(op.arguments || {}).slice(0, 600));
-      results.push({ op: op.name, ok: r.ok, id: r.id, error: r.ok ? undefined : r.error });
-      if (r.ok && r.id) madeIds.push(r.id);
+      results.push({ op: op.name, ok: r.ok, id: r.id, ids: r.ids || r.madeIds, error: r.ok ? undefined : r.error });
+      if (r.ok && Array.isArray(r.ids) && r.ids.length) {
+        for (const mid of r.ids) madeIds.push(mid);
+      } else if (r.ok && r.id) {
+        madeIds.push(r.id);
+      }
       if (r.ok && r.query) queryResults.push({ query: r.query, result: r.result });
       if (!r.ok && !r.generator) errors.push(op.name + ': ' + (r.error || 'failed'));
       if (r.ok && op.name === 'add_constraint') needSolve = true;
     }
     if (needSolve) { try { api.requestSolve(); } catch (err) { /* solve is best-effort */ } }
-    api.commit();
-    // Decide the destructive batch now that it ran (see note above pushHistory):
-    // everything that vanished AND was AI-made this batch = accepted silently;
-    // anything pre-existing that vanished = undo + ask (one Undo reverts it).
+    if (hasMutation) api.commit();
     if (destructive) {
       const madeSet = new Set(madeIds);
       const removedPreExisting = [...preIds].filter(id => !api.state.entities[+id] && !madeSet.has(+id));
@@ -988,12 +1043,12 @@
           ? await window.uiConfirm(msg, { title: 'Konfirmasi Penghapusan', danger: true })
           : false;
         if (!allowed) {
-          api.undo();
-          return { made: 0, errors: ['cancelled by user'], results: [] };
+          if (typeof api.undo === 'function') api.undo();
+          return { made: 0, ids: [], queryResults: [], errors: ['cancelled by user'], results: [], pushedHistory: false };
         }
       }
     }
-    return { made: madeIds.length, ids: madeIds, queryResults, errors, results };
+    return { made: madeIds.length, ids: madeIds, queryResults, errors, results, pushedHistory };
   }
 
   // ---- offline fallback: Indonesian/English pattern parser, no LLM --------
@@ -1119,6 +1174,18 @@
       if (!api.ui.selection.length) return { ops: [], reply: 'Tidak ada yang dipilih.' };
       return { ops: [{ name: 'delete_selection', arguments: {} }], reply: 'Yang dipilih dihapus (Ctrl+Z untuk batal).' };
     }
+    if (has('fill', 'isi')) {
+      if (!api.ui.selection.length) return { ops: [], reply: 'Pilih dulu loop, teks, atau grup untuk diatur fill-nya.' };
+      if (has('abu', 'gray', 'grey')) {
+        return { ops: [{ name: 'set_selection_color', arguments: { fill: 'gray' } }], reply: 'Fill abu-abu (batas material KaryaCNC) diterapkan.' };
+      }
+      if (has('kuning', 'yellow')) {
+        return { ops: [{ name: 'set_selection_color', arguments: { fill: 'yellow' } }], reply: 'Fill kuning (balik arah offset KaryaCNC) diterapkan.' };
+      }
+      if (has('hapus', 'kosong', 'none', 'hilang', 'tanpa', 'clear')) {
+        return { ops: [{ name: 'set_selection_color', arguments: { fill: 'none' } }], reply: 'Fill dihapus.' };
+      }
+    }
     if (has('warna', 'color', 'colour', 'cat')) {
       for (const name of Object.keys(COLOR_NAMES)) {
         if (t.includes(name)) {
@@ -1217,8 +1284,11 @@
       })
       .filter(m => !(typeof m.content === 'string' && m.content.startsWith('…')));
     let lastExec = null;
+    const roundLog = [];                   // compact history across rounds in this turn
+    let historyPushed = false;             // guarantees ONE Undo step across all rounds
+    const usageTotal = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
     NS.requestedSkills = [];               // use_skill ops refill this per turn
-    const think = {};                      // round -> reasoning_content (deepseek)
+    const think = {};                      // round -> reasoning_content
     // live progress: update the placeholder BEFORE the fetch so the user sees
     // "thinking…" immediately, and again after each round lands
     const setPhase = (t, ops) => {
@@ -1227,10 +1297,6 @@
       liveMsg.thinking = Object.keys(think).map(r => think[r]).join('\n---\n') || null;
       renderLog();
     };
-    // live seconds counter: the model legitimately thinks 10-40 s; a silent UI
-    // invites a refresh, which kills the request and wastes the session.
-    // Only the TEXT line is rewritten — the thinking payload must survive, or
-    // the panel the user steers by disappears exactly while they wait.
     let waitTimer = null;
     const startWaitClock = (label) => {
       stopWaitClock();
@@ -1244,28 +1310,43 @@
     };
     const stopWaitClock = () => { if (waitTimer) { clearInterval(waitTimer); waitTimer = null; } };
     try {
-      // Pull the policy assets (system prompt, tools, skills) before the first
-      // round. Cached by prompt.js after the first load, so this is free on
-      // subsequent turns. Failure degrades to "no system prompt" (chat.js still
-      // sends history; the model just has less guidance).
       await ensurePolicy();
       const svgMode = NS.svgMode();
-      const sysMsg = P && P.systemMessage
-        ? P.systemMessage(history, stateSummary(), NS.requestedSkills || [], { svgMode })
-        : null;
       // SVG mode: no tool manifest at all — the model only returns <svg>.
       const toolManifest = (!svgMode && P && P.toolManifest) ? P.toolManifest() : [];
       for (let round = 1; round <= MAX_ROUNDS; round++) {
+        // Rebuild systemMessage EVERY round so `use_skill` and fresh document
+        // state take effect immediately on round 2+.
+        const curState = stateSummary();
+        const sysMsg = P && P.systemMessage
+          ? P.systemMessage(history, curState, NS.requestedSkills || [], { svgMode })
+          : null;
         const messages = [...history];
         if (sysMsg) messages.unshift(sysMsg);
         if (lastExec) {
+          const hasSvgQuery = Array.isArray(lastExec.queryResults) &&
+            lastExec.queryResults.some(q => q && q.query === 'get_svg');
+          const fbLimit = hasSvgQuery ? 64000 : 12000;
+          const fbPayload = {
+            executed: {
+              round: lastExec.round,
+              made: lastExec.made,
+              ids: lastExec.ids,
+              errors: lastExec.errors,
+              results: lastExec.results
+            },
+            ...(lastExec.queryResults && lastExec.queryResults.length ? { queryResults: lastExec.queryResults } : {}),
+            ...(roundLog.length > 1 ? { priorRounds: roundLog.slice(0, -1) } : {}),
+            state: curState
+          };
+          const fbJson = JSON.stringify(fbPayload);
           messages.push({
             role: 'user',
             content: '[SYSTEM FEEDBACK after your last tool calls]\n' +
-              JSON.stringify({ executed: lastExec, state: stateSummary() }).slice(0, 3000) +
+              (fbJson.length > fbLimit ? fbJson.slice(0, fbLimit) + '…[truncated]' : fbJson) +
               (lastExec.errors && lastExec.errors.length
                 ? '\nAn op FAILED (' + lastExec.errors[0] + '). Fix it: emit corrected tool calls.'
-                : '\nAll ops succeeded and the state above already reflects them. Do NOT re-verify a simple, obviously-correct result (a panel at the given size/position, a circle at the given centre) unless the user\'s request was positional or you are genuinely unsure (overlapping ids, wrong place, a shape that should have closed). Otherwise reply with the final Indonesian summary and NO tool calls.')
+                : '\nAll ops succeeded and the state/queryResults above reflect the current truth. If you only needed query data, now perform the requested CAD action. If the task is complete, reply with one short Indonesian summary and NO tool calls.')
           });
         }
         startWaitClock(lastExec
@@ -1274,27 +1355,16 @@
         const tRound = performance.now();
         const payload = {
           messages,
-          // The tool manifest travels with the request: the policy (which tools
-          // exist) is frontend-owned, the proxy stays policy-free.
           tools: toolManifest,
-          stateSummary: stateSummary(),
+          stateSummary: curState,
           agent: { round, maxRounds: MAX_ROUNDS },
           requestedSkills: NS.requestedSkills || [],
-          // The user's own endpoint settings travel with the request: the key
-          // belongs to whoever runs MiniSketch, and the bridge keeps no copy
-          // of it.
           settings: {
-            // "Google Gemini" checked => the bridge uses Google's endpoint with
-            // just the key + model; the base-URL field is ignored.
             baseUrl: api.settings.aiProviderGoogle
               ? 'https://generativelanguage.googleapis.com/v1beta'
               : String(api.settings.aiApiUrl || '').trim(),
             apiKey: String(api.settings.aiApiKey || '').trim(),
             model: String(api.settings.aiModel || '').trim(),
-            // Settings > AI reasoning level: 'off' | 'low' | 'normal'. The
-            // bridge maps off -> no reasoning, low -> short reasoning (and
-            // reasoning_effort=low for OpenAI-compatible providers), normal ->
-            // full reasoning.
             thinking: String(api.settings.aiThinkLevel || 'normal')
           }
         };
@@ -1311,14 +1381,12 @@
           const j = await res.json().catch(() => ({}));
           throw new Error((j && j.error) || ('bridge ' + res.status));
         }
-        // The bridge streams SSE: {delta:{thinking|content}} events live while
-        // the model works, then one final {done, reply, thinking, tool_calls}
-        // — or {error} when the upstream call itself failed.
         let data = null;
         const reader = res.body.getReader();
         const dec = new TextDecoder();
         let buf = '';
         const liveThink = {};
+        let liveContent = '';
         NS._lastThinkRound = 0;   // insert the round separator once per round
         for (;;) {
           const { done, value } = await reader.read();
@@ -1339,13 +1407,13 @@
               }
               liveThink[round] = (liveThink[round] || '') + ev.delta.thinking;
               think[round] = liveThink[round];
-              // show reasoning AS IT ARRIVES — the whole point of streaming.
-              // Accumulate APPEND-ONLY: re-joining every round on every chunk is
-              // O(rounds × chars) per chunk; appending is O(chunk).
               liveMsg.thinking = (liveMsg.thinking || '') + ev.delta.thinking;
-              if (!liveMsg.text || liveMsg.text === '…') liveMsg.text = 'berpikir…';
-              // Coalesce rapid chunks into at most ~10 renders/second; the live
-              // path renders only the short thinking tail, so this stays cheap.
+              if (!liveContent && (!liveMsg.text || liveMsg.text === '…')) liveMsg.text = 'berpikir…';
+              scheduleThinkFlush();
+            } else if (ev.delta && ev.delta.content) {
+              stopWaitClock();
+              liveContent += ev.delta.content;
+              liveMsg.text = liveContent;
               scheduleThinkFlush();
             } else if (ev.done) {
               data = ev;
@@ -1354,6 +1422,11 @@
         }
         stopWaitClock();
         if (!data) throw new Error('bridge stream ended without a final event');
+        if (data.usage && typeof data.usage === 'object') {
+          usageTotal.prompt_tokens += +data.usage.prompt_tokens || 0;
+          usageTotal.completion_tokens += +data.usage.completion_tokens || 0;
+          usageTotal.total_tokens += +data.usage.total_tokens || 0;
+        }
         const calls = (data.tool_calls || []).map(tc => ({ name: tc.name, arguments: tc.arguments || {} }));
         console.log('[AI stream] putaran ' + round + '/' + MAX_ROUNDS + ' selesai dalam ' +
           Math.round(performance.now() - tRound) + 'ms · tool_calls=' + calls.length +
@@ -1364,18 +1437,35 @@
         const roundThink = String(data.thinking || '');
         if (roundThink) think[round] = roundThink;
         if (!calls.length) {
-          // no tool calls = the model is satisfied; this ends the loop
-          setPhase((data.reply || 'Selesai.').trim() +
-            (round > 1 ? '  (setelah ' + (round - 1) + ' verifikasi)' : ''));
+          liveMsg.rounds = round;
+          if (usageTotal.total_tokens > 0) liveMsg.usage = { ...usageTotal };
+          setPhase((data.reply || 'Selesai.').trim());
           markDone(liveMsg);
           break;
         }
         setPhase('mengeksekusi ' + calls.length + ' op (putaran ' + round + '/' + MAX_ROUNDS + ')…', calls);
-        const r = await applyOps(calls, { noHistory: round > 1 });
-        lastExec = { round, made: r.made, ids: r.ids, errors: r.errors, results: r.results };
+        const r = await applyOps(calls, { noHistory: historyPushed });
+        if (r.pushedHistory) historyPushed = true;
+        lastExec = {
+          round,
+          made: r.made,
+          ids: r.ids || [],
+          queryResults: r.queryResults || [],
+          errors: r.errors || [],
+          results: r.results || []
+        };
+        roundLog.push({
+          round,
+          ops: calls.map(c => c.name),
+          made: r.made,
+          ids: (r.ids || []).slice(0, 20),
+          errors: (r.errors || []).slice(0, 3)
+        });
         setPhase('putaran ' + round + '/' + MAX_ROUNDS + ': ' + r.made + ' op' +
           (r.errors.length ? ', error: ' + r.errors[0] : ', ok') + ' — memverifikasi…', calls);
         if (round === MAX_ROUNDS) {
+          liveMsg.rounds = round;
+          if (usageTotal.total_tokens > 0) liveMsg.usage = { ...usageTotal };
           setPhase('Berhenti di batas ' + MAX_ROUNDS + ' putaran. Terakhir: ' + r.made + ' op' +
             (r.errors.length ? ', error: ' + r.errors[0] : '') +
             '. Ketik "lanjutkan" untuk meneruskan, atau tombol Retry untuk mengulang.', calls);
@@ -1517,18 +1607,16 @@
       let html = who + ' ' + escapeHtml(m.text).replace(/\n/g, '<br>');
       if (m.ops && m.ops.length) html += '<br><span class="muted">' + m.ops.map(o => escapeHtml(o.name)).join(', ') + '</span>';
       NS.liveRefs.text.innerHTML = html;
-      // Render ONLY the short thinking tail: the full reasoning still lives in
-      // m.thinking (memory + save), but the DOM node stays small so scrollHeight
-      // reads (stickToBottom) never lay out a megabyte of text again.
-      const disp = thinkDisplay(m.thinking);
-      if (disp.text !== NS.liveRefs.lastThink) {
-        NS.liveRefs.body.textContent = (disp.cut ? THINK_CUT_NOTE : '') + disp.text;
-        NS.liveRefs.lastThink = disp.text;
+      if (NS.liveRefs.body) {
+        const disp = thinkDisplay(m.thinking);
+        if (disp.text !== NS.liveRefs.lastThink) {
+          NS.liveRefs.body.textContent = (disp.cut ? THINK_CUT_NOTE : '') + disp.text;
+          NS.liveRefs.lastThink = disp.text;
+        }
+        if (NS.liveRefs.det) NS.liveRefs.det.open = !(NS.thinkClosed && NS.thinkClosed.has(m));
+        stickToBottom(NS.liveRefs.body);
       }
-      NS.liveRefs.det.open = !(NS.thinkClosed && NS.thinkClosed.has(m));
-      // auto-scroll the reasoning box ONLY while the user sits at its bottom;
-      // scrolled up to read = we leave their position alone
-      stickToBottom(NS.liveRefs.body);
+      stickToBottom(host);
       return;
     }
     host.innerHTML = '';
@@ -1539,6 +1627,7 @@
       host.appendChild(li);
       return;
     }
+    const fmtTok = (n) => n >= 1000 ? (Math.round(n / 100) / 10) + 'k' : String(n);
     for (const m of items.slice(-60)) {
       const li = document.createElement('li');
       const who = m.role === 'user' ? '<b>kamu</b>' : m.role === 'ai' ? '<b>ai</b>' : '<b class="muted">sys</b>';
@@ -1546,21 +1635,24 @@
       if (m.ops && m.ops.length) {
         html += '<br><span class="muted">' + m.ops.map(o => escapeHtml(o.name)).join(', ') + '</span>';
       }
-      // text lives in its own span so the live-update path can rewrite just it
       const textSpan = document.createElement('span');
       textSpan.innerHTML = html;
       li.appendChild(textSpan);
+      if (m.role === 'ai' && m.done) {
+        const parts = [];
+        if (m.rounds && m.rounds > 1) parts.push(m.rounds + ' putaran');
+        if (m.usage && m.usage.total_tokens > 0) parts.push(fmtTok(m.usage.total_tokens) + ' token');
+        if (parts.length) {
+          const meta = document.createElement('span');
+          meta.className = 'chat-meta';
+          meta.textContent = parts.join(' · ');
+          li.appendChild(meta);
+        }
+      }
       appendImageThumbs(li, m);
-      // SVG mode: render a preview + import/copy buttons for a produced <svg>
-      if (m.role === 'ai' && NS.svgMode()) appendSvgBlock(li, m);
-      // the model's reasoning, collapsible: click to inspect/correct its plan.
-      // Default OPEN, and the open state survives a re-render: renderChat
-      // rebuilds the whole log on every update, so a <details> the user opened
-      // would snap shut again unless we remember it per log entry.
+      // Render SVG preview + Insert/Copy whenever an AI reply contains <svg>
+      if (m.role === 'ai' && (NS.svgMode() || /<svg[\s\S]*?<\/svg>/i.test(m.text))) appendSvgBlock(li, m);
       if (m.thinking) {
-        // Keyed on the message object, not the index: a retry splices the log
-        // and would shift every index. Default OPEN; only entries the user
-        // explicitly closed stay shut across re-renders.
         NS.thinkClosed = NS.thinkClosed || new WeakSet();
         const det = document.createElement('details');
         det.className = 'chat-think';
@@ -1568,22 +1660,21 @@
         const sum = document.createElement('summary');
         sum.textContent = 'pikiran model (' + m.thinking.split(/\n-{3,}\n/).length + ' putaran)';
         sum.addEventListener('click', () => {
-          // runs before the browser toggles `open`
           if (det.open) NS.thinkClosed.add(m); else NS.thinkClosed.delete(m);
         });
         const body = document.createElement('div');
         body.className = 'chat-think-body';
-        // full thinking stays on the message object; only the tail is rendered
         const disp = thinkDisplay(m.thinking);
         body.textContent = (disp.cut ? THINK_CUT_NOTE : '') + disp.text;
         det.appendChild(sum);
         det.appendChild(body);
         li.appendChild(det);
-        // remember the streaming message's nodes for the live-update path
         if (m === NS.liveMsg) {
-          NS.liveRefs = { li, det, sum, body, text: textSpan };
+          NS.liveRefs = { li, det, sum, body, text: textSpan, lastThink: disp.text };
           stickToBottom(body);
         }
+      } else if (m === NS.liveMsg) {
+        NS.liveRefs = { li, det: null, sum: null, body: null, text: textSpan, lastThink: '' };
       }
       if (m.retryText && NS.mode === 'chat') {
         li.classList.add('chat-error');
@@ -1614,6 +1705,73 @@
     host.scrollTop = host.scrollHeight;
   }
 
+  // In-app lightbox overlay for attached images & SVG previews (never calls window.open).
+  let _lightboxEl = null;
+  function closeLightbox() {
+    if (_lightboxEl) _lightboxEl.hidden = true;
+  }
+  function openLightbox(src, title) {
+    if (!src || typeof document === 'undefined') return;
+    if (!_lightboxEl) {
+      const ov = document.createElement('div');
+      ov.id = 'chat-lightbox';
+      ov.className = 'chat-lightbox';
+      ov.setAttribute('role', 'dialog');
+      ov.setAttribute('aria-modal', 'true');
+      const card = document.createElement('div');
+      card.className = 'chat-lightbox-card';
+      const head = document.createElement('div');
+      head.className = 'chat-lightbox-head';
+      const cap = document.createElement('span');
+      cap.className = 'chat-lightbox-cap';
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'btn small';
+      closeBtn.textContent = '× Tutup';
+      closeBtn.addEventListener('click', closeLightbox);
+      head.appendChild(cap);
+      head.appendChild(closeBtn);
+      const img = document.createElement('img');
+      img.className = 'chat-lightbox-img';
+      card.appendChild(head);
+      card.appendChild(img);
+      ov.appendChild(card);
+      ov.addEventListener('click', (ev) => { if (ev.target === ov) closeLightbox(); });
+      document.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape' && _lightboxEl && !_lightboxEl.hidden) closeLightbox();
+      });
+      document.body.appendChild(ov);
+      _lightboxEl = ov;
+    }
+    const imgEl = _lightboxEl.querySelector('.chat-lightbox-img');
+    const capEl = _lightboxEl.querySelector('.chat-lightbox-cap');
+    if (imgEl) { imgEl.src = src; imgEl.alt = title || 'pratinjau'; }
+    if (capEl) capEl.textContent = title || 'Pratinjau';
+    _lightboxEl.hidden = false;
+  }
+
+  async function copyTextToClipboard(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (err) { /* fall back to textarea */ }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch (err) {
+      return false;
+    }
+  }
+
   // Inline thumbnails for a turn's attached images (the user's reference
   // picture stays visible next to what they asked, so the turn reads whole).
   function appendImageThumbs(li, m) {
@@ -1625,10 +1783,8 @@
       img.className = 'chat-thumb';
       img.src = src;
       img.alt = 'gambar terlampir';
-      img.addEventListener('click', () => {
-        const w = window.open('');
-        if (w) { const big = w.document.createElement('img'); big.src = src; big.style.maxWidth = '100%'; w.document.body.appendChild(big); }
-      });
+      img.title = 'Klik untuk memperbesar gambar';
+      img.addEventListener('click', () => openLightbox(src, 'Gambar terlampir'));
       row.appendChild(img);
     }
     li.appendChild(row);
@@ -1648,10 +1804,16 @@
   async function importUserSvg(svgText) {
     if (typeof api.svgImportParse !== 'function' || typeof api.svgImportInsert !== 'function') return -1;
     try {
+      if (window.MiniSketchFonts) {
+        try {
+          await Promise.all([
+            window.MiniSketchFonts.load('Liberation Sans', 400, 'normal'),
+            window.MiniSketchFonts.load('Liberation Serif', 400, 'normal')
+          ]);
+        } catch (err) { /* ignore */ }
+      }
       const ir = api.svgImportParse(svgText, {
         prefix: 'svgpaste' + Date.now().toString(36) + '-',
-        // flipY:true = past the SVG as-is (Y-down, the world frame). Only
-        // flipY:false would read it as Y-up and MIRROR it — wrong here.
         flipY: true
       });
       if (!ir.items || !ir.items.length) return 0;
@@ -1693,13 +1855,13 @@
     img.className = 'chat-svg-preview';
     img.alt = 'pratinjau SVG';
     img.title = 'Pratinjau SVG — klik untuk perbesar';
-    img.addEventListener('click', () => {
-      const w = window.open('');
-      if (w) { const big = w.document.createElement('img'); big.src = img.src; big.style.maxWidth = '100%'; w.document.body.appendChild(big); }
-    });
+    img.addEventListener('click', () => openLightbox(img.src, 'Pratinjau SVG'));
+    const actions = document.createElement('div');
+    actions.className = 'chat-svg-actions';
     const status = document.createElement('span');
     status.className = 'muted chat-svg-status';
     const paste = document.createElement('button');
+    paste.type = 'button';
     paste.className = 'btn small';
     paste.textContent = 'Insert to workspace';
     paste.title = 'Impor SVG ini ke worksheet: posisi top-right dari konten saat ini + gap kanan 20mm (satu Undo)';
@@ -1714,8 +1876,19 @@
         status.textContent = 'Impor gagal (SVG tidak valid?).';
       }
     });
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'btn small';
+    copyBtn.textContent = 'Salin SVG';
+    copyBtn.title = 'Salin kode <svg> ke clipboard';
+    copyBtn.addEventListener('click', async () => {
+      const ok = await copyTextToClipboard(svg);
+      status.textContent = ok ? '✓ SVG disalin ke clipboard.' : 'Gagal menyalin SVG.';
+    });
+    actions.appendChild(paste);
+    actions.appendChild(copyBtn);
     row.appendChild(img);
-    row.appendChild(paste);
+    row.appendChild(actions);
     row.appendChild(status);
     li.appendChild(row);
   }
@@ -1783,6 +1956,7 @@
         }
         modelSel.value = cur;
       };
+      NS.fillModelList = fill;
       const loadM = (silent) => {
         return fetchProviderModels().then(models => {
           if (models) fill(models);
@@ -1799,30 +1973,50 @@
         const v = modelSel.value;
         if (v && window.setAiModelFromChat) window.setAiModelFromChat(v);
       });
-      // Tampilkan model aktif dari settings sejak awal (sebelum/apa pun hasil
-      // muat daftar provider) supaya pemilih panel chat tidak pernah kosong
-      // atau berbeda dari Settings.
       if (window.syncAiModelSelect) window.syncAiModelSelect();
-      loadM(true);   // isi otomatis saat panel dibuka (jika daftar tersedia)
+      loadM(true);
     }
+
+    // Kontrol cepat Mode (Agen/SVG), Reasoning (Off/Low/Normal), dan Settings
+    const modeAgBtn = document.getElementById('chat-mode-agent');
+    const modeSvgBtn = document.getElementById('chat-mode-svg');
+    const thinkSel = document.getElementById('chat-think-sel');
+    const settingsBtn = document.getElementById('chat-settings-btn');
+    if (modeAgBtn) modeAgBtn.addEventListener('click', () => {
+      if (window.setAiModeSvgFromChat) window.setAiModeSvgFromChat(false);
+    });
+    if (modeSvgBtn) modeSvgBtn.addEventListener('click', () => {
+      if (window.setAiModeSvgFromChat) window.setAiModeSvgFromChat(true);
+    });
+    if (thinkSel) thinkSel.addEventListener('change', () => {
+      if (window.setAiThinkLevelFromChat) window.setAiThinkLevelFromChat(thinkSel.value);
+    });
+    if (settingsBtn) settingsBtn.addEventListener('click', () => {
+      if (window.openAiSettings) window.openAiSettings();
+    });
+    if (window.syncAiQuickControls) window.syncAiQuickControls();
+
     const input = document.getElementById('chat-input');
     const btn = document.getElementById('chat-send');
     const stopBtn = document.getElementById('chat-stop');
+    const resizeInput = () => {
+      if (!input || input.tagName !== 'TEXTAREA') return;
+      input.style.height = 'auto';
+      const maxH = 108;
+      const next = Math.min(input.scrollHeight, maxH);
+      input.style.height = Math.max(26, next) + 'px';
+      input.style.overflowY = input.scrollHeight > maxH ? 'auto' : 'hidden';
+    };
+    if (input && input.tagName === 'TEXTAREA') {
+      input.addEventListener('input', resizeInput);
+      resizeInput();
+    }
     if (stopBtn) stopBtn.addEventListener('click', () => {
       if (NS.activeAbort) NS.activeAbort.abort();
     });
     NS.setStopVisible = (on) => {
-      // The `hidden` ATTRIBUTE, not a class: styles.css has no generic `.hidden`
-      // rule, so `class="hidden"` did nothing and the Stop button was on screen
-      // all the time. The attribute is honoured by the UA stylesheet for any
-      // element, no CSS needed.
       if (stopBtn) stopBtn.hidden = !on;
-      // The Send button keeps its own label. Flipping it to "Stop" as well put
-      // two Stop buttons next to each other while a request was running.
     };
-    // Fork: salin perintah PERTAMA (teks + gambar tertanam) sebagai seed sesi
-    // baru. Sesi saat ini diarsipkan ke LOG dulu — jadi tidak ada yang hilang,
-    // dan Anda bisa ganti model lalu melanjutkan dari awal.
     const forkBtn = document.getElementById('chat-fork');
     if (forkBtn) forkBtn.addEventListener('click', () => {
       if (NS.activeAbort) return;
@@ -1830,14 +2024,13 @@
       if (!firstUser) return;
       const seedText = String(firstUser.text || '');
       const seedImages = (Array.isArray(firstUser.images) && firstUser.images.length)
-        ? firstUser.images.slice()        // salinan penuh data-URL
+        ? firstUser.images.slice()
         : null;
       archiveCurrentSession().then(() => {
         NS.log = [];
         NS.sessionId = newSessionId();
         NS.sessionAt = Date.now();
         lsSet(CURRENT_ID_KEY, NS.sessionId);
-        // stage gambar seed lalu langsung kirim ke AI (send() memakai pendingImages)
         NS.pendingImages = seedImages || [];
         renderPending();
         setTab('chat');
@@ -1849,7 +2042,6 @@
 
     const newBtn = document.getElementById('chat-new');
     if (newBtn) newBtn.addEventListener('click', () => {
-      // never archive/clear mid-turn: the streaming entry is not finished yet
       if (NS.activeAbort) return;
       archiveCurrentSession().then(() => {
         NS.log = [];
@@ -1864,7 +2056,7 @@
     });
     const go = () => {
       const v = input ? input.value : '';
-      if (input) input.value = '';
+      if (input) { input.value = ''; resizeInput(); }
       send(v);
       if (input) input.focus();
     };
@@ -1878,4 +2070,6 @@
   NS.send = send;
   NS.applyOps = applyOps;
   NS.stateSummary = stateSummary;
+  NS.renderLog = renderLog;
+  NS.bridgeUrl = bridgeUrl;
 })();

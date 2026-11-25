@@ -60,6 +60,9 @@
           <label class="menu-item check" id="menu-autosolve" role="menuitemcheckbox" aria-checked="false" title="While dragging, a short pause in pointer movement runs the same full solve a mouse release would — without waiting for the button to go up."><input type="checkbox" id="tgl-autosolve">Auto solve</label>
           <label class="menu-item check" id="menu-undoview" role="menuitemcheckbox" aria-checked="false" title="When On, Ctrl+Z / Ctrl+Shift+Z also restore the viewport of that step. When Off the camera stays where it is, so undo only changes the geometry — better for comparing a curve against its earlier shape."><input type="checkbox" id="tgl-undoview">Undo moves view</label>
           <div class="menu-sep"></div>
+          <button class="menu-item" id="btn-solve-now" role="menuitem">Solve now<span class="menu-key">F9</span></button>
+          <button class="menu-item" id="btn-solve-mode" role="menuitem">Solver mode<span class="menu-key" id="menu-solve-mode-val">release</span></button>
+          <div class="menu-sep"></div>
           <button class="menu-item" id="btn-settings" role="menuitem">Settings&hellip;</button>
           <button class="menu-item" id="btn-cnc" role="menuitem">Send to KaryaCNC&hellip;<span class="menu-key">Alt+Q</span></button>
         </div>
@@ -218,6 +221,11 @@
       </div>
       <canvas id="canvas" tabindex="0" role="application" aria-label="Drawing canvas — arrow keys nudge the selection, Shift+F fits the view. All drawing commands are also reachable from the ribbon and the menus."></canvas>
 
+      <button type="button" class="stage-lth-toggle" id="tf-toggle-btn" aria-expanded="false" aria-controls="tf-strip" title="Tampilkan / sembunyikan ukuran L/T/W/H &amp; Wt/Z">
+        <span class="lth-toggle-label" id="tf-toggle-label">L/T/W/H</span>
+        <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.2 6 7.8l3.5-3.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+
       <div class="stage-lth tf-strip" id="tf-strip" title="Selection bounds &mdash; type a number to set it (absolute, negatives included). Relative: +10 or 10- / 10+ shift from the current value. Formulas: 100*2, -1200-10, 150%">
         <label class="tf"><span>L</span><input id="tf-left" type="text" inputmode="decimal" spellcheck="false" disabled></label>
         <label class="tf"><span>T</span><input id="tf-top" type="text" inputmode="decimal" spellcheck="false" disabled></label>
@@ -232,6 +240,7 @@
         </label>
         <label class="tf" title="Sort weight −100..100 (absolute, type the value as-is; higher = cut later in KaryaCNC, sent ×100). Empty = 0"><span>Wt</span><input id="tf-weight" type="text" inputmode="decimal" spellcheck="false" disabled></label>
         <label class="tf" title="Depth override in mm (Z, above 0): sent as p.depth so KaryaCNC cuts/etches/marks/pockets this depth instead of the machine default. Empty or 0 = machine default"><span>Z</span><input id="tf-depth" type="text" inputmode="decimal" spellcheck="false" disabled></label>
+        <button type="button" class="tf-close-btn" id="tf-close-btn" aria-label="Tutup bar ukuran" title="Tutup">&times;</button>
       </div>
 
       <div class="stage-left" id="stage-left">
@@ -261,6 +270,11 @@
           </div>
       <div class="stage-layers" id="stage-layers" title="Layers &mdash; the active layer receives new geometry">
         <div class="stage-layers-head">Layers</div>
+        <div class="mode-switch" id="mode-switch" role="group" aria-label="Mode pilih: F1 Move, F2 Node, F3 Junction">
+          <button type="button" class="mode-btn is-on" id="mode-f1" data-mode="select" aria-pressed="true" title="F1 · Select/Move — geser objek utuh (titik &amp; garis terkunci)">F1</button>
+          <button type="button" class="mode-btn" id="mode-f2" data-mode="node" aria-pressed="false" title="F2 · Node edit — titik &amp; garis bisa diedit">F2</button>
+          <button type="button" class="mode-btn" id="mode-f3" data-mode="junction" title="F3 · Pilih titik pertemuan (3+ garis)">F3</button>
+        </div>
         <div class="pick-filter" id="pick-filter" title="Pick filter (Plasticity-style): Alt+1 / Alt+2 / Alt+3 toggle what the cursor may select. Dim = locked, the cursor ignores that kind.">
           <button type="button" class="pick-btn" id="pick-points" aria-pressed="true" title="Points selectable (Alt+1)"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.6"/></svg><span>1</span></button>
           <button type="button" class="pick-btn" id="pick-lines" aria-pressed="true" title="Lines selectable (Alt+2)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13 13 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>2</span></button>
@@ -281,14 +295,16 @@
       </div>
 
     
-      <div class="stage-colors" id="stage-colors" title="Garis = warna operasi KaryaCNC; kotak = loop fill">
+      <div class="ctx-bar hidden" id="ctx-bar" role="toolbar" aria-label="Aksi kontekstual"></div>
+
+      <div class="stage-colors" id="stage-colors" title="Garis = warna operasi KaryaCNC; kotak = fill CNC (loop, teks, grup; array/clone ikut master)">
         <div class="swatches" id="swatches"></div>
         <div class="stage-colors-sep" aria-hidden="true"></div>
         <div class="stage-fills" id="loop-fill-row">
           <button class="stage-undo" id="qb-undo-side" title="Undo (Ctrl+Z)" aria-label="Undo">&#8630;</button>
-          <button class="swatch fill-sq fill-none" data-fill="none" title="No loop fill" aria-label="No loop fill"></button>
-          <button class="swatch fill-sq fill-gray" data-fill="gray" title="Gray &mdash; material boundary: everything inside gets flipped" aria-label="Loop fill gray"></button>
-          <button class="swatch fill-sq fill-yellow" data-fill="yellow" title="Yellow &mdash; flip the offset direction of this contour" aria-label="Loop fill yellow"></button>
+          <button class="swatch fill-sq fill-none" data-fill="none" title="Tanpa fill CNC (loop, teks, atau grup)" aria-label="No fill"></button>
+          <button class="swatch fill-sq fill-gray" data-fill="gray" title="Fill Abu-abu — batas material KaryaCNC (semua kontur di dalamnya dibalik)" aria-label="Fill gray"></button>
+          <button class="swatch fill-sq fill-yellow" data-fill="yellow" title="Fill Kuning — balik arah offset kontur di KaryaCNC" aria-label="Fill yellow"></button>
           <button class="stage-undo" id="qb-redo-side" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">&#8631;</button>
         </div>
       </div>
@@ -328,7 +344,13 @@
     <div class="vsplit" id="vsplit" role="separator" aria-orientation="vertical"
          aria-label="Resize panels" tabindex="0"></div>
 
+    <div class="sidebar-backdrop" id="sidebar-backdrop" aria-hidden="true"></div>
+
     <aside class="sidebar" id="sidebar">
+      <div class="sidebar-drawer-head">
+        <span class="sidebar-drawer-title">Panels</span>
+        <button type="button" class="btn ghost icon sidebar-close-btn" id="btn-sidebar-close" aria-label="Tutup panel" title="Tutup panel">&times;</button>
+      </div>
       <details class="panel" id="chat-panel">
         <summary class="panel-title">AI Chat <span class="count" id="chat-count">0</span></summary>
         <div class="panel-body">
@@ -341,14 +363,29 @@
             <span class="muted">Model</span>
             <select id="chat-model-sel" title="Pilih model untuk provider aktif (klik 🔄 untuk memuat daftar)" style="flex:1 1 auto;min-width:0;font:inherit;font-size:11px;padding:2px 5px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)"></select>
             <button class="btn small" id="chat-model-refresh" title="Muat daftar model dari provider aktif">🔄</button>
-            <button class="btn small" id="chat-fork" style="margin-left:10px" title="Fork: salin perintah pertama (teks + gambar tertanam) ke sesi baru — berguna setelah ganti model. Sesi saat ini dipindahkan ke LOG, lalu perintah langsung dikirim ke AI.">Fork</button>
+            <button class="btn small" id="chat-fork" style="margin-left:4px" title="Fork: salin perintah pertama (teks + gambar tertanam) ke sesi baru — berguna setelah ganti model. Sesi saat ini dipindahkan ke LOG, lalu perintah langsung dikirim ke AI.">Fork</button>
+          </div>
+          <div class="row chat-quick-row" id="chat-quick-row">
+            <div class="chat-mode-seg" role="group" aria-label="Mode AI">
+              <button type="button" class="btn small is-on" id="chat-mode-agent" title="Mode Agen: AI memanggil tool CAD MiniSketch secara langsung">Agen</button>
+              <button type="button" class="btn small" id="chat-mode-svg" title="Mode SVG: AI menghasilkan satu dokumen SVG utuh untuk pratinjau &amp; impor">SVG</button>
+            </div>
+            <label class="chat-think-wrap" title="Tingkat reasoning model (Off lebih cepat &amp; hemat, Normal paling teliti)">
+              <span class="muted">Think</span>
+              <select id="chat-think-sel">
+                <option value="off">Off</option>
+                <option value="low">Low</option>
+                <option value="normal" selected>Normal</option>
+              </select>
+            </label>
+            <button type="button" class="btn small" id="chat-settings-btn" title="Buka Settings › AI chat (provider, API key, batas putaran)">⚙</button>
           </div>
           <ul class="list" id="chat-log"></ul>
           <div class="chat-pending" id="chat-pending" hidden></div>
-          <div class="row" id="chat-input-row" style="margin-top:6px">
+          <div class="row chat-input-row" id="chat-input-row" style="margin-top:6px">
             <button class="btn small" id="chat-attach" title="Lampirkan gambar untuk ditelusuri jadi sketch (atau tempel/drag-drop)">🖼</button>
             <input type="file" id="chat-file" accept="image/*" multiple hidden>
-            <input id="chat-input" type="text" placeholder='kotak 100x60 di 0,0…' style="flex:1 1 auto;min-width:0;font:inherit;font-size:11.5px;padding:4px 7px;border:1px solid var(--line);border-radius:6px" autocomplete="off" spellcheck="false">
+            <textarea id="chat-input" rows="1" placeholder='kotak 100x60 di 0,0… (Shift+Enter baris baru)' autocomplete="off" spellcheck="false"></textarea>
             <button class="btn small danger" id="chat-stop" hidden title="Hentikan permintaan yang sedang berjalan">■ Stop</button>
             <button class="btn small primary" id="chat-send">Kirim</button>
           </div>
@@ -395,6 +432,10 @@
             <button class="btn small" id="btn-clean-loops" title="Re-detect loops & weld junctions (Shift+L): rebuilds loop detection with the Loop closure gap tolerance, then welds the doubled points at every loop junction into shared nodes">Cleanup loops</button>
             <button class="btn small" id="btn-join-points" title="Join points: merge the selected points that touch (same spot). Uses a spatial index, so it stays fast even when the whole drawing is selected">Join points</button>
           </div>
+          <div class="sidebar-solver-row" id="sidebar-solver-row">
+            <button type="button" class="btn small" id="sidebar-solve-mode" title="Ganti mode solver (release → manual → live)">solver idle</button>
+            <button type="button" class="btn small" id="sidebar-solve-now" title="Jalankan constraint solver sekarang (F9)">Solve (F9)</button>
+          </div>
         </div>
       </details>
 
@@ -417,20 +458,34 @@
         <summary class="panel-title">Nesting <span class="count" id="nest-count">0</span></summary>
         <div class="panel-body">
           <div class="ngrid">
+            <label class="field ngrid-full"><span>Kualitas</span>
+              <select id="nest-preset" title="Preset kualitas True NFP/IFP: Cepat untuk banyak part, Seimbang untuk pemakaian harian, Maksimal untuk bentuk cekung &amp; huruf rumit">
+                <option value="fast">Cepat</option>
+                <option value="balanced" selected>Seimbang</option>
+                <option value="max">Maksimal</option>
+                <option value="custom">Kustom</option>
+              </select>
+            </label>
             <label class="field ngrid-half"><span>Sp</span><input type="number" id="nest-spacing" value="2" min="0" step="0.5" title="Spacing between parts in mm (offsets each part by half the value on every side before packing)"></label>
-            <label class="field ngrid-half"><span>Grid</span><input type="number" id="nest-grid" value="4" min="1" max="100" step="1" title="Grid snap: NFP scan step in mm. Smaller = tighter packing but much slower"></label>
-            <label class="field ngrid-wide"><span>Rot</span><input type="text" id="nest-rotation" value="0,90,180,270" spellcheck="false" title="Allowed rotations: angles list (0,90), a preset (1,2,3,4,8), or a range 0-360:90. Same syntax as nestjs2"></label>
-            <label class="field check"><input type="checkbox" id="nest-flip"><span>Flip</span></label>
-            <label class="field"><span>Pop</span><input type="number" id="nest-pop" value="6" min="2" max="40" step="1" title="GA population size"></label>
-            <label class="field"><span>Gen</span><input type="number" id="nest-gen" value="5" min="1" max="60" step="1" title="GA generations"></label>
-            <label class="field"><span>Mut</span><input type="number" id="nest-mut" value="0.1" min="0" max="1" step="0.05" title="GA mutation rate (0 = keep the parents' order, 1 = always reshuffle)"></label>
-            <label class="field"><span>LS</span><input type="number" id="nest-ls" value="6" min="0" max="60" step="1" title="Local-search hill-climb trials after the GA (0 = off; fewer = faster but slightly looser packing)"></label>
+            <label class="field ngrid-half"><span>Rot</span><input type="text" id="nest-rotation" value="0,90,180,270" spellcheck="false" title="Allowed rotations: angles list (0,90), a preset (1,2,3,4,8), or a range 0-360:90. Same syntax as nestjs2"></label>
+            <label class="field check ngrid-half" title="Otomatis tambah lembar jika hanya memilih 1 kotak hijau tanpa note. Jika memilih beberapa kotak hijau atau memberi note angka di dalam kotak hijau, jumlah lembar mengikuti stok tersebut dan part sisa diletakkan di luar."><input type="checkbox" id="nest-multisheet" checked><span>Multi-lembar</span></label>
+            <label class="field check ngrid-half"><input type="checkbox" id="nest-flip"><span>Flip</span></label>
           </div>
+          <details class="nest-adv" id="nest-adv">
+            <summary>Opsi lanjutan</summary>
+            <div class="ngrid">
+              <label class="field"><span>Pop</span><input type="number" id="nest-pop" value="8" min="2" max="40" step="1" title="GA population size"></label>
+              <label class="field"><span>Gen</span><input type="number" id="nest-gen" value="6" min="1" max="60" step="1" title="GA generations"></label>
+              <label class="field"><span>Mut</span><input type="number" id="nest-mut" value="0.12" min="0" max="1" step="0.05" title="GA mutation rate (0 = keep the parents' order, 1 = always reshuffle)"></label>
+              <label class="field"><span>LS</span><input type="number" id="nest-ls" value="8" min="0" max="60" step="1" title="Local-search hill-climb trials after the GA (swap, insertion, and rotation moves; 0 = off)"></label>
+              <label class="field ngrid-half"><span>Grid</span><input type="number" id="nest-grid" value="4" min="1" max="100" step="1" title="Fallback grid step in mm (digunakan hanya jika mode exact NFP fallback)"></label>
+            </div>
+          </details>
           <div class="row nest-buttons">
-            <button class="btn small primary" id="nest-start" title="Nest the selected loops to the right of the green sheet loop">Start</button>
+            <button class="btn small primary" id="nest-start" title="Nest loop terpilih ke lembar hijau (bisa 1 atau beberapa kotak hijau, atau beri note angka di dalam kotak hijau untuk jumlah lembar)">Start</button>
             <button class="btn small" id="nest-again" disabled title="Nest the same parts again without re-selecting (replaces the previous result)">Re-nest</button>
             <button class="btn small" id="nest-stop" hidden title="Stop and keep the best result so far">Stop</button>
-            <label class="check" title="Keep re-nesting with fresh GA seeds until Stop; only the best layout is applied"><input type="checkbox" id="nest-infinite">&infin;</label>
+            <label class="check" title="Keep re-nesting in Web Workers with warm NFP cache until Stop; live-applies the best layout"><input type="checkbox" id="nest-infinite">&infin;</label>
           </div>
           <div class="nest-progress" id="nest-progress" hidden><div class="nest-progress-fill" id="nest-progress-fill"></div></div>
           <div class="meta" id="nest-status">&mdash;</div>

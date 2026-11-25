@@ -1,29 +1,24 @@
 'use strict';
 // MiniSketch AI bridge — a POLICY-FREE streaming proxy.
 //
-// All the POLICY (system prompt, tool manifest, domain skills) now lives on the
+// All the POLICY (system prompt, tool manifest, domain skills) lives on the
 // FRONTEND (ai/prompt.js + ai/system-prompt.txt + ai/tools.json + ai/skills.js).
 // The frontend assembles the full `messages` (system message first) and the
-// `tools` array and sends them here; this server just forwards them to an
-// OpenAI-compatible endpoint and streams the reply back.
+// `tools` array and sends them here; this server forwards them to an
+// OpenAI-compatible endpoint OR Google Gemini and streams the reply back.
 //
-// TWO providers, one wire protocol:
+// TWO providers, one wire protocol (100% compatible with KaryaCNC Go proxy):
 //   • OpenAI-compatible (the default): forwards `messages`/`tools` straight to
 //     {base}/chat/completions and re-assembles the SSE deltas.
 //   • Google Gemini (auto-detected from the base URL — generativelanguage.*):
 //     translates OpenAI-style messages/tools to Gemini contents/function
 //     declarations, streams `alt=sse`, maps `thought:true` parts to thinking
-//     deltas and `functionCall` parts to tool_calls. No frontend change needed:
-//     the browser still talks OpenAI shape in and out.
-//
-// Why: tuning the prompt or tools no longer needs a server restart OR a rebuild
-// of the KaryaCNC Go proxy — edit a static file, refresh. Both backends (this
-// Node one and the Go one in KaryaCNC) are interchangeable policy-free streams.
+//     deltas and `functionCall` parts to tool_calls.
 //
 // Run:  node server/ai-bridge.js     (default port 8090; PORT / AI_BRIDGE_PORT override)
-// Optional env: AI_BRIDGE_PORT / PORT (listen), AI_ALLOWED_ORIGINS (extra CORS).
-// The API key / base URL / model come from the FRONTEND with each request
-// (Settings › AI chat). Nothing is stored here.
+// Optional env: AI_BRIDGE_PORT / PORT (listen), AI_ALLOWED_ORIGINS (extra CORS),
+//   OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL / GEMINI_API_KEY (optional fallbacks).
+// Credentials from Settings › AI chat travel per request and are never stored or logged.
 
 const http = require('http');
 const https = require('https');
@@ -32,9 +27,7 @@ const PORT = +(process.env.PORT || process.env.AI_BRIDGE_PORT || 8090);
 
 // Idle timeout for the upstream provider socket: any packet from the provider
 // resets it, so a long reasoning stream is never killed — only a provider that
-// stays silent this long is considered hung. Provider queues can sit idle
-// >60 s, so the default is generous and configurable via AI_UPSTREAM_IDLE_S
-// (seconds). 0 disables the idle timeout entirely.
+// stays silent this long is considered hung. Configurable via AI_UPSTREAM_IDLE_S.
 const UPSTREAM_IDLE_MS = (() => {
   const raw = process.env.AI_UPSTREAM_IDLE_S;
   if (raw == null || String(raw).trim() === '') return 300000;
@@ -71,6 +64,60 @@ function originAllowed(origin, req) {
 // including a trailing slash or the full ".../v1/chat/completions". Both work.
 function normalizeBase(base) {
   return String(base || '').trim().replace(/\/+$/, '').replace(/\/chat\/completions$/i, '');
+}
+
+// Validate upstream URL strictly (http: or https: only).
+function parseUpstreamUrl(raw) {
+  let u;
+  try { u = new URL(String(raw || '')); }
+  catch (err) { return null; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+  return u;
+}
+
+// Local/LAN hosts (Ollama, LM Studio, llama.cpp, vLLM) often run without an API key.
+function isLocalHost(base) {
+  const u = parseUpstreamUrl(base);
+  if (!u) return false;
+  const h = u.hostname.toLowerCase();
+  if (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '[::1]') return true;
+  if (/^10\./.test(h) || /^192\.168\./.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  return false;
+}
+
+const GEMINI_HOST_RE = /generativelanguage\.googleapis\.com|generativelanguage\.google\.com/i;
+const GLM_HOST_RE = /bigmodel\.cn|(^|\.)z\.ai$/i;
+function isGemini(base) { return GEMINI_HOST_RE.test(String(base || '')); }
+function isGlmHost(base) {
+  const u = parseUpstreamUrl(base);
+  return !!(u && GLM_HOST_RE.test(u.hostname));
+}
+
+// Resolve effective upstream config: request settings win, optional env vars
+// act as fallback when request fields are blank. Never stores or echoes keys.
+function resolveConfig(rs) {
+  const s = rs || {};
+  const reqBase = normalizeBase(s.baseUrl || '');
+  const envBase = normalizeBase(process.env.OPENAI_BASE_URL || '');
+  const base = reqBase || envBase;
+  const gemini = isGemini(base);
+  const reqKey = String(s.apiKey || '').trim();
+  const envKey = String((gemini ? (process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY) : process.env.OPENAI_API_KEY) || '').trim();
+  const key = reqKey || envKey;
+  const reqModel = String(s.model || '').trim();
+  const envModel = String(process.env.OPENAI_MODEL || process.env.MODEL || '').trim();
+  const model = reqModel || envModel;
+  return {
+    base,
+    key,
+    model,
+    gemini,
+    local: !gemini && isLocalHost(base),
+    baseFrom: reqBase ? 'request' : (envBase ? 'env' : 'none'),
+    keyFrom: reqKey ? 'request' : (envKey ? 'env' : 'none'),
+    modelFrom: reqModel ? 'request' : (envModel ? 'env' : 'default')
+  };
 }
 
 // ---- arg sanitizing (parity with the KaryaCNC Go proxy's sanitizeAIArgs) ---
@@ -127,46 +174,91 @@ function serializeUpstream(run) {
   return next;
 }
 
+// Build an OpenAI-compatible request body without sending proprietary flags to
+// unrelated providers (avoids unnecessary 400 retry double-requests).
+function openaiRequest(input, cfg, opts) {
+  const o = opts || {};
+  const body = {
+    model: cfg.model || undefined,
+    messages: input.messages || [],
+    stream: true
+  };
+  const tools = Array.isArray(input.tools) ? input.tools : [];
+  // Omit `tools` / `tool_choice` when empty (SVG mode): several OpenAI-compatible
+  // endpoints return 400 when given `tools: [], tool_choice: 'auto'`.
+  if (tools.length) {
+    body.tools = tools;
+    body.tool_choice = 'auto';
+  }
+  if (!o.bare) {
+    body.stream_options = { include_usage: true };
+    const level = String(input.thinking || 'normal').toLowerCase();
+    if (isGlmHost(cfg.base)) {
+      if (level === 'off') body.thinking = { type: 'disabled' };
+      else body.thinking = { type: 'enabled' };
+      if (level === 'low') body.reasoning_effort = 'low';
+    } else {
+      if (level === 'low') body.reasoning_effort = 'low';
+    }
+  }
+  return body;
+}
+
 function postUpstreamOnce(payload, register, cfg) {
   const base = normalizeBase(cfg.base);
   const key = cfg.key;
   return new Promise((resolve, reject) => {
-    if (!base || !key) return reject(new Error('missing API key or base URL'));
-    const url = new URL(base + '/chat/completions');
+    if (!base || (!key && !cfg.local)) return reject(new Error('missing API key or base URL'));
+    const url = parseUpstreamUrl(base + '/chat/completions');
+    if (!url) return reject(new Error('invalid upstream base URL'));
     const lib = url.protocol === 'https:' ? https : http;
-    const body = JSON.stringify(payload);
+    const onDelta = payload.onDelta;
+    const wire = { ...payload };
+    delete wire.onDelta;
+    const body = JSON.stringify(wire);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Connection': 'close',
+      'Accept': 'text/event-stream',
+      'Content-Length': Buffer.byteLength(body)
+    };
+    if (key) headers['Authorization'] = 'Bearer ' + key;
+    let settled = false;
+    const doneResolve = (v) => { if (!settled) { settled = true; resolve(v); } };
+    const doneReject = (e) => { if (!settled) { settled = true; reject(e); } };
+
     const req = lib.request(url, {
       method: 'POST',
       agent: false,                      // no socket pooling: close after each response
-      headers: {
-        'Content-Type': 'application/json',
-        'Connection': 'close',
-        'Accept': 'text/event-stream',
-        'Authorization': 'Bearer ' + key,
-        'Content-Length': Buffer.byteLength(body)
-      }
+      headers
     }, (res) => {
-      // STREAMING (stream:true): SSE "data: {...}" lines. reasoning_content and
-      // content deltas are forwarded live to onDelta so the browser panel fills
-      // while the model thinks; tool_calls are assembled from their deltas.
       let buf = '';
-      const assembled = { role: 'assistant', content: '', reasoning_content: '', tool_calls: [] };
-      const tcBuf = {};                  // index -> {name, arguments}
+      let rawBody = '';
+      const assembled = { role: 'assistant', content: '', reasoning_content: '', tool_calls: [], usage: null };
+      const tcBuf = {};                  // index -> {id, name, arguments}
       const finish = (err) => {
-        if (err) return reject(err);
-        for (const k of Object.keys(tcBuf)) {
+        if (err) return doneReject(err);
+        for (const k of Object.keys(tcBuf).sort((a, b) => (+a) - (+b))) {
           const t = tcBuf[k];
           assembled.tool_calls.push({
+            id: t.id,
             function: { name: t.name || '', arguments: t.arguments || '' }
           });
         }
         if (res.statusCode < 200 || res.statusCode >= 300) {
-          return reject(new Error('upstream ' + res.statusCode + ': ' + buf.slice(-500)));
+          let msg = (rawBody || buf).trim();
+          try {
+            const j = JSON.parse(msg);
+            if (j.error && j.error.message) msg = j.error.message;
+          } catch (e) { /* keep raw */ }
+          return doneReject(new Error('upstream ' + res.statusCode + ': ' + msg.slice(0, 600)));
         }
-        resolve({ choices: [{ message: assembled }], _raw: true });
+        doneResolve({ choices: [{ message: assembled }], usage: assembled.usage, _raw: true });
       };
       res.on('data', (c) => {
-        buf += c.toString();
+        const s = c.toString();
+        buf += s;
+        if (rawBody.length < 4096) rawBody += s;
         let idx;
         while ((idx = buf.indexOf('\n')) >= 0) {
           const line = buf.slice(0, idx).trim();
@@ -176,14 +268,22 @@ function postUpstreamOnce(payload, register, cfg) {
           if (data === '[DONE]') return finish();
           let j;
           try { j = JSON.parse(data); } catch (err) { continue; }
+          if (j.usage && typeof j.usage === 'object') {
+            assembled.usage = {
+              prompt_tokens: +j.usage.prompt_tokens || 0,
+              completion_tokens: +j.usage.completion_tokens || 0,
+              total_tokens: +j.usage.total_tokens || ((+j.usage.prompt_tokens || 0) + (+j.usage.completion_tokens || 0))
+            };
+          }
           const d = (j.choices && j.choices[0] && j.choices[0].delta) || {};
-          if (d.reasoning_content) {
-            assembled.reasoning_content += d.reasoning_content;
-            if (payload.onDelta) payload.onDelta({ thinking: d.reasoning_content });
+          const rChunk = d.reasoning_content || d.reasoning || '';
+          if (rChunk) {
+            assembled.reasoning_content += rChunk;
+            if (onDelta) onDelta({ thinking: rChunk });
           }
           if (d.content) {
             assembled.content += d.content;
-            if (payload.onDelta) payload.onDelta({ content: d.content });
+            if (onDelta) onDelta({ content: d.content });
           }
           for (const tc of (d.tool_calls || [])) {
             const i = tc.index != null ? tc.index : 0;
@@ -197,15 +297,11 @@ function postUpstreamOnce(payload, register, cfg) {
         }
       });
       res.on('end', () => finish());
+      res.on('error', (err) => finish(err));
     });
-    // Idle timeout, NOT total-time: the socket must show activity every
-    // UPSTREAM_IDLE_MS (default 300 s) or it is genuinely hung. A reasoning
-    // model streaming for minutes keeps resetting this on every packet, so
-    // long answers are never killed. Slow provider queues get headroom; set
-    // AI_UPSTREAM_IDLE_S to tune.
     req.setTimeout(UPSTREAM_IDLE_MS, () => req.destroy(new Error(
       'upstream idle >' + (UPSTREAM_IDLE_MS / 1000) + 's — connection closed')));
-    req.on('error', reject);
+    req.on('error', doneReject);
     if (register) register(req);         // caller aborts when its client leaves
     req.write(body);
     req.end();
@@ -213,13 +309,6 @@ function postUpstreamOnce(payload, register, cfg) {
 }
 
 // ---- Google Gemini adapter ------------------------------------------------
-// The frontend speaks OpenAI shape (messages/tools, SSE {delta:{thinking|content}}
-// then {done, reply, thinking, tool_calls}); Gemini speaks its own protocol. This
-// adapter is the ONLY piece that knows about Gemini; everything upstream of it
-// (chat.js) stays identical. Detected automatically from the base URL.
-const GEMINI_HOST_RE = /generativelanguage\.googleapis\.com|generativelanguage\.google\.com/i;
-function isGemini(base) { return GEMINI_HOST_RE.test(String(base || '')); }
-
 // OpenAI message content (string | parts[]) -> Gemini parts[]
 function geminiParts(m) {
   const c = m.content;
@@ -236,6 +325,35 @@ function geminiParts(m) {
     }
   }
   return parts;
+}
+
+// Build Gemini generationConfig.thinkingConfig according to model generation
+// and requested reasoning level ('off' | 'low' | 'normal' | false).
+function geminiThinkingConfig(model, level) {
+  if (level === false) return null;
+  const lv = String(level || 'normal').toLowerCase();
+  const m = String(model || '').toLowerCase();
+  const isGen34 = /^gemini-[34]/.test(m);
+  const isGen25 = /^gemini-2\.5/.test(m);
+  if (lv === 'off') {
+    if (isGen25) {
+      // Gemini 2.5 Pro cannot turn thinking off completely; Flash accepts 0.
+      if (/pro/.test(m)) return { includeThoughts: false, thinkingBudget: 128 };
+      return { includeThoughts: false, thinkingBudget: 0 };
+    }
+    if (isGen34) {
+      if (/flash-lite/.test(m)) return { includeThoughts: false, thinkingLevel: 'MINIMAL' };
+      return { includeThoughts: false, thinkingLevel: 'LOW' };
+    }
+    return null;
+  }
+  if (lv === 'low') {
+    if (isGen34) return { includeThoughts: true, thinkingLevel: 'LOW' };
+    if (isGen25) return { includeThoughts: true, thinkingBudget: 1024 };
+    return { includeThoughts: true };
+  }
+  // 'normal' (default)
+  return { includeThoughts: true };
 }
 
 // Build a Gemini generateContent request body from the OpenAI-style input.
@@ -273,24 +391,30 @@ function geminiRequest(input, cfg) {
     }
     if (decls.length) body.tools = [{ functionDeclarations: decls }];
   }
-  if (input.thinking !== false) body.thinkingConfig = { includeThinking: true };
-  // NOTE: no generationConfig here — hardcoding maxOutputTokens etc. has caused
-  // 400s on models with stricter limits. Provider defaults are safest.
+  const tc = geminiThinkingConfig(cfg && cfg.model, input.thinking);
+  if (tc) body.generationConfig = { thinkingConfig: tc };
   return body;
 }
 
-// Stream from Gemini REST. Resolves { content, reasoning, calls } where calls
-// are already {name, arguments:{}} (Gemini sends complete functionCall parts).
+// Stream from Gemini REST. Resolves { content, reasoning, calls, usage }.
 function postGeminiOnce(payload, register, cfg) {
   const base = normalizeBase(cfg.base);
   const key = cfg.key;
   return new Promise((resolve, reject) => {
     if (!base || !key) return reject(new Error('missing API key or base URL'));
-    const model = encodeURIComponent(cfg.model || 'gemini-2.5-flash');
+    const model = encodeURIComponent(cfg.model || 'gemini-4-hydrogen');
     const root = base.replace(/\/v1beta?$/, '');
-    const url = new URL(root + '/v1beta/models/' + model + ':streamGenerateContent?alt=sse');
+    const url = parseUpstreamUrl(root + '/v1beta/models/' + model + ':streamGenerateContent?alt=sse');
+    if (!url) return reject(new Error('invalid Gemini base URL'));
     const lib = url.protocol === 'https:' ? https : http;
-    const body = JSON.stringify(payload);
+    const onDelta = payload.onDelta;
+    const wire = { ...payload };
+    delete wire.onDelta;
+    const body = JSON.stringify(wire);
+    let settled = false;
+    const doneResolve = (v) => { if (!settled) { settled = true; resolve(v); } };
+    const doneReject = (e) => { if (!settled) { settled = true; reject(e); } };
+
     const req = lib.request(url, {
       method: 'POST',
       agent: false,                      // no socket pooling: close after each response
@@ -304,39 +428,33 @@ function postGeminiOnce(payload, register, cfg) {
     }, (res) => {
       let buf = '';
       let rawBody = '';       // full raw response captured for error reporting
-      let failed = false;
       let events = 0;
       const t0 = Date.now();
-      const state = { content: '', reasoning: '', calls: [] };
-      // Liveness logging: a long reasoning stream is normal, but an idle one is
-      // not — show that we are still receiving data.
+      const state = { content: '', reasoning: '', calls: [], usage: null };
       const liveness = setInterval(() => {
         const secs = Math.round((Date.now() - t0) / 1000);
         console.log('  [gemini] live ' + secs + 's · events=' + events +
-          ' · sang=' + Math.round((state.reasoning.length + state.content.length) / 1024) + 'KB');
+          ' · bytes=' + Math.round((state.reasoning.length + state.content.length) / 1024) + 'KB');
       }, 20000);
       const stopLiveness = () => clearInterval(liveness);
       const finish = (err) => {
-        if (failed) return stopLiveness();
         stopLiveness();
-        if (err) { failed = true; return reject(err); }
+        if (err) return doneReject(err);
         if (res.statusCode < 200 || res.statusCode >= 300) {
-          // Surface the provider's REAL error text — never swallow it.
           let msg = (rawBody || buf).trim();
           try {
             const j = JSON.parse(msg);
             if (j.error) msg = j.error.message || j.error.status || msg;
           } catch (e) { /* keep raw text */ }
           if (!msg) msg = '(empty response body, status ' + res.statusCode + ')';
-          failed = true;
-          return reject(new Error('upstream ' + res.statusCode + ': ' + msg.slice(0, 600)));
+          return doneReject(new Error('upstream ' + res.statusCode + ': ' + msg.slice(0, 600)));
         }
-        resolve(state);
+        doneResolve(state);
       };
       res.on('data', (c) => {
         const s = c.toString();
         buf += s;
-        rawBody += s;
+        if (rawBody.length < 4096) rawBody += s;
         let idx;
         while ((idx = buf.indexOf('\n')) >= 0) {
           const line = buf.slice(0, idx).trim();
@@ -347,16 +465,26 @@ function postGeminiOnce(payload, register, cfg) {
           let j;
           try { j = JSON.parse(data); } catch (err) { continue; }
           if (j.error) { finish(new Error(j.error.message || 'gemini error')); return; }
+          if (j.usageMetadata && typeof j.usageMetadata === 'object') {
+            const u = j.usageMetadata;
+            const pt = +u.promptTokenCount || 0;
+            const ct = (+u.candidatesTokenCount || 0) + (+u.thoughtsTokenCount || 0);
+            state.usage = {
+              prompt_tokens: pt,
+              completion_tokens: ct,
+              total_tokens: +u.totalTokenCount || (pt + ct)
+            };
+          }
           const cand = (j.candidates || [])[0];
           if (!cand || !cand.content || !Array.isArray(cand.content.parts)) continue;
           for (const part of cand.content.parts) {
             if (!part) continue;
             if (part.thought) {
               state.reasoning += part.text || '';
-              if (payload.onDelta) payload.onDelta({ thinking: part.text || '' });
+              if (onDelta) onDelta({ thinking: part.text || '' });
             } else if (typeof part.text === 'string' && part.text) {
               state.content += part.text;
-              if (payload.onDelta) payload.onDelta({ content: part.text });
+              if (onDelta) onDelta({ content: part.text });
             } else if (part.functionCall && part.functionCall.name) {
               state.calls.push({
                 name: part.functionCall.name,
@@ -370,34 +498,32 @@ function postGeminiOnce(payload, register, cfg) {
       res.on('end', () => finish());
       res.on('error', (err) => finish(err));
     });
-    // Idle timeout (same reasoning as OpenAI adapter): a thinking model
-    // streaming for minutes keeps resetting this on every packet. Default
-    // 300 s, tunable via AI_UPSTREAM_IDLE_S.
     req.setTimeout(UPSTREAM_IDLE_MS, () => req.destroy(new Error(
       'upstream idle >' + (UPSTREAM_IDLE_MS / 1000) + 's — connection closed')));
-    req.on('error', (err) => reject(err));
+    req.on('error', doneReject);
     if (register) register(req);         // caller aborts when its client leaves
     req.write(body);
     req.end();
   });
 }
 
-// 429 (session/rate limit) waits once and retries — the provider frees sessions
-// within seconds, and a failed round is expensive to redo by hand.
-function postUpstream(payload, register, cfg) {
+// 429 (session/rate limit) waits once and retries — cancellable if client stops.
+function postUpstream(payload, register, cfg, isCancelled, registerSleep) {
   const runOnce = isGemini(cfg.base) ? postGeminiOnce : postUpstreamOnce;
   return serializeUpstream(async () => {
+    if (isCancelled && isCancelled()) throw new Error('client aborted');
     try {
-      try {
-        return await runOnce(payload, register, cfg);
-      } catch (err) {
-        if (!/^upstream 429/.test(String(err && err.message))) throw err;
-        console.log('  upstream 429: waiting 6s, retrying once…');
-        await new Promise(r => setTimeout(r, 6000));
-        return await runOnce(payload, register, cfg);
-      }
+      return await runOnce(payload, register, cfg);
     } catch (err) {
-      throw err;
+      if (isCancelled && isCancelled()) throw err;
+      if (!/^upstream 429/.test(String(err && err.message))) throw err;
+      console.log('  upstream 429: waiting 6s, retrying once…');
+      await new Promise((resolve) => {
+        const t = setTimeout(resolve, 6000);
+        if (registerSleep) registerSleep(() => { clearTimeout(t); resolve(); });
+      });
+      if (isCancelled && isCancelled()) throw new Error('client aborted');
+      return await runOnce(payload, register, cfg);
     }
   });
 }
@@ -428,7 +554,7 @@ function assembleCalls(raw) {
   return calls;
 }
 
-// ---- the single endpoint: POST /api/chat ----------------------------------
+// ---- HTTP handler: /health, /api/chat, /api/models ------------------------
 function bridgeHandler(req, res) {
   const origin = req.headers.origin || '';
   if (!originAllowed(origin, req)) {
@@ -442,44 +568,80 @@ function bridgeHandler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
-  if (req.method === 'GET' && req.url === '/health') {
-    // Liveness only — the bridge holds no key/model/state of its own now.
+  const reqPath = String(req.url || '').split('?')[0];
+
+  if (req.method === 'GET' && reqPath === '/health') {
+    const envCfg = resolveConfig({});
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, proxy: true }));
+    res.end(JSON.stringify({
+      ok: true,
+      proxy: true,
+      hasEnvKey: !!envCfg.key,
+      hasEnvBase: !!envCfg.base,
+      envModel: envCfg.model || undefined
+    }));
     return;
   }
 
-  if (req.method === 'POST' && req.url === '/api/chat') {
+  if (req.method === 'POST' && reqPath === '/api/chat') {
     const t0 = Date.now();
     let raw = '';
-    req.on('data', c => { raw += c; if (raw.length > 8 * 1024 * 1024) req.destroy(); });
+    let tooBig = false;
+    req.on('data', c => {
+      raw += c;
+      if (raw.length > 10 * 1024 * 1024) { tooBig = true; req.destroy(); }
+    });
     req.on('end', async () => {
+      if (tooBig) return;
       let clientGone = false;
+      let activeUpReq = null;
+      let cancelSleep = null;
       res.on('close', () => {
         if (res.writableEnded) return;     // normal completion, not a drop
         clientGone = true;
+        if (cancelSleep) { try { cancelSleep(); } catch (e) {} cancelSleep = null; }
+        if (activeUpReq) {
+          try { activeUpReq.destroy(new Error('client aborted')); } catch (e) {}
+          activeUpReq = null;
+        }
       });
+      const send = (obj) => {
+        if (clientGone || res.writableEnded) return;
+        try { res.write('data: ' + JSON.stringify(obj) + '\n\n'); }
+        catch (err) { clientGone = true; }
+      };
       try {
         const input = JSON.parse(raw || '{}');
         const messages = Array.isArray(input.messages) ? input.messages : [];
         const tools = Array.isArray(input.tools) ? input.tools : [];
         const rs = (input && input.settings) || {};
-        const cfg = {
-          base: normalizeBase(rs.baseUrl || ''),
-          key: String(rs.apiKey || '').trim(),
-          model: String(rs.model || '').trim()
-        };
+        const cfg = resolveConfig(rs);
         const lastUser = [...messages].reverse().find(m => m && m.role === 'user');
-        const gemini = isGemini(cfg.base);
+        const thinkLevel = String(
+          rs.thinking != null ? rs.thinking :
+          (input.thinking != null ? input.thinking : 'normal')
+        ).toLowerCase();
+
         console.log('\n=== chat ' + new Date().toLocaleTimeString() + ' ===' +
           ' msgs=' + messages.length + ' tools=' + tools.length +
+          ' think=' + thinkLevel +
           ' model=' + (cfg.model || '(provider default)') +
-          ' base=' + (cfg.base || '(none)') + (gemini ? ' [gemini adapter]' : ''));
+          ' base=' + (cfg.base || '(none)') +
+          ' key=' + cfg.keyFrom +
+          (cfg.gemini ? ' [gemini adapter]' : (cfg.local ? ' [local]' : '')));
         console.log('  user says: ' + describeMessage(lastUser));
-        if (!cfg.key || !cfg.base) {
+
+        if (!cfg.base || (!cfg.key && !cfg.local)) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
             error: 'No API key or base URL. Set "AI API base URL" and "AI API key" in Settings › AI chat.'
+          }));
+          return;
+        }
+        if (!parseUpstreamUrl(cfg.base)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: 'AI API base URL tidak valid — gunakan alamat http:// atau https://.'
           }));
           return;
         }
@@ -491,85 +653,68 @@ function bridgeHandler(req, res) {
           'Cache-Control': 'no-cache',
           'Connection': 'keep-alive'
         });
-        const send = (obj) => {
-          try { res.write('data: ' + JSON.stringify(obj) + '\n\n'); }
-          catch (err) { /* client gone: the close handler flags it */ }
-        };
-
-        // The frontend owns the prompt/tools; the only transport-level nicety is
-        // asking for streamed reasoning. Gemini asks for it via thinkingConfig
-        // (2.5+); GLM-family OpenAI endpoints take a `thinking` flag. If the
-        // provider rejects the flag (400), retry without it.
-        const basePayload = {
-          model: cfg.model || undefined,
-          messages,
-          tools,
-          tool_choice: 'auto',
-          stream: true
-        };
-
-        // The frontend sends a reasoning LEVEL: 'off' | 'low' | 'normal'.
-        //   off    -> no reasoning at all (cheapest, fastest)
-        //   low    -> short reasoning; OpenAI-compatible providers also get
-        //             reasoning_effort=low (GLM/z.ai-style endpoints accept it
-        //             and cut their long thinking time)
-        //   normal -> full reasoning (default)
-        // If the provider rejects the extra field (400), retry without it.
-        const wantThink = input.thinking !== 'off';
-        const lowThink = input.thinking === 'low';
-        const thinkOpts = wantThink ? { thinking: { type: 'enabled' } } : {};
-        const lowOpts = lowThink ? { reasoning_effort: 'low' } : {};
 
         // When the browser aborts (Stop button / tab closed), destroy the
-        // upstream request too — a paid stream must not keep running.
-        const abortUp = (r) => { if (r && clientGone) r.destroy(); };
+        // upstream request immediately so a paid stream never keeps running.
+        const abortUp = (r) => {
+          activeUpReq = r;
+          if (r && clientGone) {
+            try { r.destroy(new Error('client aborted')); } catch (e) {}
+            activeUpReq = null;
+          }
+        };
+        const isCancelled = () => clientGone;
+        const regSleep = (fn) => { cancelSleep = fn; };
 
         let upstream;
         try {
           try {
-            const p = gemini
-              ? geminiRequest({ messages, tools, thinking: wantThink }, cfg)
-              : { ...basePayload, ...thinkOpts, ...lowOpts };
+            const p = cfg.gemini
+              ? geminiRequest({ messages, tools, thinking: thinkLevel }, cfg)
+              : openaiRequest({ messages, tools, thinking: thinkLevel }, cfg, { bare: false });
             p.onDelta = (d) => send({ delta: d });
-            upstream = await postUpstream(p, abortUp, cfg);
+            upstream = await postUpstream(p, abortUp, cfg, isCancelled, regSleep);
           } catch (err) {
             if (clientGone) return;
             if (!/^upstream 400/.test(String(err && err.message))) throw err;
-            console.log('  upstream rejected the thinking flag — retrying without it');
-            const p2 = gemini
+            console.log('  upstream rejected optional thinking/usage flags — retrying bare');
+            const p2 = cfg.gemini
               ? geminiRequest({ messages, tools, thinking: false }, cfg)
-              : { ...basePayload };
+              : openaiRequest({ messages, tools, thinking: 'off' }, cfg, { bare: true });
             p2.onDelta = (d) => send({ delta: d });
-            upstream = await postUpstream(p2, abortUp, cfg);
+            upstream = await postUpstream(p2, abortUp, cfg, isCancelled, regSleep);
           }
         } catch (err) {
           if (clientGone) return;
           let text = String(err && err.message || err);
           if (/is not found|not found for API version/i.test(text)) {
-            text = 'Model tidak ditemukan di provider — periksa nama/versi model (untuk Gemini: tombol "Muat daftar model" di Settings). Pesan provider: ' + text;
+            text = 'Model tidak ditemukan di provider — periksa nama/versi model (klik tombol 🔄 di panel AI Chat untuk memuat daftar model). Pesan provider: ' + text;
           }
           console.log('  ERROR: ' + text.slice(0, 300));
-          // The 200 status line is already on the wire, so the failure travels
-          // as an event on the same stream (an HTTP error body would never be
-          // read; the chat would just hang on "…").
           send({ error: text });
           res.end();
           return;
+        } finally {
+          activeUpReq = null;
+          cancelSleep = null;
         }
 
-        // Frontend owns tool filtering/validation (it knows the executor's ops);
-        // we just hand back the raw assembled calls in the shape chat.js reads.
-        // Gemini resolves {content, reasoning, calls}; OpenAI resolves {choices}.
-        const msg = gemini ? null : ((upstream.choices && upstream.choices[0] && upstream.choices[0].message) || {});
-        const reply = gemini ? String(upstream.content || '') : String((msg && msg.content) || '');
-        const think = gemini ? String(upstream.reasoning || '') : String((msg && (msg.reasoning_content || msg.reasoning)) || '');
-        const rawCalls = gemini ? upstream.calls : ((msg && msg.tool_calls) || []);
-        // Sanitize args (clamp numbers), drop unnamed calls, de-dup (some
-        // providers repeat the final chunk, which would run an op twice) and cap
-        // the count — parity with the Go proxy's assembleAIToolCalls.
+        if (clientGone) return;
+        const msg = cfg.gemini ? null : ((upstream.choices && upstream.choices[0] && upstream.choices[0].message) || {});
+        const reply = cfg.gemini ? String(upstream.content || '') : String((msg && msg.content) || '');
+        const think = cfg.gemini ? String(upstream.reasoning || '') : String((msg && (msg.reasoning_content || msg.reasoning)) || '');
+        const rawCalls = cfg.gemini ? upstream.calls : ((msg && msg.tool_calls) || []);
+        const usage = cfg.gemini ? upstream.usage : (upstream.usage || (msg && msg.usage) || null);
         const calls = assembleCalls(rawCalls);
-        console.log('  <- model: ' + (Date.now() - t0) + ' ms (gemini=' + gemini + '), tool_calls=' + calls.length);
-        send({ done: true, reply, thinking: think.slice(0, 4000), tool_calls: calls });
+        console.log('  <- model: ' + (Date.now() - t0) + ' ms (gemini=' + cfg.gemini + '), tool_calls=' + calls.length +
+          (usage && usage.total_tokens ? ', tokens=' + usage.total_tokens : ''));
+        send({
+          done: true,
+          reply,
+          thinking: think.slice(0, 8000),
+          tool_calls: calls,
+          ...(usage ? { usage } : {})
+        });
         res.end();
       } catch (err) {
         const text = String(err && err.message || err);
@@ -584,44 +729,53 @@ function bridgeHandler(req, res) {
     return;
   }
 
-  // ---- helper: POST /api/models (provider model list) ------------------
-  // Lists the models the key can actually call, so Settings can offer a
-  // dropdown instead of guessing names. Works for:
-  //   • Google Gemini — ListModels (x-goog-api-key).
-  //   • any OpenAI-compatible provider — GET {base}/models with Bearer auth
-  //     (the standard /models endpoint; data[].id).
-  if (req.method === 'POST' && req.url === '/api/models') {
+  // ---- helper: POST /api/models (provider model list & connection test) ----
+  if (req.method === 'POST' && reqPath === '/api/models') {
     let raw = '';
     req.on('data', c => { raw += c; if (raw.length > 256 * 1024) req.destroy(); });
     req.on('end', () => {
       let input = {};
       try { input = JSON.parse(raw || '{}'); } catch (err) { input = {}; }
       const rs = (input && input.settings) || {};
-      const cfg = {
-        base: normalizeBase(rs.baseUrl || ''),
-        key: String(rs.apiKey || '').trim()
-      };
+      const cfg = resolveConfig(rs);
       if (!cfg.base) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Base URL kosong — pilih provider atau isi AI API base URL.' }));
         return;
       }
-      if (!cfg.key) {
+      if (!parseUpstreamUrl(cfg.base)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Base URL tidak valid — gunakan alamat http:// atau https://.' }));
+        return;
+      }
+      if (!cfg.key && !cfg.local) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Isi dulu AI API key.' }));
         return;
       }
       const root = cfg.base.replace(/\/v1beta?$/, '');
-      const gemini = isGemini(cfg.base);
-      const url = new URL(gemini ? root + '/v1beta/models' : root + '/models');
+      const url = parseUpstreamUrl(cfg.gemini ? root + '/v1beta/models' : cfg.base + '/models');
+      if (!url) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Base URL tidak valid.' }));
+        return;
+      }
       const lib = url.protocol === 'https:' ? https : http;
+      const headers = { 'Accept': 'application/json' };
+      if (cfg.gemini && cfg.key) headers['x-goog-api-key'] = cfg.key;
+      else if (cfg.key) headers['Authorization'] = 'Bearer ' + cfg.key;
+
+      let replied = false;
+      const replyJson = (code, obj) => {
+        if (replied || res.writableEnded) return;
+        replied = true;
+        res.writeHead(code, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(obj));
+      };
       const req2 = lib.request(url, {
         method: 'GET',
         agent: false,
-        headers: {
-          'Accept': 'application/json',
-          ...(gemini ? { 'x-goog-api-key': cfg.key } : { 'Authorization': 'Bearer ' + cfg.key })
-        }
+        headers
       }, (r2) => {
         let out = '';
         r2.on('data', c => { out += c; });
@@ -629,33 +783,32 @@ function bridgeHandler(req, res) {
           if (r2.statusCode < 200 || r2.statusCode >= 300) {
             let msg = out.slice(0, 400);
             try { const j = JSON.parse(out); if (j.error && j.error.message) msg = j.error.message; } catch (e) {}
-            res.writeHead(502, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: msg }));
+            replyJson(502, { error: msg || ('HTTP ' + r2.statusCode) });
             return;
           }
           let names = [];
           try {
             const j = JSON.parse(out);
-            if (gemini) {
+            if (cfg.gemini) {
               names = (j.models || [])
                 .filter(m => m && Array.isArray(m.supportedGenerationMethods) &&
                   m.supportedGenerationMethods.indexOf('generateContent') >= 0)
                 .map(m => m.name.replace(/^models\//, ''));
             } else {
-              // OpenAI standard: { data: [{ id, ... }] }
+              // OpenAI standard: { data: [{ id, ... }] } or Ollama { models: [{ name }] }
               names = (j.data || []).map(m => m && m.id).filter(Boolean);
-              if (!names.length && Array.isArray(j.models)) names = j.models.map(m => m && m.id).filter(Boolean);
+              if (!names.length && Array.isArray(j.models)) {
+                names = j.models.map(m => m && (m.id || m.name)).filter(Boolean);
+              }
             }
             names = names.filter((v, i, a) => a.indexOf(v) === i).sort();
           } catch (err) { /* fall through empty */ }
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ models: names.slice(0, 300) }));
+          replyJson(200, { models: names.slice(0, 300) });
         });
       });
       req2.setTimeout(30000, () => req2.destroy(new Error('ListModels timeout')));
       req2.on('error', (err) => {
-        res.writeHead(502, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: String(err && err.message || err) }));
+        replyJson(502, { error: String(err && err.message || err) });
       });
       req2.end();
     });
@@ -667,7 +820,21 @@ function bridgeHandler(req, res) {
 }
 
 if (require.main !== module) {
-  module.exports = { bridgeHandler, _test: { isGemini, geminiRequest, assembleCalls, sanitizeArgs } };
+  module.exports = {
+    bridgeHandler,
+    _test: {
+      isGemini,
+      isGlmHost,
+      isLocalHost,
+      parseUpstreamUrl,
+      resolveConfig,
+      geminiThinkingConfig,
+      geminiRequest,
+      openaiRequest,
+      assembleCalls,
+      sanitizeArgs
+    }
+  };
   return;
 }
 
@@ -682,5 +849,5 @@ server.on('error', (err) => {
 });
 server.listen(PORT, '0.0.0.0', () => {
   console.log('minisketch ai-bridge (policy-free proxy) on http://localhost:' + PORT);
-  console.log('  policy (prompt/tools/skills) now lives in ai/ on the frontend.');
+  console.log('  policy (prompt/tools/skills) lives in ai/ on the frontend.');
 });
