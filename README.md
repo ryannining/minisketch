@@ -125,10 +125,51 @@ tool calls) tanpa perubahan di frontend. Untuk provider OpenAI-compatible lain
 (z.ai, DeepSeek, dst.) biarkan centangan kosong dan isi base URL biasa.
 
 **Mode SVG (tanpa tools):** kalau model tidak akurat dengan tools MiniSketch
-(mis. Gemini), centang **Mode SVG** di Settings › AI chat — AI hanya diminta
+(amis. Gemini), centang **Mode SVG** di Settings › AI chat — AI hanya diminta
 menghasilkan **satu `<svg>`**, muncul pratinjau + tombol **Masukkan ke
 MiniSketch** (impor satu Undo) dan **Salin SVG**. Mode agen penuh (tool calls)
 tetap tersedia dengan mematikan centangan ini.
+
+## Deploy to Vercel (serve via `server/serve.js`)
+
+By default Vercel only serves static files, so `/api/*` (AI bridge) 404s.
+To make Vercel run the same Node server as localhost:
+
+- `server/serve.js` now exports the request handler (`module.exports = { handler }`)
+  and only listens when run directly — so it can be loaded as a serverless
+  function.
+- `api/index.js` is the Vercel function entry: it re-exports that handler.
+- `vercel.json` rewrites every request that isn't an existing static file to
+  the function, so the app keeps calling `/api/chat` on its own origin.
+
+Setup:
+
+1. Push to GitHub (the repo has **zero npm dependencies** — no `node_modules`
+   needed; `.env` files are gitignored and never deployed).
+2. In Vercel: **Import Project** from that repo. Framework preset: **Other**
+   (or leave blank). `vercel.json` already sets `outputDirectory` to `.` (the
+   repo root) and `framework` to `null`, so Vercel does **not** expect a
+   `public/` folder — this is what fixes the `No Output Directory named
+   "public" found` build error. (Alternative: set **Output Directory** to `.`
+   in Project → Settings → General → Build & Development Settings.)
+3. Set environment variables in Project → Settings → Environment Variables
+   (all optional, same names as `server/.env.example`):
+   `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `MODEL`, `AI_ALLOWED_ORIGINS`,
+   `MARKETPLACE_PUBLISH_KEY`.
+4. Deploy. The AI chat works with **Settings › AI chat** left at defaults — the
+   app uses the same origin as the server that served it.
+
+Notes / limitations:
+
+- **Vercel's filesystem is read-only** (except `/tmp`). The marketplace
+  **publish**/delete endpoints write `marketplace/` and will fail on Vercel;
+  the catalog (read) still works. Keep publish on a self-hosted instance.
+- Function duration: on the free (Hobby) plan a function invocation is limited
+  to ~10s, so a slow model stream may be cut off. On Pro you can raise it with
+  `"maxDuration": 60` in `vercel.json` → `functions` → `api/index.js`.
+- `server/` code is blocked from being served by the handler, but Vercel's
+  static filesystem can still serve those files directly; they contain no
+  secrets (keys live only in Vercel env vars).
 
 ## Sending to the machine
 

@@ -358,16 +358,11 @@
       <details class="panel" id="chat-panel">
         <summary class="panel-title">AI Chat <span class="count" id="chat-count">0</span></summary>
         <div class="panel-body">
-          <div class="row tab-bar" style="margin-bottom:6px">
-            <button class="btn small is-on" data-chat-tab="chat">Chat</button>
-            <button class="btn small" data-chat-tab="log">Log</button>
-            <button class="btn small" id="chat-new" title="Move this conversation to LOG and start a new chat (the worksheet geometry is untouched)">New</button>
+          <div class="chat-tabs" role="tablist" aria-label="AI chat views">
+            <button type="button" class="chat-tab is-on" role="tab" aria-selected="true" data-chat-tab="chat">Chat</button>
+            <button type="button" class="chat-tab" role="tab" aria-selected="false" data-chat-tab="log">History</button>
           </div>
-          <div class="row chat-builder-bar" role="group" aria-label="AI output mode">
-            <button type="button" class="btn small is-on" id="chat-builder-svg" aria-pressed="true" title="Generate vector SVG geometry on the worksheet">SVG Drawing</button>
-            <button type="button" class="btn small" id="chat-builder-ext" aria-pressed="false" title="Generate a parametric CNC extension tool for the Tools panel">Extension Builder</button>
-          </div>
-          <div class="row chat-model-row">
+          <div class="row chat-model-row" id="chat-model-row">
             <select id="chat-model-sel" title="Model (🔄 loads the list for the active provider)" style="flex:1 1 auto;min-width:0;font:inherit;font-size:11px;padding:2px 5px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)"></select>
             <button class="btn small" id="chat-model-refresh" title="Load the model list from the active provider">🔄</button>
             <select id="chat-think-sel" title="Reasoning level (Off = faster &amp; cheaper, Normal = most thorough)">
@@ -375,7 +370,13 @@
               <option value="low">Low</option>
               <option value="normal" selected>Normal</option>
             </select>
-            <button class="btn small" id="chat-fork" title="Fork: copy the first prompt (text + attached image) to a new session — handy after switching models. The current session moves to LOG, then the prompt is sent straight to the AI.">Fork</button>
+          </div>
+          <div class="row chat-builder-bar" id="chat-builder-bar" role="group" aria-label="AI output mode">
+            <select id="chat-builder-mode" title="AI output mode">
+              <option value="svg" selected>Mode: SVG</option>
+              <option value="ext">Mode: Extension</option>
+            </select>
+            <button class="btn small" id="chat-new" title="Start a new session — the current conversation moves to History (the worksheet geometry is untouched)">New Session</button>
           </div>
           <ul class="list" id="chat-log"></ul>
           <div class="chat-pending" id="chat-pending" hidden></div>

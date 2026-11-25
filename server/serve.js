@@ -41,7 +41,9 @@ const TYPES = {
   '.wasm': 'application/wasm'
 };
 
-const server = http.createServer((req, res) => {
+// The whole request pipeline lives here so the local listener and the Vercel
+// serverless wrapper (api/index.js) share exactly the same behaviour.
+function handler(req, res) {
   // AI bridge endpoints first (also answers OPTIONS/CORS itself)
   const url = (req.url || '').split('?')[0];
   if (url === '/health' || url.startsWith('/api/')) {
@@ -95,29 +97,36 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, headers);
     res.end(buf);
   });
-});
+}
 
-server.on('error', (err) => {
-  if (err && err.code === 'EADDRINUSE') {
-    console.error('');
-    console.error('Port ' + PORT + ' sudah dipakai — kemungkinan server lama masih jalan.');
-    console.error('  ss -ltnp | grep ' + PORT + '      # lihat PID pemegang port');
-    console.error('  kill <PID>');
-    process.exit(1);
-  }
-  throw err;
-});
-
-server.listen(PORT, '0.0.0.0', () => {
-  const nets = require('os').networkInterfaces();
-  const addrs = [];
-  for (const name of Object.keys(nets)) {
-    for (const n of nets[name] || []) {
-      if (n.family === 'IPv4' && !n.internal) addrs.push(n.address);
+if (require.main === module) {
+  const server = http.createServer(handler);
+  server.on('error', (err) => {
+    if (err && err.code === 'EADDRINUSE') {
+      console.error('');
+      console.error('Port ' + PORT + ' sudah dipakai — kemungkinan server lama masih jalan.');
+      console.error('  ss -ltnp | grep ' + PORT + '      # lihat PID pemegang port');
+      console.error('  kill <PID>');
+      process.exit(1);
     }
-  }
-  console.log('minisketch server (statis + AI bridge) on:');
-  console.log('  http://localhost:' + PORT + '/');
-  for (const a of addrs) console.log('  http://' + a + ':' + PORT + '/');
-  console.log('  AI bridge: endpoint /api/chat di port yang sama — "AI bridge URL" di Settings boleh kosong');
-});
+    throw err;
+  });
+
+  server.listen(PORT, '0.0.0.0', () => {
+    const nets = require('os').networkInterfaces();
+    const addrs = [];
+    for (const name of Object.keys(nets)) {
+      for (const n of nets[name] || []) {
+        if (n.family === 'IPv4' && !n.internal) addrs.push(n.address);
+      }
+    }
+    console.log('minisketch server (statis + AI bridge) on:');
+    console.log('  http://localhost:' + PORT + '/');
+    for (const a of addrs) console.log('  http://' + a + ':' + PORT + '/');
+    console.log('  AI bridge: endpoint /api/chat di port yang sama — "AI bridge URL" di Settings boleh kosong');
+  });
+}
+
+// Vercel (and any other serverless host) imports this handler instead of
+// listening on a port; see api/index.js + vercel.json.
+module.exports = { handler };

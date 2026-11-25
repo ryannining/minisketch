@@ -286,11 +286,11 @@
   // archive grows past it quickly. Structure:
   //   • `sessions` store — one record per session (running OR archived):
   //       { id, title, at, updatedAt, messages: [{role,text,ops,at,done,thinking,retryText,images?}] }
-  //   • `meta` store — ONLY archived sessions (the LOG list), lightweight:
+  //   • `meta` store — ONLY archived sessions (the History list), lightweight:
   //       { id, title, at, updatedAt, count, img }
   //   • localStorage key CURRENT_ID_KEY — which session is RUNNING right now.
   // The running session always survives a reload; "New" moves it into `meta`
-  // (LOG), and clicking a LOG entry moves it back to running.
+  // (History), and clicking a History entry moves it back to running.
   const DB_NAME = 'minisketch-chat';
   const DB_VER = 1;
   const SESSIONS = 'sessions';
@@ -438,8 +438,8 @@
     }
     return fresh();
   }
-  // Move the running session into the LOG archive (called by New, and before
-  // resuming a LOG session so nothing currently running is lost).
+  // Move the running session into the History archive (called by New, and before
+  // resuming a History session so nothing currently running is lost).
   function archiveCurrentSession() {
     if (NS.sessionId && finishedMessages().length) {
       return saveCurrentSession().then(() => {
@@ -456,7 +456,7 @@
     }
     return Promise.resolve();
   }
-  // Clicking a LOG row moves that session back to running.
+  // Clicking a History row moves that session back to running.
   function resumeSession(id) {
     return idbGet(SESSIONS, id).then(sess => {
       if (!sess) return false;
@@ -464,7 +464,7 @@
       NS.sessionAt = sess.at;
       NS.log = sanitizeMessages(sess.messages);
       lsSet(CURRENT_ID_KEY, id);
-      // it is the running session again: drop it from the LOG list
+      // it is the running session again: drop it from the History list
       return idbDel(META, id).then(() => true);
     }).catch(() => false);
   }
@@ -1357,8 +1357,8 @@
           });
         }
         startWaitClock(lastExec
-          ? 'memeriksa hasil putaran ' + (round - 1) + '…'
-          : 'berpikir…');
+          ? 'checking round ' + (round - 1) + ' results…'
+          : 'thinking…');
         const tRound = performance.now();
         const payload = {
           messages,
@@ -1415,7 +1415,7 @@
               liveThink[round] = (liveThink[round] || '') + ev.delta.thinking;
               think[round] = liveThink[round];
               liveMsg.thinking = (liveMsg.thinking || '') + ev.delta.thinking;
-              if (!liveContent && (!liveMsg.text || liveMsg.text === '…')) liveMsg.text = 'berpikir…';
+              if (!liveContent && (!liveMsg.text || liveMsg.text === '…')) liveMsg.text = 'thinking…';
               scheduleThinkFlush();
             } else if (ev.delta && ev.delta.content) {
               stopWaitClock();
@@ -1450,7 +1450,7 @@
           markDone(liveMsg);
           break;
         }
-        setPhase('mengeksekusi ' + calls.length + ' op (putaran ' + round + '/' + MAX_ROUNDS + ')…', calls);
+        setPhase('executing ' + calls.length + ' op' + (calls.length > 1 ? 's' : '') + ' (round ' + round + '/' + MAX_ROUNDS + ')…', calls);
         const r = await applyOps(calls, { noHistory: historyPushed });
         if (r.pushedHistory) historyPushed = true;
         lastExec = {
@@ -1468,14 +1468,14 @@
           ids: (r.ids || []).slice(0, 20),
           errors: (r.errors || []).slice(0, 3)
         });
-        setPhase('putaran ' + round + '/' + MAX_ROUNDS + ': ' + r.made + ' op' +
-          (r.errors.length ? ', error: ' + r.errors[0] : ', ok') + ' — memverifikasi…', calls);
+        setPhase('round ' + round + '/' + MAX_ROUNDS + ': ' + r.made + ' op' +
+          (r.errors.length ? ', error: ' + r.errors[0] : ', ok') + ' — verifying…', calls);
         if (round === MAX_ROUNDS) {
           liveMsg.rounds = round;
           if (usageTotal.total_tokens > 0) liveMsg.usage = { ...usageTotal };
-          setPhase('Berhenti di batas ' + MAX_ROUNDS + ' putaran. Terakhir: ' + r.made + ' op' +
+          setPhase('Stopped at the ' + MAX_ROUNDS + '-round limit. Last: ' + r.made + ' op' +
             (r.errors.length ? ', error: ' + r.errors[0] : '') +
-            '. Ketik "lanjutkan" untuk meneruskan, atau tombol Retry untuk mengulang.', calls);
+            '. Type "continue" to proceed, or the Retry button to start over.', calls);
           liveMsg.retryText = input;   // Retry re-runs the whole request
           markDone(liveMsg);
         }
@@ -1506,26 +1506,33 @@
   }
 
   // ---- panel ---------------------------------------------------------------
-  // The LOG tab shows only archived SESSIONS (no message content); the input
-  // row and image tray belong to the Chat tab, so they hide in LOG mode.
+  // The History tab shows only archived SESSIONS (no message content); the input
+  // row and image tray belong to the Chat tab, so they hide in History mode.
   function setChatInputVisible(on) {
     const row = document.getElementById('chat-input-row');
     const tray = document.getElementById('chat-pending');
     if (row) row.hidden = !on;
     if (tray) tray.hidden = !on || !(NS.pendingImages && NS.pendingImages.length);
+    // Chat-only chrome: model row and the mode combo + New Session bar. The
+    // History tab is purely the archived-session list, so these are hidden
+    // there (the input row above already hides textarea + attach + Send).
+    ['chat-model-row', 'chat-builder-bar'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.hidden = !on;
+    });
   }
   function renderSessions(host) {
     host.innerHTML = '';
     if (!NS.meta.length) {
       const li = document.createElement('li');
-      li.innerHTML = '<span class="muted">Belum ada sesi tersimpan — tekan New untuk memindahkan percakapan saat ini ke LOG.</span>';
+      li.innerHTML = '<span class="muted">No archived sessions yet — press New Session to move the current conversation to History.</span>';
       host.appendChild(li);
       return;
     }
     for (const s of NS.meta) {
       const li = document.createElement('li');
       li.className = 'chat-session clickable';
-      li.title = 'Klik untuk melanjutkan sesi ini';
+      li.title = 'Click to resume this session';
       const name = document.createElement('span');
       name.className = 'name';
       name.textContent = s.title;
@@ -1539,7 +1546,7 @@
       const del = document.createElement('button');
       del.className = 'mini-del';
       del.textContent = '×';
-      del.title = 'Hapus dari LOG';
+      del.title = 'Delete from History';
       del.addEventListener('click', (ev) => {
         ev.stopPropagation();
         deleteArchivedSession(s.id).then(refreshMeta);
@@ -1564,7 +1571,7 @@
   // chunk (stickToBottom -> scrollHeight) was ~80% of the recorded freeze.
   const THINK_PARAS = 2;
   const THINK_MAX_CHARS = 8000;
-  const THINK_CUT_NOTE = '[… pemikiran sebelumnya dipotong — hanya 2 paragraf terakhir ditampilkan]\n';
+  const THINK_CUT_NOTE = '[… earlier thinking was trimmed — only the last 2 paragraphs are shown]\n';
   function thinkDisplay(s) {
     s = String(s || '');
     if (!s) return { text: '', cut: false };
@@ -1610,7 +1617,7 @@
     // on every delta, which fought the user's scrolling and snapped to the top.
     if (NS.liveMsg && NS.liveRefs && NS.liveRefs.li.isConnected) {
       const m = NS.liveMsg;
-      const who = m.role === 'user' ? '<b>kamu</b>' : m.role === 'ai' ? '<b>ai</b>' : '<b class="muted">sys</b>';
+      const who = m.role === 'user' ? '<b>you</b>' : m.role === 'ai' ? '<b>ai</b>' : '<b class="muted">sys</b>';
       let html = who + ' ' + escapeHtml(m.text).replace(/\n/g, '<br>');
       if (m.ops && m.ops.length) html += '<br><span class="muted">' + m.ops.map(o => escapeHtml(o.name)).join(', ') + '</span>';
       NS.liveRefs.text.innerHTML = html;
@@ -1630,14 +1637,17 @@
     const items = NS.log.filter(m => m.role !== 'sys');
     if (!items.length) {
       const li = document.createElement('li');
-      li.innerHTML = '<span class="muted">Tanya atau perintahkan sesuatu… cth: "kotak 100x60 di 0,0", "4 lubang d5 di sudut", "buatkan box 120x80x60".</span>';
+      li.innerHTML = '<span class="muted">Ask or describe something… e.g. "100x60 box at 0,0", "4x d5 holes in the corners", "build a 120x80x60 box tool".</span>';
       host.appendChild(li);
       return;
     }
     const fmtTok = (n) => n >= 1000 ? (Math.round(n / 100) / 10) + 'k' : String(n);
+    // The Fork button (copy the first prompt to a new session) sits right under
+    // the FIRST user turn, per the requested layout — it is about that turn.
+    let forkPlaced = false;
     for (const m of items.slice(-60)) {
       const li = document.createElement('li');
-      const who = m.role === 'user' ? '<b>kamu</b>' : m.role === 'ai' ? '<b>ai</b>' : '<b class="muted">sys</b>';
+      const who = m.role === 'user' ? '<b>you</b>' : m.role === 'ai' ? '<b>ai</b>' : '<b class="muted">sys</b>';
       let html = who + ' ' + escapeHtml(m.text).replace(/\n/g, '<br>');
       if (m.ops && m.ops.length) {
         html += '<br><span class="muted">' + m.ops.map(o => escapeHtml(o.name)).join(', ') + '</span>';
@@ -1645,9 +1655,14 @@
       const textSpan = document.createElement('span');
       textSpan.innerHTML = html;
       li.appendChild(textSpan);
+      // Fork under the opening user prompt (only once, and only in Chat tab).
+      if (m.role === 'user' && !forkPlaced) {
+        li.appendChild(makeForkButton());
+        forkPlaced = true;
+      }
       if (m.role === 'ai' && m.done) {
         const parts = [];
-        if (m.rounds && m.rounds > 1) parts.push(m.rounds + ' putaran');
+        if (m.rounds && m.rounds > 1) parts.push(m.rounds + ' rounds');
         if (m.usage && m.usage.total_tokens > 0) parts.push(fmtTok(m.usage.total_tokens) + ' token');
         if (parts.length) {
           const meta = document.createElement('span');
@@ -1667,7 +1682,7 @@
         det.className = 'chat-think';
         det.open = !NS.thinkClosed.has(m);
         const sum = document.createElement('summary');
-        sum.textContent = 'pikiran model (' + m.thinking.split(/\n-{3,}\n/).length + ' putaran)';
+        sum.textContent = 'model thinking (' + m.thinking.split(/\n-{3,}\n/).length + ' rounds)';
         sum.addEventListener('click', () => {
           if (det.open) NS.thinkClosed.add(m); else NS.thinkClosed.delete(m);
         });
@@ -1712,6 +1727,39 @@
       host.appendChild(li);
     }
     host.scrollTop = host.scrollHeight;
+  }
+
+  // Build the "Fork" button that appears under the FIRST user message: it copies
+  // that first prompt (text + attached image) into a brand-new session. Kept as
+  // a helper so renderLog can place it inline below the opening user turn.
+  function makeForkButton() {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn small chat-fork';
+    btn.textContent = 'Fork';
+    btn.title = 'Fork: copy the first prompt (text + attached image) to a new session — handy after switching models. The current session moves to History.';
+    btn.addEventListener('click', () => {
+      if (NS.activeAbort) return;
+      const firstUser = NS.log.find(m => m && m.role === 'user');
+      if (!firstUser) return;
+      const seedText = String(firstUser.text || '');
+      const seedImages = (Array.isArray(firstUser.images) && firstUser.images.length)
+        ? firstUser.images.slice()
+        : null;
+      archiveCurrentSession().then(() => {
+        NS.log = [];
+        NS.sessionId = newSessionId();
+        NS.sessionAt = Date.now();
+        lsSet(CURRENT_ID_KEY, NS.sessionId);
+        NS.pendingImages = seedImages || [];
+        renderPending();
+        setTab('chat');
+        renderLog();
+        scheduleSave();
+        send(seedText);
+      });
+    });
+    return btn;
   }
 
   // In-app lightbox overlay for attached images & SVG previews (never calls window.open).
@@ -1792,7 +1840,7 @@
       img.className = 'chat-thumb';
       img.src = src;
       img.alt = 'gambar terlampir';
-      img.title = 'Klik untuk memperbesar gambar';
+      img.title = 'Click to enlarge';
       img.addEventListener('click', () => openLightbox(src, 'Gambar terlampir'));
       row.appendChild(img);
     }
@@ -2002,7 +2050,7 @@
       fixBtn.className = 'btn small primary';
       fixBtn.textContent = 'Minta AI Perbaiki';
       fixBtn.disabled = !!NS.activeAbort;
-      fixBtn.title = 'Kirim daftar error validasi ke AI Extension Builder agar kodenya langsung diperbaiki';
+      fixBtn.title = 'Send the validation errors to AI Extension Builder so the code gets fixed';
       fixBtn.addEventListener('click', () => {
         if (NS.activeAbort) return;
         const bExt = document.getElementById('chat-builder-ext');
@@ -2145,6 +2193,7 @@
     NS.mode = mode === 'log' ? 'log' : 'chat';
     document.querySelectorAll('[data-chat-tab]').forEach(b => {
       b.classList.toggle('is-on', b.dataset.chatTab === NS.mode);
+      b.setAttribute('aria-selected', b.dataset.chatTab === NS.mode ? 'true' : 'false');
     });
     if (NS.mode === 'log') refreshMeta();
     renderLog();
@@ -2174,17 +2223,12 @@
       b.addEventListener('click', () => setTab(b.dataset.chatTab));
     });
 
-    const bSvg = document.getElementById('chat-builder-svg');
-    const bExt = document.getElementById('chat-builder-ext');
+    // Mode combo box (SVG / Extension): one dropdown instead of two buttons.
+    const modeSel = document.getElementById('chat-builder-mode');
     const setBuilderMode = (mode) => {
       NS.builderMode = mode === 'ext' ? 'ext' : 'svg';
-      if (bSvg) {
-        bSvg.classList.toggle('is-on', NS.builderMode === 'svg');
-        bSvg.setAttribute('aria-pressed', NS.builderMode === 'svg' ? 'true' : 'false');
-      }
-      if (bExt) {
-        bExt.classList.toggle('is-on', NS.builderMode === 'ext');
-        bExt.setAttribute('aria-pressed', NS.builderMode === 'ext' ? 'true' : 'false');
+      if (modeSel) {
+        modeSel.value = NS.builderMode === 'ext' ? 'ext' : 'svg';
       }
       const inp = document.getElementById('chat-input');
       if (inp) {
@@ -2193,8 +2237,7 @@
           : 'Describe a vector image… (Shift+Enter for a new line)';
       }
     };
-    if (bSvg) bSvg.addEventListener('click', () => setBuilderMode('svg'));
-    if (bExt) bExt.addEventListener('click', () => setBuilderMode('ext'));
+    if (modeSel) modeSel.addEventListener('change', () => setBuilderMode(modeSel.value));
     setBuilderMode(NS.builderMode);
     // Pemilih model di panel chat: 🔄 memuat daftar dari provider aktif,
     // pilih -> tersimpan ke settings (judul panel ikut terupdate).
@@ -2265,30 +2308,10 @@
       if (!btn) return;
       btn.classList.toggle('is-stop', !!on);
       btn.textContent = on ? '■ Stop' : 'Send';
-      btn.title = on ? 'Hentikan permintaan yang sedang berjalan' : '';
+      btn.title = on ? 'Stop the running request' : '';
     };
-    const forkBtn = document.getElementById('chat-fork');
-    if (forkBtn) forkBtn.addEventListener('click', () => {
-      if (NS.activeAbort) return;
-      const firstUser = NS.log.find(m => m && m.role === 'user');
-      if (!firstUser) return;
-      const seedText = String(firstUser.text || '');
-      const seedImages = (Array.isArray(firstUser.images) && firstUser.images.length)
-        ? firstUser.images.slice()
-        : null;
-      archiveCurrentSession().then(() => {
-        NS.log = [];
-        NS.sessionId = newSessionId();
-        NS.sessionAt = Date.now();
-        lsSet(CURRENT_ID_KEY, NS.sessionId);
-        NS.pendingImages = seedImages || [];
-        renderPending();
-        setTab('chat');
-        renderLog();
-        scheduleSave();
-        send(seedText);
-      });
-    });
+    // NOTE: the Fork button is rendered inline under the first user message by
+    // renderLog/makeForkButton — there is no toolbar fork button any more.
 
     const newBtn = document.getElementById('chat-new');
     if (newBtn) newBtn.addEventListener('click', () => {
