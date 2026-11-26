@@ -1,14 +1,15 @@
-// Probe for the press-and-hold click/drag disambiguation (mouse/pen):
-//   1. A press ON an object no longer commits anything at mouse-down. The
-//      first real move decides:
-//        - started within PRESS_DWELL_MS (200 ms)  -> marquee (rubber)
-//        - held past the dwell, then dragged       -> select + object drag
-//        - released without a real move            -> plain click (select)
-//   2. A held second press of a double-click inside a loop drags the
-//      double-click selection: the loop plus everything it encloses. A held
-//      single press drags the loop's own shape. A quick drag stays a marquee.
-//   3. Touch keeps the old behaviour (immediate object drag; any loop drag is
-//      the rectangle).
+// Probe for the press/drag disambiguation (mouse/pen):
+//   1. Lines, points and every other DIRECT object drag IMMEDIATELY: pressing
+//      on one selects it and arms the body drag at once — no time gate, no
+//      accidental marquee. A release without a real move pops the drag's
+//      history entry, so a plain click still just selects.
+//   2. Only a press inside a FILL LOOP keeps the time-gated marquee:
+//        - a drag that starts within PRESS_DWELL_MS (200 ms) -> marquee
+//          (rubber rectangle selection)
+//        - held past the dwell, then dragged -> select the loop + move it
+//        - released without a real move -> plain click (select the loop)
+//   3. Touch keeps the old rule for loops: any drag is the rectangle. Direct
+//      objects drag immediately, same as mouse.
 //   4. "Move my selection" presses stay immediate (a line whose points are all
 //      selected, inside of a selected loop).
 //
@@ -49,35 +50,27 @@ console.log('\n== constants ==');
   check('the press slop exists', /const PRESS_SLOP_PX = 4;/.test(appSrc));
 }
 
-console.log('\n== mouse-down arms pressEntity instead of committing ==');
+console.log('\n== mouse-down: direct objects commit immediately, loops are gated ==');
 {
   const down = slice('onPointerDown');
-  const pressEntity = down.indexOf("kind: 'pressEntity'");
-  check('onPointerDown builds a pressEntity drag', pressEntity > 0);
-  check('it records the press time', /downAt: ui\._downAt/.test(down));
-  check('touch bypasses the dwell (immediate object drag)',
-    /pointerType === 'touch'\)\s*\{\s*beginEntityPress\(/.test(down));
-  check('the old immediate commit is gone from the entity branch',
-    !/selectOnlySingle\('entity', eh\);/.test(down));
-  check('a "move my selection" press stays immediate',
-    /entityFullySelectedByPoints\(eh\) && selectionBodyDragFor\(world\)/.test(down));
-  check('no double-press machinery remains',
-    !/dblPress|DBL_PRESS|lastPress/.test(appSrc));
+  check('a press on a line arms the drag right away (no gate)',
+    /beginEntityPress\(\{ eid: eh, mods: \{ add: addMod, sub: subMod, alt: ev\.altKey \} \}, pos, world, true\);/.test(down));
+  check('no pressEntity waiter kind is built anymore', !/pressEntity/.test(appSrc));
+  check('the fill-loop branch still builds a gated rubber with deferredLoop',
+    /deferredLoop: loop/.test(down));
+  check('the loop dwell is armed at 200 ms',
+    /armDragFeedback\(ui\.drag, PRESS_DWELL_MS, 'loop-dwell'\)/.test(down));
+  check('empty-space presses still start the classic rubber',
+    /kind: 'rubber', start: pos, additive: addMod \|\| subMod, subtract: ev\.altKey \|\| ui\.altToggle, crossLayer: !!\(ev\.ctrlKey && ev\.shiftKey\)/.test(down));
+  check('touch bypasses the loop dwell (any drag is the rectangle)',
+    /mouse: ev\.pointerType !== 'touch'/.test(down));
 }
 
-console.log('\n== move: the first real movement decides ==');
+console.log('\n== move: only the loop dwell is decided by time ==');
 {
   const move = slice('onPointerMove');
-  const pe = move.indexOf("d.kind === 'pressEntity'");
-  const gate = move.indexOf('DRAG_GATE_MS');
-  check('pressEntity is handled inside the drag dispatch', pe > 0);
-  check('it is decided BEFORE the DRAG_GATE gate', pe > 0 && gate > pe);
-  check('jitter under the slop keeps the press waiting',
-    /PRESS_SLOP_PX &&\s*\n\s*Math\.abs\(pos\.y - d\.start\.y\) <= PRESS_SLOP_PX\) return;/.test(move));
-  check('an early drag converts to a rubber with the same modifiers',
-    /kind: 'rubber',\s*\n\s*start: d\.start,\s*\n\s*additive: d\.mods\.add \|\| d\.mods\.sub,\s*\n\s*subtract: d\.mods\.alt,/.test(move));
-  check('a held drag activates the object drag and replays the event',
-    /beginEntityPress\(d, pos, s2w\(pos\.x, pos\.y\), true\);\s*\n\s*if \(ui\.drag\) onPointerMove\(ev\);/.test(move));
+  check('no pressEntity branch remains in the drag dispatch',
+    !/pressEntity/.test(move));
   const rubber = move.indexOf("d.kind === 'rubber'");
   const dwellLoop = move.indexOf('d.deferredLoop && d.mouse && !d.dwellDecided');
   check('the deferred loop decides its dwell inside the rubber branch',
@@ -91,12 +84,12 @@ console.log('\n== move: the first real movement decides ==');
 console.log('\n== up: a release without a real move is a plain click ==');
 {
   const up = slice('onPointerUp');
-  check('pointerup resolves pressEntity as a click',
-    /kind === 'pressEntity'[\s\S]{0,400}beginEntityPress\(d, p, s2w\(p\.x, p\.y\), false\)/.test(up));
-  check('a moved pressEntity never reaches pointerup as a click', true);
+  check('pointerup pops the history of a never-moved drag (plain click)',
+    /if \(!d\.moved\) \{\s*\n\s*history\.pop\(\);/.test(up));
+  check('no pressEntity click-resolution path remains', !/pressEntity/.test(up));
 }
 
-console.log('\n== beginEntityPress: selection rules + optional drag ==');
+console.log('\n== beginEntityPress: selection rules + the immediate drag ==');
 {
   // a stub world: one line entity, both points, one of them pre-selected
   const w = {
@@ -110,7 +103,7 @@ console.log('\n== beginEntityPress: selection rules + optional drag ==');
   const fn = new Function(
     'state', 'ui', 'toggleSelect', 'selectOnly', 'selectOnlySingle', 'selected',
     'entityPointIds', 'pushHistory', 'bodyDragFor', 'selectionBodyDragFor',
-    'updateUI', 'render',
+    'flashSelectToolReady', 'updateUI', 'render',
     slice('beginEntityPress') + '\nreturn beginEntityPress;');
   const begin = fn(
     w,
@@ -126,6 +119,7 @@ console.log('\n== beginEntityPress: selection rules + optional drag ==');
     () => { historyPushes++; },
     (e, pos, world, ids) => (dragBuilt = { kind: 'entity', ids, moved: false }),
     () => null,
+    () => {},
     () => {}, () => {}
   );
 
@@ -140,7 +134,7 @@ console.log('\n== beginEntityPress: selection rules + optional drag ==');
   selection = [];
   historyPushes = 0;
   begin({ eid: 7, mods: { add: false, sub: false, alt: false } }, null, null, true);
-  check('a dwell drag selects AND arms the body drag',
+  check('a press selects AND arms the body drag in one step',
     selection.length === 1 && dragBuilt && dragBuilt.kind === 'entity');
   check('the drag pushes exactly one history entry', historyPushes === 1, historyPushes);
 
@@ -166,7 +160,7 @@ console.log('\n== applyLoopClick forceSelect: a double click never deselects =='
   let selection = [];
   const fn = new Function(
     'state', 'ui', 'getLoops', 'loopEntities', 'entityEditable', 'loopShapeSelected', 'selected',
-    'entitiesInsideLoop', 'markLastPicked', 'updateUI', 'render',
+    'entitiesInsideLoop', 'markLastPicked', 'lastPickEntityId', 'updateUI', 'render',
     slice('applyLoopClick') + '\nreturn applyLoopClick;');
   const LOOP = { poly: [1] };
   let inside = [];                       // what entitiesInsideLoop reports
@@ -184,6 +178,7 @@ console.log('\n== applyLoopClick forceSelect: a double click never deselects =='
     (kind, id) => selection.some(s => s.kind === kind && +s.id === +id),
     () => inside,
     () => {},
+    null,
     () => {}, () => {}
   );
   const ids = () => selection.filter(s => s.kind === 'entity').map(s => +s.id).sort();

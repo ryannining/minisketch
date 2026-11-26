@@ -185,7 +185,7 @@
           </div>
           <div class="ribbon-page hidden" data-rpage="constrain" id="rpage-constrain" role="tabpanel" aria-labelledby="rtab-constrain">
             <div class="rb-panel">
-              <button class="rb-btn qb-act" id="qb-fillet" title="Fillet (F) — Fit view is Shift+F" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 17V8a6 6 0 0 1 6 6v3" fill="none" stroke="currentColor"/><path d="M3 3l4 4M17 17l-4-4" stroke="currentColor" opacity="0.5"/></svg><span>Fillet</span></button>
+              <button class="rb-btn qb-act" id="qb-fillet" title="Fillet (F)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 17V8a6 6 0 0 1 6 6v3" fill="none" stroke="currentColor"/><path d="M3 3l4 4M17 17l-4-4" stroke="currentColor" opacity="0.5"/></svg><span>Fillet</span></button>
               <button class="rb-btn qb-act" id="qb-dimension" title="Dimension (D)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 14h14M3 12v4M17 12v4" fill="none" stroke="currentColor"/><path d="M5 10l3-6h4l3 6z" fill="none" stroke="currentColor"/></svg><span>Dim</span></button>
               <button class="rb-btn qb-act" id="qb-refdim" title="Measure &mdash; a reference dimension that drives nothing (Shift+D)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 14h14M3 12v4M17 12v4" fill="none" stroke="currentColor"/><path d="M6 8l3-5h2l3 5z" fill="none" stroke="currentColor" stroke-dasharray="2 1.5"/></svg><span>Measure</span></button>
               <button class="rb-btn" data-cmd="coincident" title="Coincident (O)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8" cy="10" r="3" fill="none" stroke="currentColor"/><circle cx="12" cy="10" r="3" fill="none" stroke="currentColor"/></svg><span>Coincident</span></button>
@@ -218,7 +218,7 @@
         <span class="wall-indicator-value" id="wall-indicator-value">1 mm</span>
         <span class="wall-indicator-state" id="wall-indicator-state">ON</span>
       </div>
-      <canvas id="canvas" tabindex="0" role="application" aria-label="Drawing canvas — arrow keys nudge the selection, Shift+F fits the view. All drawing commands are also reachable from the ribbon and the menus."></canvas>
+      <canvas id="canvas" tabindex="0" role="application" aria-label="Drawing canvas — arrow keys nudge the selection, Shift+F hides everything that is not selected (focus). Fit view is F; fit selection is 3. All drawing commands are also reachable from the ribbon and the menus."></canvas>
 
       <button type="button" class="stage-lth-toggle" id="tf-toggle-btn" aria-expanded="false" aria-controls="tf-strip" title="Tampilkan / sembunyikan ukuran L/T/W/H &amp; Wt/Z">
         <span class="lth-toggle-label" id="tf-toggle-label">L/T/W/H</span>
@@ -245,16 +245,7 @@
       <div class="stage-left" id="stage-left">
       <div class="stage-left-panels" id="stage-left-panels">
       <div class="stage-edit" id="stage-edit">
-              <select class="rb-zoom" id="qb-zoom" title="Zoom preset &mdash; 100% is real scale (1 mm = 1 px)">
-                <option value="0.1">10%</option>
-                <option value="0.25">25%</option>
-                <option value="0.5">50%</option>
-                <option value="1" selected>100%</option>
-                <option value="2">200%</option>
-                <option value="4">400%</option>
-                <option value="8">800%</option>
-              </select>
-              <button class="rb-btn rb-mini" id="qb-fit" title="Fit view (Shift+F)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 6V2h4M14 2h4v4M18 14v4h-4M6 18H2v-4" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="6.5" y="6.5" width="7" height="7" fill="none" stroke="currentColor" stroke-dasharray="2 1.5"/></svg><span>Fit</span></button>
+              <button class="rb-btn rb-mini rb-focus" id="qb-focus" aria-pressed="false" title="Fokus (Shift+F) — sembunyikan semua yang tidak dipilih; tekan lagi untuk menampilkan semua"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 10s3-4.5 7.5-4.5S17.5 10 17.5 10s-3 4.5-7.5 4.5S2.5 10 2.5 10z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.1" fill="currentColor"/></svg><span>Focus</span></button>
               <button class="rb-btn rb-mini" id="qb-selectall" title="Select all (Ctrl+A)"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="10" height="10" fill="none" stroke="currentColor" stroke-dasharray="2.5 2"/><rect x="7" y="7" width="10" height="10" fill="currentColor" opacity="0.55"/></svg><span>All</span></button>
               <button class="rb-btn rb-mini qb-act" id="qb-copy" title="Copy (Ctrl+C)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="9" height="9" rx="1" fill="none" stroke="currentColor"/><path d="M13 7V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h2" fill="none" stroke="currentColor"/></svg><span>Copy</span></button>
               <button class="rb-btn rb-mini" id="qb-paste" title="Paste (Ctrl+V)"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="4" width="12" height="13" rx="1" fill="none" stroke="currentColor"/><path d="M7 4V2.5h6V4" fill="none" stroke="currentColor"/><path d="M7.5 10h5M7.5 13h5" stroke="currentColor"/></svg><span>Paste</span></button>

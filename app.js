@@ -1655,13 +1655,12 @@
       }
     }, ms);
   }
-  // Press-and-hold disambiguation (mouse/pen) for a press ON an object:
+  // Time-gated marquee (mouse/pen) for a press INSIDE a FILL LOOP:
   // dragging away within PRESS_DWELL_MS reads as "start a marquee here";
-  // holding the press first arms the object drag — select + move, exactly
-  // like the old immediate press. A release without movement stays a plain
-  // click. The same dwell decides a press INSIDE a loop: quick drag stays the
-  // rectangle, a held drag selects the loop (the click selection) and moves
-  // it.
+  // holding the press first arms the loop drag — select the loop (the click
+  // selection) and move it. A release without movement stays a plain click.
+  // Lines, points and every other direct object skip this gate entirely: they
+  // drag immediately on pointerdown (see beginEntityPress).
   const PRESS_DWELL_MS = 200;
   const PRESS_SLOP_PX = 4;      // movement under this is jitter, not a drag
   // Touch "lift": for DRAFTING, steer the pointer from a virtual cursor
@@ -2453,6 +2452,8 @@
     rubber: null,
     activeLayer: 1,
     dimOthers: false,          // fade every layer but the active one
+    focusOn: false,            // Shift+F focus: hide everything not selected
+    focusHidden: null,         // Set of hidden entity ids while focus is on
     showAnnots: true,
     focusLoop: null,
     solverCost: null,
@@ -2655,6 +2656,10 @@
   }
 
   function layerVisible(e) {
+    // Focus mode (Shift+F) hides every entity that was not selected when focus
+    // was turned on. This is the single visibility gate used by render, pick,
+    // snap, bounds and export, so a focused-away object disappears everywhere.
+    if (e && ui.focusOn && ui.focusHidden && ui.focusHidden.has(+e.id)) return false;
     const l = getLayer(layerOf(e));
     return !l || l.visible;
   }
@@ -3076,6 +3081,47 @@
     view.oy = H / 2 - ((b.minY + b.maxY) / 2) * zoom;
     render();
     scheduleViewSave();
+  }
+
+  // Shift+F "Focus": hide every entity that is not selected, so you can work
+  // undisturbed on one part of the drawing. New objects created while focus is
+  // on are NOT in the hidden set, so they appear immediately — you can keep
+  // drawing. A second press restores everything.
+  function toggleFocus() {
+    if (ui.focusOn) {
+      ui.focusOn = false;
+      ui.focusHidden = null;
+      afterFocusChange();
+      toast('Fokus dimatikan — semua objek tampil lagi');
+      return;
+    }
+    const ids = selectionEntityIds();   // entity selection + owned guides
+    // selected points pull their owning entities into the focus set
+    for (const s of ui.selection) {
+      if (s.kind !== 'point') continue;
+      const uses = pointUses(s.id);
+      if (uses) for (const e of uses) ids.add(+e.id);
+    }
+    if (!ids.size) {
+      toast('Pilih objek dulu, lalu Shift+F untuk fokus');
+      return;
+    }
+    const hidden = new Set();
+    for (const id in state.entities) {
+      const e = state.entities[id];
+      if (!e) continue;
+      if (!ids.has(+id)) hidden.add(+id);
+    }
+    ui.focusOn = true;
+    ui.focusHidden = hidden;
+    afterFocusChange();
+    toast('Fokus: ' + ids.size + ' objek tampil, sisanya disembunyikan');
+  }
+
+  function afterFocusChange() {
+    invalidateLoops();     // full rebuild: epochs + caches (backdrop, loops, points)
+    updateUI();
+    render();
   }
 
   function contentBounds() {
@@ -22273,6 +22319,7 @@
     for (const id in state.entities) {
       const e = state.entities[id];
       if (e.type !== 'part') continue;
+      if (!layerVisible(e)) continue;
       // a mate job needs the markers of EVERY visible part — including parts
       // on other layers, which the cross-layer pick (matePickable) can reach
       if (jobOpen ? !matePickable(e) : !selIdx.entity.has(+id)) continue;
@@ -24004,12 +24051,6 @@
     const px = unit * view.zoom;
     const x0 = 18;
     const y0 = H - 26;
-    // keep the zoom preset dropdown honest (it shows blank off-preset zooms)
-    const zoomSel = document.getElementById('qb-zoom');
-    if (zoomSel && document.activeElement !== zoomSel) {
-      zoomSel.value = String(view.zoom);
-      if (zoomSel.selectedIndex < 0) zoomSel.value = '';
-    }
     ctx.save();
     ctx.strokeStyle = '#7b8798';
     ctx.lineWidth = 1.4;
@@ -25022,6 +25063,14 @@
     updateStatusCounts();
     updateContextBar();
     xfUpdatePanel();
+    const focusBtn = document.getElementById('qb-focus');
+    if (focusBtn) {
+      focusBtn.classList.toggle('is-on', !!ui.focusOn);
+      focusBtn.setAttribute('aria-pressed', ui.focusOn ? 'true' : 'false');
+      focusBtn.title = ui.focusOn
+        ? 'Fokus aktif — Shift+F untuk menampilkan semua'
+        : 'Fokus (Shift+F) — sembunyikan yang tidak dipilih';
+    }
   }
 
   // innerHTML with an IDENTICAL string still costs a parse + layout, and the
@@ -26935,11 +26984,12 @@
   }
 
   // The press on a plain object: the selection rules and — when wantDrag is
-  // set — the body drag that follows. Called once the press-and-hold gesture
-  // is decided: the dwell elapsed on the first real move (an object drag), or
-  // the release without movement (a plain click, selection only, no history
-  // entry). Until then the press waits as kind 'pressEntity' and the
-  // selection is untouched, so an early drag can still become a marquee.
+  // set — the body drag that follows. Lines, points and every other direct
+  // object call this IMMEDIATELY on pointerdown (no time gate): the object is
+  // selected and its drag armed at once. A release without movement pops the
+  // drag's history entry in onPointerUp, so a plain click stays a pure
+  // selection. Only a fill-loop press keeps the time-gated marquee (quick
+  // drag = rectangle, hold then drag = select + move the loop).
   function beginEntityPress(d, pos, world, wantDrag) {
     const eh = d.eid;
     const addMod = d.mods.add;
@@ -27559,32 +27609,14 @@
             return;
           }
         }
-        // THE GESTURE IS DECIDED BY TIME AND MOVEMENT (mouse/pen): a drag
-        // that starts within PRESS_DWELL_MS of the press becomes a marquee —
-        // pressing ON a line no longer blocks starting a rectangle there.
-        // Holding the press past the dwell arms the object drag: the object
-        // is selected at that moment and the drag moves it, exactly like the
-        // old press. A release without movement stays a plain click. Touch
-        // keeps the immediate drag (it has its own gestures).
-        if (ev.pointerType === 'touch') {
-          beginEntityPress({ eid: eh, mods: { add: addMod, sub: subMod, alt: ev.altKey } }, pos, world, true);
-          return;
-        }
-        ui.drag = {
-          kind: 'pressEntity',
-          eid: eh,
-          start: pos,
-          downAt: ui._downAt,
-          mods: {
-            add: addMod, sub: subMod, alt: ev.altKey,
-            cross: !!(ev.ctrlKey && ev.shiftKey)
-          },
-          moved: false
-        };
-        // press on an entity (line / text / note / ...): the drag arms at the
-        // dwell — flash at press time so holding still shows it too
-        armDragFeedback(ui.drag, PRESS_DWELL_MS, 'pressEntity-dwell');
-        render();
+        // A press on a line (or any other direct object) drags IMMEDIATELY:
+        // select it and arm the body drag right away — no time gate, no
+        // accidental marquee. A release without movement pops the drag's
+        // history entry (see onPointerUp), so a plain click still just
+        // selects. Only a press inside a FILL LOOP keeps the time-gated
+        // marquee below: a quick drag there is the selection rectangle,
+        // holding past the dwell selects and moves the loop.
+        beginEntityPress({ eid: eh, mods: { add: addMod, sub: subMod, alt: ev.altKey } }, pos, world, true);
         return;
       }
       // Nothing under the cursor, but a press INSIDE a selected loop's real
@@ -29001,38 +29033,6 @@ function cmdSplitCurve() {
 
     if (ui.drag) {
       const d = ui.drag;
-      // Press-and-hold disambiguation: a press on an object waits. The first
-      // real movement decides — inside PRESS_DWELL_MS it turns into a marquee
-      // (the selection is still untouched, so nothing to undo); past the
-      // dwell it arms the object drag and this same event replays into it.
-      if (d.kind === 'pressEntity') {
-        if (Math.abs(pos.x - d.start.x) <= PRESS_SLOP_PX &&
-            Math.abs(pos.y - d.start.y) <= PRESS_SLOP_PX) return;
-        if (performance.now() - d.downAt < PRESS_DWELL_MS) {
-          // Same modifier language as a press on empty space: Ctrl or Shift
-          // adds to the marquee, Alt takes the rectangle's contents out.
-          // This is a pure marquee (selection) gesture — no drag-ready flash.
-          ui.drag = {
-            kind: 'rubber',
-            start: d.start,
-            additive: d.mods.add || d.mods.sub,
-            subtract: d.mods.alt,
-            crossLayer: d.mods.cross
-          };
-          ui.rubber = {
-            x0: Math.min(d.start.x, pos.x), y0: Math.min(d.start.y, pos.y),
-            x1: Math.max(d.start.x, pos.x), y1: Math.max(d.start.y, pos.y)
-          };
-          scheduleRender();
-          return;
-        }
-        // Dwell served: select the object and arm its drag, then let this
-        // event drive the (now real) drag one step, so a flick does not lose
-        // the movement that triggered the activation.
-        beginEntityPress(d, pos, s2w(pos.x, pos.y), true);
-        if (ui.drag) onPointerMove(ev);
-        return;
-      }
       // Time gate: ignore movement during the first DRAG_GATE_MS of the press.
       // Once the gate opens, deltas are measured from startWorld, so a fast
       // drag catches up to the cursor instead of losing the early movement.
@@ -30685,23 +30685,6 @@ function cmdSplitCurve() {
       render();
       return;
     }
-    if (ui.drag && ui.drag.kind === 'pressEntity') {
-      const d = ui.drag;
-      ui.drag = null;
-      const p = pointerPos(ev);
-      const movedFar = Math.abs(p.x - d.start.x) > PRESS_SLOP_PX ||
-        Math.abs(p.y - d.start.y) > PRESS_SLOP_PX;
-      if (!movedFar) {
-        // Released without a real move: a plain click. The selection the
-        // press always performed happens here — no drag, no history entry.
-        beginEntityPress(d, p, s2w(p.x, p.y), false);
-      }
-      // (A quick-drag press never reaches pointerup as pressEntity: the move
-      // already turned it into a rubber or an object drag.)
-      updateCanvasCursor();
-      render();
-      return;
-    }
     if (ui.drag && ui.drag.kind === 'rubber') {
       const d = ui.drag;
       ui.drag = null;
@@ -31469,7 +31452,7 @@ function cmdSplitCurve() {
     { key: 'D', label: 'Dimension', match: 'qb-dimension', kind: 'cmd' },
     { key: 'Shift+D', chip: 'Sh+D', label: 'Measure', match: 'qb-refdim', kind: 'cmd' },
     { key: 'F', label: 'Fillet', match: 'qb-fillet', kind: 'cmd' },
-    { key: 'Shift+F', chip: 'Sh+F', label: 'Fit', match: 'qb-fit', kind: 'cmd' },
+    { key: 'Shift+F', chip: 'Sh+F', label: 'Focus', match: 'qb-focus', kind: 'cmd' },
     { key: 'J', label: 'Join', match: 'qb-join', kind: 'cmd' },
     { key: '\\', label: 'Sharp', match: 'qb-sharp', kind: 'cmd' },
     { key: 'O', label: 'Coincident', match: 'coincident', kind: 'cmd' },
@@ -31976,6 +31959,13 @@ function cmdSplitCurve() {
         return;
       }
       deleteSelection();
+      return;
+    }
+    // Shift+F = Focus: hide everything that is not selected (Shift+F again
+    // restores). Plain F below stays "fit view"; "3" is fit-selection.
+    if (ev.shiftKey && !ev.ctrlKey && !ev.metaKey && !ev.altKey && lower === 'f') {
+      ev.preventDefault();
+      toggleFocus();
       return;
     }
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
@@ -34471,13 +34461,7 @@ function cmdSplitCurve() {
     qbClick('qb-array', () => { const b = document.getElementById('btn-array'); if (b) b.click(); });
     qbClick('qb-cnc', () => { const b = document.getElementById('btn-cnc'); if (b) b.click(); });
     // edit actions: every keyboard shortcut gets an icon (tablet)
-    qbClick('qb-fit', () => fitView());
-    // Zoom preset picker: jumps straight to a percentage about the canvas centre.
-    const zoomSel = document.getElementById('qb-zoom');
-    if (zoomSel) zoomSel.addEventListener('change', () => {
-      const v = parseFloat(zoomSel.value);
-      if (isFinite(v)) setZoomPct(v * 100);
-    });
+    qbClick('qb-focus', () => toggleFocus());
     qbClick('qb-selectall', () => cmdSelectAll());
     qbClick('qb-samecolor', () => cmdSelectSameColor());
     qbClick('qb-copy', () => copySelection());
@@ -36596,7 +36580,7 @@ function cmdSplitCurve() {
     const items = [];
     for (const eid in state.entities) {
       const e = state.entities[eid];
-      if (!entityEditable(e)) continue;
+      if (!entityEditable(e) || !layerVisible(e)) continue;
       if (!layers.has(layerOf(e))) continue;
       if (!colors.has(String(colorOf(e) || '').toLowerCase())) continue;
       items.push({ kind: 'entity', id: +eid });
@@ -36611,11 +36595,11 @@ function cmdSplitCurve() {
     const items = [];
     for (const eid in state.entities) {
       const e = state.entities[eid];
-      if (entityEditable(e)) items.push({ kind: 'entity', id: +eid });
+      if (entityEditable(e) && layerVisible(e)) items.push({ kind: 'entity', id: +eid });
     }
     for (const key in state.points) {
       const id = +key;
-      if (pointEditable(id)) items.push({ kind: 'point', id });
+      if (pointEditable(id) && pointShown(id)) items.push({ kind: 'point', id });
     }
     ui.selection = items;
     updateUI();
