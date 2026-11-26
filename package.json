@@ -7,8 +7,8 @@
   "scripts": {
     "dev": "node server/serve.js",
     "start": "node server/serve.js",
-    "build": "node --check server/serve.js && node --check server/ai-bridge.js && node --check core.js && node --check app.js && node --check help.js",
-    "lint": "node --check server/serve.js && node --check server/ai-bridge.js && node --check core.js && node --check app.js && node --check help.js && node --check ai/chat.js"
+    "build": "node --check server/serve.js && node --check server/ai-bridge.js && node --check ui-i18n.js && node --check core.js && node --check app.js && node --check help.js",
+    "lint": "node --check server/serve.js && node --check server/ai-bridge.js && node --check ui-i18n.js && node --check core.js && node --check app.js && node --check help.js && node --check ai/chat.js"
   },
   "engines": {
     "node": ">=18"

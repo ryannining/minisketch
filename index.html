@@ -33,50 +33,50 @@
       </div>
       <nav class="menubar" id="menubar">
         <div class="menu" data-menu="file">
-        <button class="menu-btn" id="menu-file" aria-haspopup="true" aria-expanded="false">File</button>
+        <button class="menu-btn" id="menu-file" aria-haspopup="true" aria-expanded="false" data-i18n="menu.file">File</button>
         <div class="menu-panel hidden" role="menu">
-          <button class="menu-item" id="btn-new" role="menuitem">New</button>
-          <button class="menu-item" id="btn-open" role="menuitem">Open&hellip;<span class="menu-key">replace</span></button>
-          <button class="menu-item" id="btn-import" role="menuitem">Import&hellip;<span class="menu-key">merge</span></button>
-          <button class="menu-item" id="btn-save" role="menuitem">Save<span class="menu-key">Ctrl+S</span></button>
-          <button class="menu-item" id="btn-download" role="menuitem">Save as&hellip;<span class="menu-key">Ctrl+Shift+S</span></button>
-          <button class="menu-item" id="btn-svg" role="menuitem">Export SVG&hellip;<span class="menu-key">Ctrl+E</span></button>
+          <button class="menu-item" id="btn-new" role="menuitem"><span data-i18n="file.new">New</span></button>
+          <button class="menu-item" id="btn-open" role="menuitem"><span data-i18n="file.open">Open&hellip;</span><span class="menu-key" data-i18n="file.open.key">replace</span></button>
+          <button class="menu-item" id="btn-import" role="menuitem"><span data-i18n="file.import">Import&hellip;</span><span class="menu-key" data-i18n="file.import.key">merge</span></button>
+          <button class="menu-item" id="btn-save" role="menuitem"><span data-i18n="file.save">Save</span><span class="menu-key">Ctrl+S</span></button>
+          <button class="menu-item" id="btn-download" role="menuitem"><span data-i18n="file.saveAs">Save as&hellip;</span><span class="menu-key">Ctrl+Shift+S</span></button>
+          <button class="menu-item" id="btn-svg" role="menuitem"><span data-i18n="file.exportSvg">Export SVG&hellip;</span><span class="menu-key">Ctrl+E</span></button>
           <div class="menu-sep"></div>
-          <label class="menu-item check" id="menu-lang-en" role="menuitemcheckbox" aria-checked="false" title="Panduan jendela tools + Help dalam bahasa Inggris"><input type="checkbox" id="tgl-lang-en">Lang: English<span class="menu-key">EN</span></label>
-          <label class="menu-item check" id="menu-lang-id" role="menuitemcheckbox" aria-checked="false" title="Panduan jendela tools + Help dalam bahasa Indonesia"><input type="checkbox" id="tgl-lang-id">Lang: Indonesia<span class="menu-key">ID</span></label>
+          <label class="menu-item check" id="menu-lang-en" role="menuitemcheckbox" aria-checked="false" title="Switch UI, tools &amp; Help to English"><input type="checkbox" id="tgl-lang-en"><span data-i18n="file.langEn">Lang: English</span><span class="menu-key">EN</span></label>
+          <label class="menu-item check" id="menu-lang-id" role="menuitemcheckbox" aria-checked="false" title="Ubah UI, jendela tools &amp; Bantuan ke Bahasa Indonesia"><input type="checkbox" id="tgl-lang-id"><span data-i18n="file.langId">Lang: Indonesia</span><span class="menu-key">ID</span></label>
           <div class="menu-sep"></div>
-          <button class="menu-item" id="btn-help" role="menuitem">Help<span class="menu-key">?</span></button>
-          <button class="menu-item" id="btn-docs" role="menuitem">Dokumentasi lengkap&hellip;<span class="menu-key">docs/</span></button>
+          <button class="menu-item" id="btn-help" role="menuitem"><span data-i18n="file.help">Help</span><span class="menu-key">?</span></button>
+          <button class="menu-item" id="btn-docs" role="menuitem"><span data-i18n="file.docs">Full documentation&hellip;</span><span class="menu-key">docs/</span></button>
         </div>
       </div>
       <div class="menu" data-menu="tool">
-        <button class="menu-btn" id="menu-tool" aria-haspopup="true" aria-expanded="false">Tool</button>
+        <button class="menu-btn" id="menu-tool" aria-haspopup="true" aria-expanded="false" data-i18n="menu.tool">Tool</button>
         <div class="menu-panel hidden" role="menu">
-          <button class="menu-item check is-on" id="tgl-grid" role="menuitemcheckbox" aria-checked="true">View grid<span class="menu-key">#</span></button>
-          <button class="menu-item check is-on" id="tgl-snap" role="menuitemcheckbox" aria-checked="true">Snap<span class="menu-key">Shift+5</span></button>
-          <label class="menu-item check is-on" id="menu-points" role="menuitemcheckbox" aria-checked="true" title="Show all points (F2 override). Off: only explicitly selected points and, in F2, the points of the selected object show"><input type="checkbox" id="tgl-points" checked>Points</label>
-          <label class="menu-item check is-on" id="menu-dims" role="menuitemcheckbox" aria-checked="true"><input type="checkbox" id="tgl-dims" checked>Show dimension</label>
-          <label class="menu-item check" id="menu-autodim" role="menuitemcheckbox" aria-checked="false" title="While drafting, snapping also welds and constrains (coincident points, Midpoint / On line). Off keeps the snap purely visual."><input type="checkbox" id="tgl-autodim">Auto dimension<span class="menu-key">Alt+D</span></label>
-          <label class="menu-item check" id="menu-autosolve" role="menuitemcheckbox" aria-checked="false" title="While dragging, a short pause in pointer movement runs the same full solve a mouse release would — without waiting for the button to go up."><input type="checkbox" id="tgl-autosolve">Auto solve</label>
-          <label class="menu-item check" id="menu-undoview" role="menuitemcheckbox" aria-checked="false" title="When On, Ctrl+Z / Ctrl+Shift+Z also restore the viewport of that step. When Off the camera stays where it is, so undo only changes the geometry — better for comparing a curve against its earlier shape."><input type="checkbox" id="tgl-undoview">Undo moves view</label>
+          <button class="menu-item check is-on" id="tgl-grid" role="menuitemcheckbox" aria-checked="true"><span data-i18n="tool.grid">View grid</span><span class="menu-key">#</span></button>
+          <button class="menu-item check is-on" id="tgl-snap" role="menuitemcheckbox" aria-checked="true"><span data-i18n="tool.snap">Snap</span><span class="menu-key">Shift+5</span></button>
+          <label class="menu-item check is-on" id="menu-points" role="menuitemcheckbox" aria-checked="true" title="Show all points (F2 override). Off: only explicitly selected points and, in F2, the points of the selected object show"><input type="checkbox" id="tgl-points" checked><span data-i18n="tool.points">Points</span></label>
+          <label class="menu-item check is-on" id="menu-dims" role="menuitemcheckbox" aria-checked="true"><input type="checkbox" id="tgl-dims" checked><span data-i18n="tool.dims">Show dimension</span></label>
+          <label class="menu-item check" id="menu-autodim" role="menuitemcheckbox" aria-checked="false" title="While drafting, snapping also welds and constrains (coincident points, Midpoint / On line). Off keeps the snap purely visual."><input type="checkbox" id="tgl-autodim"><span data-i18n="tool.autodim">Auto dimension</span><span class="menu-key">Alt+D</span></label>
+          <label class="menu-item check" id="menu-autosolve" role="menuitemcheckbox" aria-checked="false" title="While dragging, a short pause in pointer movement runs the same full solve a mouse release would — without waiting for the button to go up."><input type="checkbox" id="tgl-autosolve"><span data-i18n="tool.autosolve">Auto solve</span></label>
+          <label class="menu-item check" id="menu-undoview" role="menuitemcheckbox" aria-checked="false" title="When On, Ctrl+Z / Ctrl+Shift+Z also restore the viewport of that step. When Off the camera stays where it is, so undo only changes the geometry — better for comparing a curve against its earlier shape."><input type="checkbox" id="tgl-undoview"><span data-i18n="tool.undoview">Undo moves view</span></label>
           <div class="menu-sep"></div>
-          <button class="menu-item" id="btn-solve-now" role="menuitem">Solve now<span class="menu-key">F9</span></button>
-          <button class="menu-item" id="btn-solve-mode" role="menuitem">Solver mode<span class="menu-key" id="menu-solve-mode-val">release</span></button>
+          <button class="menu-item" id="btn-solve-now" role="menuitem"><span data-i18n="tool.solveNow">Solve now</span><span class="menu-key">F9</span></button>
+          <button class="menu-item" id="btn-solve-mode" role="menuitem"><span data-i18n="tool.solverMode">Solver mode</span><span class="menu-key" id="menu-solve-mode-val">release</span></button>
           <div class="menu-sep"></div>
-          <button class="menu-item" id="btn-extensions-menu" role="menuitem">Extensions &amp; Marketplace&hellip;</button>
-          <button class="menu-item" id="btn-settings" role="menuitem">Settings&hellip;</button>
-          <button class="menu-item" id="btn-cnc" role="menuitem">Send to KaryaCNC&hellip;<span class="menu-key">Alt+Q</span></button>
+          <button class="menu-item" id="btn-extensions-menu" role="menuitem"><span data-i18n="tool.extensions">Extensions &amp; Marketplace&hellip;</span></button>
+          <button class="menu-item" id="btn-settings" role="menuitem"><span data-i18n="tool.settings">Settings&hellip;</span></button>
+          <button class="menu-item" id="btn-cnc" role="menuitem"><span data-i18n="tool.cnc">Send to KaryaCNC&hellip;</span><span class="menu-key">Alt+Q</span></button>
         </div>
       </div>
     </nav>
 
     <div class="ribbon-tab-group" role="tablist">
-      <button class="ribbon-tab active" data-rtab="draw" id="rtab-draw" role="tab" type="button" aria-controls="rpage-draw" aria-selected="true">Draw</button>
-      <button class="ribbon-tab" data-rtab="edit" id="rtab-edit" role="tab" type="button" aria-controls="rpage-edit" aria-selected="false">Edit</button>
-      <button class="ribbon-tab" data-rtab="arrange" id="rtab-arrange" role="tab" type="button" aria-controls="rpage-arrange" aria-selected="false">Arrange</button>
-      <button class="ribbon-tab" data-rtab="parts" id="rtab-parts" role="tab" type="button" aria-controls="rpage-parts" aria-selected="false">Parts</button>
-      <button class="ribbon-tab" data-rtab="constrain" id="rtab-constrain" role="tab" type="button" aria-controls="rpage-constrain" aria-selected="false">Constrain</button>
-      <button class="ribbon-tab" data-rtab="machine" id="rtab-machine" role="tab" type="button" aria-controls="rpage-machine" aria-selected="false">KaryaCNC</button>
+      <button class="ribbon-tab active" data-rtab="draw" id="rtab-draw" role="tab" type="button" aria-controls="rpage-draw" aria-selected="true" data-i18n="tab.draw">Draw</button>
+      <button class="ribbon-tab" data-rtab="edit" id="rtab-edit" role="tab" type="button" aria-controls="rpage-edit" aria-selected="false" data-i18n="tab.edit">Edit</button>
+      <button class="ribbon-tab" data-rtab="arrange" id="rtab-arrange" role="tab" type="button" aria-controls="rpage-arrange" aria-selected="false" data-i18n="tab.arrange">Arrange</button>
+      <button class="ribbon-tab" data-rtab="parts" id="rtab-parts" role="tab" type="button" aria-controls="rpage-parts" aria-selected="false" data-i18n="tab.parts">Parts</button>
+      <button class="ribbon-tab" data-rtab="constrain" id="rtab-constrain" role="tab" type="button" aria-controls="rpage-constrain" aria-selected="false" data-i18n="tab.constrain">Constrain</button>
+      <button class="ribbon-tab" data-rtab="machine" id="rtab-machine" role="tab" type="button" aria-controls="rpage-machine" aria-selected="false" data-i18n="tab.machine">KaryaCNC</button>
     </div>
 
     <div class="topbar-status">
@@ -88,15 +88,15 @@
         <span id="status-solver" title="Solver mode — click to switch (release → manual → live). F9 solves now">solver idle</span>
         <span class="dot-sep"></span>
         <span id="status-saved">saved</span>
-        <span class="dot-sep"></span>
-        <span id="status-frame" title="Frame: previous completed frame &rarr; this one (includes hit-testing, drag and solving). Draw: canvas redraw only.">frame &mdash; / draw &mdash; ms</span>
+        <span class="dot-sep status-frame-sep hidden" id="status-frame-sep"></span>
+        <span id="status-frame" class="hidden" title="Frame: previous completed frame &rarr; this one (includes hit-testing, drag and solving). Draw: canvas redraw only.">frame &mdash; / draw &mdash; ms</span>
       </div>
       <span class="divider"></span>
       <div class="status-coords" id="status-coords">x 0.00&nbsp;&nbsp;y 0.00</div>
     </div>
 
     <div class="doc-actions">
-      <button class="btn ghost icon" id="btn-sidebar" title="Show / hide panels (AI chat, selection, parts&hellip;)" aria-label="Toggle panels">
+      <button class="btn ghost icon" id="btn-sidebar" data-i18n-title="dlg.sidebarToggle" title="Show / hide panels (AI chat, selection, parts&hellip;)" aria-label="Toggle panels">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3.5h12M2 8h12M2 12.5h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
       <button class="btn ghost icon" id="btn-theme" title="Switch to light theme" aria-label="Switch to light theme">&#9728;</button>
@@ -105,108 +105,174 @@
     <div class="ribbon-body">
           <div class="ribbon-page" data-rpage="draw" id="rpage-draw" role="tabpanel" aria-labelledby="rtab-draw">
             <div class="rb-panel">
-              <button class="rb-btn tool-btn active" data-tool="select" title="Select — Esc or click empty space to deselect"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3l11 7-5 1.8L7.5 17z"/></svg><span>Select</span></button>
-              <button class="rb-btn tool-btn" data-tool="line" title="Line"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16L16 4"/><circle cx="4" cy="16" r="1.6"/><circle cx="16" cy="4" r="1.6"/></svg><span>Line</span></button>
-              <button class="rb-btn tool-btn" data-tool="curve" title="Curve / B&eacute;zier pen"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 15c4-10 10 4 14-10"/><circle cx="3" cy="15" r="1.4"/><circle cx="17" cy="5" r="1.4"/></svg><span>Curve</span></button>
-              <button class="rb-btn tool-btn" data-tool="arc" title="Arc"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 15a12 12 0 0 1 12-12"/><circle cx="3" cy="15" r="1.5"/><circle cx="15" cy="3" r="1.5"/></svg><span>Arc</span></button>
-              <button class="rb-btn tool-btn" data-tool="circle" title="Circle"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><circle cx="10" cy="10" r="1.2"/></svg><span>Circle</span></button>
-              <button class="rb-btn tool-btn" data-tool="box" title="Box"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="5.5" width="12" height="9" rx="0.5"/><circle cx="4" cy="5.5" r="1.4"/><circle cx="16" cy="14.5" r="1.4"/></svg><span>Box</span></button>
-              <button class="rb-btn tool-btn" data-tool="poly" title="Polygon / Star"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3l6 3.5v7L10 17l-6-3.5v-7z"/><circle cx="10" cy="10" r="1.2"/></svg><span>Poly</span></button>
-              <button class="rb-btn tool-btn" data-tool="text" title="Text"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5h12M10 5v11M7.5 16h5"/></svg><span>Text</span></button>
+              <button class="rb-btn tool-btn active" data-tool="select" title="Select — Esc or click empty space to deselect"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3l11 7-5 1.8L7.5 17z"/></svg><span data-i18n="btn.select">Select</span></button>
+              <button class="rb-btn tool-btn" data-tool="line" title="Line"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16L16 4"/><circle cx="4" cy="16" r="1.6"/><circle cx="16" cy="4" r="1.6"/></svg><span data-i18n="btn.line">Line</span></button>
+              <button class="rb-btn tool-btn" data-tool="curve" title="Curve / B&eacute;zier pen"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 15c4-10 10 4 14-10"/><circle cx="3" cy="15" r="1.4"/><circle cx="17" cy="5" r="1.4"/></svg><span data-i18n="btn.curve">Curve</span></button>
+              <button class="rb-btn tool-btn" data-tool="arc" title="Arc"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 15a12 12 0 0 1 12-12"/><circle cx="3" cy="15" r="1.5"/><circle cx="15" cy="3" r="1.5"/></svg><span data-i18n="btn.arc">Arc</span></button>
+              <button class="rb-btn tool-btn" data-tool="circle" title="Circle"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><circle cx="10" cy="10" r="1.2"/></svg><span data-i18n="btn.circle">Circle</span></button>
+              <button class="rb-btn tool-btn" data-tool="box" title="Box"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="5.5" width="12" height="9" rx="0.5"/><circle cx="4" cy="5.5" r="1.4"/><circle cx="16" cy="14.5" r="1.4"/></svg><span data-i18n="btn.box">Box</span></button>
+              <button class="rb-btn tool-btn" data-tool="poly" title="Polygon / Star"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3l6 3.5v7L10 17l-6-3.5v-7z"/><circle cx="10" cy="10" r="1.2"/></svg><span data-i18n="btn.poly">Poly</span></button>
+              <button class="rb-btn tool-btn" data-tool="text" title="Text (T) — click canvas to type directly, or click existing text to edit inline"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5h12M10 5v11M7.5 16h5"/></svg><span data-i18n="btn.text">Text</span></button>
             </div>
             <div class="rb-panel">
-              <button class="rb-btn tool-btn" data-tool="trim" title="Trim"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4l9 9M16 4l-7.5 7.5"/><circle cx="4.5" cy="15" r="2"/><circle cx="15.5" cy="15" r="2"/></svg><span>Trim</span></button>
-              <button class="rb-btn tool-btn" data-tool="separate" title="Separate"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 13l5-5M12 16l5-5"/><circle cx="9" cy="7" r="2.4"/><circle cx="16.5" cy="4.5" r="0.4"/></svg><span>Separate</span></button>
-              <button class="rb-btn" id="qb-note" title="Comment (;) &mdash; a yellow note, never machined"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4h14v9H9l-4 4v-4H3z" fill="none" stroke="currentColor"/></svg><span>Note</span></button>
+              <button class="rb-btn tool-btn" data-tool="trim" title="Trim"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4l9 9M16 4l-7.5 7.5"/><circle cx="4.5" cy="15" r="2"/><circle cx="15.5" cy="15" r="2"/></svg><span data-i18n="btn.trim">Trim</span></button>
+              <button class="rb-btn tool-btn" data-tool="separate" title="Separate"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 13l5-5M12 16l5-5"/><circle cx="9" cy="7" r="2.4"/><circle cx="16.5" cy="4.5" r="0.4"/></svg><span data-i18n="btn.separate">Separate</span></button>
+              <button class="rb-btn" id="qb-note" title="Comment (;) &mdash; a yellow note, never machined"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4h14v9H9l-4 4v-4H3z" fill="none" stroke="currentColor"/></svg><span data-i18n="btn.note">Note</span></button>
             </div>
           </div>
           <div class="ribbon-page hidden" data-rpage="edit" id="rpage-edit" role="tabpanel" aria-labelledby="rtab-edit">
             <div class="rb-panel">
-              <button class="rb-btn qb-act" id="qb-transform" title="Transform (Ctrl+M)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="4" width="12" height="12" fill="none" stroke="currentColor" stroke-dasharray="2.5 2"/><rect x="2.6" y="2.6" width="2.8" height="2.8" fill="currentColor"/><rect x="14.6" y="14.6" width="2.8" height="2.8" fill="currentColor"/></svg><span>Transform</span></button>
-              <button class="rb-btn qb-act" id="qb-offset" title="Offset" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2 18 16.5H2Z" fill="none" stroke="currentColor" stroke-dasharray="2.5 2"/><path d="M10 7.5 14.4 14.8H5.6Z" fill="currentColor" opacity="0.6"/></svg><span>Offset</span></button>
-              <button class="rb-btn qb-act" id="qb-move" title="Move (Ctrl+Shift+M)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v16M2 10h16M10 2 7.5 4.5M10 2l2.5 2.5M10 18l-2.5-2.5M10 18l2.5-2.5M2 10l2.5-2.5M2 10l2.5 2.5M18 10l-2.5-2.5M18 10l-2.5 2.5" fill="none" stroke="currentColor"/></svg><span>Move</span></button>
-              <button class="rb-btn qb-act" id="qb-array" title="Array: grid or circular clones" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="2.5" width="6" height="6" fill="none" stroke="currentColor"/><rect x="11.5" y="2.5" width="6" height="6" fill="none" stroke="currentColor"/><rect x="2.5" y="11.5" width="6" height="6" fill="none" stroke="currentColor"/><rect x="11.5" y="11.5" width="6" height="6" fill="none" stroke="currentColor" stroke-dasharray="2 1.6"/></svg><span>Array</span></button>
+              <button class="rb-btn qb-act" id="qb-transform" title="Transform (Ctrl+M)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="4" width="12" height="12" fill="none" stroke="currentColor" stroke-dasharray="2.5 2"/><rect x="2.6" y="2.6" width="2.8" height="2.8" fill="currentColor"/><rect x="14.6" y="14.6" width="2.8" height="2.8" fill="currentColor"/></svg><span data-i18n="btn.transform">Transform</span></button>
+              <button class="rb-btn qb-act" id="qb-offset" title="Offset (Ctrl+J)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2 18 16.5H2Z" fill="none" stroke="currentColor" stroke-dasharray="2.5 2"/><path d="M10 7.5 14.4 14.8H5.6Z" fill="currentColor" opacity="0.6"/></svg><span data-i18n="btn.offset">Offset</span></button>
+              <button class="rb-btn qb-act" id="qb-move" title="Move (Ctrl+Shift+M)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v16M2 10h16M10 2 7.5 4.5M10 2l2.5 2.5M10 18l-2.5-2.5M10 18l-2.5-2.5M2 10l2.5-2.5M2 10l2.5 2.5M18 10l-2.5-2.5M18 10l-2.5 2.5" fill="none" stroke="currentColor"/></svg><span data-i18n="btn.move">Move</span></button>
             </div>
             <div class="rb-panel">
-              <button class="rb-btn" data-quick="flip-x" title="Flip horizontally" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.4 2.2"/><path d="M9 7 4 12l5 5V7z" fill="currentColor"/></svg><span>Flip&nbsp;X</span></button>
-              <button class="rb-btn" data-quick="flip-y" title="Flip vertically" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h18" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.4 2.2"/><path d="M7 9l5-5 5 5H7z" fill="currentColor"/></svg><span>Flip&nbsp;Y</span></button>
-              <button class="rb-btn" data-quick="rot-ccw" title="Rotate 90&deg; CCW" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 5.5A7 7 0 1 1 5 12" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M9.5 2.5 5.6 6l3.4 3.9z" fill="currentColor"/></svg><span>Rot&nbsp;&larr;</span></button>
-              <button class="rb-btn" data-quick="rot-cw" title="Rotate 90&deg; CW" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 5.5A7 7 0 1 0 19 12" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M14.5 2.5l3.9 3.5-3.4 3.9z" fill="currentColor"/></svg><span>Rot&nbsp;&rarr;</span></button>
+              <button class="rb-btn" data-quick="flip-x" title="Flip horizontally" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.4 2.2"/><path d="M9 7 4 12l5 5V7z" fill="currentColor"/></svg><span data-i18n="btn.flipX">Flip&nbsp;X</span></button>
+              <button class="rb-btn" data-quick="flip-y" title="Flip vertically" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h18" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.4 2.2"/><path d="M7 9l5-5 5 5H7z" fill="currentColor"/></svg><span data-i18n="btn.flipY">Flip&nbsp;Y</span></button>
+              <button class="rb-btn" data-quick="rot-ccw" title="Rotate 90&deg; CCW (Ctrl+[)" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 5.5A7 7 0 1 1 5 12" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M9.5 2.5 5.6 6l3.4 3.9z" fill="currentColor"/></svg><span data-i18n="btn.rotCcw">Rot&nbsp;&larr;</span></button>
+              <button class="rb-btn" data-quick="rot-cw" title="Rotate 90&deg; CW (Ctrl+])" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 5.5A7 7 0 1 0 19 12" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M14.5 2.5l3.9 3.5-3.4 3.9z" fill="currentColor"/></svg><span data-i18n="btn.rotCw">Rot&nbsp;&rarr;</span></button>
             </div>
             <div class="rb-panel">
-              <button class="rb-btn qb-act" id="rb-group" title="Group the selection into one object (Ctrl+G)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="2.5" width="15" height="15" rx="2" fill="none" stroke="currentColor" stroke-dasharray="2.5 2"/><rect x="6" y="6" width="8" height="8" fill="currentColor" opacity="0.6"/></svg><span>Group</span></button>
-              <button class="rb-btn qb-act" id="rb-ungroup" title="Ungroup: explode grouped/pasted objects back to editable curves (Ctrl+U)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="1.5" y="1.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-dasharray="2 1.6"/><rect x="11.5" y="11.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-dasharray="2 1.6"/><path d="M8 12 4.5 15.5M4.5 15.5v-3M4.5 15.5h3M12 8l3.5-3.5M15.5 4.5v3M15.5 4.5h-3" fill="none" stroke="currentColor"/></svg><span>Ungroup</span></button>
-              <button class="rb-btn qb-act" id="rb-clone" title="Clone (Ctrl+L): add a live copy of the selection. Editing the original reshapes every clone; each clone keeps its own position, rotation and scale. Ctrl+Shift+L clones the selection as separate nest parts (same decomposition Start nesting uses), one live clone per part, right of the selection — for packing by hand" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="2.5" width="10" height="10" rx="1.5" fill="none" stroke="currentColor"/><rect x="7.5" y="7.5" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-dasharray="2.5 2"/></svg><span>Clone</span></button>
-              <button class="rb-btn qb-act" id="btn-connected" title="Select connected: extend the selection to every shape chained to it (N)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="5" cy="15" r="2.2" fill="none" stroke="currentColor"/><circle cx="15" cy="5" r="2.2" fill="none" stroke="currentColor"/><path d="M6.6 13.4 13.4 6.6" stroke="currentColor"/><circle cx="15" cy="15" r="1.4" fill="currentColor"/></svg><span>Connected</span></button>
-              <button class="rb-btn" id="rb-clean" title="Clean up (Z): with nothing selected, finds dead constraints and zero-size geometry; with a selection, keeps its full loops. Works without a selection"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16l5-5M9 15l6-6M11 3l6 6" fill="none" stroke="currentColor"/><circle cx="6" cy="14" r="2.2" fill="none" stroke="currentColor"/></svg><span>Clean&nbsp;up</span></button>
+              <button class="rb-btn qb-act" id="rb-group" title="Group the selection into one object (Ctrl+G)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="2.5" width="15" height="15" rx="2" fill="none" stroke="currentColor" stroke-dasharray="2.5 2"/><rect x="6" y="6" width="8" height="8" fill="currentColor" opacity="0.6"/></svg><span data-i18n="btn.group">Group</span></button>
+              <button class="rb-btn qb-act" id="rb-ungroup" title="Ungroup: explode grouped/pasted objects back to editable curves (Ctrl+U)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="1.5" y="1.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-dasharray="2 1.6"/><rect x="11.5" y="11.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-dasharray="2 1.6"/><path d="M8 12 4.5 15.5M4.5 15.5v-3M4.5 15.5h3M12 8l3.5-3.5M15.5 4.5v3M15.5 4.5h-3" fill="none" stroke="currentColor"/></svg><span data-i18n="btn.ungroup">Ungroup</span></button>
+              <button class="rb-btn qb-act" id="rb-clone" title="Clone (Ctrl+L): add a live copy of the selection. Ctrl+Shift+L clones as separate nest parts" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="2.5" width="10" height="10" rx="1.5" fill="none" stroke="currentColor"/><rect x="7.5" y="7.5" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-dasharray="2.5 2"/></svg><span data-i18n="btn.clone">Clone</span></button>
+              <button class="rb-btn qb-act" id="btn-connected" title="Select connected: extend the selection to every shape chained to it (N)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="5" cy="15" r="2.2" fill="none" stroke="currentColor"/><circle cx="15" cy="5" r="2.2" fill="none" stroke="currentColor"/><path d="M6.6 13.4 13.4 6.6" stroke="currentColor"/><circle cx="15" cy="15" r="1.4" fill="currentColor"/></svg><span data-i18n="btn.connected">Connected</span></button>
+              <button class="rb-btn" id="rb-clean" title="Clean up (Z): with nothing selected, finds dead constraints and zero-size geometry; with a selection, keeps its full loops"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16l5-5M9 15l6-6M11 3l6 6" fill="none" stroke="currentColor"/><circle cx="6" cy="14" r="2.2" fill="none" stroke="currentColor"/></svg><span data-i18n="btn.cleanup">Clean&nbsp;up</span></button>
             </div>
             <div class="rb-panel">
-              <button class="rb-btn qb-act" data-quick="union" title="Boolean union (Ctrl++ or Ctrl+=; Shift+click = simpan loop asli)" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9.5" cy="12" r="5.5" fill="currentColor" opacity="0.85"/><circle cx="14.5" cy="12" r="5.5" fill="currentColor"/></svg><span>Union</span></button>
-              <button class="rb-btn" data-quick="cut" title="Boolean cut (Ctrl+-; Shift+click = potong &amp; simpan alat)" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9.5" cy="12" r="5.5" fill="currentColor"/><circle cx="14.5" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-dasharray="2.6 2"/></svg><span>Cut</span></button>
-              <button class="rb-btn" data-quick="intersect" title="Boolean intersect (Ctrl+0; Shift+click = simpan loop asli)" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9.5" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-width="1.4" opacity="0.6"/><circle cx="14.5" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-width="1.4" opacity="0.6"/><path d="M12 8.2a5.5 5.5 0 0 1 0 7.6 5.5 5.5 0 0 1 0-7.6z" fill="currentColor"/></svg><span>Intersect</span></button>
+              <button class="rb-btn qb-act" data-quick="union" title="Boolean union (Ctrl++ or Ctrl+=; Shift+click = keep original loops)" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9.5" cy="12" r="5.5" fill="currentColor" opacity="0.85"/><circle cx="14.5" cy="12" r="5.5" fill="currentColor"/></svg><span data-i18n="btn.union">Union</span></button>
+              <button class="rb-btn" data-quick="cut" title="Boolean cut (Ctrl+-; Shift+click = keep cutting tool)" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9.5" cy="12" r="5.5" fill="currentColor"/><circle cx="14.5" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-dasharray="2.6 2"/></svg><span data-i18n="btn.cut">Cut</span></button>
+              <button class="rb-btn" data-quick="intersect" title="Boolean intersect (Ctrl+0; Shift+click = keep original loops)" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9.5" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-width="1.4" opacity="0.6"/><circle cx="14.5" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-width="1.4" opacity="0.6"/><path d="M12 8.2a5.5 5.5 0 0 1 0 7.6 5.5 5.5 0 0 1 0-7.6z" fill="currentColor"/></svg><span data-i18n="btn.intersect">Intersect</span></button>
             </div>
             <div class="rb-panel">
-              <button class="rb-btn qb-act" id="qb-join" title="Join points (J)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="6" cy="14" r="2.2" fill="none" stroke="currentColor"/><circle cx="14" cy="6" r="2.2" fill="none" stroke="currentColor"/><path d="M7.5 12.5 12.5 7.5" stroke="currentColor"/></svg><span>Join</span></button>
-              <button class="rb-btn" id="qb-weld" title="Weld (Alt+W): close gaps with a distance you set in the dialog — per job, without changing Settings. Loop-junction mode by default; untick to weld every same-colour, same-layer end within the distance"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="6" cy="14" r="2.2" fill="none" stroke="currentColor"/><circle cx="14" cy="6" r="2.2" fill="none" stroke="currentColor"/><path d="M7.5 12.5 12.5 7.5M10 3v3M10 14v3" stroke="currentColor"/></svg><span>Weld</span></button>
-              <button class="rb-btn qb-act" id="qb-sharp" title="Sharp / smooth point (\\)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 17c5 0 5-14 14-14" fill="none" stroke="currentColor"/><circle cx="8.6" cy="8.6" r="1.8" fill="currentColor"/></svg><span>Sharp</span></button>
-              <button class="rb-btn qb-act" id="qb-clean" title="Clean to full loops (Z)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16l5-5M9 15l6-6M11 3l6 6" fill="none" stroke="currentColor"/><circle cx="6" cy="14" r="2.2" fill="none" stroke="currentColor"/></svg><span>Clean</span></button>
+              <button class="rb-btn qb-act" id="qb-join" title="Join points (J)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="6" cy="14" r="2.2" fill="none" stroke="currentColor"/><circle cx="14" cy="6" r="2.2" fill="none" stroke="currentColor"/><path d="M7.5 12.5 12.5 7.5" stroke="currentColor"/></svg><span data-i18n="btn.join">Join</span></button>
+              <button class="rb-btn" id="qb-weld" title="Weld (Alt+W): close gaps within a custom distance per job"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="6" cy="14" r="2.2" fill="none" stroke="currentColor"/><circle cx="14" cy="6" r="2.2" fill="none" stroke="currentColor"/><path d="M7.5 12.5 12.5 7.5M10 3v3M10 14v3" stroke="currentColor"/></svg><span data-i18n="btn.weld">Weld</span></button>
+              <button class="rb-btn qb-act" id="qb-sharp" title="Sharp / smooth point (\)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 17c5 0 5-14 14-14" fill="none" stroke="currentColor"/><circle cx="8.6" cy="8.6" r="1.8" fill="currentColor"/></svg><span data-i18n="btn.sharp">Sharp</span></button>
             </div>
           </div>
           <div class="ribbon-page hidden" data-rpage="arrange" id="rpage-arrange" role="tabpanel" aria-labelledby="rtab-arrange">
             <div class="rb-panel">
-              <button class="rb-btn tool-btn" data-tool="dragwall" title="Drag wall (W) — drag a selection with a live offset envelope. The wall stops at the last collision-free position and is never cut geometry."><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5" y="5" width="10" height="10" rx="1" fill="none" stroke="currentColor"/><rect x="2.5" y="2.5" width="15" height="15" rx="2" fill="none" stroke="currentColor" stroke-dasharray="2.5 2"/></svg><span>Drag&nbsp;wall</span></button>
+              <button class="rb-btn tool-btn" data-tool="dragwall" title="Drag wall (W) — drag a selection with a live offset envelope. The wall stops at the last collision-free position and is never cut geometry."><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5" y="5" width="10" height="10" rx="1" fill="none" stroke="currentColor"/><rect x="2.5" y="2.5" width="15" height="15" rx="2" fill="none" stroke="currentColor" stroke-dasharray="2.5 2"/></svg><span data-i18n="btn.dragwall">Drag&nbsp;wall</span></button>
             </div>
             <div class="rb-panel">
-              <button class="rb-btn" data-arrange="left" title="Align left edges of the selected objects"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3v14" stroke="currentColor"/><rect x="5.5" y="5" width="8" height="4" fill="currentColor" opacity="0.7"/><rect x="5.5" y="11" width="5" height="4" fill="currentColor" opacity="0.7"/></svg><span>Align L</span></button>
-              <button class="rb-btn" data-arrange="center-h" title="Center horizontally (align vertical centers)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v14" stroke="currentColor"/><rect x="5" y="5" width="6" height="4" fill="currentColor" opacity="0.7"/><rect x="7" y="11" width="6" height="4" fill="currentColor" opacity="0.7"/></svg><span>Center H</span></button>
-              <button class="rb-btn" data-arrange="right" title="Align right edges"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 3v14" stroke="currentColor"/><rect x="6.5" y="5" width="8" height="4" fill="currentColor" opacity="0.7"/><rect x="9.5" y="11" width="5" height="4" fill="currentColor" opacity="0.7"/></svg><span>Align R</span></button>
+              <button class="rb-btn" data-arrange="left" title="Align left edges of the selected objects"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3v14" stroke="currentColor"/><rect x="5.5" y="5" width="8" height="4" fill="currentColor" opacity="0.7"/><rect x="5.5" y="11" width="5" height="4" fill="currentColor" opacity="0.7"/></svg><span data-i18n="btn.alignL">Align L</span></button>
+              <button class="rb-btn" data-arrange="center-h" title="Center horizontally (align vertical centers)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v14" stroke="currentColor"/><rect x="5" y="5" width="6" height="4" fill="currentColor" opacity="0.7"/><rect x="7" y="11" width="6" height="4" fill="currentColor" opacity="0.7"/></svg><span data-i18n="btn.centerH">Center H</span></button>
+              <button class="rb-btn" data-arrange="right" title="Align right edges"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 3v14" stroke="currentColor"/><rect x="6.5" y="5" width="8" height="4" fill="currentColor" opacity="0.7"/><rect x="9.5" y="11" width="5" height="4" fill="currentColor" opacity="0.7"/></svg><span data-i18n="btn.alignR">Align R</span></button>
             </div>
             <div class="rb-panel">
-              <button class="rb-btn" data-arrange="top" title="Align top edges"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4h14" stroke="currentColor"/><rect x="5" y="5.5" width="4" height="8" fill="currentColor" opacity="0.7"/><rect x="11" y="5.5" width="4" height="5" fill="currentColor" opacity="0.7"/></svg><span>Align T</span></button>
-              <button class="rb-btn" data-arrange="center-v" title="Center vertically (align horizontal centers)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h14" stroke="currentColor"/><rect x="5" y="5" width="4" height="6" fill="currentColor" opacity="0.7"/><rect x="11" y="7" width="4" height="6" fill="currentColor" opacity="0.7"/></svg><span>Center V</span></button>
-              <button class="rb-btn" data-arrange="bottom" title="Align bottom edges"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 16h14" stroke="currentColor"/><rect x="5" y="6.5" width="4" height="8" fill="currentColor" opacity="0.7"/><rect x="11" y="10.5" width="4" height="5" fill="currentColor" opacity="0.7"/></svg><span>Align B</span></button>
+              <button class="rb-btn" data-arrange="top" title="Align top edges"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4h14" stroke="currentColor"/><rect x="5" y="5.5" width="4" height="8" fill="currentColor" opacity="0.7"/><rect x="11" y="5.5" width="4" height="5" fill="currentColor" opacity="0.7"/></svg><span data-i18n="btn.alignT">Align T</span></button>
+              <button class="rb-btn" data-arrange="center-v" title="Center vertically (align horizontal centers)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h14" stroke="currentColor"/><rect x="5" y="5" width="4" height="6" fill="currentColor" opacity="0.7"/><rect x="11" y="7" width="4" height="6" fill="currentColor" opacity="0.7"/></svg><span data-i18n="btn.centerV">Center V</span></button>
+              <button class="rb-btn" data-arrange="bottom" title="Align bottom edges"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 16h14" stroke="currentColor"/><rect x="5" y="6.5" width="4" height="8" fill="currentColor" opacity="0.7"/><rect x="11" y="10.5" width="4" height="5" fill="currentColor" opacity="0.7"/></svg><span data-i18n="btn.alignB">Align B</span></button>
             </div>
             <div class="rb-panel">
-              <button class="rb-btn" data-arrange="dist-h" title="Distribute horizontally with equal gaps"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h14" stroke="currentColor" stroke-dasharray="2 1.6"/><rect x="2.5" y="6" width="3" height="8" fill="currentColor" opacity="0.7"/><rect x="8.5" y="6" width="3" height="8" fill="currentColor" opacity="0.7"/><rect x="14.5" y="6" width="3" height="8" fill="currentColor" opacity="0.7"/></svg><span>Distribute H</span></button>
-              <button class="rb-btn" data-arrange="dist-v" title="Distribute vertically with equal gaps"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v14" stroke="currentColor" stroke-dasharray="2 1.6"/><rect x="6" y="2.5" width="8" height="3" fill="currentColor" opacity="0.7"/><rect x="6" y="8.5" width="8" height="3" fill="currentColor" opacity="0.7"/><rect x="6" y="14.5" width="8" height="3" fill="currentColor" opacity="0.7"/></svg><span>Distribute V</span></button>
+              <button class="rb-btn" data-arrange="dist-h" title="Distribute horizontally with equal gaps"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h14" stroke="currentColor" stroke-dasharray="2 1.6"/><rect x="2.5" y="6" width="3" height="8" fill="currentColor" opacity="0.7"/><rect x="8.5" y="6" width="3" height="8" fill="currentColor" opacity="0.7"/><rect x="14.5" y="6" width="3" height="8" fill="currentColor" opacity="0.7"/></svg><span data-i18n="btn.distH">Distribute H</span></button>
+              <button class="rb-btn" data-arrange="dist-v" title="Distribute vertically with equal gaps"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v14" stroke="currentColor" stroke-dasharray="2 1.6"/><rect x="6" y="2.5" width="8" height="3" fill="currentColor" opacity="0.7"/><rect x="6" y="8.5" width="8" height="3" fill="currentColor" opacity="0.7"/><rect x="6" y="14.5" width="8" height="3" fill="currentColor" opacity="0.7"/></svg><span data-i18n="btn.distV">Distribute V</span></button>
             </div>
             <div class="rb-panel">
-              <button class="rb-btn" data-arrange="insert" title="Insert into green box — move every selected non-green object together as one group, centered in the green (guide) box, rotating the whole group 90° when that makes it fit. Relative positions are kept: loops never pile up at the box center."><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="2.5" width="13" height="15" fill="none" stroke="currentColor" stroke-dasharray="2 1.6"/><path d="M10 8.5 7 11.5h6z" fill="currentColor" opacity="0.7"/><path d="M10 5.5v5" stroke="currentColor"/></svg><span>Insert</span></button>
+              <button class="rb-btn" data-arrange="insert" title="Insert into green box — move every selected non-green object together as one group, centered in the green (guide) box, rotating the whole group 90° when that makes it fit."><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="2.5" width="13" height="15" fill="none" stroke="currentColor" stroke-dasharray="2 1.6"/><path d="M10 8.5 7 11.5h6z" fill="currentColor" opacity="0.7"/><path d="M10 5.5v5" stroke="currentColor"/></svg><span data-i18n="btn.insert">Insert</span></button>
             </div>
             <div class="rb-panel">
-              <button class="rb-btn" id="btn-array" title="Clone array: grid or circular copies of the selection. Double click the array to edit its parameters or refresh the clones"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="5.5" height="5.5" rx="0.8" fill="none" stroke="currentColor"/><rect x="11.5" y="3" width="5.5" height="5.5" rx="0.8" fill="currentColor" opacity="0.7"/><rect x="3" y="11.5" width="5.5" height="5.5" rx="0.8" fill="currentColor" opacity="0.7"/><rect x="11.5" y="11.5" width="5.5" height="5.5" rx="0.8" fill="none" stroke="currentColor"/></svg><span>Array</span></button>
+              <button class="rb-btn" id="btn-array" title="Clone array: grid or circular copies of the selection. Double click the array to edit its parameters or refresh the clones"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="5.5" height="5.5" rx="0.8" fill="none" stroke="currentColor"/><rect x="11.5" y="3" width="5.5" height="5.5" rx="0.8" fill="currentColor" opacity="0.7"/><rect x="3" y="11.5" width="5.5" height="5.5" rx="0.8" fill="currentColor" opacity="0.7"/><rect x="11.5" y="11.5" width="5.5" height="5.5" rx="0.8" fill="none" stroke="currentColor"/></svg><span data-i18n="btn.array">Array</span></button>
             </div>
           </div>
           <div class="ribbon-page hidden" data-rpage="parts" id="rpage-parts" role="tabpanel" aria-labelledby="rtab-parts">
             <div class="rb-panel">
-              <button class="rb-btn qb-act" id="rb-make-part" title="Bake the selection into a rigid part: one polyline per contour plus a marker on every node and segment midpoint. The master geometry is frozen &mdash; a part only rotates and translates." disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 15l4-9 8 3-2 8z" fill="none" stroke="currentColor"/><circle cx="4" cy="15" r="1.6" fill="currentColor"/><circle cx="8" cy="6" r="1.6" fill="currentColor"/><circle cx="16" cy="9" r="1.6" fill="currentColor"/><circle cx="14" cy="17" r="1.6" fill="currentColor"/></svg><span>Make&nbsp;part</span></button>
-              <button class="rb-btn" id="rb-mate" title="Mate: click a marker on one part, then a marker on another part, or an edge midpoint for a slider. Clicking the same marker twice grounds that part (Alt+T)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h5M12 10h5" stroke="currentColor"/><circle cx="10" cy="10" r="2.6" fill="none" stroke="currentColor"/><circle cx="10" cy="10" r="1" fill="currentColor"/></svg><span>Mate</span></button>
+              <button class="rb-btn qb-act" id="rb-make-part" title="Bake the selection into a rigid part: one polyline per contour plus a marker on every node and segment midpoint. The master geometry is frozen &mdash; a part only rotates and translates." disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 15l4-9 8 3-2 8z" fill="none" stroke="currentColor"/><circle cx="4" cy="15" r="1.6" fill="currentColor"/><circle cx="8" cy="6" r="1.6" fill="currentColor"/><circle cx="16" cy="9" r="1.6" fill="currentColor"/><circle cx="14" cy="17" r="1.6" fill="currentColor"/></svg><span data-i18n="btn.makePart">Make&nbsp;part</span></button>
+              <button class="rb-btn" id="rb-mate" title="Mate: click a marker on one part, then a marker on another part, or an edge midpoint for a slider. Clicking the same marker twice grounds that part (Alt+T)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10h5M12 10h5" stroke="currentColor"/><circle cx="10" cy="10" r="2.6" fill="none" stroke="currentColor"/><circle cx="10" cy="10" r="1" fill="currentColor"/></svg><span data-i18n="btn.mate">Mate</span></button>
             </div>
           </div>
           <div class="ribbon-page hidden" data-rpage="constrain" id="rpage-constrain" role="tabpanel" aria-labelledby="rtab-constrain">
             <div class="rb-panel">
-              <button class="rb-btn qb-act" id="qb-fillet" title="Fillet (F)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 17V8a6 6 0 0 1 6 6v3" fill="none" stroke="currentColor"/><path d="M3 3l4 4M17 17l-4-4" stroke="currentColor" opacity="0.5"/></svg><span>Fillet</span></button>
-              <button class="rb-btn qb-act" id="qb-dimension" title="Dimension (D)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 14h14M3 12v4M17 12v4" fill="none" stroke="currentColor"/><path d="M5 10l3-6h4l3 6z" fill="none" stroke="currentColor"/></svg><span>Dim</span></button>
-              <button class="rb-btn qb-act" id="qb-refdim" title="Measure &mdash; a reference dimension that drives nothing (Shift+D)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 14h14M3 12v4M17 12v4" fill="none" stroke="currentColor"/><path d="M6 8l3-5h2l3 5z" fill="none" stroke="currentColor" stroke-dasharray="2 1.5"/></svg><span>Measure</span></button>
-              <button class="rb-btn" data-cmd="coincident" title="Coincident (O)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8" cy="10" r="3" fill="none" stroke="currentColor"/><circle cx="12" cy="10" r="3" fill="none" stroke="currentColor"/></svg><span>Coincident</span></button>
-              <button class="rb-btn" data-cmd="horizontal" title="Horizontal (H)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="4" cy="13" r="1.8"/><circle cx="16" cy="7" r="1.8"/><path d="M4 13h12" stroke="currentColor"/></svg><span>Horizontal</span></button>
-              <button class="rb-btn" data-cmd="vertical" title="Vertical (V)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="7" cy="4" r="1.8"/><circle cx="13" cy="16" r="1.8"/><path d="M7 4v12" stroke="currentColor"/></svg><span>Vertical</span></button>
-              <button class="rb-btn" data-cmd="parallel" title="Parallel (P)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 16 9 4M11 16l4-12" stroke="currentColor"/></svg><span>Parallel</span></button>
-              <button class="rb-btn" data-cmd="perpendicular" title="Perpendicular ([)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16 16 4M4 4l5 5" stroke="currentColor"/></svg><span>Perp</span></button>
-              <button class="rb-btn" data-cmd="equal" title="Equal (Q)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 8h12M4 12h12" stroke="currentColor"/></svg><span>Equal</span></button>
-              <button class="rb-btn" data-cmd="anchor" title="Anchor (.)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="2.5" fill="currentColor"/><path d="M10 3v3M10 14v3M3 10h3M14 10h3" stroke="currentColor"/></svg><span>Anchor</span></button>
-              <button class="rb-btn" data-cmd="midpoint" title="Midpoint (M)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="3" cy="15" r="1.5"/><circle cx="17" cy="5" r="1.5"/><rect x="8" y="8" width="4" height="4" fill="currentColor"/></svg><span>Midpoint</span></button>
-              <button class="rb-btn" data-cmd="tangent" title="Tangent"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="12" cy="12" r="5" fill="none" stroke="currentColor"/><path d="M2 5l9 5" stroke="currentColor"/></svg><span>Tangent</span></button>
+              <button class="rb-btn qb-act" id="qb-fillet" title="Fillet (F)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 17V8a6 6 0 0 1 6 6v3" fill="none" stroke="currentColor"/><path d="M3 3l4 4M17 17l-4-4" stroke="currentColor" opacity="0.5"/></svg><span data-i18n="btn.fillet">Fillet</span></button>
+              <button class="rb-btn qb-act" id="qb-dimension" title="Dimension (D)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 14h14M3 12v4M17 12v4" fill="none" stroke="currentColor"/><path d="M5 10l3-6h4l3 6z" fill="none" stroke="currentColor"/></svg><span data-i18n="btn.dim">Dim</span></button>
+              <button class="rb-btn qb-act" id="qb-refdim" title="Measure &mdash; a reference dimension that drives nothing (Shift+D)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 14h14M3 12v4M17 12v4" fill="none" stroke="currentColor"/><path d="M6 8l3-5h2l3 5z" fill="none" stroke="currentColor" stroke-dasharray="2 1.5"/></svg><span data-i18n="btn.measure">Measure</span></button>
+              <button class="rb-btn" data-cmd="coincident" title="Coincident (O)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8" cy="10" r="3" fill="none" stroke="currentColor"/><circle cx="12" cy="10" r="3" fill="none" stroke="currentColor"/></svg><span data-i18n="btn.coincident">Coincident</span></button>
+              <button class="rb-btn" data-cmd="horizontal" title="Horizontal (H)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="4" cy="13" r="1.8"/><circle cx="16" cy="7" r="1.8"/><path d="M4 13h12" stroke="currentColor"/></svg><span data-i18n="btn.horizontal">Horizontal</span></button>
+              <button class="rb-btn" data-cmd="vertical" title="Vertical (V)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="7" cy="4" r="1.8"/><circle cx="13" cy="16" r="1.8"/><path d="M7 4v12" stroke="currentColor"/></svg><span data-i18n="btn.vertical">Vertical</span></button>
+              <button class="rb-btn" data-cmd="parallel" title="Parallel (P)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 16 9 4M11 16l4-12" stroke="currentColor"/></svg><span data-i18n="btn.parallel">Parallel</span></button>
+              <button class="rb-btn" data-cmd="perpendicular" title="Perpendicular ([)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 16 16 4M4 4l5 5" stroke="currentColor"/></svg><span data-i18n="btn.perp">Perp</span></button>
+              <button class="rb-btn" data-cmd="equal" title="Equal (Q)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 8h12M4 12h12" stroke="currentColor"/></svg><span data-i18n="btn.equal">Equal</span></button>
+              <button class="rb-btn" data-cmd="anchor" title="Anchor (.)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="2.5" fill="currentColor"/><path d="M10 3v3M10 14v3M3 10h3M14 10h3" stroke="currentColor"/></svg><span data-i18n="btn.anchor">Anchor</span></button>
+              <button class="rb-btn" data-cmd="midpoint" title="Midpoint (M)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="3" cy="15" r="1.5"/><circle cx="17" cy="5" r="1.5"/><rect x="8" y="8" width="4" height="4" fill="currentColor"/></svg><span data-i18n="btn.midpoint">Midpoint</span></button>
+              <button class="rb-btn" data-cmd="tangent" title="Tangent"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="12" cy="12" r="5" fill="none" stroke="currentColor"/><path d="M2 5l9 5" stroke="currentColor"/></svg><span data-i18n="btn.tangent">Tangent</span></button>
             </div>
           </div>
           <div class="ribbon-page hidden" data-rpage="machine" id="rpage-machine" role="tabpanel" aria-labelledby="rtab-machine">
             <div class="rb-panel">
-              <button class="rb-btn" id="qb-cnc" title="Send to KaryaCNC (Alt+Q)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 12v4h14v-4M10 3v10M6.5 9.5 10 13l3.5-3.5" fill="none" stroke="currentColor"/></svg><span>Send&nbsp;CNC</span></button>
-              <button class="rb-btn" id="qb-cost" title="Estimasi biaya jasa cutting (Alt+C)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M12.6 7.4c-.5-.7-1.5-1.1-2.6-1.1-1.5 0-2.6.7-2.6 1.7 0 1 .9 1.4 2.6 1.7 1.9.3 2.8.8 2.8 1.9 0 1.1-1.2 1.8-2.8 1.8-1.2 0-2.2-.4-2.7-1.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M10 4.7v10.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><span>Cost</span></button>
+              <button class="rb-btn" id="qb-cnc" title="Send to KaryaCNC (Alt+Q)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 12v4h14v-4M10 3v10M6.5 9.5 10 13l3.5-3.5" fill="none" stroke="currentColor"/></svg><span data-i18n="btn.sendCnc">Send&nbsp;CNC</span></button>
+              <button class="rb-btn" id="qb-cost" title="Cutting cost estimator (Alt+C)"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M12.6 7.4c-.5-.7-1.5-1.1-2.6-1.1-1.5 0-2.6.7-2.6 1.7 0 1 .9 1.4 2.6 1.7 1.9.3 2.8.8 2.8 1.9 0 1.1-1.2 1.8-2.8 1.8-1.2 0-2.2-.4-2.7-1.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M10 4.7v10.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><span data-i18n="btn.cost">Cost</span></button>
             </div>
           </div>
         </div>
       </div>
+
+  <div class="prop-bar" id="prop-bar" role="toolbar" aria-label="Property bar">
+    <span class="pb-ctx-tag" id="pb-ctx-tag" data-i18n="pb.modeSelect">Canvas</span>
+    <span class="pb-sep" aria-hidden="true"></span>
+
+    <div class="pb-group hidden" id="pb-text">
+      <div class="pb-font-wrap" id="pb-font-wrap">
+        <input type="text" id="pb-font-box" class="pb-font-box" autocomplete="off" spellcheck="false" data-i18n-placeholder="pb.fontPlaceholder" data-i18n-title="pb.fontTitle" placeholder="Search fonts…" title="Font family (hover or use arrows to preview live on canvas)">
+        <button type="button" class="pb-font-drop" id="pb-font-drop" aria-label="Toggle font list" tabindex="-1">&#9662;</button>
+        <div class="pb-font-list" id="pb-font-list" hidden></div>
+      </div>
+      <select id="pb-text-weight" class="pb-select" data-i18n-title="pb.weightTitle" title="Font weight">
+        <option value="300">Light</option>
+        <option value="400" selected>Regular</option>
+        <option value="600">Semibold</option>
+        <option value="700">Bold</option>
+      </select>
+      <div class="pb-seg" role="group" aria-label="Text style">
+        <button type="button" class="pb-btn pb-icon-btn" id="pb-text-bold" aria-pressed="false" data-i18n-title="pb.boldTitle" title="Bold (Ctrl+B while typing)"><b>B</b></button>
+        <button type="button" class="pb-btn pb-icon-btn" id="pb-text-italic" aria-pressed="false" data-i18n-title="pb.italicTitle" title="Italic (Ctrl+I while typing)"><i>I</i></button>
+      </div>
+      <span class="pb-sep" aria-hidden="true"></span>
+      <label class="pb-field" data-i18n-title="pb.heightTitle" title="Text height (mm)">
+        <span data-i18n="pb.heightLabel">H</span>
+        <input type="text" id="pb-text-height" class="pb-num" inputmode="decimal" spellcheck="false" value="20">
+        <span class="pb-unit">mm</span>
+      </label>
+      <div class="pb-seg" role="group" aria-label="Text alignment">
+        <button type="button" class="pb-btn pb-icon-btn is-on" id="pb-align-left" data-pb-align="left" aria-pressed="true" data-i18n-title="pb.alignLTitle" title="Align left"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11M2.5 7h7.5M2.5 10.5h9.5M2.5 14h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+        <button type="button" class="pb-btn pb-icon-btn" id="pb-align-center" data-pb-align="center" aria-pressed="false" data-i18n-title="pb.alignCTitle" title="Align center"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11M4.2 7h7.6M3.2 10.5h9.6M5 14h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+        <button type="button" class="pb-btn pb-icon-btn" id="pb-align-right" data-pb-align="right" aria-pressed="false" data-i18n-title="pb.alignRTitle" title="Align right"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11M6 7h7.5M4 10.5h9.5M7.5 14h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+      </div>
+      <span class="pb-sep" aria-hidden="true"></span>
+      <label class="pb-field" data-i18n-title="pb.trackingTitle" title="Letter spacing (% of normal; 100 = normal)">
+        <span data-i18n="pb.trackingLabel">AV</span>
+        <input type="text" id="pb-text-tracking" class="pb-num pb-num-sm" inputmode="decimal" spellcheck="false" value="100">
+        <span class="pb-unit">%</span>
+      </label>
+      <label class="pb-field" data-i18n-title="pb.leadingTitle" title="Line height (% of font size; 125 = normal)">
+        <span data-i18n="pb.leadingLabel">&#8597;</span>
+        <input type="text" id="pb-text-leading" class="pb-num pb-num-sm" inputmode="decimal" spellcheck="false" value="125">
+        <span class="pb-unit">%</span>
+      </label>
+      <span class="pb-sep" aria-hidden="true"></span>
+      <button type="button" class="pb-btn" id="pb-text-curve" data-i18n="pb.toCurve" data-i18n-title="pb.toCurveTitle" title="Convert to editable curves / splines">&rarr; Curve</button>
+      <button type="button" class="pb-btn" id="pb-text-adv" data-i18n-title="pb.textAdvTitle" title="Advanced text options (outline tolerance, Fit Curve, System / Import fonts)">&#9881; <span data-i18n="pb.textAdv">Options</span></button>
+      <button type="button" class="pb-btn primary hidden" id="pb-text-done" data-i18n="pb.textDone" data-i18n-title="pb.textDoneTitle" title="Finish editing text (Esc or Ctrl+Enter)">Done</button>
+    </div>
+
+    <div class="pb-group hidden" id="pb-geom">
+      <div class="pb-geom-slot" id="pb-geom-slot"></div>
+      <span class="pb-sep pb-geom-act-sep" aria-hidden="true"></span>
+      <div class="pb-geom-actions" id="pb-geom-actions">
+        <button type="button" class="pb-btn" data-pb-quick="flip-x" data-i18n="btn.flipX" title="Flip horizontally">Flip X</button>
+        <button type="button" class="pb-btn" data-pb-quick="flip-y" data-i18n="btn.flipY" title="Flip vertically">Flip Y</button>
+        <button type="button" class="pb-btn" data-pb-quick="rot-ccw" data-i18n="btn.rotCcw" title="Rotate 90&deg; CCW">Rot &larr;</button>
+        <button type="button" class="pb-btn" data-pb-quick="rot-cw" data-i18n="btn.rotCw" title="Rotate 90&deg; CW">Rot &rarr;</button>
+        <button type="button" class="pb-btn hidden" id="pb-geom-curve" data-i18n="pb.toCurve" data-i18n-title="pb.toCurveTitle" title="Convert to editable curves / splines">&rarr; Curve</button>
+      </div>
+    </div>
+
+    <div class="pb-group" id="pb-idle">
+      <button type="button" class="pb-btn pb-toggle is-on" id="pb-tgl-grid" aria-pressed="true" data-i18n="pb.grid" title="Toggle grid (#)">Grid</button>
+      <button type="button" class="pb-btn pb-toggle is-on" id="pb-tgl-snap" aria-pressed="true" data-i18n="pb.snap" title="Toggle snap (Shift+5)">Snap</button>
+      <button type="button" class="pb-btn pb-toggle is-on" id="pb-tgl-dims" aria-pressed="true" data-i18n="pb.dims" title="Show dimensions">Dims</button>
+      <button type="button" class="pb-btn pb-toggle" id="pb-tgl-autodim" aria-pressed="false" data-i18n="pb.autoDim" title="Auto dimension while drafting (Alt+D)">Auto dim</button>
+    </div>
+  </div>
 
   <div class="workspace">
 
@@ -219,8 +285,9 @@
         <span class="wall-indicator-state" id="wall-indicator-state">ON</span>
       </div>
       <canvas id="canvas" tabindex="0" role="application" aria-label="Drawing canvas — arrow keys nudge the selection, Shift+F hides everything that is not selected (focus). Fit view is F; fit selection is 3. All drawing commands are also reachable from the ribbon and the menus."></canvas>
+      <textarea id="inline-text-input" class="inline-text-input" rows="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="On-canvas text input"></textarea>
 
-      <button type="button" class="stage-lth-toggle" id="tf-toggle-btn" aria-expanded="false" aria-controls="tf-strip" title="Tampilkan / sembunyikan ukuran L/T/W/H &amp; Wt/Z">
+      <button type="button" class="stage-lth-toggle" id="tf-toggle-btn" aria-expanded="false" aria-controls="tf-strip" title="Show / hide L/T/W/H &amp; Wt/Z size bar">
         <span class="lth-toggle-label" id="tf-toggle-label">L/T/W/H</span>
         <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.2 6 7.8l3.5-3.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
@@ -239,19 +306,19 @@
         </label>
         <label class="tf" title="Sort weight −100..100 (absolute, type the value as-is; higher = cut later in KaryaCNC, sent ×100). Empty = 0"><span>Wt</span><input id="tf-weight" type="text" inputmode="decimal" spellcheck="false" disabled></label>
         <label class="tf" title="Depth override in mm (Z, above 0): sent as p.depth so KaryaCNC cuts/etches/marks/pockets this depth instead of the machine default. Empty or 0 = machine default"><span>Z</span><input id="tf-depth" type="text" inputmode="decimal" spellcheck="false" disabled></label>
-        <button type="button" class="tf-close-btn" id="tf-close-btn" aria-label="Tutup bar ukuran" title="Tutup">&times;</button>
+        <button type="button" class="tf-close-btn" id="tf-close-btn" data-i18n-aria="dlg.tfClose" data-i18n-title="dlg.tfClose" aria-label="Close size bar" title="Close">&times;</button>
       </div>
 
       <div class="stage-left" id="stage-left">
       <div class="stage-left-panels" id="stage-left-panels">
       <div class="stage-edit" id="stage-edit">
-              <button class="rb-btn rb-mini rb-focus" id="qb-focus" aria-pressed="false" title="Fokus (Shift+F) — sembunyikan semua yang tidak dipilih; tekan lagi untuk menampilkan semua"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 10s3-4.5 7.5-4.5S17.5 10 17.5 10s-3 4.5-7.5 4.5S2.5 10 2.5 10z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.1" fill="currentColor"/></svg><span>Focus</span></button>
-              <button class="rb-btn rb-mini" id="qb-selectall" title="Select all (Ctrl+A)"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="10" height="10" fill="none" stroke="currentColor" stroke-dasharray="2.5 2"/><rect x="7" y="7" width="10" height="10" fill="currentColor" opacity="0.55"/></svg><span>All</span></button>
-              <button class="rb-btn rb-mini qb-act" id="qb-copy" title="Copy (Ctrl+C)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="9" height="9" rx="1" fill="none" stroke="currentColor"/><path d="M13 7V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h2" fill="none" stroke="currentColor"/></svg><span>Copy</span></button>
-              <button class="rb-btn rb-mini" id="qb-paste" title="Paste (Ctrl+V)"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="4" width="12" height="13" rx="1" fill="none" stroke="currentColor"/><path d="M7 4V2.5h6V4" fill="none" stroke="currentColor"/><path d="M7.5 10h5M7.5 13h5" stroke="currentColor"/></svg><span>Paste</span></button>
-              <button class="rb-btn rb-mini qb-act" id="qb-dup" title="Duplicate in place (Ctrl+D)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="6.5" width="9" height="9" rx="1" fill="none" stroke="currentColor"/><rect x="8.5" y="4.5" width="9" height="9" rx="1" fill="none" stroke="currentColor" stroke-dasharray="2 1.6"/></svg><span>Dup</span></button>
-              <button class="rb-btn rb-mini qb-act" id="qb-delete" title="Delete selection (Del)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 6h10l-.8 11H5.8z" fill="none" stroke="currentColor"/><path d="M3.5 6h13M8 4h4M8.5 9v5M11.5 9v5" stroke="currentColor"/></svg><span>Del</span></button>
-              <button class="rb-btn rb-mini qb-act" id="qb-samecolor" title="Select same colour: every object on the same layer(s) whose colour matches the selection"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="6.5" width="11" height="11" rx="1.5" fill="currentColor" opacity="0.85"/><rect x="7.5" y="2.5" width="10" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg><span>Same</span></button>
+              <button class="rb-btn rb-mini rb-focus" id="qb-focus" aria-pressed="false" data-i18n-title="dock.focusOffTitle" title="Focus (Shift+F) — hide unselected geometry"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 10s3-4.5 7.5-4.5S17.5 10 17.5 10s-3 4.5-7.5 4.5S2.5 10 2.5 10z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2.1" fill="currentColor"/></svg><span data-i18n="dock.focus">Focus</span></button>
+              <button class="rb-btn rb-mini" id="qb-selectall" title="Select all (Ctrl+A)"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="10" height="10" fill="none" stroke="currentColor" stroke-dasharray="2.5 2"/><rect x="7" y="7" width="10" height="10" fill="currentColor" opacity="0.55"/></svg><span data-i18n="dock.all">All</span></button>
+              <button class="rb-btn rb-mini qb-act" id="qb-copy" title="Copy (Ctrl+C)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="9" height="9" rx="1" fill="none" stroke="currentColor"/><path d="M13 7V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h2" fill="none" stroke="currentColor"/></svg><span data-i18n="dock.copy">Copy</span></button>
+              <button class="rb-btn rb-mini" id="qb-paste" title="Paste (Ctrl+V)"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="4" width="12" height="13" rx="1" fill="none" stroke="currentColor"/><path d="M7 4V2.5h6V4" fill="none" stroke="currentColor"/><path d="M7.5 10h5M7.5 13h5" stroke="currentColor"/></svg><span data-i18n="dock.paste">Paste</span></button>
+              <button class="rb-btn rb-mini qb-act" id="qb-dup" title="Duplicate in place (Ctrl+D)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="6.5" width="9" height="9" rx="1" fill="none" stroke="currentColor"/><rect x="8.5" y="4.5" width="9" height="9" rx="1" fill="none" stroke="currentColor" stroke-dasharray="2 1.6"/></svg><span data-i18n="dock.dup">Dup</span></button>
+              <button class="rb-btn rb-mini qb-act" id="qb-delete" title="Delete selection (Del)" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 6h10l-.8 11H5.8z" fill="none" stroke="currentColor"/><path d="M3.5 6h13M8 4h4M8.5 9v5M11.5 9v5" stroke="currentColor"/></svg><span data-i18n="dock.del">Del</span></button>
+              <button class="rb-btn rb-mini qb-act" id="qb-samecolor" title="Select same colour: every object on the same layer(s) whose colour matches the selection"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="6.5" width="11" height="11" rx="1.5" fill="currentColor" opacity="0.85"/><rect x="7.5" y="2.5" width="10" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg><span data-i18n="dock.same">Same</span></button>
               <div class="tf-toggle-wrapper">
                 <button type="button" class="rb-btn rb-mini toggle shift-toggle" data-toggle="shift" title="Shift (toggle)" aria-pressed="false">Shift</button>
                 <button type="button" class="rb-btn rb-mini toggle ctrl-toggle" data-toggle="ctrl" title="Ctrl (toggle)" aria-pressed="false">Ctrl</button>
@@ -259,11 +326,11 @@
               </div>
           </div>
       <div class="stage-layers" id="stage-layers" title="Layers &mdash; the active layer receives new geometry">
-        <div class="stage-layers-head">Layers</div>
-        <div class="mode-switch" id="mode-switch" role="group" aria-label="Mode pilih: F1 Move, F2 Node, F3 Junction">
-          <button type="button" class="mode-btn is-on" id="mode-f1" data-mode="select" aria-pressed="true" title="F1 · Select/Move — geser objek utuh (titik &amp; garis terkunci)">F1</button>
-          <button type="button" class="mode-btn" id="mode-f2" data-mode="node" aria-pressed="false" title="F2 · Node edit — titik &amp; garis bisa diedit">F2</button>
-          <button type="button" class="mode-btn" id="mode-f3" data-mode="junction" title="F3 · Pilih titik pertemuan (3+ garis)">F3</button>
+        <div class="stage-layers-head" data-i18n="dock.layers">Layers</div>
+        <div class="mode-switch" id="mode-switch" role="group" aria-label="Mode: F1 Move, F2 Node, F3 Junction">
+          <button type="button" class="mode-btn is-on" id="mode-f1" data-mode="select" aria-pressed="true" data-i18n-title="dock.f1Title" title="F1 · Select/Move — move whole objects (points &amp; lines locked)">F1</button>
+          <button type="button" class="mode-btn" id="mode-f2" data-mode="node" aria-pressed="false" data-i18n-title="dock.f2Title" title="F2 · Node edit — points &amp; lines editable">F2</button>
+          <button type="button" class="mode-btn" id="mode-f3" data-mode="junction" data-i18n-title="dock.f3Title" title="F3 · Select junction points (3+ segments)">F3</button>
         </div>
         <div class="pick-filter" id="pick-filter" title="Pick filter (Plasticity-style): Alt+1 / Alt+2 / Alt+3 toggle what the cursor may select. Dim = locked, the cursor ignores that kind.">
           <button type="button" class="pick-btn" id="pick-points" aria-pressed="true" title="Points selectable (Alt+1)"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.6"/></svg><span>1</span></button>
@@ -301,7 +368,7 @@
       <!-- Current file name: a caption under the colour strip, out of the way
            of the drawing (the app also runs inside the KaryaCNC tab, where
            there is no browser tab title to read). -->
-      <button type="button" class="stage-file" id="stage-file" title="File aktif &mdash; klik untuk Save (Ctrl+S)">
+      <button type="button" class="stage-file" id="stage-file" data-i18n-title="dlg.fileCaptionTitle" title="Active file — click to Save (Ctrl+S)">
         <span class="stage-file-dot" id="stage-file-dot" aria-hidden="true"></span>
         <span class="stage-file-name" id="stage-file-name">Untitled</span>
       </button>
@@ -338,11 +405,11 @@
 
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-drawer-head">
-        <span class="sidebar-drawer-title">Panels</span>
-        <button type="button" class="btn ghost icon sidebar-close-btn" id="btn-sidebar-close" aria-label="Tutup panel" title="Tutup panel">&times;</button>
+        <span class="sidebar-drawer-title" data-i18n="side.panels">Panels</span>
+        <button type="button" class="btn ghost icon sidebar-close-btn" id="btn-sidebar-close" data-i18n-aria="dlg.close" data-i18n-title="dlg.close" aria-label="Close" title="Close">&times;</button>
       </div>
       <details class="panel" id="chat-panel">
-        <summary class="panel-title">AI Chat <span class="count" id="chat-count">0</span></summary>
+        <summary class="panel-title"><span data-i18n="side.aiChat">AI Chat</span> <span class="count" id="chat-count">0</span></summary>
         <div class="panel-body">
           <div class="chat-tabs" role="tablist" aria-label="AI chat views">
             <button type="button" class="chat-tab is-on" role="tab" aria-selected="true" data-chat-tab="chat">Chat</button>
@@ -380,9 +447,9 @@
       </details>
 
       <details class="panel" id="selection-panel" open>
-        <summary class="panel-title">Selection</summary>
+        <summary class="panel-title" data-i18n="side.selection">Selection</summary>
         <div class="panel-body">
-          <div id="selection-info" class="selection-info">Nothing selected</div>
+          <div id="selection-info" class="selection-info" data-i18n="side.nothingSelected">Nothing selected</div>
           <div class="constraint-head hidden" id="constraint-block">
             <span>Constraints <span class="count" id="constraint-count">0</span></span>
             <span class="constraint-dof" id="constraint-dof" title="Degrees of freedom left in this selection"></span>
@@ -412,37 +479,37 @@
           </div>
           <ul class="list" id="constraint-list"></ul>
           <div class="row">
-            <button class="btn small" id="btn-name" title="Name the selection (Ctrl+N). A name is only a label: the geometry is not touched; leave it empty to clear">Name</button>
-            <button class="btn small" id="btn-to-curve" title="Convert the object TYPE to editable curves: circle/arc to Bézier, text to glyph outlines, group to its contours, array/clone to independent splines (master link severed). Already a line or spline? Use Ctrl+K (Fit curve) to reduce its nodes instead" disabled>&rarr; Curve</button>
-            <button class="btn small" id="btn-split-curve" title="Putus kurva: pilih run node berurutan (&ge;3) di satu kurva untuk melepas span itu jadi kurva terpisah yang bisa diganti warna; atau dua titik bertetangga untuk menjadikan segmen di antaranya line terpisah">&rarr; Split</button>
+            <button class="btn small" id="btn-name" data-i18n="side.name" title="Name the selection (Ctrl+N). A name is only a label: the geometry is not touched; leave it empty to clear">Name</button>
+            <button class="btn small" id="btn-to-curve" data-i18n="side.toCurve" title="Convert the object TYPE to editable curves: circle/arc to Bézier, text to glyph outlines, group to its contours, array/clone to independent splines (master link severed). Already a line or spline? Use Ctrl+K (Fit curve) to reduce its nodes instead" disabled>&rarr; Curve</button>
+            <button class="btn small" id="btn-split-curve" data-i18n="side.split" title="Split curve at selected nodes">&rarr; Split</button>
             <button class="btn small toggle" id="btn-group-select" aria-pressed="false" title="Group select: a click takes the whole group. Alt+click always does the opposite.">Group <i class="key">Alt</i></button>
-            <button class="btn small" id="btn-clean-loops" title="Re-detect loops & weld junctions (Shift+L): rebuilds loop detection with the Loop closure gap tolerance, then welds the doubled points at every loop junction into shared nodes">Cleanup loops</button>
-            <button class="btn small" id="btn-join-points" title="Join points: merge the selected points that touch (same spot). Uses a spatial index, so it stays fast even when the whole drawing is selected">Join points</button>
+            <button class="btn small" id="btn-clean-loops" data-i18n="side.cleanupLoops" title="Re-detect loops & weld junctions (Shift+L): rebuilds loop detection with the Loop closure gap tolerance, then welds the doubled points at every loop junction into shared nodes">Cleanup loops</button>
+            <button class="btn small" id="btn-join-points" data-i18n="side.joinPoints" title="Join points: merge the selected points that touch (same spot). Uses a spatial index, so it stays fast even when the whole drawing is selected">Join points</button>
           </div>
           <div class="sidebar-solver-row" id="sidebar-solver-row">
-            <button type="button" class="btn small" id="sidebar-solve-mode" title="Ganti mode solver (release → manual → live)">solver idle</button>
-            <button type="button" class="btn small" id="sidebar-solve-now" title="Jalankan constraint solver sekarang (F9)">Solve (F9)</button>
+            <button type="button" class="btn small" id="sidebar-solve-mode" title="Cycle solver mode (release → manual → live)">solver idle</button>
+            <button type="button" class="btn small" id="sidebar-solve-now" title="Run constraint solver now (F9)">Solve (F9)</button>
           </div>
         </div>
       </details>
 
       <details class="panel" id="tree-panel">
-        <summary class="panel-title">Object Tree <span class="count" id="tree-count">0</span></summary>
+        <summary class="panel-title"><span data-i18n="side.objectTree">Object Tree</span> <span class="count" id="tree-count">0</span></summary>
         <div class="panel-body">
-          <label class="opt" style="margin:2px 0 4px"><input type="checkbox" id="ot-current-layer" checked> Current layer only</label>
+          <label class="opt" style="margin:2px 0 4px"><input type="checkbox" id="ot-current-layer" checked> <span data-i18n="side.currentLayerOnly">Current layer only</span></label>
           <ul class="list object-tree" id="object-tree"></ul>
         </div>
       </details>
 
       <details class="panel" id="parts-panel">
-        <summary class="panel-title">Parts <span class="count" id="parts-count">0</span></summary>
+        <summary class="panel-title"><span data-i18n="side.parts">Parts</span> <span class="count" id="parts-count">0</span></summary>
         <div class="panel-body">
           <ul class="list" id="parts-list"></ul>
         </div>
       </details>
 
       <details class="panel" id="nest-panel">
-        <summary class="panel-title">Nesting <span class="count" id="nest-count">0</span></summary>
+        <summary class="panel-title"><span data-i18n="side.nesting">Nesting</span> <span class="count" id="nest-count">0</span></summary>
         <div class="panel-body">
           <div class="ngrid">
             <label class="field ngrid-full"><span>Quality</span>
@@ -479,12 +546,12 @@
       </details>
 
       <details class="panel" id="tools-panel">
-        <summary class="panel-title">Extensions <span class="count" id="ext-panel-count">0</span></summary>
+        <summary class="panel-title"><span data-i18n="side.extensions">Extensions</span> <span class="count" id="ext-panel-count">0</span></summary>
         <div class="panel-body">
           <div class="row" id="tools-row"></div>
           <div class="ext-panel-foot">
-            <button type="button" class="btn small" id="btn-ext-check-updates" title="Check installed extensions for updates from their saved sources">Check Updates</button>
-            <button type="button" class="btn small" id="btn-extensions" title="Manage installed extensions, browse Marketplace, or publish extensions">Marketplace&hellip;</button>
+            <button type="button" class="btn small" id="btn-ext-check-updates" data-i18n="side.checkUpdates" title="Check installed extensions for updates from their saved sources">Check Updates</button>
+            <button type="button" class="btn small" id="btn-extensions" data-i18n="side.marketplace" title="Manage installed extensions, browse Marketplace, or publish extensions">Marketplace&hellip;</button>
           </div>
         </div>
       </details>
@@ -498,66 +565,66 @@
 <input type="file" id="file-input" accept=".svg,.sketch,.json,application/json,.dxf,.pdf,.cdr,.ai,.eps" hidden>
 <div id="cost-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="cost-title">
   <div class="modal-box cost-box">
-    <h3 id="cost-title">Estimasi Biaya Cutting</h3>
+    <h3 id="cost-title" data-i18n="dlg.costTitle">Cutting Cost Estimator</h3>
     <div class="cnc-row">
-      <span class="cnc-label">Preset</span>
-      <select id="cost-preset" title="Preset bahan &amp; mesin (cost.txt)"></select>
+      <span class="cnc-label" data-i18n="dlg.costPreset">Preset</span>
+      <select id="cost-preset" title="Material &amp; machine preset (cost.txt)"></select>
     </div>
     <div class="cnc-row">
-      <span class="cnc-label">Nama bahan</span>
-      <input id="cost-name" type="text" spellcheck="false" title="Nama bahan — tersimpan ke preset saat Save">
+      <span class="cnc-label" data-i18n="dlg.costName">Material</span>
+      <input id="cost-name" type="text" spellcheck="false" title="Material name — saved to preset on Save">
     </div>
     <div class="cnc-row">
-      <span class="cnc-label">Harga bahan</span>
-      <input id="cost-mat" type="text" inputmode="decimal" spellcheck="false" title="Harga bahan per cm²">
+      <span class="cnc-label" data-i18n="dlg.costMat">Material price</span>
+      <input id="cost-mat" type="text" inputmode="decimal" spellcheck="false" title="Material price per cm²">
       <span class="cnc-unit">/cm²</span>
     </div>
     <div class="cnc-row">
-      <span class="cnc-label">Jasa cutting</span>
-      <input id="cost-rate" type="text" inputmode="decimal" spellcheck="false" title="Harga jasa mesin per menit potong">
-      <span class="cnc-unit">/menit</span>
+      <span class="cnc-label" data-i18n="dlg.costRate">Cutting rate</span>
+      <input id="cost-rate" type="text" inputmode="decimal" spellcheck="false" title="Machine cutting rate per minute">
+      <span class="cnc-unit">/min</span>
     </div>
     <div class="cnc-row">
-      <span class="cnc-label">Kecepatan potong</span>
-      <input id="cost-speed" type="text" inputmode="decimal" spellcheck="false" title="Kecepatan potong mesin">
+      <span class="cnc-label" data-i18n="dlg.costSpeed">Cut speed</span>
+      <input id="cost-speed" type="text" inputmode="decimal" spellcheck="false" title="Machine cutting speed">
       <span class="cnc-unit">mm/s</span>
     </div>
     <div class="cnc-row">
-      <span class="cnc-label">Pengulangan</span>
-      <input id="cost-repeats" type="text" inputmode="numeric" spellcheck="false" title="Berapa kali jalur potong dilalui">
+      <span class="cnc-label" data-i18n="dlg.costRepeats">Passes</span>
+      <input id="cost-repeats" type="text" inputmode="numeric" spellcheck="false" title="Number of cutting passes">
       <span class="cnc-unit">×</span>
     </div>
     <div class="cnc-row">
       <span class="cnc-label"></span>
-      <button class="btn small" id="cost-save" title="Simpan nilai di atas ke preset yang dipilih">Save ke preset</button>
+      <button class="btn small" id="cost-save" data-i18n="dlg.costSave" title="Save values above to the selected preset">Save to preset</button>
     </div>
     <div class="cnc-row">
       <span class="cnc-label">DPI</span>
-      <input id="cost-dpi" type="text" inputmode="numeric" spellcheck="false" value="200" title="Resolusi engrave — menentukan jumlah baris raster">
+      <input id="cost-dpi" type="text" inputmode="numeric" spellcheck="false" value="200" title="Engraving DPI resolution">
       <span class="cnc-unit">dpi</span>
     </div>
     <div class="cost-rows" id="cost-params"></div>
     <div class="cost-result" id="cost-result"></div>
     <div class="modal-actions">
-      <button class="btn small" id="cost-close">Close</button>
+      <button class="btn small" id="cost-close" data-i18n="dlg.close">Close</button>
     </div>
   </div>
 </div>
 <div id="svg-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="svg-title">
   <div class="modal-box">
-    <h3 id="svg-title">Export SVG</h3>
-    <label class="opt"><input type="checkbox" id="svg-only-selected"> Only selected objects</label>
-    <label class="opt"><input type="checkbox" id="svg-only-visible" checked> Only visible layers</label>
-    <label class="opt"><input type="checkbox" id="svg-only-active"> Only active layer</label>
+    <h3 id="svg-title" data-i18n="dlg.svgTitle">Export SVG</h3>
+    <label class="opt"><input type="checkbox" id="svg-only-selected"> <span data-i18n="dlg.svgSelected">Only selected objects</span></label>
+    <label class="opt"><input type="checkbox" id="svg-only-visible" checked> <span data-i18n="dlg.svgVisible">Only visible layers</span></label>
+    <label class="opt"><input type="checkbox" id="svg-only-active"> <span data-i18n="dlg.svgActive">Only active layer</span></label>
     <div class="modal-actions">
-      <button class="btn small" id="svg-cancel">Cancel</button>
-      <button class="btn small primary" id="svg-go">Export</button>
+      <button class="btn small" id="svg-cancel" data-i18n="dlg.cancel">Cancel</button>
+      <button class="btn small primary" id="svg-go" data-i18n="dlg.export">Export</button>
     </div>
   </div>
 </div>
 <div id="cnc-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="cnc-title">
   <div class="modal-box cnc-box">
-    <h3 id="cnc-title">Send to KaryaCNC</h3>
+    <h3 id="cnc-title" data-i18n="dlg.cncTitle">Send to KaryaCNC</h3>
     <div class="cnc-row">
       <span class="cnc-label">Server</span>
       <input id="cnc-host" type="text" spellcheck="false" placeholder="127.0.0.1 or last octet">
@@ -595,25 +662,25 @@
     <div class="cnc-legend" id="cnc-legend"></div>
     <div class="cnc-status" id="cnc-status">Ready</div>
     <div class="modal-actions">
-      <button class="btn small" id="cnc-cancel">Close</button>
-      <button class="btn small primary" id="cnc-send">Send</button>
+      <button class="btn small" id="cnc-cancel" data-i18n="dlg.close">Close</button>
+      <button class="btn small primary" id="cnc-send" data-i18n="dlg.send">Send</button>
     </div>
   </div>
 </div>
 <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
   <div class="settings-box">
     <div class="settings-head">
-      <h2 id="settings-title">Settings</h2>
-      <button class="btn small" id="settings-close">Close</button>
+      <h2 id="settings-title" data-i18n="dlg.settingsTitle">Settings</h2>
+      <button class="btn small" id="settings-close" data-i18n="dlg.close">Close</button>
     </div>
-    <p class="settings-lead">Klik nama grup untuk membukanya. Keterangan tiap pengaturan muncul sebagai tooltip saat kolomnya difokuskan. Toleransi dalam milimeter; nilai diingat per browser.</p>
+    <p class="settings-lead" data-i18n="dlg.settingsLead">Click a group header to expand it. Hover or focus any field for details. Tolerances are in millimetres and saved per browser.</p>
     <div class="settings-search-row">
-      <input id="settings-search" type="text" placeholder="Cari pengaturan… (mis. offset, snap, curve)" autocomplete="off" spellcheck="false" aria-label="Cari pengaturan">
+      <input id="settings-search" type="text" data-i18n-placeholder="dlg.settingsSearch" placeholder="Search settings… (e.g. offset, snap, curve, frame)" autocomplete="off" spellcheck="false" aria-label="Search settings">
     </div>
     <div class="settings-groups" id="settings-groups"></div>
     <div class="modal-actions">
-      <button class="btn small" id="settings-reset">Reset defaults</button>
-      <button class="btn small primary" id="settings-apply">Apply</button>
+      <button class="btn small" id="settings-reset" data-i18n="dlg.settingsReset">Reset defaults</button>
+      <button class="btn small primary" id="settings-apply" data-i18n="dlg.apply">Apply</button>
     </div>
   </div>
 </div>
@@ -793,7 +860,7 @@
         <button type="button" class="btn small is-on" data-help-lang="en">English</button>
         <button type="button" class="btn small" data-help-lang="id">Bahasa Indonesia</button>
       </div>
-      <button type="button" class="btn small" id="help-open-docs" title="Buka buku panduan lengkap per fitur (dokumentasi HTML)">Panduan lengkap&hellip;</button>
+      <button type="button" class="btn small" id="help-open-docs" data-i18n="dlg.helpFullDocs" title="Open full feature guide (HTML documentation)">Full guide&hellip;</button>
     </div>
     <div class="help-body" id="help-body">
       <div class="help-pane" data-help-pane="en">
@@ -803,7 +870,7 @@
       <!-- help content lives in help.js -->
     </div>
     <div class="modal-actions">
-      <button class="btn small" id="help-close">Close</button>
+      <button class="btn small" id="help-close" data-i18n="dlg.close">Close</button>
     </div>
   </div>
 </div>
@@ -811,39 +878,39 @@
 <div id="docs-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="docs-title">
   <div class="modal-box docs-box">
     <div class="docs-head">
-      <h3 id="docs-title">Dokumentasi MiniSketch</h3>
+      <h3 id="docs-title" data-i18n="dlg.docsTitle">MiniSketch Documentation</h3>
       <div class="docs-actions">
-        <button type="button" class="btn small" id="docs-open-tab" title="Buka dokumentasi di tab browser baru">Buka di tab baru</button>
-        <button class="btn small" id="docs-close">Close</button>
+        <button type="button" class="btn small" id="docs-open-tab" data-i18n="dlg.docsOpenTab" title="Open documentation in a new browser tab">Open in new tab</button>
+        <button class="btn small" id="docs-close" data-i18n="dlg.close">Close</button>
       </div>
     </div>
     <!-- src diatur openDocsModal() agar tautan per topik bisa dibuka langsung -->
-    <iframe id="docs-frame" src="docs/index.html" title="Dokumentasi MiniSketch"></iframe>
+    <iframe id="docs-frame" src="docs/index.html" title="MiniSketch Documentation"></iframe>
   </div>
 </div>
 <div id="text-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="text-title">
   <div class="modal-box text-box">
-    <h3 id="text-title">Text</h3>
+    <h3 id="text-title" data-i18n="dlg.textTitle">Text Options</h3>
     <div class="cnc-row text-row-stack">
-      <span class="cnc-label">Content</span>
+      <span class="cnc-label" data-i18n="dlg.textContent">Content</span>
       <textarea id="text-value" rows="3" spellcheck="false"></textarea>
     </div>
     <div class="cnc-row font-row">
-      <span class="cnc-label">Font</span>
+      <span class="cnc-label" data-i18n="dlg.textFont">Font</span>
       <select id="text-font" hidden></select>
       <div class="font-actions">
         <label class="font-pick-sys" title="Include the fonts installed on this computer in the list"><input type="checkbox" id="font-pick-system" checked> System</label>
-        <button class="btn small" id="text-system-fonts" title="List the fonts installed on this computer (Windows fonts) — Chromium asks for permission once, then a chosen family's real font file is read on demand. Chrome / Edge only">System fonts&hellip;</button>
-        <button class="btn small" id="text-import" title="Add a font file (.ttf / .otf / .woff) from disk — it is stored in this browser and shows up under Imported">Import font&hellip;</button>
+        <button class="btn small" id="text-system-fonts" data-i18n="dlg.systemFonts" title="List the fonts installed on this computer (Windows fonts) — Chromium asks for permission once, then a chosen family's real font file is read on demand. Chrome / Edge only">System fonts&hellip;</button>
+        <button class="btn small" id="text-import" data-i18n="dlg.importFont" title="Add a font file (.ttf / .otf / .woff) from disk — it is stored in this browser and shows up under Imported">Import font&hellip;</button>
         <input type="file" id="text-font-input" accept=".ttf,.otf,.woff,.woff2" multiple hidden>
       </div>
       <div class="font-pick" id="font-pick">
-        <input type="text" id="font-pick-box" autocomplete="off" spellcheck="false" placeholder="Type to filter fonts">
+        <input type="text" id="font-pick-box" autocomplete="off" spellcheck="false" data-i18n-placeholder="pb.fontPlaceholder" placeholder="Search fonts…">
         <div class="font-pick-list" id="font-pick-list" hidden></div>
       </div>
     </div>
     <div class="cnc-row">
-      <span class="cnc-label">Style</span>
+      <span class="cnc-label" data-i18n="dlg.textStyle">Style</span>
       <select id="text-weight">
         <option value="300">Light</option>
         <option value="400">Regular</option>
@@ -861,31 +928,31 @@
       </select>
     </div>
     <div class="cnc-row text-num-row">
-      <span class="cnc-label">Height</span>
+      <span class="cnc-label" data-i18n="dlg.textHeight">Height</span>
       <input id="text-height" class="num" type="text" inputmode="decimal" spellcheck="false" value="20">
       <span class="cnc-unit">mm</span>
-      <span class="cnc-label">Line</span>
+      <span class="cnc-label" data-i18n="dlg.textLine">Line</span>
       <input id="text-leading" class="num" type="text" inputmode="decimal" spellcheck="false" value="125" title="Line height, % of the font size (125 = normal)">
       <span class="cnc-unit">%</span>
-      <span class="cnc-label">Letter</span>
+      <span class="cnc-label" data-i18n="dlg.textLetter">Letter</span>
       <input id="text-tracking" class="num" type="text" inputmode="decimal" spellcheck="false" value="100" title="Letter spacing, % of normal (100 = normal; lower tightens until letters overlap — handy for Text weld)">
       <span class="cnc-unit">%</span>
     </div>
     <div class="cnc-row">
-      <span class="cnc-label">Detail</span>
+      <span class="cnc-label" data-i18n="dlg.textDetail">Detail</span>
       <input id="text-tol" class="num" type="text" inputmode="decimal" spellcheck="false" value="0.08" title="Outline accuracy in mm (0.08 default; larger = fewer points)">
       <span class="cnc-unit">mm</span>
-      <label class="opt" title="With Fit real curves on, &#8594; Curve rebuilds the glyphs as a few real Bezier curves; with it off you get one straight line per contour segment instead."><input type="checkbox" id="text-fitcurve" checked> Fit real curves on &#8594; Curve</label>
+      <label class="opt" title="With Fit real curves on, &#8594; Curve rebuilds the glyphs as a few real Bezier curves; with it off you get one straight line per contour segment instead."><input type="checkbox" id="text-fitcurve" checked> <span data-i18n="dlg.textFitCurve">Fit real curves on &rarr; Curve</span></label>
     </div>
     <div class="cnc-row text-row-stack">
-      <span class="cnc-label">Preview</span>
+      <span class="cnc-label" data-i18n="dlg.textPreview">Preview</span>
       <canvas id="text-preview" width="440" height="132"></canvas>
     </div>
-    <div class="cnc-status">Double-click the text to edit. Dimension the green handles to size it. Single-line fonts send open strokes for engraving.</div>
+    <div class="cnc-status" data-i18n="dlg.textStatus">Tip: click canvas with Text (T) or double-click any text to type directly on canvas. Single-line fonts send open strokes for engraving.</div>
     <div class="modal-actions">
-      <button class="btn small" id="text-curve" title="Replace the text object with editable geometry — closed curves per glyph outline, or open splines per stroke for a Single-line font">&#8594; Curve</button>
-      <button class="btn small" id="text-cancel">Cancel</button>
-      <button class="btn small primary" id="text-apply">Apply</button>
+      <button class="btn small" id="text-curve" data-i18n="pb.toCurve" title="Replace the text object with editable geometry — closed curves per glyph outline, or open splines per stroke for a Single-line font">&rarr; Curve</button>
+      <button class="btn small" id="text-cancel" data-i18n="dlg.cancel">Cancel</button>
+      <button class="btn small primary" id="text-apply" data-i18n="dlg.apply">Apply</button>
     </div>
   </div>
 </div>
@@ -1117,6 +1184,7 @@
 <script src="ai/ui-strings.js"></script>
 <script src="ai/prompt.js"></script>
 <script src="ai/chat.js"></script>
+<script src="ui-i18n.js"></script>
 <script src="core.js"></script>
 <script src="app.js"></script>
 </body>

@@ -1413,6 +1413,8 @@
     { group: 'Renderer', key: 'loopFillScale', label: 'Loop fill resolution', unit: '%',
       def: '50', choices: [['100', '100'], ['75', '75'], ['50', '50'], ['33', '33']],
       help: 'Resolution of the offscreen loop-fill layer relative to the canvas. Fills are flat solid areas, so 50% renders a quarter of the fill pixels and is visually indistinguishable — this is the cheapest dial for drag speed (the loop fill is the biggest pass). Strokes/markers are unaffected.' },
+    { group: 'Renderer', key: 'showFrameTiming', label: 'Show frame timing', unit: '', bool: true, def: false,
+      help: 'Show per-frame render & draw milliseconds in the bottom status bar (developer performance diagnostic).' },
     { group: 'Geometry', key: 'bakeJoinTol', label: 'Chain tolerance', unit: 'mm',
       def: 0.1, min: 0.001, max: 5, step: 0.01,
       help: 'Ends closer than this become one node when grouping (Ctrl+G) or offsetting (Ctrl+J).' },
@@ -1857,6 +1859,11 @@
     if (cnc) cnc.tol = settings.cncFlatten;
     // the text tracer caches by raster size, so drop it whenever it changes
     if (textTraceCache && textTraceCache.clear) textTraceCache.clear();
+    const frameEl = document.getElementById('status-frame');
+    const frameSepEl = document.getElementById('status-frame-sep');
+    const showFT = !!settings.showFrameTiming;
+    if (frameEl) frameEl.classList.toggle('hidden', !showFT);
+    if (frameSepEl) frameSepEl.classList.toggle('hidden', !showFT);
     syncWallIndicator();
     invalidateLoops();
     if (W > 1) resize();   // pick up the new canvas quality and repaint
@@ -2830,6 +2837,9 @@
       toast('Apply or cancel the transform first');
       return;
     }
+    if (ui.inlineText && tool !== 'text') {
+      commitInlineText();
+    }
     if (ui.tool === 'transform' && tool !== 'transform') {
       ui.transform.pivot = null;
       ui.transform.frame = 0;
@@ -2944,6 +2954,18 @@
     }
     if (ui.tool === 'transform') {
       canvas.style.cursor = ui.drag && ui.drag.kind && ui.drag.kind.indexOf('xf') === 0 ? 'grabbing' : 'default';
+      return;
+    }
+    if (ui.inlineText) {
+      const ie = state.entities[ui.inlineText.id];
+      const gg = ie && ie.type === 'text' ? textGeom(ie) : null;
+      if (gg && ui.raw && textInBox(ui.raw, gg)) {
+        canvas.style.cursor = 'text';
+        return;
+      }
+    }
+    if (ui.tool === 'text') {
+      canvas.style.cursor = 'text';
       return;
     }
     if (ui.tool === 'select' || ui.tool === 'dragwall') {
@@ -6878,6 +6900,16 @@
   // 10- shifts relative to the current value (see evalFormula). Warns when
   // there is no selection instead of focusing a dead field.
   function focusFrameStrip() {
+    const pbGeom = document.getElementById('pb-geom');
+    const pbText = document.getElementById('pb-text');
+    if (pbGeom && pbGeom.classList.contains('hidden') && pbText && !pbText.classList.contains('hidden')) {
+      const th = document.getElementById('pb-text-height');
+      if (th && !th.disabled) {
+        th.focus();
+        th.select();
+        return;
+      }
+    }
     updateTransformPanel(true);
     const l = document.getElementById('tf-left');
     if (!l || l.disabled) {
@@ -21246,6 +21278,12 @@
     return false;
   }
 
+  function uiT(key, fallback) {
+    return (window.MiniSketchI18n && window.MiniSketchI18n.t)
+      ? window.MiniSketchI18n.t(key, fallback)
+      : fallback;
+  }
+
   const HELP_LANG_KEY = 'minisketch.help.lang';
 
   // Two languages, same content: the switch only shows one pane at a time and the
@@ -21658,18 +21696,47 @@
   async function applyTextEditor() {
     const ed = ui.textEdit;
     if (!ed) return;
-    const e = state.entities[ed.id];
-    if (!e || e.type !== 'text') {
-      closeTextEditor();
-      return;
-    }
-    const val = document.getElementById('text-value');
     const fontEl = document.getElementById('text-font');
     const weightEl = document.getElementById('text-weight');
     const italicEl = document.getElementById('text-italic');
     const trackEl = document.getElementById('text-tracking');
     const leadEl = document.getElementById('text-leading');
     const alignEl = document.getElementById('text-align');
+    if (ed.styleOnly) {
+      const family0 = fontEl ? fontEl.value : TEXT_DEFAULT_FONT;
+      const single0 = HERSHEY_FAMILIES.includes(family0);
+      const applyBtn0 = document.querySelector('#text-modal .modal-actions .btn.primary');
+      const wt0 = weightEl ? +weightEl.value || 400 : 400;
+      const it0 = !!(italicEl && italicEl.value === '1');
+      if (!single0) await ensureFontLoaded(family0, applyBtn0, wt0, it0 ? 'italic' : 'normal');
+      const tr0 = textTrackingFromPct(trackEl ? trackEl.value : 100);
+      const ldRaw0 = leadEl ? parseFloat(leadEl.value) : 125;
+      const ld0 = isFinite(ldRaw0) ? clamp(ldRaw0, 50, 400) : 125;
+      const al0 = alignEl && ['left', 'center', 'right'].includes(alignEl.value) ? alignEl.value : 'left';
+      saveTextStyle({ font: family0, weight: wt0, italic: it0, tracking: tr0, leading: ld0, align: al0 });
+      const tolEl0 = document.getElementById('text-tol');
+      if (tolEl0) {
+        const t0 = parseFloat(tolEl0.value);
+        if (isFinite(t0)) { settings.textTol = clamp(t0, 0.01, 1); applySettings(); saveSettings(); }
+      }
+      const fitEl0 = document.getElementById('text-fitcurve');
+      if (fitEl0) saveTextFit(!!fitEl0.checked);
+      const hEl0 = document.getElementById('text-height');
+      if (hEl0) {
+        const hv0 = parseFloat(hEl0.value);
+        if (isFinite(hv0) && hv0 > 0) saveTextHeight(clamp(hv0, 0.5, 500));
+      }
+      closeTextEditor();
+      updatePropertyBar();
+      render();
+      return;
+    }
+    const e = state.entities[ed.id];
+    if (!e || e.type !== 'text') {
+      closeTextEditor();
+      return;
+    }
+    const val = document.getElementById('text-value');
     const text = val ? val.value.replace(/\r/g, '') : e.text;
     if (!String(text).trim()) {
       toast('Text cannot be empty');
@@ -21722,10 +21789,1196 @@
     // workspace, hits, saves and undoes as one step back to the pre-text state
     delete e._draft;
     attachTextGuides(e);
+    syncTextFrameWidth(e);
     ensureTextAspect(e);
     requestSolve();
     commit();
     closeTextEditor();
+  }
+
+  // ---- On-Canvas Inline Text Engine & Contextual Property Bar -------------
+  let inlineTextBlinkTimer = null;
+
+  function textCurrentHeightMm(e) {
+    if (!e) return loadTextHeight();
+    const p0 = P(e.p0), ph = P(e.ph);
+    if (p0 && ph) {
+      const d = Math.hypot(ph.x - p0.x, ph.y - p0.y);
+      if (d > 1e-6) return d;
+    }
+    return loadTextHeight();
+  }
+
+  // Keep pw positioned at p0 + unit(A) * (|B| * nativeRatio) whenever width is
+  // not separately dimensioned, so typing characters expands the frame cleanly
+  // to the right without solver jitter on p0.
+  function syncTextFrameWidth(e) {
+    if (!e || e.type !== 'text') return;
+    if (textDimCount(e.id) >= 2) return;
+    const p0 = P(e.p0), pw = P(e.pw), ph = P(e.ph);
+    if (!p0 || !pw || !ph) return;
+    const h = Math.hypot(ph.x - p0.x, ph.y - p0.y);
+    if (!(h > 1e-6)) return;
+    const ratio = Math.max(0.05, textNativeRatio(e) || 1);
+    const targetW = h * ratio;
+    const ax = pw.x - p0.x, ay = pw.y - p0.y;
+    const aw = Math.hypot(ax, ay);
+    let ux = 1, uy = 0;
+    if (aw > 1e-6) {
+      ux = ax / aw;
+      uy = ay / aw;
+    } else {
+      const bx = ph.x - p0.x, by = ph.y - p0.y;
+      const bw = Math.hypot(bx, by);
+      if (bw > 1e-6) { ux = by / bw; uy = -bx / bw; }
+    }
+    pw.x = p0.x + ux * targetW;
+    pw.y = p0.y + uy * targetW;
+  }
+
+  function selectedTextEntities() {
+    if (ui.inlineText) {
+      const ie = state.entities[ui.inlineText.id];
+      if (ie && ie.type === 'text') return [ie];
+    }
+    return selectedEntities().filter(e => e.type === 'text');
+  }
+
+  function textLineCharOffsets(e, m, lineIdx) {
+    const lines = (m && m.lines) ? m.lines : String(e.text == null ? '' : e.text).split('\n');
+    const line = lines[clamp(lineIdx, 0, Math.max(0, lines.length - 1))] || '';
+    const n = line.length;
+    const xs = new Array(n + 1);
+    const totalW = m ? m.width : TEXT_REF;
+    if (isSingleLineFont(e)) {
+      const trackPx = textTrackingPx(e, TEXT_REF);
+      const lh = m ? m.lineHeight : textLineHeightPx(e, TEXT_REF);
+      const fullW = (n && window.MiniSketchHershey)
+        ? window.MiniSketchHershey.layout(line, TEXT_REF, lh, 'left', trackPx).width
+        : 0;
+      const x0 = e.align === 'center' ? Math.max(0, (totalW - fullW) / 2)
+        : (e.align === 'right' ? Math.max(0, totalW - fullW) : 0);
+      xs[0] = x0;
+      for (let k = 1; k <= n; k++) {
+        const w = window.MiniSketchHershey
+          ? window.MiniSketchHershey.layout(line.slice(0, k), TEXT_REF, lh, 'left', trackPx).width
+          : k * TEXT_REF * 0.55;
+        xs[k] = x0 + w;
+      }
+      return xs;
+    }
+    ctx.save();
+    ctx.font = textStyleString(e, TEXT_REF);
+    if ('letterSpacing' in ctx) ctx.letterSpacing = textTrackingPx(e, TEXT_REF) + 'px';
+    const fullW = n ? ctx.measureText(line).width : 0;
+    const x0 = e.align === 'center' ? Math.max(0, (totalW - fullW) / 2)
+      : (e.align === 'right' ? Math.max(0, totalW - fullW) : 0);
+    xs[0] = x0;
+    for (let k = 1; k <= n; k++) {
+      xs[k] = x0 + ctx.measureText(line.slice(0, k)).width;
+    }
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+    ctx.restore();
+    return xs;
+  }
+
+  function textIndexToLineCol(text, idx) {
+    const s = String(text == null ? '' : text);
+    const lines = s.split('\n');
+    const clamped = clamp(idx, 0, s.length);
+    let pos = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const len = lines[i].length;
+      if (clamped <= pos + len || i === lines.length - 1) {
+        return { lineIdx: i, col: clamp(clamped - pos, 0, len), lineStart: pos, lines };
+      }
+      pos += len + 1;
+    }
+    return { lineIdx: 0, col: 0, lineStart: 0, lines };
+  }
+
+  function textWorldToCharIndex(e, world) {
+    const gg = textGeom(e);
+    if (!gg || !world) return String(e.text || '').length;
+    const m = textMetricsOf(e) || {
+      width: TEXT_REF, height: TEXT_REF, ascent: TEXT_REF * 0.8,
+      lineHeight: textLineHeightPx(e, TEXT_REF),
+      lines: String(e.text == null ? '' : e.text).split('\n')
+    };
+    const det = gg.A.x * gg.B.y - gg.A.y * gg.B.x;
+    if (Math.abs(det) < 1e-12) return String(e.text || '').length;
+    const mx = world.x - gg.p0.x;
+    const my = world.y - gg.p0.y;
+    const u = (mx * gg.B.y - my * gg.B.x) / det;
+    const v = (gg.A.x * my - gg.A.y * mx) / det;
+    const lx = u * m.width;
+    const ly = v * m.height;
+    const lines = m.lines;
+    const lineIdx = clamp(Math.floor(ly / Math.max(1, m.lineHeight)), 0, lines.length - 1);
+    const xs = textLineCharOffsets(e, m, lineIdx);
+    let bestCol = 0;
+    let bestD = Infinity;
+    for (let k = 0; k < xs.length; k++) {
+      const d = Math.abs(xs[k] - lx);
+      if (d < bestD) { bestD = d; bestCol = k; }
+    }
+    let startOffset = 0;
+    for (let i = 0; i < lineIdx; i++) startOffset += lines[i].length + 1;
+    return startOffset + bestCol;
+  }
+
+  function positionInlineTextInput(e) {
+    const inp = document.getElementById('inline-text-input');
+    if (!inp || !e) return;
+    const gg = textGeom(e);
+    if (!gg) return;
+    const s = w2s(gg.p0.x, gg.p0.y);
+    inp.style.left = clamp(Math.round(s.x), 0, Math.max(0, W - 4)) + 'px';
+    inp.style.top = clamp(Math.round(s.y), 0, Math.max(0, H - 4)) + 'px';
+  }
+
+  function focusInlineTextInput(opts) {
+    const inp = document.getElementById('inline-text-input');
+    const st = ui.inlineText;
+    if (!inp || !st) return;
+    const e = state.entities[st.id];
+    if (!e || e.type !== 'text') return;
+    positionInlineTextInput(e);
+    if (inp.value !== (e.text || '')) inp.value = e.text || '';
+    try { inp.focus({ preventScroll: true }); } catch (err) { inp.focus(); }
+    if (opts && opts.selectAll) {
+      st.selStart = 0;
+      st.selEnd = inp.value.length;
+      inp.setSelectionRange(0, inp.value.length);
+    } else if (opts && typeof opts.index === 'number') {
+      const k = clamp(opts.index, 0, inp.value.length);
+      st.selStart = k;
+      st.selEnd = k;
+      inp.setSelectionRange(k, k);
+    } else if (opts && opts.keepSel) {
+      const a = clamp(st.selStart || 0, 0, inp.value.length);
+      const b = clamp(st.selEnd != null ? st.selEnd : a, 0, inp.value.length);
+      inp.setSelectionRange(Math.min(a, b), Math.max(a, b));
+    }
+  }
+
+  function stopInlineTextRaw() {
+    if (inlineTextBlinkTimer) {
+      clearInterval(inlineTextBlinkTimer);
+      inlineTextBlinkTimer = null;
+    }
+    ui.inlineText = null;
+    const inp = document.getElementById('inline-text-input');
+    if (inp && document.activeElement === inp) inp.blur();
+  }
+
+  function textStateSig(e) {
+    if (!e) return '';
+    return JSON.stringify({
+      text: e.text || '',
+      font: e.font || '',
+      weight: e.weight || 400,
+      italic: !!e.italic,
+      tracking: e.tracking || 0,
+      leading: textLeadingOf(e),
+      align: e.align || 'left',
+      h: Math.round(textCurrentHeightMm(e) * 1000) / 1000
+    });
+  }
+
+  function startInlineText(id, opts) {
+    const e = state.entities[id];
+    if (!e || e.type !== 'text') return;
+    if (ui.inlineText && +ui.inlineText.id !== +id) {
+      commitInlineText();
+    }
+    fillTextFonts(e.font || TEXT_DEFAULT_FONT);
+    const isNew = !!(opts && opts.isNew);
+    if (!isNew && (!ui.inlineText || +ui.inlineText.id !== +id)) {
+      pushHistory();
+    }
+    const origSig = textStateSig(e);
+    const txt = String(e.text == null ? '' : e.text);
+    let initIdx = txt.length;
+    if (opts && opts.clickWorld && txt.length > 0) {
+      initIdx = textWorldToCharIndex(e, opts.clickWorld);
+    }
+    ui.inlineText = {
+      id: +id,
+      isNew,
+      origSig,
+      selStart: initIdx,
+      selEnd: initIdx,
+      blinkAt: performance.now()
+    };
+    ui.selection = [{ kind: 'entity', id: +id }];
+    if (!isSingleLineFont(e) && window.MiniSketchFonts) {
+      const wantW = e.weight || 400;
+      const wantS = e.italic ? 'italic' : 'normal';
+      if (!window.MiniSketchFonts.registered(e.font || TEXT_DEFAULT_FONT, wantW, wantS)) {
+        window.MiniSketchFonts.load(e.font || TEXT_DEFAULT_FONT, wantW, wantS).then((ok) => {
+          if (!ok) return;
+          const cur = state.entities[id];
+          if (cur && cur.type === 'text') {
+            syncTextFrameWidth(cur);
+            ensureTextAspect(cur);
+            invalidateLoops();
+            render();
+          }
+        }).catch(() => {});
+      }
+    }
+    if (inlineTextBlinkTimer) clearInterval(inlineTextBlinkTimer);
+    inlineTextBlinkTimer = setInterval(() => {
+      if (!ui.inlineText) {
+        clearInterval(inlineTextBlinkTimer);
+        inlineTextBlinkTimer = null;
+        return;
+      }
+      scheduleRender();
+    }, 530);
+    const focusOpts = (opts && opts.clickWorld && txt.length > 0)
+      ? { index: initIdx }
+      : { index: txt.length };
+    focusInlineTextInput(focusOpts);
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => {
+        if (ui.inlineText && +ui.inlineText.id === +id) focusInlineTextInput({ keepSel: true });
+      });
+    }
+    updateUI();
+    render();
+  }
+
+  function syncInlineTextFromInput() {
+    const st = ui.inlineText;
+    const inp = document.getElementById('inline-text-input');
+    if (!st || !inp) return;
+    const e = state.entities[st.id];
+    if (!e || e.type !== 'text') {
+      stopInlineTextRaw();
+      return;
+    }
+    const nextText = inp.value.replace(/\r/g, '');
+    st.selStart = inp.selectionStart != null ? inp.selectionStart : nextText.length;
+    st.selEnd = inp.selectionEnd != null ? inp.selectionEnd : st.selStart;
+    st.blinkAt = performance.now();
+    if (e.text !== nextText) {
+      e.text = nextText;
+      syncTextFrameWidth(e);
+      ensureTextAspect(e);
+      bumpGeometry();
+      invalidateLoops();
+    }
+    render();
+  }
+
+  function commitInlineText(opts) {
+    const st = ui.inlineText;
+    if (!st) return;
+    const cancel = !!(opts && opts.cancel);
+    const e = state.entities[st.id];
+    stopInlineTextRaw();
+    if (!e || e.type !== 'text') {
+      updateUI();
+      render();
+      return;
+    }
+    if (cancel) {
+      if (st.isNew) {
+        discardNewText(st.id);
+      } else {
+        const prev = history.pop();
+        if (prev) applySnapshot(prev);
+        updateHistoryButtons();
+        invalidateLoops();
+        scheduleSave();
+        updateUI();
+        render();
+      }
+      return;
+    }
+    const trimmed = String(e.text == null ? '' : e.text).trim();
+    if (!trimmed) {
+      if (st.isNew) {
+        discardNewText(st.id);
+      } else {
+        removeEntity(st.id);
+        cleanupPoints();
+        ui.selection = [];
+        invalidateLoops();
+        commit();
+      }
+      return;
+    }
+    delete e._draft;
+    attachTextGuides(e);
+    syncTextFrameWidth(e);
+    ensureTextAspect(e);
+    saveTextStyle({
+      font: e.font || TEXT_DEFAULT_FONT,
+      weight: e.weight || 400,
+      italic: !!e.italic,
+      tracking: e.tracking || 0,
+      leading: textLeadingOf(e),
+      align: e.align || 'left'
+    });
+    if (!st.isNew && textStateSig(e) === st.origSig) {
+      history.pop();
+      updateHistoryButtons();
+      updateUI();
+      render();
+      return;
+    }
+    requestSolve();
+    commit();
+    updateUI();
+    render();
+  }
+
+  function drawInlineTextOverlay() {
+    const st = ui.inlineText;
+    if (!st) return;
+    const e = state.entities[st.id];
+    if (!e || e.type !== 'text') {
+      stopInlineTextRaw();
+      return;
+    }
+    positionInlineTextInput(e);
+    const gg = textGeom(e);
+    if (!gg) return;
+    const m = textMetricsOf(e) || {
+      width: TEXT_REF, height: TEXT_REF, ascent: TEXT_REF * 0.8,
+      lineHeight: textLineHeightPx(e, TEXT_REF),
+      lines: String(e.text == null ? '' : e.text).split('\n')
+    };
+    const o = w2s(gg.p0.x, gg.p0.y);
+    const zx = view.zoom / m.width;
+    const zy = view.zoom / m.height;
+
+    // 1. Editing frame & subtle corner handles in screen space
+    const corners = [
+      gg.p0,
+      gg.pw,
+      { x: gg.p0.x + gg.A.x + gg.B.x, y: gg.p0.y + gg.A.y + gg.B.y },
+      gg.ph
+    ].map(q => w2s(q.x, q.y));
+    ctx.save();
+    ctx.strokeStyle = '#2563eb';
+    ctx.lineWidth = 1.25;
+    ctx.setLineDash([5, 3]);
+    ctx.beginPath();
+    ctx.moveTo(corners[0].x, corners[0].y);
+    for (let i = 1; i < corners.length; i++) ctx.lineTo(corners[i].x, corners[i].y);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#2563eb';
+    for (const c of corners) {
+      ctx.fillRect(c.x - 2.5, c.y - 2.5, 5, 5);
+    }
+    ctx.restore();
+
+    // 2. Selection highlight & blinking caret inside local affine text frame
+    ctx.save();
+    ctx.translate(o.x, o.y);
+    ctx.transform(gg.A.x * zx, gg.A.y * zx, gg.B.x * zy, gg.B.y * zy, 0, 0);
+    const scaleX = Math.hypot(gg.A.x * zx, gg.A.y * zx) || 1;
+    const desc = Math.max(TEXT_REF * 0.16, m.height - m.ascent - m.lineHeight * (m.lines.length - 1));
+    const bandH = m.ascent + desc * 0.85;
+    const txt = String(e.text == null ? '' : e.text);
+    const a = Math.min(st.selStart || 0, st.selEnd != null ? st.selEnd : (st.selStart || 0));
+    const b = Math.max(st.selStart || 0, st.selEnd != null ? st.selEnd : (st.selStart || 0));
+
+    if (b > a) {
+      ctx.fillStyle = 'rgba(37, 99, 235, 0.24)';
+      let lineStart = 0;
+      for (let li = 0; li < m.lines.length; li++) {
+        const lineStr = m.lines[li];
+        const lineEnd = lineStart + lineStr.length;
+        const ov0 = Math.max(a, lineStart);
+        const ov1 = Math.min(b, lineEnd);
+        if (ov1 > ov0 || (a <= lineStart && b > lineEnd)) {
+          const xs = textLineCharOffsets(e, m, li);
+          const x0 = xs[clamp(ov0 - lineStart, 0, lineStr.length)];
+          const x1 = ov1 > ov0
+            ? xs[clamp(ov1 - lineStart, 0, lineStr.length)]
+            : x0 + TEXT_REF * 0.25;
+          ctx.fillRect(x0, li * m.lineHeight + TEXT_REF * 0.04, Math.max(2 / scaleX, x1 - x0), bandH);
+        }
+        lineStart = lineEnd + 1;
+      }
+    } else {
+      const blinkOn = ((performance.now() - (st.blinkAt || 0)) % 1060) < 560;
+      if (blinkOn) {
+        const lc = textIndexToLineCol(txt, a);
+        const xs = textLineCharOffsets(e, m, lc.lineIdx);
+        const cx = xs[clamp(lc.col, 0, xs.length - 1)] || 0;
+        const yTop = lc.lineIdx * m.lineHeight + TEXT_REF * 0.04;
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 2 / Math.max(1e-6, scaleX);
+        ctx.beginPath();
+        ctx.moveTo(cx, yTop);
+        ctx.lineTo(cx, yTop + bandH);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  // ---- Contextual Property Bar Controller ---------------------------------
+  let pbBound = false;
+  let pbFontKb = -1;
+  let pbFontOrig = null;
+
+  function syncTfStripMount() {
+    const strip = document.getElementById('tf-strip');
+    const slot = document.getElementById('pb-geom-slot');
+    const stg = document.getElementById('stage');
+    const toggleBtn = document.getElementById('tf-toggle-btn');
+    if (!strip || !slot || !stg) return;
+    const isDesktop = window.innerWidth > 900;
+    if (isDesktop) {
+      if (strip.parentElement !== slot) {
+        slot.appendChild(strip);
+      }
+      strip.classList.add('in-prop-bar');
+      strip.classList.remove('lth-open');
+      if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+    } else {
+      if (strip.parentElement !== stg) {
+        if (toggleBtn && toggleBtn.nextSibling) {
+          stg.insertBefore(strip, toggleBtn.nextSibling);
+        } else {
+          stg.appendChild(strip);
+        }
+      }
+      strip.classList.remove('in-prop-bar');
+    }
+  }
+
+  function pbActiveTextStyle() {
+    const texts = selectedTextEntities();
+    if (texts.length) {
+      const e = texts[0];
+      return {
+        entity: e,
+        entities: texts,
+        font: e.font || TEXT_DEFAULT_FONT,
+        weight: e.weight || 400,
+        italic: !!e.italic,
+        trackingPct: (e.tracking || 0) + 100,
+        leading: textLeadingOf(e),
+        align: e.align || 'left',
+        height: textCurrentHeightMm(e)
+      };
+    }
+    const def = loadTextStyle();
+    return {
+      entity: null,
+      entities: [],
+      font: def.font || TEXT_DEFAULT_FONT,
+      weight: def.weight || 400,
+      italic: !!def.italic,
+      trackingPct: (def.tracking || 0) + 100,
+      leading: textStyleLeading(def.leading),
+      align: textStyleAlign(def.align),
+      height: loadTextHeight()
+    };
+  }
+
+  function applyPbTextMutation(mutator, saveDefault) {
+    const texts = selectedTextEntities();
+    if (texts.length) {
+      const inlineActive = !!ui.inlineText;
+      if (!inlineActive) pushHistory();
+      for (const e of texts) {
+        mutator(e);
+        syncTextFrameWidth(e);
+        ensureTextAspect(e);
+      }
+      const first = texts[0];
+      if (saveDefault !== false) {
+        saveTextStyle({
+          font: first.font || TEXT_DEFAULT_FONT,
+          weight: first.weight || 400,
+          italic: !!first.italic,
+          tracking: first.tracking || 0,
+          leading: textLeadingOf(first),
+          align: first.align || 'left'
+        });
+      }
+      if (inlineActive) {
+        bumpGeometry();
+        invalidateLoops();
+        render();
+        updatePropertyBar();
+      } else {
+        requestSolve();
+        commit();
+      }
+      return;
+    }
+    const cur = loadTextStyle();
+    const dummy = {
+      font: cur.font || TEXT_DEFAULT_FONT,
+      weight: cur.weight || 400,
+      italic: !!cur.italic,
+      tracking: cur.tracking || 0,
+      leading: textStyleLeading(cur.leading),
+      align: textStyleAlign(cur.align)
+    };
+    mutator(dummy);
+    saveTextStyle(dummy);
+    updatePropertyBar();
+  }
+
+  function pbFontVisibleRows() {
+    let sel = document.getElementById('text-font');
+    if (sel && !sel.options.length) fillTextFonts();
+    sel = document.getElementById('text-font');
+    if (!sel) return [];
+    const box = document.getElementById('pb-font-box');
+    const q = (box && box.dataset.filtering === '1' ? box.value : '').trim().toLowerCase();
+    const curStyle = pbActiveTextStyle();
+    const current = pbFontOrig || curStyle.font;
+    const rows = [];
+    let seenCurrent = false;
+    for (const node of sel.children) {
+      const isGroup = node.tagName === 'OPTGROUP';
+      const group = isGroup ? (node.label || '') : '';
+      const opts = isGroup ? node.querySelectorAll('option') : [node];
+      for (const o of opts) {
+        const v = o.value || o.textContent;
+        if (v === current) seenCurrent = true;
+        if (q && v.toLowerCase().indexOf(q) < 0) continue;
+        rows.push({ group, value: v, fav: fontFavIs(v), single: HERSHEY_FAMILIES.includes(v) });
+      }
+    }
+    if (current && !seenCurrent && (!q || current.toLowerCase().indexOf(q) >= 0)) {
+      rows.unshift({ group: '', value: current, pinned: true, fav: fontFavIs(current), single: HERSHEY_FAMILIES.includes(current) });
+    }
+    const pinned = rows.filter(r => r.pinned);
+    const favs = rows.filter(r => !r.pinned && r.fav);
+    const rest = rows.filter(r => !r.pinned && !r.fav);
+    const out = pinned.slice();
+    if (favs.length) {
+      for (const f of favs) out.push({ group: uiT('pb.favGroup', 'Favorites'), value: f.value, fav: true, single: f.single });
+    }
+    for (const r of rest) out.push(r);
+    return out;
+  }
+
+  function pbFontPosition() {
+    const list = document.getElementById('pb-font-list');
+    const wrap = document.getElementById('pb-font-wrap');
+    if (!list || list.hidden || !wrap) return;
+    const r = wrap.getBoundingClientRect();
+    list.style.width = Math.max(r.width, 260) + 'px';
+    list.style.top = Math.round(r.bottom + 4) + 'px';
+    list.style.left = Math.round(Math.min(r.left, Math.max(4, window.innerWidth - 270))) + 'px';
+  }
+
+  function pbFontPreviewOnCanvas(family) {
+    const texts = selectedTextEntities();
+    if (!texts.length || !family) return;
+    const single = HERSHEY_FAMILIES.includes(family);
+    const applyPreview = () => {
+      for (const e of texts) {
+        e.font = family;
+        e.single = single;
+        syncTextFrameWidth(e);
+        ensureTextAspect(e);
+      }
+      bumpGeometry();
+      invalidateLoops();
+      render();
+    };
+    if (!single && window.MiniSketchFonts) {
+      const w = texts[0].weight || 400;
+      const st = texts[0].italic ? 'italic' : 'normal';
+      if (!window.MiniSketchFonts.registered(family, w, st)) {
+        window.MiniSketchFonts.load(family, w, st).then((ok) => {
+          if (ok && pbFontOrig != null) applyPreview();
+        }).catch(() => {});
+      }
+    }
+    applyPreview();
+  }
+
+  function pbFontRestorePreview() {
+    if (pbFontOrig == null) return;
+    const orig = pbFontOrig;
+    pbFontOrig = null;
+    const texts = selectedTextEntities();
+    if (texts.length) {
+      const single = HERSHEY_FAMILIES.includes(orig);
+      for (const e of texts) {
+        e.font = orig;
+        e.single = single;
+        syncTextFrameWidth(e);
+        ensureTextAspect(e);
+      }
+      bumpGeometry();
+      invalidateLoops();
+      render();
+    }
+  }
+
+  function pbFontRender() {
+    const list = document.getElementById('pb-font-list');
+    if (!list || list.hidden) return;
+    const rows = pbFontVisibleRows();
+    const curFont = pbFontOrig || pbActiveTextStyle().font;
+    const curIdx = rows.findIndex(r => r.value === curFont);
+    if (pbFontKb < 0 || pbFontKb >= rows.length) pbFontKb = curIdx >= 0 ? curIdx : (rows.length ? 0 : -1);
+    list.innerHTML = '';
+    let lastGroup = null;
+    let shown = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (shown >= FONT_PICK_MAX_ROWS) {
+        const more = document.createElement('div');
+        more.className = 'font-pick-empty';
+        more.textContent = '+' + (rows.length - shown) + ' ' + uiT('pb.moreFonts', 'more — keep typing');
+        list.appendChild(more);
+        break;
+      }
+      shown++;
+      if ((r.group || '') !== lastGroup) {
+        lastGroup = r.group || '';
+        const head = document.createElement('div');
+        head.className = 'font-pick-head';
+        head.textContent = r.pinned ? uiT('pb.currentGroup', 'Current') : (lastGroup || 'Fonts');
+        list.appendChild(head);
+      }
+      const row = document.createElement('div');
+      row.className = 'font-pick-row' +
+        (r.value === curFont ? ' active' : '') +
+        (i === pbFontKb ? ' kb' : '');
+      row.title = r.value;
+      const star = document.createElement('span');
+      star.className = 'font-pick-star' + (r.fav ? ' on' : '');
+      star.textContent = r.fav ? '\u2605' : '\u2606';
+      star.addEventListener('mousedown', (ev) => ev.preventDefault());
+      star.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        fontFavToggle(r.value);
+        pbFontRender();
+      });
+      row.appendChild(star);
+      const label = document.createElement('span');
+      label.className = 'font-pick-name';
+      label.textContent = r.value;
+      row.appendChild(label);
+      if (r.single) {
+        const badge = document.createElement('span');
+        badge.className = 'pb-font-badge';
+        badge.textContent = uiT('pb.singleLineBadge', '1-line');
+        row.appendChild(badge);
+      }
+      row.addEventListener('mouseenter', () => {
+        pbFontPreviewOnCanvas(r.value);
+      });
+      row.addEventListener('mousedown', (ev) => ev.preventDefault());
+      row.addEventListener('click', () => pbFontChoose(r.value));
+      list.appendChild(row);
+    }
+    if (!rows.length) {
+      const empty = document.createElement('div');
+      empty.className = 'font-pick-empty';
+      empty.textContent = uiT('pb.noFontMatch', 'No font matches');
+      list.appendChild(empty);
+    }
+  }
+
+  function pbFontOpen(open, restoreOnCancel) {
+    const list = document.getElementById('pb-font-list');
+    const box = document.getElementById('pb-font-box');
+    if (!list) return;
+    if (open) {
+      fillTextFonts(pbActiveTextStyle().font);
+      if (pbFontOrig == null) pbFontOrig = pbActiveTextStyle().font;
+      if (box) {
+        box.dataset.filtering = '0';
+        box.select();
+      }
+      pbFontKb = -1;
+      list.hidden = false;
+      pbFontRender();
+      pbFontPosition();
+    } else {
+      if (restoreOnCancel) pbFontRestorePreview();
+      else pbFontOrig = null;
+      list.hidden = true;
+      pbFontKb = -1;
+      if (box) {
+        box.dataset.filtering = '0';
+        box.value = pbActiveTextStyle().font;
+      }
+    }
+  }
+
+  async function pbFontChoose(family) {
+    if (!family) return;
+    const orig = pbFontOrig;
+    pbFontRestorePreview();
+    pbFontOpen(false, false);
+    const single = HERSHEY_FAMILIES.includes(family);
+    const cur = pbActiveTextStyle();
+    if (!single) {
+      await ensureFontLoaded(family, null, cur.weight || 400, cur.italic ? 'italic' : 'normal');
+    }
+    if (orig !== family || cur.font !== family) {
+      applyPbTextMutation((e) => {
+        e.font = family;
+        e.single = single;
+      });
+    }
+    const sel = document.getElementById('text-font');
+    if (sel) setTextFontValue(sel, family);
+    if (ui.inlineText) focusInlineTextInput({ keepSel: true });
+  }
+
+  function updatePropertyBar() {
+    syncTfStripMount();
+    const bar = document.getElementById('prop-bar');
+    if (!bar) return;
+    const tagEl = document.getElementById('pb-ctx-tag');
+    const grpText = document.getElementById('pb-text');
+    const grpGeom = document.getElementById('pb-geom');
+    const grpIdle = document.getElementById('pb-idle');
+
+    const selEnts = selectedEntities();
+    const selTexts = selectedTextEntities();
+    const onlyTextSelected = selTexts.length > 0 && selEnts.every(e => e.type === 'text');
+    const isTextContext = !!ui.inlineText || ui.tool === 'text' || onlyTextSelected;
+    const hasBounds = !isTextContext && !!selectionBounds();
+
+    if (grpText) grpText.classList.toggle('hidden', !isTextContext);
+    if (grpGeom) grpGeom.classList.toggle('hidden', !hasBounds);
+    if (grpIdle) grpIdle.classList.toggle('hidden', isTextContext || hasBounds);
+
+    if (tagEl) {
+      if (ui.inlineText) tagEl.textContent = uiT('pb.modeTextEditing', 'Editing text');
+      else if (isTextContext) tagEl.textContent = uiT('pb.modeText', 'Text');
+      else if (hasBounds) tagEl.textContent = uiT('pb.modeGeom', 'Bounds');
+      else tagEl.textContent = uiT('pb.modeSelect', 'Canvas');
+    }
+
+    if (isTextContext) {
+      const st = pbActiveTextStyle();
+      const fontBox = document.getElementById('pb-font-box');
+      const fontList = document.getElementById('pb-font-list');
+      if (fontBox && document.activeElement !== fontBox && (!fontList || fontList.hidden)) {
+        fontBox.value = st.font;
+      }
+      const wtSel = document.getElementById('pb-text-weight');
+      if (wtSel && document.activeElement !== wtSel) {
+        wtSel.value = String(st.weight || 400);
+      }
+      const boldBtn = document.getElementById('pb-text-bold');
+      if (boldBtn) {
+        const isB = (+st.weight || 400) >= 600;
+        boldBtn.classList.toggle('is-on', isB);
+        boldBtn.setAttribute('aria-pressed', isB ? 'true' : 'false');
+      }
+      const itBtn = document.getElementById('pb-text-italic');
+      if (itBtn) {
+        itBtn.classList.toggle('is-on', !!st.italic);
+        itBtn.setAttribute('aria-pressed', st.italic ? 'true' : 'false');
+      }
+      const hInp = document.getElementById('pb-text-height');
+      if (hInp && document.activeElement !== hInp) {
+        hInp.value = fmt(st.height);
+      }
+      for (const aBtn of document.querySelectorAll('[data-pb-align]')) {
+        const on = aBtn.getAttribute('data-pb-align') === st.align;
+        aBtn.classList.toggle('is-on', on);
+        aBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      }
+      const trInp = document.getElementById('pb-text-tracking');
+      if (trInp && document.activeElement !== trInp) {
+        trInp.value = fmt(st.trackingPct);
+      }
+      const ldInp = document.getElementById('pb-text-leading');
+      if (ldInp && document.activeElement !== ldInp) {
+        ldInp.value = fmt(st.leading);
+      }
+      const curveBtn = document.getElementById('pb-text-curve');
+      if (curveBtn) {
+        const hasRealText = selTexts.some(e => String(e.text || '').trim().length > 0);
+        curveBtn.disabled = !hasRealText;
+      }
+      const doneBtn = document.getElementById('pb-text-done');
+      if (doneBtn) {
+        doneBtn.classList.toggle('hidden', !ui.inlineText);
+      }
+      return;
+    }
+
+    if (hasBounds) {
+      updateTransformPanel();
+      const geomCurve = document.getElementById('pb-geom-curve');
+      if (geomCurve) {
+        const canCurve = selEnts.some(e => e.type === 'circle' || e.type === 'arc' ||
+          e.type === 'text' || e.type === 'art' || e.type === 'array');
+        geomCurve.classList.toggle('hidden', !canCurve);
+      }
+      return;
+    }
+
+    const pbGrid = document.getElementById('pb-tgl-grid');
+    if (pbGrid) {
+      pbGrid.classList.toggle('is-on', !!ui.showGrid);
+      pbGrid.setAttribute('aria-pressed', ui.showGrid ? 'true' : 'false');
+    }
+    const pbSnap = document.getElementById('pb-tgl-snap');
+    if (pbSnap) {
+      pbSnap.classList.toggle('is-on', !!ui.snap);
+      pbSnap.setAttribute('aria-pressed', ui.snap ? 'true' : 'false');
+    }
+    const pbDims = document.getElementById('pb-tgl-dims');
+    if (pbDims) {
+      pbDims.classList.toggle('is-on', !!ui.showAnnots);
+      pbDims.setAttribute('aria-pressed', ui.showAnnots ? 'true' : 'false');
+    }
+    const pbAutoDim = document.getElementById('pb-tgl-autodim');
+    if (pbAutoDim) {
+      const adOn = settings.autoDimension !== 'off';
+      pbAutoDim.classList.toggle('is-on', adOn);
+      pbAutoDim.setAttribute('aria-pressed', adOn ? 'true' : 'false');
+    }
+  }
+
+  function openAdvancedTextOptions() {
+    if (ui.inlineText) {
+      const id = ui.inlineText.id;
+      const wasNew = !!ui.inlineText.isNew;
+      const e = state.entities[id];
+      stopInlineTextRaw();
+      if (e && e.type === 'text') {
+        if (!String(e.text || '').trim()) e.text = 'Text';
+        openTextEditor(id, wasNew);
+        return;
+      }
+    }
+    const texts = selectedTextEntities();
+    if (texts.length) {
+      openTextEditor(texts[0].id, false);
+      return;
+    }
+    fillTextFonts();
+    const def = loadTextStyle();
+    ui.textEdit = { styleOnly: true };
+    const modal = document.getElementById('text-modal');
+    if (!modal) return;
+    const val = document.getElementById('text-value');
+    if (val) val.value = 'Sample Text';
+    const font = document.getElementById('text-font');
+    if (font) setTextFontValue(font, def.font || TEXT_DEFAULT_FONT);
+    const weight = document.getElementById('text-weight');
+    if (weight) weight.value = String(def.weight || 400);
+    const italic = document.getElementById('text-italic');
+    if (italic) italic.value = def.italic ? '1' : '0';
+    const track = document.getElementById('text-tracking');
+    if (track) track.value = fmt((def.tracking || 0) + 100);
+    const lead = document.getElementById('text-leading');
+    if (lead) lead.value = fmt(textStyleLeading(def.leading));
+    const align = document.getElementById('text-align');
+    if (align) align.value = textStyleAlign(def.align);
+    const tol = document.getElementById('text-tol');
+    if (tol) tol.value = fmt(TEXT_TOL_MM);
+    const fitEl = document.getElementById('text-fitcurve');
+    if (fitEl) fitEl.checked = loadTextFit();
+    const hEl = document.getElementById('text-height');
+    if (hEl) hEl.value = fmt(loadTextHeight());
+    modal.classList.remove('hidden');
+    renderTextPreview();
+  }
+
+  function initPropertyBar() {
+    if (pbBound) return;
+    pbBound = true;
+    syncTfStripMount();
+    window.addEventListener('resize', () => {
+      syncTfStripMount();
+      pbFontPosition();
+    });
+
+    const inlineInp = document.getElementById('inline-text-input');
+    if (inlineInp) {
+      inlineInp.addEventListener('input', syncInlineTextFromInput);
+      inlineInp.addEventListener('keyup', () => {
+        if (!ui.inlineText) return;
+        ui.inlineText.selStart = inlineInp.selectionStart || 0;
+        ui.inlineText.selEnd = inlineInp.selectionEnd != null ? inlineInp.selectionEnd : ui.inlineText.selStart;
+        ui.inlineText.blinkAt = performance.now();
+        render();
+      });
+    }
+
+    const fontWrap = document.getElementById('pb-font-wrap');
+    const fontBox = document.getElementById('pb-font-box');
+    const fontDrop = document.getElementById('pb-font-drop');
+    const fontList = document.getElementById('pb-font-list');
+    if (fontBox && fontWrap && fontList) {
+      fontBox.addEventListener('click', () => {
+        if (fontList.hidden) pbFontOpen(true);
+      });
+      fontBox.addEventListener('input', () => {
+        fontBox.dataset.filtering = '1';
+        pbFontKb = -1;
+        if (fontList.hidden) {
+          if (pbFontOrig == null) pbFontOrig = pbActiveTextStyle().font;
+          fontList.hidden = false;
+          pbFontPosition();
+        }
+        pbFontRender();
+      });
+      fontBox.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape') {
+          ev.preventDefault();
+          ev.stopPropagation();
+          pbFontOpen(false, true);
+          if (ui.inlineText) focusInlineTextInput({ keepSel: true });
+          else fontBox.blur();
+          return;
+        }
+        const rows = pbFontVisibleRows();
+        if (!rows.length) return;
+        pbFontKb = Math.min(pbFontKb, rows.length - 1);
+        if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+          ev.preventDefault();
+          if (fontList.hidden) pbFontOpen(true);
+          const delta = ev.key === 'ArrowDown' ? 1 : -1;
+          pbFontKb = pbFontKb < 0
+            ? (delta > 0 ? 0 : rows.length - 1)
+            : Math.max(0, Math.min(rows.length - 1, pbFontKb + delta));
+          pbFontRender();
+          const picked = rows[pbFontKb];
+          if (picked) pbFontPreviewOnCanvas(picked.value);
+          const kbEl = fontList.querySelector('.font-pick-row.kb');
+          if (kbEl) kbEl.scrollIntoView({ block: 'nearest' });
+          return;
+        }
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          const picked = rows[pbFontKb];
+          if (picked) pbFontChoose(picked.value);
+        }
+      });
+      if (fontDrop) {
+        fontDrop.addEventListener('mousedown', (ev) => ev.preventDefault());
+        fontDrop.addEventListener('click', () => {
+          if (fontList.hidden) {
+            pbFontOpen(true);
+            fontBox.focus();
+          } else {
+            pbFontOpen(false, true);
+            if (ui.inlineText) focusInlineTextInput({ keepSel: true });
+          }
+        });
+      }
+      fontList.addEventListener('mouseleave', () => {
+        if (pbFontOrig != null) {
+          const orig = pbFontOrig;
+          pbFontPreviewOnCanvas(orig);
+        }
+      });
+      document.addEventListener('pointerdown', (ev) => {
+        if (fontList.hidden) return;
+        if (fontWrap.contains(ev.target) || fontList.contains(ev.target)) return;
+        pbFontOpen(false, true);
+      });
+    }
+
+    const wtSel = document.getElementById('pb-text-weight');
+    if (wtSel) {
+      wtSel.addEventListener('change', async () => {
+        const w = +wtSel.value || 400;
+        const st = pbActiveTextStyle();
+        if (!HERSHEY_FAMILIES.includes(st.font)) {
+          await ensureFontLoaded(st.font, null, w, st.italic ? 'italic' : 'normal');
+        }
+        applyPbTextMutation((e) => { e.weight = w; });
+        if (ui.inlineText) focusInlineTextInput({ keepSel: true });
+      });
+    }
+
+    const boldBtn = document.getElementById('pb-text-bold');
+    if (boldBtn) {
+      boldBtn.addEventListener('mousedown', (ev) => ev.preventDefault());
+      boldBtn.addEventListener('click', async () => {
+        const st = pbActiveTextStyle();
+        const nextW = (+st.weight || 400) >= 600 ? 400 : 700;
+        if (!HERSHEY_FAMILIES.includes(st.font)) {
+          await ensureFontLoaded(st.font, null, nextW, st.italic ? 'italic' : 'normal');
+        }
+        applyPbTextMutation((e) => { e.weight = nextW; });
+        if (ui.inlineText) focusInlineTextInput({ keepSel: true });
+      });
+    }
+
+    const itBtn = document.getElementById('pb-text-italic');
+    if (itBtn) {
+      itBtn.addEventListener('mousedown', (ev) => ev.preventDefault());
+      itBtn.addEventListener('click', async () => {
+        const st = pbActiveTextStyle();
+        const nextIt = !st.italic;
+        if (!HERSHEY_FAMILIES.includes(st.font)) {
+          await ensureFontLoaded(st.font, null, st.weight || 400, nextIt ? 'italic' : 'normal');
+        }
+        applyPbTextMutation((e) => { e.italic = nextIt; });
+        if (ui.inlineText) focusInlineTextInput({ keepSel: true });
+      });
+    }
+
+    for (const aBtn of document.querySelectorAll('[data-pb-align]')) {
+      aBtn.addEventListener('mousedown', (ev) => ev.preventDefault());
+      aBtn.addEventListener('click', () => {
+        const al = aBtn.getAttribute('data-pb-align') || 'left';
+        applyPbTextMutation((e) => { e.align = al; });
+        if (ui.inlineText) focusInlineTextInput({ keepSel: true });
+      });
+    }
+
+    const bindPbNum = (id, applyVal) => {
+      const inp = document.getElementById(id);
+      if (!inp) return;
+      const commitVal = (refocusCanvas) => {
+        applyVal(inp.value);
+        updatePropertyBar();
+        if (refocusCanvas && ui.inlineText) focusInlineTextInput({ keepSel: true });
+      };
+      inp.addEventListener('change', () => commitVal(false));
+      inp.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          commitVal(true);
+        } else if (ev.key === 'Escape') {
+          ev.preventDefault();
+          updatePropertyBar();
+          if (ui.inlineText) focusInlineTextInput({ keepSel: true });
+          else inp.blur();
+        }
+      });
+    };
+
+    bindPbNum('pb-text-height', (raw) => {
+      const curH = pbActiveTextStyle().height;
+      const v = evalFormula(raw, curH);
+      if (!isFinite(v) || v <= 0) return;
+      const hMm = clamp(v, 0.5, 500);
+      saveTextHeight(hMm);
+      const texts = selectedTextEntities();
+      if (!texts.length) return;
+      const inlineActive = !!ui.inlineText;
+      if (!inlineActive) pushHistory();
+      for (const e of texts) {
+        applyTextHeightDimension(e, hMm);
+        syncTextFrameWidth(e);
+        ensureTextAspect(e);
+      }
+      if (inlineActive) {
+        bumpGeometry();
+        invalidateLoops();
+        render();
+      } else {
+        requestSolve();
+        commit();
+      }
+    });
+
+    bindPbNum('pb-text-tracking', (raw) => {
+      const curPct = pbActiveTextStyle().trackingPct;
+      const v = evalFormula(raw, curPct);
+      if (!isFinite(v)) return;
+      const tr = textTrackingFromPct(v);
+      applyPbTextMutation((e) => { e.tracking = tr; });
+    });
+
+    bindPbNum('pb-text-leading', (raw) => {
+      const curLd = pbActiveTextStyle().leading;
+      const v = evalFormula(raw, curLd);
+      if (!isFinite(v)) return;
+      const ld = clamp(v, 50, 400);
+      applyPbTextMutation((e) => { e.leading = ld; });
+    });
+
+    const pbTextCurve = document.getElementById('pb-text-curve');
+    if (pbTextCurve) {
+      pbTextCurve.addEventListener('click', () => {
+        const targetId = ui.inlineText ? ui.inlineText.id : null;
+        if (ui.inlineText) commitInlineText();
+        if (targetId != null && state.entities[targetId]) {
+          ui.selection = [{ kind: 'entity', id: targetId }];
+        }
+        cmdConvertToCurve();
+        updateUI();
+        render();
+      });
+    }
+
+    const pbTextAdv = document.getElementById('pb-text-adv');
+    if (pbTextAdv) {
+      pbTextAdv.addEventListener('click', openAdvancedTextOptions);
+    }
+
+    const pbTextDone = document.getElementById('pb-text-done');
+    if (pbTextDone) {
+      pbTextDone.addEventListener('click', () => commitInlineText());
+    }
+
+    for (const qBtn of document.querySelectorAll('[data-pb-quick]')) {
+      qBtn.addEventListener('click', () => {
+        const act = qBtn.getAttribute('data-pb-quick');
+        if (act === 'flip-x') quickFlip('x');
+        else if (act === 'flip-y') quickFlip('y');
+        else if (act === 'rot-ccw') quickRotate(90);
+        else if (act === 'rot-cw') quickRotate(-90);
+      });
+    }
+
+    const pbGeomCurve = document.getElementById('pb-geom-curve');
+    if (pbGeomCurve) {
+      pbGeomCurve.addEventListener('click', () => {
+        cmdConvertToCurve();
+        updateUI();
+        render();
+      });
+    }
+
+    const pbGrid = document.getElementById('pb-tgl-grid');
+    if (pbGrid) pbGrid.addEventListener('click', () => {
+      ui.showGrid = !ui.showGrid;
+      syncViewToggles();
+      updatePropertyBar();
+      render();
+    });
+    const pbSnap = document.getElementById('pb-tgl-snap');
+    if (pbSnap) pbSnap.addEventListener('click', () => {
+      ui.snap = !ui.snap;
+      syncViewToggles();
+      updateUI();
+      render();
+    });
+    const pbDims = document.getElementById('pb-tgl-dims');
+    if (pbDims) pbDims.addEventListener('click', () => {
+      ui.showAnnots = !ui.showAnnots;
+      syncViewToggles();
+      updatePropertyBar();
+      render();
+    });
+    const pbAutoDim = document.getElementById('pb-tgl-autodim');
+    if (pbAutoDim) pbAutoDim.addEventListener('click', () => {
+      settings.autoDimension = settings.autoDimension === 'off' ? 'on' : 'off';
+      saveSettings();
+      syncViewToggles();
+      updatePropertyBar();
+    });
+
+    updatePropertyBar();
   }
 
   // per-epoch grouping cache for drawEntities (see above). guideIdCache holds
@@ -24801,6 +26054,7 @@
         : (ui.raw && (ui.draft || !isSelectLikeTool())) ? snapFor(ui.tool, ui.raw) : null;
       if (snapTop && snapTop.id != null) drawSnapMarker(snapTop, true);
     }
+    drawInlineTextOverlay();
     drawTransformOverlay();
     drawEmptyState();
     ctx.restore();
@@ -24818,6 +26072,7 @@
     if (tpSel !== tpLastSel || tpSel.length !== tpLastLen || geometryEpoch !== tpLastEpoch) {
       tpLastSel = tpSel; tpLastLen = tpSel.length; tpLastEpoch = geometryEpoch;
       updateTransformPanel();
+      updatePropertyBar();
     }
   }
 
@@ -24831,6 +26086,7 @@
   // "draw" is the canvas redraw alone.
   let lastFrameDone = 0;
   function setFrameTime(frameMs, drawMs) {
+    if (!settings.showFrameTiming) return;
     const el = document.getElementById('status-frame');
     if (el) {
       // identical textContent writes still dirty layout; skip them
@@ -24891,12 +26147,13 @@
     if (ui.offsetJob || mateJob) return text;
     if (!ui.snap && (ui.tool === 'line' || ui.tool === 'curve' || ui.tool === 'arc' ||
       ui.tool === 'circle' || ui.tool === 'box' || ui.tool === 'poly')) {
-      return text + '  ⚠ Snap is OFF — nothing snaps, hold Alt to snap for a moment, Shift+5 to toggle.';
+      return text + uiT('hint.snapOff', '  ⚠ Snap is OFF — hold Alt to snap temporarily, Shift+5 to toggle.');
     }
     return text;
   }
 
   function statusHintText() {
+    if (ui.inlineText) return uiT('hint.textInline', 'Typing on canvas — Enter = new line · Esc or Ctrl+Enter = finish · Use the Property Bar above for live font, size, alignment & spacing.');
     if (ui.offsetJob) return offsetHintText();
     if (mateJob) {
       const aName = mateJob.a != null && state.entities[mateJob.a]
@@ -24922,6 +26179,7 @@
     }
     if (isSelectLikeTool()) return selectHintText();
     switch (ui.tool) {
+      case 'text': return uiT('hint.textTool', 'Text tool: click empty space to start typing on canvas, or click existing text to edit inline. Esc returns to Select.');
       case 'line': return 'Click start point, then end point. Keep clicking to chain; click the first point again to close the loop and finish. Enter finishes, Esc takes the last line back, Esc again stops. Shift = 15° polar, Alt = inverse of the Snap toggle while held. With exactly two points selected, Shift+B creates the line between them.';
       case 'arc': return 'Click center, then start point, then end point. Shift snaps angles.';
       case 'circle': return 'Click center, then a point on the radius. The circle is created and the dimension prompt opens: one value = radius, two values (100,200) = ellipse. Drag the circle edge to move it.';
@@ -24931,7 +26189,7 @@
       case 'curve': return 'Cubic curve pen: click for a corner, click-and-drag for a smooth bend. Click the first node to close. Enter / double-click / right-click finishes, Esc takes the last node back (Esc again cancels). Shift = 15° polar from the previous node, Alt = inverse of the Snap toggle while held.';
       case 'poly': return 'Click center, then move: the mouse sets radius and start angle. Scroll adjusts star inner % (starts 50, steps of 10; Shift = 1); Ctrl+scroll adjusts the side count. Click to finish, then confirm sides, inner %, and start angle (0 = upright).';
       case 'transform': return 'Drag a square grip to scale, the round grip above to rotate, or the orange pivot to move it (snaps to points). Shift snaps. Type exact values in the Transform panel, then Apply.';
-      default: return 'Click to select. Drag points or geometry. Shift-click adds to selection.';
+      default: return uiT('hint.select', 'Click to select. Drag points or geometry. Double-click text to edit directly on canvas.');
     }
   }
 
@@ -24939,7 +26197,7 @@
   // Boolean needs TOOL-first order and Offset needs a pre-selection — the two
   // things users kept getting backwards — so the hint names the next click.
   function selectHintText() {
-    const base = 'Click to select. Drag points or geometry. Shift-click adds to selection.';
+    const base = uiT('hint.select', 'Click to select. Drag points or geometry. Double-click text to edit directly on canvas.');
     const nLoops = pickedLoops().length;
     if (ui.offsetJob) return offsetHintText();
     const selN = selectedEntities().length;
@@ -25271,14 +26529,15 @@
     }
     updateStatusCounts();
     updateContextBar();
+    updatePropertyBar();
     xfUpdatePanel();
     const focusBtn = document.getElementById('qb-focus');
     if (focusBtn) {
       focusBtn.classList.toggle('is-on', !!ui.focusOn);
       focusBtn.setAttribute('aria-pressed', ui.focusOn ? 'true' : 'false');
       focusBtn.title = ui.focusOn
-        ? 'Fokus aktif — Shift+F untuk menampilkan semua'
-        : 'Fokus (Shift+F) — sembunyikan yang tidak dipilih';
+        ? uiT('dock.focusOnTitle', 'Focus active — press Shift+F to show everything')
+        : uiT('dock.focusOffTitle', 'Focus (Shift+F) — hide unselected geometry');
     }
   }
 
@@ -27475,6 +28734,37 @@
     ui.ctrlDown = ev.ctrlKey || ui.ctrlToggle;
     ui.altDown = ev.altKey || ui.altToggle;
 
+    if (ui.inlineText) {
+      const ie = state.entities[ui.inlineText.id];
+      const gg = ie && ie.type === 'text' ? textGeom(ie) : null;
+      if (gg && textInBox(world, gg)) {
+        ev.preventDefault();
+        const idx = textWorldToCharIndex(ie, world);
+        if (ev.shiftKey) {
+          ui.inlineText.selEnd = idx;
+        } else {
+          ui.inlineText.selStart = idx;
+          ui.inlineText.selEnd = idx;
+        }
+        ui.inlineText.blinkAt = performance.now();
+        ui.drag = { kind: 'inlineTextSel', id: ui.inlineText.id, anchorIdx: ui.inlineText.selStart };
+        focusInlineTextInput({ keepSel: true });
+        render();
+        return;
+      }
+      commitInlineText();
+    }
+
+    if (ui.tool === 'text') {
+      const hitId = hitEntity(pos.x, pos.y);
+      const hitEnt = hitId != null ? state.entities[hitId] : null;
+      if (hitEnt && hitEnt.type === 'text' && entityEditable(hitEnt)) {
+        ev.preventDefault();
+        startInlineText(hitId, { isNew: false, clickWorld: world });
+        return;
+      }
+    }
+
     if (ui.tool === 'transform') {
       const grip = xfHit(pos.x, pos.y);
       if (grip) {
@@ -27966,26 +29256,26 @@
     if (ui.tool === 'text') {
       pushHistory();
       const thH = loadTextHeight();
+      const def = loadTextStyle();
+      const single = HERSHEY_FAMILIES.includes(def.font);
       const p0 = materializePoint(snap);
-      const pwId = privatePoint(snap.x + 60, snap.y);
+      const pwId = privatePoint(snap.x + thH, snap.y);
       const phId = privatePoint(snap.x, snap.y + thH);
       const id = newId();
-      const def = loadTextStyle();
-      state.entities[id] = {
+      const ent = {
         id, type: 'text', p0, pw: pwId, ph: phId, guide: [],
-        text: 'Text', font: def.font, weight: def.weight, italic: def.italic, tracking: def.tracking,
-        leading: def.leading, align: def.align, single: HERSHEY_FAMILIES.includes(def.font),
-        color: ui.color, fitCurve: loadTextFit(),
-        // DRAFT: the object exists only so the editor and its live preview have
-        // something to read. It draws nowhere and hits nothing until Apply
-        // clears the flag, attaches the green guide frame and commits; Cancel
-        // pops the history entry above and the workspace never showed it.
-        _draft: true
+        text: '', font: def.font, weight: def.weight, italic: def.italic, tracking: def.tracking,
+        leading: def.leading, align: def.align, single,
+        color: ui.color, fitCurve: loadTextFit()
       };
-      ensureTextAspect(state.entities[id]);
-      ui.selection = [{ kind: 'entity', id }];
-      setTool('select');
-      openTextEditor(id, true);
+      state.entities[id] = ent;
+      attachTextGuides(ent);
+      applyTextHeightDimension(ent, thH);
+      syncTextFrameWidth(ent);
+      ensureTextAspect(ent);
+      bumpGeometry();
+      invalidateLoops();
+      startInlineText(id, { isNew: true });
       return;
     }
 
@@ -29227,6 +30517,21 @@ function cmdSplitCurve() {
     if (ui.drag) ui.drag.realWorld = realWorld;
     ui.raw = world;
     ui.lastWorld = world;
+
+    if (ui.drag && ui.drag.kind === 'inlineTextSel') {
+      if (ui.inlineText && +ui.inlineText.id === +ui.drag.id) {
+        const ie = state.entities[ui.inlineText.id];
+        if (ie && ie.type === 'text') {
+          const idx = textWorldToCharIndex(ie, world);
+          ui.inlineText.selStart = ui.drag.anchorIdx;
+          ui.inlineText.selEnd = idx;
+          ui.inlineText.blinkAt = performance.now();
+          focusInlineTextInput({ keepSel: true });
+          scheduleRender();
+        }
+      }
+      return;
+    }
 
     if (ui.tool === 'curve' && ui.draft && ui.draft.drag) {
       const dr = ui.draft.drag;
@@ -30884,6 +32189,12 @@ function cmdSplitCurve() {
       render();
       return;
     }
+    if (ui.drag && ui.drag.kind === 'inlineTextSel') {
+      ui.drag = null;
+      if (ui.inlineText) focusInlineTextInput({ keepSel: true });
+      render();
+      return;
+    }
     if (ui.drag && ui.drag.kind && ui.drag.kind.indexOf('xf') === 0) {
       const d = ui.drag;
       ui.drag = null;
@@ -31337,10 +32648,20 @@ function cmdSplitCurve() {
         return;
       }
       if (ent && ent.type === 'text') {
-        ui.selection = [{ kind: 'entity', id: eh }];
-        updateUI();
-        render();
-        openTextEditor(eh);
+        const worldClick = s2w(pos.x, pos.y);
+        if (ui.inlineText && +ui.inlineText.id === +eh) {
+          const txt = String(ent.text || '');
+          const idx = textWorldToCharIndex(ent, worldClick);
+          let a = idx, b = idx;
+          while (a > 0 && /\w/.test(txt[a - 1])) a--;
+          while (b < txt.length && /\w/.test(txt[b])) b++;
+          ui.inlineText.selStart = a;
+          ui.inlineText.selEnd = b;
+          focusInlineTextInput({ keepSel: true });
+          render();
+          return;
+        }
+        startInlineText(eh, { isNew: false, clickWorld: worldClick });
         return;
       }
       if (ent && ent.type === 'note') {
@@ -31549,6 +32870,7 @@ function cmdSplitCurve() {
     }
     const undoViewChk = document.getElementById('tgl-undoview');
     if (undoViewChk) undoViewChk.checked = settings.undoRestoresView === 'on';
+    updatePropertyBar();
   }
 
   // ---- Menus -----------------------------------------------------------------
@@ -31749,6 +33071,41 @@ function cmdSplitCurve() {
     const key = ev.key;
     const lower = key.toLowerCase();
     const tag = (ev.target && ev.target.tagName) || '';
+    if (ev.target && ev.target.id === 'inline-text-input' && ui.inlineText) {
+      if (key === 'Escape') {
+        ev.preventDefault();
+        commitInlineText();
+        return;
+      }
+      if (key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
+        ev.preventDefault();
+        commitInlineText();
+        return;
+      }
+      if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && lower === 'b') {
+        ev.preventDefault();
+        const st = pbActiveTextStyle();
+        const nextW = (+st.weight || 400) >= 600 ? 400 : 700;
+        if (!HERSHEY_FAMILIES.includes(st.font)) {
+          ensureFontLoaded(st.font, null, nextW, st.italic ? 'italic' : 'normal').then(() => render());
+        }
+        applyPbTextMutation((e) => { e.weight = nextW; });
+        focusInlineTextInput({ keepSel: true });
+        return;
+      }
+      if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && lower === 'i') {
+        ev.preventDefault();
+        const st = pbActiveTextStyle();
+        const nextIt = !st.italic;
+        if (!HERSHEY_FAMILIES.includes(st.font)) {
+          ensureFontLoaded(st.font, null, st.weight || 400, nextIt ? 'italic' : 'normal').then(() => render());
+        }
+        applyPbTextMutation((e) => { e.italic = nextIt; });
+        focusInlineTextInput({ keepSel: true });
+        return;
+      }
+      return;
+    }
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
       // Panel numeric fields (frame W/H, transform angle/scale, …): the
       // clipboard keys — and Ctrl+K — stay SKETCH commands, because focus
@@ -31759,6 +33116,20 @@ function cmdSplitCurve() {
       const editingText = tag === 'TEXTAREA' || (ev.target.isContentEditable === true) ||
         !!(ev.target.closest && ev.target.closest('.modal'));
       if (!(clipCombo && !editingText)) return;
+    }
+    if (ui.inlineText && !activeModal()) {
+      if (key === 'Escape' || (key === 'Enter' && (ev.ctrlKey || ev.metaKey))) {
+        ev.preventDefault();
+        commitInlineText();
+        return;
+      }
+      focusInlineTextInput({ keepSel: true });
+      return;
+    }
+    if (ui.tool === 'text' && !ui.inlineText && key === 'Escape' && !activeModal()) {
+      ev.preventDefault();
+      setTool('select');
+      return;
     }
     if (ui.offsetJob && !((ev.ctrlKey || ev.metaKey) && lower === 'j')) {
       if (key === 'Escape') {
@@ -35040,9 +36411,12 @@ function cmdSplitCurve() {
     }
     function setGuideLang(lang) {
       const want = lang === 'id' ? 'id' : 'en';
+      if (window.MiniSketchI18n && window.MiniSketchI18n.setLang) window.MiniSketchI18n.setLang(want);
       if (window.MiniSketchTools && window.MiniSketchTools.setLang) window.MiniSketchTools.setLang(want);
       setHelpLang(want);
       syncGuideLangMenu();
+      updateUI();
+      render();
     }
     if (langEn) langEn.addEventListener('click', () => setGuideLang('en'));
     if (langId) langId.addEventListener('click', () => setGuideLang('id'));
@@ -37203,6 +38577,7 @@ function cmdSplitCurve() {
     loadSolveMode();
     cncLoadSettings();
     mountTools();
+    if (window.MiniSketchI18n && window.MiniSketchI18n.applyDom) window.MiniSketchI18n.applyDom(document);
     paintKeyChips();
     installGlobalErrorHandler();
     if (window.MiniSketchExtensions) window.MiniSketchExtensions.mount(toolApi());
@@ -37210,6 +38585,7 @@ function cmdSplitCurve() {
     initModalBehavior();
     bindCanvas();
     bindUI();
+    initPropertyBar();
     bindSidebarSplitter();
     costBind();
 

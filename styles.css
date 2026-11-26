@@ -4474,3 +4474,346 @@ details.chat-ext-code pre {
   }
 }
 
+/* ---- Contextual Property Bar & On-Canvas Inline Text ------------------- */
+.prop-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 3px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  flex: 0 0 auto;
+  z-index: 8;
+}
+.prop-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.pb-ctx-tag {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+  flex: 0 0 auto;
+  padding: 0 2px;
+  user-select: none;
+}
+
+.pb-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--line);
+  flex: 0 0 auto;
+}
+
+.pb-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.pb-group.hidden {
+  display: none;
+}
+
+.pb-font-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 176px;
+  flex: 0 0 auto;
+}
+
+.pb-font-box {
+  width: 100%;
+  height: 26px;
+  padding: 0 24px 0 8px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--input);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-sizing: border-box;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.pb-font-box:hover {
+  border-color: var(--line-strong);
+}
+.pb-font-box:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--input-focus);
+}
+
+.pb-font-drop {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.pb-font-drop:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+
+.pb-font-list {
+  position: fixed;
+  z-index: 75;
+  min-width: 250px;
+  max-width: 360px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px var(--shadow-modal-color);
+  padding: 4px;
+}
+.pb-font-list[hidden] {
+  display: none;
+}
+
+.pb-font-badge {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-left: auto;
+  padding-left: 8px;
+  flex: 0 0 auto;
+  letter-spacing: 0.02em;
+}
+
+.pb-select {
+  height: 26px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--input);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.pb-select:hover {
+  border-color: var(--line-strong);
+}
+
+.pb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.pb-btn:hover:not(:disabled) {
+  background: var(--surface-2-hover);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+.pb-btn.is-on,
+.pb-btn.pb-toggle[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border-color: var(--accent-border);
+}
+.pb-btn.primary {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+.pb-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+  color: #ffffff;
+}
+.pb-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.pb-btn.hidden {
+  display: none;
+}
+
+.pb-icon-btn {
+  min-width: 26px;
+  padding: 0 6px;
+}
+.pb-icon-btn svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.pb-seg {
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 1px;
+  gap: 1px;
+}
+.pb-seg .pb-btn {
+  height: 22px;
+  min-width: 24px;
+  padding: 0 5px;
+  border-color: transparent;
+  background: transparent;
+  border-radius: 4px;
+}
+.pb-seg .pb-btn:hover:not(:disabled) {
+  background: var(--surface-2-hover);
+  border-color: transparent;
+}
+.pb-seg .pb-btn.is-on,
+.pb-seg .pb-btn[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border-color: var(--accent-border);
+}
+
+.pb-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pb-num {
+  width: 50px;
+  height: 26px;
+  padding: 0 5px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: var(--input);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  text-align: right;
+  box-sizing: border-box;
+}
+.pb-num.pb-num-sm {
+  width: 42px;
+}
+.pb-num:hover {
+  border-color: var(--line-strong);
+}
+.pb-num:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--input-focus);
+}
+
+.pb-unit {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--faint);
+}
+
+.pb-geom-slot {
+  display: inline-flex;
+  align-items: center;
+}
+
+.pb-geom-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Desktop docked L/T/W/H strip inside Property Bar */
+.tf-strip.in-prop-bar {
+  position: static;
+  top: auto;
+  left: auto;
+  transform: none;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  z-index: auto;
+}
+.tf-strip.in-prop-bar .tf input {
+  height: 26px;
+  padding: 0 6px;
+}
+
+@media (max-width: 900px) {
+  .pb-geom-slot,
+  .pb-geom-act-sep {
+    display: none;
+  }
+}
+
+/* Hidden off-canvas-chrome textarea for IME, clipboard, and cursor navigation */
+.inline-text-input {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 2px;
+  height: 2px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+  resize: none;
+  overflow: hidden;
+  z-index: -1;
+}
+
+/* Developer frame timing hidden unless enabled in Settings */
+#status-frame.hidden,
+.status-frame-sep.hidden {
+  display: none;
+}
+
+/* Accessible keyboard focus rings */
+.pb-btn:focus-visible,
+.pb-select:focus-visible,
+.pb-num:focus-visible,
+.pb-font-box:focus-visible,
+.rb-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+
