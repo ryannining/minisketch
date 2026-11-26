@@ -22735,6 +22735,19 @@
         ui.inlineText.blinkAt = performance.now();
         render();
       });
+      // On Linux a middle-drag pan releases into a native PRIMARY-selection paste
+      // that the browser delivers to the focused textarea (the inline input). The
+      // window-level armMiddleClickGuard sets ignorePasteUntil but onPasteEvent
+      // returns early for text widgets without preventDefault, so the browser
+      // still inserts the selection. Block it here when the guard is live; normal
+      // Ctrl+V into the textarea is unaffected (ignorePasteUntil stays 0).
+      inlineInp.addEventListener('paste', (ev) => {
+        if (Date.now() < ignorePasteUntil) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          pasteTrace('ignored in inline input: right after a middle click');
+        }
+      });
     }
 
     const fontWrap = document.getElementById('pb-font-wrap');
