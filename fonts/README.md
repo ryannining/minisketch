@@ -19,7 +19,7 @@ allows — and `fonts.js` decodes them into an `ArrayBuffer`.
 style), each naming the zip and the member inside it that it came from. Both
 scripts read it, so they cannot drift apart.
 
-30 families, 41 faces:
+31 families, 43 faces:
 
 | Category | Families |
 | --- | --- |
@@ -27,7 +27,7 @@ scripts read it, so they cannot drift apart.
 | Serif | Liberation Serif, Noto Serif, Avigea, Bright Sunlist, Mercy Christole |
 | Monospace | Liberation Mono, Rony Mono |
 | Script | Anak Manja, Matcha Style, Billion Dreams, Birds of Paradise, Chocolate Crispy, Darling, Milesdane Trial, Rasley Heights, Simply Olive, Sweety Rasty |
-| Display | GROBOLD, Super Mario 256, Janda Manatee Bubble, Janda Manatee Solid, Saltblack Combat, Supersonic Rocketship, Super Waffles, Cocogoose Pro, Nasalization, Dealerplate California |
+| Display | GROBOLD, Super Mario 256, Janda Manatee Bubble, Janda Manatee Solid, Saltblack Combat, Supersonic Rocketship, Super Waffles, Cocogoose Pro, Nasalization, Dealerplate California, PLATMOTOR |
 
 `license` in the catalogue is provenance — it records where a face came from.
 Nothing in the UI reads it and no face is flagged or filtered on it.
@@ -119,3 +119,41 @@ bounding box disagrees with its own coordinates — Mercy Christole stores
 `xMin -15` while its real minimum is `-14` — and that shift showed up as a
 phantom 1-unit error on the two glyphs where it applies. `fonts.js` reads the
 coordinates as stored, so the probe has to as well.
+
+## Building a bundled font from a specimen image
+
+When a typeface only exists as a clean black-on-white specimen PNG/JPG (like
+`PLATMOTOR`), turn it into a native TrueType bundled font without keeping
+per-glyph SVGs in the repo:
+
+1. **Segment glyphs**: group dark connected components per row, merge split
+   parts that belong to one character (e.g. a sliced `0`, dotted `i`/`j`, or
+   accented glyphs) by horizontal overlap, and map each glyph to its Unicode
+   codepoint (`A`–`Z`, `0`–`9`, etc.). Map lowercase `a`–`z` to the uppercase
+   glyphs in `cmap` if the specimen is all-caps.
+2. **Sub-pixel trace**: trace each glyph's **original anti-aliased grayscale**
+   pixels (do not binarise first) with `tools/subpixel_trace.js`
+   (`SubPixelTracer.traceImageData`). It uses sub-pixel Marching Squares on the
+   50% gray isocontour, preserves sharp corners by intersecting flanking OLS
+   lines, adds cardinal extrema anchors on loops, and outputs clean `M`/`L`/`Q`
+   quadratic contours directly compatible with TrueType `glyf`.
+3. **Compile to TrueType (`.ttf`)**: using `fontTools.fontBuilder.FontBuilder`
+   (e.g. via `uv run --with fonttools python3 ...`):
+   - Set `unitsPerEm = 1000`, `ascender = 800`, `descender = -200` (scale cap
+     height to ~700–760 units, flip Y from image coords to font coords).
+   - Enforce TrueType winding: outer contours **clockwise**, interior holes
+     **counter-clockwise** (`signedArea < 0` for outer in Y-up space).
+   - Emit quadratic splines via `TTGlyphPen` (`moveTo`, `lineTo`, `qCurveTo`,
+     `closePath`), set sidebearings / `hmtx`, `cmap`, `OS/2.usWeightClass`
+     (`400` Regular, `300` Light, `700` Bold), `head.macStyle`, and `name`
+     tables.
+   - Save the compiled `.ttf` into `fonts/src/<Family>-<Style>.ttf`.
+4. **Register & bundle**:
+   - Add each face to `fonts/catalog.json` (`family`, `category`, `weight`,
+     `style`, `out: "fonts/src/<Family>-<Style>.ttf"`).
+   - Run `node fonts/build.js` to generate `fonts/<slug>.js` and update
+     `FONT_INDEX` in `fonts/fonts.js`.
+   - Verify with `node testing/font_system_routing_probe.js` and
+     `node testing/text_probe.js`.
+   - Remove temporary per-glyph SVG folders / one-off scripts so only the
+     compiled `.ttf` and `fonts/<slug>.js` stay in the repository.

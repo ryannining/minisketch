@@ -46,6 +46,7 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(path.join(ROOT, 'tools', 'imagetracer.js'), 'utf8'), sandbox);
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'tools', 'subpixel_trace.js'), 'utf8'), sandbox);
 vm.runInContext(traceSrc, sandbox);
 const T = win.MiniSketchTrace;
 
@@ -144,7 +145,32 @@ console.log('\n== only the dark shape is traced ==');
     check('the shape keeps its real size', minX >= 7 && maxX <= 25, 'minX=' + minX + ' maxX=' + maxX);
     check('the svg has no white-filled path',
       !/fill="rgb\(255,255,255\)"/.test(res.svg));
-    finish();
+    // Sub-Pixel AA algorithm: anti-aliased grayscale circle traced directly
+    const SW = 64, SH = 64;
+    const sdata = new Uint8ClampedArray(SW * SH * 4);
+    for (let y = 0; y < SH; y++) {
+      for (let x = 0; x < SW; x++) {
+        const d = Math.hypot(x + 0.5 - 32.3, y + 0.5 - 32.6) - 16.4;
+        const cov = Math.max(0, Math.min(1, 0.5 - d));
+        const g = Math.round(255 * (1 - cov));
+        const idx = (y * SW + x) * 4;
+        sdata[idx] = sdata[idx + 1] = sdata[idx + 2] = g;
+        sdata[idx + 3] = 255;
+      }
+    }
+    return T.trace({ width: SW, height: SH, data: sdata }, {
+      algorithm: 'subpixel', threshold: 128, detail: 2, curve: 1, speckle: 4, corners: true, smooth: true
+    }).then((spRes) => {
+      check('subpixel algorithm returns an svg', typeof spRes.svg === 'string' && spRes.svg.length > 0);
+      check('subpixel algorithm traces a single foreground contour', spRes.paths === 1, spRes.paths);
+      check('subpixel algorithm fits quadratic curves on circles', /\bQ\b/.test(spRes.svg));
+      const sdAttr = (spRes.svg.match(/\sd="([^"]*)"/g) || []).join(' ');
+      const snums = (sdAttr.match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
+      const smax = Math.max.apply(null, snums);
+      const smin = Math.min.apply(null, snums);
+      check('subpixel algorithm does not trace the white background', smax < SW && smin > 0, 'min=' + smin + ' max=' + smax);
+      finish();
+    });
   }).catch((err) => {
     check('the trace runs', false, err && err.message);
     finish();
@@ -154,10 +180,16 @@ console.log('\n== only the dark shape is traced ==');
 // ---- the dialog is wired --------------------------------------------------
 console.log('\n== the dialog exposes the settings and the preview ==');
 {
-  for (const id of ['img-detail', 'img-curve', 'img-speckle', 'img-threshold', 'img-blur',
+  for (const id of ['img-algo', 'img-detail', 'img-curve', 'img-speckle', 'img-threshold', 'img-blur',
     'img-corners', 'img-smooth', 'img-fitcurve', 'img-tol']) {
     check('the dialog has ' + id, html.indexOf('id="' + id + '"') >= 0);
   }
+  check('index.html loads tools/subpixel_trace.js', /tools\/subpixel_trace\.js/.test(html));
+  check('trace_worker.js imports subpixel_trace.js',
+    /subpixel_trace\.js/.test(fs.readFileSync(path.join(ROOT, 'tools', 'trace_worker.js'), 'utf8')));
+  check('normalizeOptions accepts subpixel and defaults unknown to imagetracer',
+    T.normalizeOptions({ algorithm: 'subpixel' }).algorithm === 'subpixel' &&
+    T.normalizeOptions({ algorithm: 'unknown' }).algorithm === 'imagetracer');
   check('the dialog has a preview canvas', /id="img-preview"/.test(html));
   check('the preview has an info line', /id="img-preview-info"/.test(html));
   check('the old potrace knobs are gone',

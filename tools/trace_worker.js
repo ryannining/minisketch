@@ -14,12 +14,25 @@
 // The output shape matches window.MiniSketchTrace.trace() exactly, so the
 // worker and the synchronous fallback produce identical results.
 importScripts('imagetracer.js');
+importScripts('subpixel_trace.js');
 
 self.onmessage = function (e) {
   var msg = e.data || {};
   try {
     var data = msg.data;
     var width = msg.width, height = msg.height;
+    var imgd = { width: width, height: height, data: data };
+
+    if (msg.algorithm === 'subpixel') {
+      var SP = self.SubPixelTracer;
+      if (!SP || typeof SP.traceImageData !== 'function') {
+        throw new Error('subpixel tracer library is missing');
+      }
+      var res = SP.traceImageData(imgd, msg.opts || {});
+      self.postMessage(res);
+      return;
+    }
+
     var iopts = msg.iopts || {};
     var IT = self.ImageTracer;
     if (!IT || typeof IT.imagedataToTracedata !== 'function') {
@@ -28,7 +41,6 @@ self.onmessage = function (e) {
     // The tracer only reads imgd.width / imgd.height / imgd.data, so a plain
     // object is enough (no need to rebuild a full ImageData, which would copy
     // the transferred buffer).
-    var imgd = { width: width, height: height, data: data };
     var td = IT.imagedataToTracedata(imgd, iopts);
     // Foreground only: layer 0 is the dark (shape) layer because the palette
     // lists black first; the white page-background layer is dropped on purpose.

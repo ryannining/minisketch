@@ -478,6 +478,24 @@
         "zip": "dealerplate_california.zip",
         "member": "dealerplate california.otf"
       }
+    },
+    {
+      "family": "PLATMOTOR",
+      "file": "PLATMOTOR-Regular.ttf",
+      "category": "Display",
+      "weight": 400,
+      "style": "normal",
+      "license": "Custom traced Indonesian license plate font (PLATMOTOR)",
+      "source": null
+    },
+    {
+      "family": "PLATMOTOR",
+      "file": "PLATMOTOR-Light.ttf",
+      "category": "Display",
+      "weight": 300,
+      "style": "normal",
+      "license": "Custom traced Indonesian license plate font (PLATMOTOR)",
+      "source": null
     }
   ]
 }

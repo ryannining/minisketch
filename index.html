@@ -639,6 +639,13 @@
         <label class="opt"><input type="radio" name="img-mode" id="img-mode-trace" checked> Trace to geometry</label>
         <label class="opt"><input type="radio" name="img-mode" id="img-mode-image"> Keep as image</label>
         <div class="cnc-row trace-row">
+          <span class="cnc-label" title="Standard: umum untuk foto/sketsa. Crisp B&amp;W (Sub-Pixel AA): memanfaatkan gradasi abu-abu anti-aliasing untuk teks, logo, dan font hitam-putih lebih presisi.">Algorithm</span>
+          <select id="img-algo" class="trace-select">
+            <option value="imagetracer">Standard (ImageTracer)</option>
+            <option value="subpixel">Crisp B&amp;W (Sub-Pixel AA)</option>
+          </select>
+        </div>
+        <div class="cnc-row trace-row">
           <span class="cnc-label" title="How closely a straight edge follows the picture. Lower = more points, higher = simpler.">Detail line</span>
           <input type="range" id="img-detail" min="0.1" max="10" step="0.1" value="2">
           <input type="number" class="trace-val" id="img-detail-n" min="0.01" max="20" step="0.1" value="2">
@@ -1093,6 +1100,7 @@
 <script src="fonts/hershey.js"></script>
 <script src="help.js"></script>
   <script src="tools/imagetracer.js"></script>
+  <script src="tools/subpixel_trace.js"></script>
 <script src="tools/clipper.js"></script>
 <script src="tools/nest.js"></script>
   <script src="tools/nest_io.js"></script>

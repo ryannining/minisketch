@@ -39,6 +39,7 @@
   // The names are the app-facing ones (the image dialog speaks these), not
   // ImageTracerJS's own names. The mapping lives in traceOptions().
   const OPTION_DEFAULTS = {
+    algorithm: 'imagetracer', // 'imagetracer' (standard) | 'subpixel' (anti-aliased B&W)
     detail: 2,        // straight-line error threshold (ImageTracerJS ltres)
     curve: 1,         // quadratic error threshold (qtres)
     speckle: 8,       // drop paths shorter than this (pathomit)
@@ -49,6 +50,7 @@
   };
 
   const OPTION_LIMITS = {
+    algorithm: ['imagetracer', 'subpixel'],
     detail: [0.01, 20, 0.1],
     curve: [0.01, 20, 0.1],
     speckle: [0, 200, 1],
@@ -73,6 +75,9 @@
       const lim = OPTION_LIMITS[key];
       if (typeof def === 'boolean') {
         out[key] = o[key] === undefined ? def : !!o[key];
+      } else if (typeof def === 'string') {
+        const val = typeof o[key] === 'string' ? o[key] : def;
+        out[key] = (Array.isArray(lim) && lim.includes(val)) ? val : def;
       } else {
         const raw = o[key] === undefined ? def : +o[key];
         out[key] = clampNum(raw, lim[0], lim[1], def);
@@ -153,7 +158,38 @@
     return out;
   }
 
-  // Decode a blob straight into a binarised ImageData.
+  // Composite over white into 8-bit grayscale RGBA (preserving anti-aliased
+  // shades for the sub-pixel tracer instead of hard-thresholding to 0/255).
+  function grayscale(src, blurRadius) {
+    const w = src.width, h = src.height;
+    const out = new ImageData(w, h);
+    const sd = src.data, od = out.data;
+    const rad = Math.max(0, Math.round(+blurRadius || 0));
+    const sp = subpixelLib();
+    if (rad > 0 && sp && typeof sp.blurGray === 'function') {
+      const f = new Float32Array(w * h);
+      for (let i = 0, p = 0; i < sd.length; i += 4, p++) {
+        const a = sd[i + 3] / 255;
+        f[p] = (0.299 * sd[i] + 0.587 * sd[i + 1] + 0.114 * sd[i + 2]) * a + 255 * (1 - a);
+      }
+      const b = sp.blurGray(f, w, h, rad);
+      for (let p = 0, i = 0; p < b.length; p++, i += 4) {
+        const v = Math.max(0, Math.min(255, Math.round(b[p])));
+        od[i] = v; od[i + 1] = v; od[i + 2] = v; od[i + 3] = 255;
+      }
+      return out;
+    }
+    for (let i = 0; i < sd.length; i += 4) {
+      const a = sd[i + 3] / 255;
+      const v = Math.round((0.299 * sd[i] + 0.587 * sd[i + 1] + 0.114 * sd[i + 2]) * a + 255 * (1 - a));
+      od[i] = v; od[i + 1] = v; od[i + 2] = v; od[i + 3] = 255;
+    }
+    return out;
+  }
+
+  // Decode a blob into ImageData for the chosen algorithm:
+  // - imagetracer: binarised black/white ImageData
+  // - subpixel:    white-composited grayscale ImageData (keeps AA edge ramps)
   async function toImageData(blob, opts) {
     const o = normalizeOptions(opts);
     const img = await blobToImage(blob);
@@ -166,6 +202,7 @@
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     ctx.drawImage(img, 0, 0);
     const raw = ctx.getImageData(0, 0, w, h);
+    if (o.algorithm === 'subpixel') return grayscale(raw, 0);
     return binarize(raw, o.threshold);
   }
 
@@ -182,14 +219,28 @@
     return null;
   }
 
-  // Trace a binarised ImageData and return the FOREGROUND ONLY as an SVG
-  // string plus the raw path data.
+  function subpixelLib() {
+    if (typeof window !== 'undefined' && window.SubPixelTracer) return window.SubPixelTracer;
+    if (typeof self !== 'undefined' && self.SubPixelTracer) return self.SubPixelTracer;
+    if (typeof globalThis !== 'undefined' && globalThis.SubPixelTracer) return globalThis.SubPixelTracer;
+    return null;
+  }
+
+  // Trace an ImageData and return the FOREGROUND ONLY as an SVG
+  // string plus the raw path count.
   //
-  // ImageTracerJS returns one layer per palette colour. Layer 0 is the dark
-  // one because the palette lists black first; the white layer (the page
-  // background) is dropped on purpose — cutting it would cut the whole sheet.
+  // - algorithm 'subpixel': runs SubPixelTracer directly on grayscale pixels
+  //   using sub-pixel Marching Squares + corner-preserving quadratic Bézier fit.
+  // - algorithm 'imagetracer' (default): ImageTracerJS layer 0 (black only).
   async function trace(imageData, opts) {
     const o = normalizeOptions(opts);
+    if (o.algorithm === 'subpixel') {
+      const SP = subpixelLib();
+      if (!SP || typeof SP.traceImageData !== 'function') {
+        throw new Error('subpixel tracer library is missing');
+      }
+      return SP.traceImageData(imageData, o);
+    }
     const IT = tracerLib();
     if (!IT || typeof IT.imagedataToTracedata !== 'function') {
       throw new Error('tracer library is missing');
@@ -217,12 +268,12 @@
   // ---- worker offload ------------------------------------------------------
   // The full-resolution trace is the one heavy, synchronous stretch in the
   // import path. Run it in a Worker (tools/trace_worker.js) so a big image does
-  // not freeze the UI. The worker receives the binarised RGBA pixels plus the
-  // ready ImageTracer `iopts` and returns the same { svg, paths, width, height }
-  // the synchronous trace() produces. Returns null when Workers are unavailable
+  // not freeze the UI. The worker receives the prepared RGBA pixels plus the
+  // ready options and returns the same { svg, paths, width, height } the
+  // synchronous trace() produces. Returns null when Workers are unavailable
   // (e.g. some file:// setups / the Node probes) or the worker failed to load,
   // so the caller can fall back to the synchronous tracer.
-  function runTraceInWorker(imageData, iopts) {
+  function runTraceInWorker(imageData, iopts, opts) {
     if (typeof Worker === 'undefined') return Promise.resolve(null);
     return new Promise((resolve) => {
       let w;
@@ -243,6 +294,8 @@
           data: imageData.data,
           width: imageData.width,
           height: imageData.height,
+          algorithm: (opts && opts.algorithm) || 'imagetracer',
+          opts: opts || null,
           iopts: iopts
         }, [imageData.data.buffer]);
       } catch (e) { done(null); }
@@ -254,7 +307,7 @@
     const o = normalizeOptions(opts);
     const iopts = traceOptions(o);
     const imgd = await toImageData(blob, o);
-    const wr = await runTraceInWorker(imgd, iopts);
+    const wr = await runTraceInWorker(imgd, iopts, o);
     if (wr) return wr;
     // Worker unavailable/failed: the buffer may have been transferred away, so
     // re-decode and trace synchronously (decode is cheap; only the tracer is
@@ -325,6 +378,7 @@
   NS.normalizeOptions = normalizeOptions;
   NS.traceOptions = traceOptions;
   NS.binarize = binarize;
+  NS.grayscale = grayscale;
   NS.blobToImage = blobToImage;
   NS.toImageData = toImageData;
   NS.trace = trace;
@@ -335,10 +389,10 @@
   NS.similarContour = similarContour;
   NS.dedupeContours = dedupeContours;
 
-  // The post-processed raster the tracer actually sees: decoded, blurred when
-  // the dialog asks for it, then binarised at the threshold. The preview draws
-  // THIS, not the original picture — the decision the tolerance knobs drive is
-  // about the binarised shape, so the preview must show the binarised shape.
+  // The post-processed raster the tracer actually sees:
+  // - imagetracer: decoded, blurred when asked, then binarised at threshold
+  // - subpixel:    decoded, white-composited grayscale (with optional blur)
+  //                so the preview shows the anti-aliased edge ramp directly.
   async function processedImageData(blob, opts) {
     const o = normalizeOptions(opts);
     const img = await blobToImage(blob);
@@ -351,6 +405,9 @@
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     ctx.drawImage(img, 0, 0);
     let raw = ctx.getImageData(0, 0, w, h);
+    if (o.algorithm === 'subpixel') {
+      return grayscale(raw, o.blur);
+    }
     // the same selective blur the tracer runs inside colorquantization, so the
     // preview's soft edges are the ones the trace will follow
     if (o.blur > 0 && typeof self !== 'undefined' && self.ImageTracer &&

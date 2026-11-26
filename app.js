@@ -19909,7 +19909,9 @@
       const s = parseFloat(el(id) ? el(id).value : '');
       return isFinite(s) ? s : def;
     };
+    const algoEl = el('img-algo');
     return {
+      algorithm: (algoEl && algoEl.value === 'subpixel') ? 'subpixel' : 'imagetracer',
       detail: num('img-detail', 2),
       curve: num('img-curve', 1),
       speckle: num('img-speckle', 8),
@@ -19977,6 +19979,7 @@
     try {
       localStorage.setItem(IMG_OPTS_KEY, JSON.stringify({
         ...saved,
+        algorithm: o.algorithm,
         detail: o.detail, curve: o.curve, speckle: o.speckle,
         threshold: o.threshold, blur: o.blur, corners: o.corners,
         smooth: o.smooth, tol: o.simplify, fitCurve: o.fitCurve
@@ -20431,6 +20434,8 @@
       const numOr = (id, key, def) => {
         setTraceValue(id, isFinite(+saved[key]) ? +saved[key] : def, def);
       };
+      const algoEl = el('img-algo');
+      if (algoEl) algoEl.value = saved.algorithm === 'subpixel' ? 'subpixel' : 'imagetracer';
       numOr('img-detail', 'detail', 2);
       numOr('img-curve', 'curve', 1);
       numOr('img-speckle', 'speckle', 8);
@@ -20541,7 +20546,8 @@
       // source (a CAD capture, a screenshot, a scanned sheet).
       localStorage.setItem(IMG_OPTS_KEY, JSON.stringify({
         ...JSON.parse(localStorage.getItem(IMG_OPTS_KEY) || '{}'),
-        mode, detail: traceOpts.detail, curve: traceOpts.curve,
+        mode, algorithm: traceOpts.algorithm,
+        detail: traceOpts.detail, curve: traceOpts.curve,
         speckle: traceOpts.speckle, threshold: traceOpts.threshold,
         blur: traceOpts.blur, corners: traceOpts.corners, smooth: traceOpts.smooth,
         tol, fitCurve, dpi
@@ -20555,6 +20561,7 @@
       return;
     }
     artFromBlob(d.blob, {
+      algorithm: traceOpts.algorithm,
       detail: traceOpts.detail,
       curve: traceOpts.curve,
       speckle: traceOpts.speckle,
@@ -34326,6 +34333,8 @@ function cmdSplitCurve() {
       const f = document.getElementById(id);
       if (f) f.addEventListener('input', onTraceSetting);
     }
+    const imgAlgo = document.getElementById('img-algo');
+    if (imgAlgo) imgAlgo.addEventListener('change', onTraceSetting);
     // the preview is sized to the settings column, so a window resize has to
     // resize it too
     window.addEventListener('resize', () => {
