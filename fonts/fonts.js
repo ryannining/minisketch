@@ -349,8 +349,25 @@
       "style": "normal",
       "license": "Typodermic Desktop EULA — no embedding in software",
       "file": "dealerplate-california.js"
+    },
+    {
+      "family": "PLATMOTOR",
+      "category": "Display",
+      "weight": 400,
+      "style": "normal",
+      "license": "Custom traced Indonesian license plate font (PLATMOTOR)",
+      "file": "platmotor.js"
+    },
+    {
+      "family": "PLATMOTOR",
+      "category": "Display",
+      "weight": 300,
+      "style": "normal",
+      "license": "Custom traced Indonesian license plate font (PLATMOTOR)",
+      "file": "platmotor-light.js"
     }
   ];
+;
 ;
 ;
 
