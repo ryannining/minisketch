@@ -1331,6 +1331,12 @@
         const sysMsg = P && P.systemMessage
           ? P.systemMessage(history, curState, NS.requestedSkills || [], { svgMode, extMode })
           : null;
+        // Diagnostik: pastikan system prompt TERBARU yang terkirim (bukan cache
+        // lama). Mencetak panjang + 2 baris pertama; aman, tidak memuat kunci API.
+        if (sysMsg && sysMsg.content) {
+          const head = String(sysMsg.content).split('\n').filter(Boolean).slice(0, 2).join(' | ');
+          console.log('[AI sys] round=' + round + ' len=' + sysMsg.content.length + ' head=' + JSON.stringify(head));
+        }
         const messages = [...history];
         if (sysMsg) messages.unshift(sysMsg);
         if (lastExec) {
@@ -1704,7 +1710,7 @@
           NS.liveRefs.body.textContent = (disp.cut ? THINK_CUT_NOTE : '') + disp.text;
           NS.liveRefs.lastThink = disp.text;
         }
-        if (NS.liveRefs.det) NS.liveRefs.det.open = !(NS.thinkClosed && NS.thinkClosed.has(m));
+        if (NS.liveRefs.det) NS.liveRefs.det.open = !!(NS.thinkOpen && NS.thinkOpen.has(m));
         stickToBottom(NS.liveRefs.body);
       }
       stickToBottom(host);
@@ -1750,14 +1756,14 @@
       // Render SVG preview + Insert/Copy whenever an AI reply contains <svg>
       if (m.role === 'ai' && !extractExtensionCode(m.text) && (NS.svgMode() || /<svg[\s\S]*?<\/svg>/i.test(m.text))) appendSvgBlock(li, m);
       if (m.thinking) {
-        NS.thinkClosed = NS.thinkClosed || new WeakSet();
+        NS.thinkOpen = NS.thinkOpen || new WeakSet();
         const det = document.createElement('details');
         det.className = 'chat-think';
-        det.open = !NS.thinkClosed.has(m);
+        det.open = !!NS.thinkOpen.has(m);
         const sum = document.createElement('summary');
         sum.textContent = 'model thinking (' + m.thinking.split(/\n-{3,}\n/).length + ' rounds)';
         sum.addEventListener('click', () => {
-          if (det.open) NS.thinkClosed.add(m); else NS.thinkClosed.delete(m);
+          if (det.open) NS.thinkOpen.add(m); else NS.thinkOpen.delete(m);
         });
         const body = document.createElement('div');
         body.className = 'chat-think-body';
@@ -1765,7 +1771,7 @@
         body.textContent = (disp.cut ? THINK_CUT_NOTE : '') + disp.text;
         det.appendChild(sum);
         det.appendChild(body);
-        li.appendChild(det);
+        li.insertBefore(det, textSpan);
         if (m === NS.liveMsg) {
           NS.liveRefs = { li, det, sum, body, text: textSpan, lastThink: disp.text };
           stickToBottom(body);
@@ -1810,7 +1816,7 @@
     btn.type = 'button';
     btn.className = 'btn small chat-fork';
     btn.textContent = 'Fork';
-    btn.title = 'Fork: copy the first prompt (text + attached image) to a new session — handy after switching models. The current session moves to History.';
+    btn.title = 'Fork: mulai session baru HANYA dengan pesan pertama (teks + gambar), muat ulang system prompt terbaru, lalu MUAT teks/gambar ke kotak input untuk diedit — tekan Enter untuk mengirim. Tanpa membawa jawaban AI lama. Session saat ini pindah ke History.';
     btn.addEventListener('click', () => {
       if (NS.activeAbort) return;
       const firstUser = NS.log.find(m => m && m.role === 'user');
@@ -1829,7 +1835,18 @@
         setTab('chat');
         renderLog();
         scheduleSave();
-        send(seedText);
+        // Muat ulang policy (system prompt) supaya session baru memakai prompt
+        // TERBARU — bukan versi ter-cache dari sesi lama.
+        const reload = (window.MiniSketchAIPrompt && window.MiniSketchAIPrompt.reload)
+          ? window.MiniSketchAIPrompt.reload()
+          : Promise.resolve(null);
+        Promise.resolve(reload).then(() => {
+          const inp = document.getElementById('chat-input');
+          if (inp) {
+            inp.value = seedText;        // draft: user tinggal edit lalu Enter
+            inp.focus();
+          }
+        });
       });
     });
     return btn;
@@ -2324,6 +2341,13 @@
     const modelSel = document.getElementById('chat-model-sel');
     const modelRefresh = document.getElementById('chat-model-refresh');
     if (modelSel) {
+      // Heuristik dari nama id (server hanya mengirim string): free = mengandung
+      // kata "free" (OpenRouter: "…:free"); vision = kata kunci vision/multimodal.
+      const VISION_RE = /vision|multimodal|\bvl\b|llava|pixtral|internvl|minicpm|qwen.*vl|glm-4v|gpt-4o|claude/i;
+      const modelMeta = (mRaw) => {
+        const id = typeof mRaw === 'string' ? mRaw : String((mRaw && (mRaw.id || mRaw.model || mRaw.name)) || '');
+        return { id, free: /free/i.test(id), vision: VISION_RE.test(id) };
+      };
       const fill = (models) => {
         const cur = String((api.settings && api.settings.aiModel) || '').trim();
         modelSel.innerHTML = '';
@@ -2331,10 +2355,16 @@
         ph.value = '';
         ph.textContent = cur || 'pilih model…';
         modelSel.appendChild(ph);
-        for (const n of models) {
+        const list = (Array.isArray(models) ? models : []).map(modelMeta);
+        // Free di atas, sisanya urutan asli (sort stabil)
+        list.sort((a, b) => (b.free ? 1 : 0) - (a.free ? 1 : 0));
+        for (const m of list) {
           const o = document.createElement('option');
-          o.value = n;
-          o.textContent = n;
+          o.value = m.id;
+          o.textContent = m.id + (m.free ? ' [free]' : '');
+          o.dataset.free = m.free ? '1' : '0';
+          o.dataset.vision = m.vision ? '1' : '0';
+          o.dataset.q = m.id.toLowerCase();
           modelSel.appendChild(o);
         }
         modelSel.value = cur;
@@ -2358,6 +2388,27 @@
       });
       if (window.syncAiModelSelect) window.syncAiModelSelect();
       loadM(true);
+      // Filter teks: sembunyikan opsi yang tidak cocok (free/vision/nama).
+      const filterEl = document.getElementById('chat-model-filter');
+      if (filterEl && modelSel) {
+        filterEl.addEventListener('input', () => {
+          const q = filterEl.value.trim().toLowerCase();
+          const opts = modelSel.options;
+          for (let i = 1; i < opts.length; i++) {
+            const o = opts[i];
+            let show = true;
+            if (q) {
+              const terms = q.split(/\s+/).filter(Boolean);
+              show = terms.every(t => {
+                if (t === 'free') return o.dataset.free === '1';
+                if (t === 'vision') return o.dataset.vision === '1';
+                return String(o.dataset.q || '').includes(t);
+              });
+            }
+            o.style.display = show ? '' : 'none';
+          }
+        });
+      }
     }
 
     // Reasoning level quick-control (Off/Low/Normal).

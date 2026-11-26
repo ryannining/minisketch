@@ -3763,7 +3763,7 @@ body.wall-drag-active .stage::after {
   align-items: center;
 }
 .chat-svg-status { font-size: 10.5px; }
-details.chat-think { margin-top: 5px; font-size: 11px; }
+details.chat-think { margin: 4px 0 6px; font-size: 11px; }
 details.chat-think summary {
   cursor: pointer;
   /* green: the model's reasoning reads as a construction/guide colour,

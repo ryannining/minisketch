@@ -7758,6 +7758,132 @@
     return { ok: true, ids };
   }
 
+  // Duplicate the CURRENT SELECTION into `count` copies laid out in a row:
+  // copy index k sits at (k*stepX, k*stepY) relative to the original. Returns
+  // an array of id-arrays: [0] = the originals, [k>0] = each copy's ids, and
+  // leaves the whole row selected. Unlike hand-looping duplicateSelection, all
+  // copies exist BEFORE anything is mutated, so a generator can safely renumber
+  // each copy afterwards (e.g. replace "##" placeholders with 01, 02, …)
+  // without the source changing earlier and leaking into every copy.
+  function duplicateInRow(count, stepX, stepY) {
+    const n = Math.max(0, Math.floor(+count) || 0);
+    const sx = isFinite(+stepX) ? +stepX : 0;
+    const sy = isFinite(+stepY) ? +stepY : 0;
+    const src = selectedEntities().map(e => +e.id);
+    if (!src.length || n < 1) return [];
+    const out = [src];
+    for (let k = 1; k < n; k++) {
+      ui.selection = src.map(id => ({ kind: 'entity', id }));
+      const res = duplicateSelection(sx * k, sy * k);
+      out.push((res && res.ids) ? res.ids.map(id => +id) : []);
+    }
+    ui.selection = out.flat().map(id => ({ kind: 'entity', id }));
+    return out;
+  }
+
+  // Plain entity clone for BAKE-style output: deep-copies ONE entity (text,
+  // line, circle, arc, spline, note) incl. its points, shifted by (dx, dy),
+  // WITHOUT copying group membership. By default constraints/guides are
+  // dropped; for framed kinds (text/image) pass opts.withGuides=true to ALSO
+  // clone the green guide lines and the constraints scoped to them (horizontal,
+  // perpendicular, height distance, aspect) — a text's exact shape/fit depends
+  // on those, so cloning the bare entity can render skewed ("mleyot"). Returns
+  // the new id, or null for unsupported types (array/clone/part/art — those
+  // need master handling and are handled by bakeContours instead). This is how
+  // a generator reproduces a text EXACTLY while staying localized — far more
+  // faithful than rebuilding with addText. The caller owns the undo step.
+  function toolCloneEntityPlain(id, dx, dy, opts) {
+    const src = state.entities[id];
+    if (!src) return null;
+    if (src.type === 'array' || src.type === 'part' || src.type === 'art') return null;
+    const dX = isFinite(+dx) ? +dx : 0;
+    const dY = isFinite(+dy) ? +dy : 0;
+    const o = JSON.parse(JSON.stringify(src));
+    const pMap = {};
+    const mapPt = (pid) => {
+      if (pid == null) return pid;
+      if (pMap[pid] != null) return pMap[pid];
+      const p = state.points[pid];
+      const np = newId();
+      state.points[np] = { x: (p ? p.x : 0) + dX, y: (p ? p.y : 0) + dY, pr: !!(p && p.pr) };
+      pMap[pid] = np;
+      return np;
+    };
+    const nid = newId();
+    o.id = nid;
+    o.layer = ui.activeLayer;
+    switch (o.type) {
+      case 'line': o.a = mapPt(o.a); o.b = mapPt(o.b); break;
+      case 'circle': o.c = mapPt(o.c); break;
+      case 'arc': o.c = mapPt(o.c); o.s = mapPt(o.s); o.e = mapPt(o.e); break;
+      case 'spline':
+        o.pts = (o.pts || []).map(mapPt);
+        if (o.hs) {
+          o.hs = JSON.parse(JSON.stringify(o.hs));
+          for (const arr of [o.hs.o, o.hs.i]) for (const h of (arr || [])) if (h) { h.x += dX; h.y += dY; }
+        }
+        break;
+      case 'note': o.p = mapPt(o.p); break;
+      case 'text':
+      case 'image': {
+        o.p0 = mapPt(o.p0); o.pw = mapPt(o.pw); o.ph = mapPt(o.ph);
+        const withGuides = !!(opts && opts.withGuides);
+        if (!withGuides) { delete o.guide; break; }
+        // Salin garis pandu (hijau, konstruksi) + konstrain lokal milik teks ini,
+        // agar bentuk/ukuran/penguncian hasil salinan identik dengan aslinya.
+        const gMap = {};
+        const newGuides = [];
+        for (const gid of (src.guide || [])) {
+          const g = state.entities[gid];
+          if (!g || g.type !== 'line') continue;
+          const ng = JSON.parse(JSON.stringify(g));
+          const ngid = newId();
+          ng.id = ngid;
+          ng.a = mapPt(ng.a);
+          ng.b = mapPt(ng.b);
+          ng.layer = ui.activeLayer;
+          state.entities[ngid] = ng;
+          gMap[gid] = ngid;
+          newGuides.push(ngid);
+        }
+        if (newGuides.length) o.guide = newGuides;
+        else delete o.guide;
+        for (const cid in state.constraints) {
+          const c = state.constraints[cid];
+          if (!c) continue;
+          const mine = (c.entity != null && (+c.entity === +src.id || gMap[c.entity] != null)) ||
+            (c.line1 != null && gMap[c.line1] != null) ||
+            (c.line2 != null && gMap[c.line2] != null) ||
+            (c.p0 != null && pMap[c.p0] != null) ||
+            (c.p != null && pMap[c.p] != null) ||
+            (c.p1 != null && pMap[c.p1] != null) ||
+            (c.p2 != null && pMap[c.p2] != null);
+          if (!mine) continue;
+          if (c.type === 'fix') continue;
+          const nc = JSON.parse(JSON.stringify(c));
+          nc.id = newId();
+          if (nc.entity != null) {
+            // c.entity bisa mengacu garis pandu (horizontal/vertical) atau teks itu sendiri
+            nc.entity = (gMap[nc.entity] != null) ? gMap[nc.entity] : nid;
+          }
+          if (nc.line1 != null && gMap[nc.line1] != null) nc.line1 = gMap[nc.line1];
+          if (nc.line2 != null && gMap[nc.line2] != null) nc.line2 = gMap[nc.line2];
+          if (nc.p0 != null && pMap[nc.p0] != null) nc.p0 = pMap[nc.p0];
+          if (nc.p != null && pMap[nc.p] != null) nc.p = pMap[nc.p];
+          if (nc.p1 != null && pMap[nc.p1] != null) nc.p1 = pMap[nc.p1];
+          if (nc.p2 != null && pMap[nc.p2] != null) nc.p2 = pMap[nc.p2];
+          state.constraints[nc.id] = nc;
+        }
+        break;
+      }
+      default: return null;
+    }
+    delete o.group;
+    delete o.gen;
+    state.entities[nid] = o;
+    return nid;
+  }
+
   // --- Transform (rotate / scale) mode --------------------------------------
   function xfIsActive() {
     return ui.tool === 'transform';
@@ -16735,6 +16861,85 @@
     return id;
   }
 
+  // Programmatic text edit for generators / the AI: change what a text entity
+  // says (and optionally its style) while keeping the framed-object invariants
+  // intact — aspect lock (ensureTextAspect), the height dimension constraint
+  // (applyTextHeightDimension) and the guides. Mirrors the core of
+  // applyTextEditor without the modal, so a copy-then-edit flow works:
+  //   api.pushHistory(); const r = api.duplicateSelection(0,0);
+  //   api.setText(r.ids[0], 'isi baru', {height: 12});
+  //   api.commit();
+  // It does NOT push history — the caller owns the single undo step (same
+  // contract as the other toolAdd* builders).
+  function toolSetText(id, text, opts) {
+    const e = state.entities[id];
+    if (!e || e.type !== 'text') return { ok: false, error: 'id bukan objek teks' };
+    const t = String(text == null ? '' : text);
+    if (!t.trim()) return { ok: false, error: 'teks tidak boleh kosong' };
+    const o = opts || {};
+    e.text = t;
+    if (typeof o.font === 'string' && o.font) {
+      e.font = o.font;
+      e.single = HERSHEY_FAMILIES.includes(o.font);
+    }
+    if (isFinite(+o.weight)) e.weight = clamp(+o.weight, 100, 900);
+    if (typeof o.italic === 'boolean') e.italic = o.italic;
+    if (isFinite(+o.tracking)) e.tracking = clamp(+o.tracking, -30, 60);
+    if (o.leading != null) e.leading = textStyleLeading(o.leading);
+    if (o.align === 'center' || o.align === 'right' || o.align === 'left') e.align = o.align;
+    if (o.color && /^#[0-9a-fA-F]{6}$/.test(o.color)) e.color = o.color;
+    if (typeof o.fitCurve === 'boolean') e.fitCurve = o.fitCurve;
+    if (isFinite(+o.tol) && +o.tol > 0) e.tol = clamp(+o.tol, 0.01, 1);
+    if (isFinite(+o.height) && +o.height > 0) applyTextHeightDimension(e, clamp(+o.height, 0.5, 500));
+    ensureTextAspect(e);
+    requestSolve();
+    commit();
+    return { ok: true, id };
+  }
+
+  // Bounds helpers for generators / the AI: per-entity world AABB and the
+  // union over arbitrary ids. These mirror the internal entityTightBounds /
+  // mergeBounds that selectionBounds uses, except they work on ANY entity —
+  // not just the current selection — so a tool can measure an object it just
+  // created (a text, a group/art, a clone/array) before placing the next one.
+  //   toolEntityBounds(id)  -> {minX,minY,maxX,maxY} | null
+  //     text/art/image -> the framed box (p0/pw/ph)
+  //     arc/spline     -> tight sampled bounds
+  //     clone/array    -> placed-instance extent (arrayBounds)
+  //     part           -> pose-transformed footprint
+  //   toolBoundsOf(ids) -> union of the above | null
+  function toolEntityBounds(id) {
+    const e = state.entities[id];
+    if (!e) return null;
+    return entityTightBounds(e);
+  }
+  function toolBoundsOf(ids) {
+    let out = null;
+    for (const id of (ids || [])) {
+      const e = state.entities[id];
+      if (!e) continue;
+      out = mergeBounds(out, entityTightBounds(e));
+    }
+    return out;
+  }
+  // Normalized styling of a text entity, ready to feed back into addText:
+  // {height, font, weight, italic, tracking, leading, align, color, fill}.
+  // Height is measured from the frame (p0->ph), so a generator editing an
+  // existing text does not have to reverse-engineer its size from constraints.
+  function toolTextOpts(e) {
+    if (!e) return null;
+    const p0 = P(e.p0), ph = P(e.ph);
+    const h = (p0 && ph) ? Math.hypot(ph.x - p0.x, ph.y - p0.y) : 10;
+    const o = {
+      height: clamp(isFinite(h) && h > 0 ? h : 10, 0.5, 500),
+      align: e.align === 'center' || e.align === 'right' ? e.align : 'left'
+    };
+    ['font', 'weight', 'italic', 'tracking', 'leading', 'color', 'fill'].forEach(k => {
+      if (e[k] != null && String(e[k]) !== '') o[k] = e[k];
+    });
+    return o;
+  }
+
   // A constraint, validated and (unless told otherwise) solved.
   function toolAddConstraint(c, opts) {
     if (!c || !c.type) return null;
@@ -16783,15 +16988,19 @@
       pushHistory, undo, commit, toast,
       // document geometry: create, replace, inspect
       entityPointIds, removeEntity, removeEntities, deleteSelection,
-      selectionBounds, moveSelection, scaleSelection, rotateSelection,
-      mirrorSelection, duplicateSelection, cmdConvertToCurve, cmdUngroupSelection,
+      selectionBounds, entityBounds: toolEntityBounds, boundsOf: toolBoundsOf,
+      moveSelection, scaleSelection, rotateSelection,
+      mirrorSelection, duplicateSelection, duplicateInRow,
+      cloneEntityPlain: toolCloneEntityPlain,
+      cmdConvertToCurve, cmdUngroupSelection,
       cmdBoolean, selectedEntities,
       setSelectionColor: applyStrokeColorToSelection,
       setSelectionFill: setLoopFill,
       addPoint: privatePoint,
       addLine: toolAddLine, addCircle: toolAddCircle, addArc: toolAddArc,
       addSpline: toolAddSpline, addConstraint: toolAddConstraint,
-      addNote: toolAddNote, addText: toolAddText,
+      addNote: toolAddNote, addText: toolAddText, setText: toolSetText,
+      textOpts: toolTextOpts,
       requestSolve, solveNow, getLoops, loopEntities, loopDepthOf,
       addPanelEntity, addPolylineEntity, cmdGroupSelection,
       watchGen: genWatchAdd,

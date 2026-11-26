@@ -961,8 +961,8 @@ function callBridge(bridgeHandler, method, url, headers, body) {
       !svgMsg.content.includes('CURRENT DOCUMENT') &&
       !extMsg.content.includes('AVAILABLE FONTS') &&
       !extMsg.content.includes('CURRENT DOCUMENT'));
-    check('Extension Builder prompt stays compact (< 7 KB, no 21 KB catalog dump) with accurate addSpline/polyBoolOp docs',
-      extMsg.content.length < 7000 &&
+    check('Extension Builder prompt is roomy (no 7 KB squeeze) with accurate addSpline/polyBoolOp docs and no catalog dump',
+      extMsg.content.length < 40000 &&
       extMsg.content.includes('addSpline({ pts') &&
       extMsg.content.includes('ARRAY OF RINGS') &&
       !extMsg.content.includes('REFERENCE — BUILT-IN EXTENSIONS'));

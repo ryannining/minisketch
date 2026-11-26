@@ -182,10 +182,24 @@
   function toolManifest() { return tools; }
   function ready() { return load(); }
 
+  // Drop every cached policy asset (system prompts, tool manifest, skills) and
+  // refetch them from disk. Used by the chat Fork button so a forked session
+  // always starts from the CURRENT prompt files, never a stale cached copy.
+  function reload() {
+    systemText = '';
+    svgSystemText = '';
+    extSystemText = '';
+    tools = [];
+    loadPromise = null;
+    extLoadPromise = null;
+    return ready();
+  }
+
   NS.ready = ready;
   NS.ensureExtPrompt = ensureExtPrompt;
   NS.systemMessage = systemMessage;
   NS.toolManifest = toolManifest;
+  NS.reload = reload;
   // exposed for debugging / tests
   NS._debug = { skillsFor, readSkills, assetUrl };
 })();

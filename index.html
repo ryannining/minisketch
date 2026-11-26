@@ -349,8 +349,9 @@
             <button type="button" class="chat-tab" role="tab" aria-selected="false" data-chat-tab="log">History</button>
           </div>
           <div class="row chat-model-row" id="chat-model-row">
-            <select id="chat-model-sel" title="Model (🔄 loads the list for the active provider)" style="flex:1 1 auto;min-width:0;font:inherit;font-size:11px;padding:2px 5px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)"></select>
+            <select id="chat-model-sel" title="Model (🔄 loads the list for the active provider) — daftar disortir: free dulu; filter di kotak di samping" style="flex:1 1 auto;min-width:0;font:inherit;font-size:11px;padding:2px 5px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)"></select>
             <button class="btn small" id="chat-model-refresh" title="Load the model list from the active provider">🔄</button>
+            <input id="chat-model-filter" type="text" placeholder="filter (free/vision)" title="Filter model: ketik nama, 'free', atau 'vision' — masukan dicocokkan sebagian (case-insensitive)" style="width:84px;font:inherit;font-size:11px;padding:2px 5px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)">
             <select id="chat-think-sel" title="Reasoning level (Off = faster &amp; cheaper, Normal = most thorough)">
               <option value="off">Off</option>
               <option value="low">Low</option>
