@@ -3804,6 +3804,13 @@
   let geometryEpoch = 0;
   let staticSceneEpoch = 0;
 
+  // Lightweight "geometry changed" signal used by the inline text / property bar
+  // paths: bumps the epoch that snapshot/cache invalidation keys on. Callers
+  // follow it with invalidateLoops() for the full cache refresh.
+  function bumpGeometry() {
+    geometryEpoch++;
+  }
+
   function invalidateLoops(opts) {
     geometryEpoch++;
     // A new document object means the layer map points at stale layer objects.
@@ -22614,6 +22621,12 @@
       if (doneBtn) {
         doneBtn.classList.toggle('hidden', !ui.inlineText);
       }
+      const xfBtn = document.getElementById('pb-text-transform');
+      if (xfBtn) {
+        const xfOn = ui.tool === 'transform';
+        xfBtn.classList.toggle('is-on', xfOn);
+        xfBtn.setAttribute('aria-pressed', xfOn ? 'true' : 'false');
+      }
       return;
     }
 
@@ -22624,6 +22637,12 @@
         const canCurve = selEnts.some(e => e.type === 'circle' || e.type === 'arc' ||
           e.type === 'text' || e.type === 'art' || e.type === 'array');
         geomCurve.classList.toggle('hidden', !canCurve);
+      }
+      const geomTransform = document.getElementById('pb-geom-transform');
+      if (geomTransform) {
+        const xfOn = ui.tool === 'transform';
+        geomTransform.classList.toggle('is-on', xfOn);
+        geomTransform.setAttribute('aria-pressed', xfOn ? 'true' : 'false');
       }
       return;
     }
@@ -22930,6 +22949,26 @@
       pbTextDone.addEventListener('click', () => commitInlineText());
     }
 
+    // Transform also works on text: commit any active inline session, make sure
+    // the text entity is selected, then open the shared gizmo (Ctrl+M).
+    const pbTextTransform = document.getElementById('pb-text-transform');
+    if (pbTextTransform) {
+      pbTextTransform.addEventListener('click', () => {
+        let id = null;
+        if (ui.inlineText) {
+          id = ui.inlineText.id;
+          commitInlineText();
+        }
+        if (id != null && state.entities[id] &&
+            !ui.selection.some(s => s.kind === 'entity' && +s.id === +id)) {
+          ui.selection = [{ kind: 'entity', id }];
+        }
+        enterTransformMode();
+        updateUI();
+        render();
+      });
+    }
+
     for (const qBtn of document.querySelectorAll('[data-pb-quick]')) {
       qBtn.addEventListener('click', () => {
         const act = qBtn.getAttribute('data-pb-quick');
@@ -22944,6 +22983,17 @@
     if (pbGeomCurve) {
       pbGeomCurve.addEventListener('click', () => {
         cmdConvertToCurve();
+        updateUI();
+        render();
+      });
+    }
+
+    // The property bar's only entry point for mouse-driven rotate / scale: opens
+    // the existing Transform gizmo (same as Ctrl+M / the ribbon button).
+    const pbGeomTransform = document.getElementById('pb-geom-transform');
+    if (pbGeomTransform) {
+      pbGeomTransform.addEventListener('click', () => {
+        enterTransformMode();
         updateUI();
         render();
       });

@@ -25,6 +25,12 @@ console.log('== 1. Markup & De-duplication ==');
 check('#prop-bar exists right after ribbon', html.includes('id="prop-bar"'));
 check('#pb-text, #pb-geom, #pb-idle exist',
   html.includes('id="pb-text"') && html.includes('id="pb-geom"') && html.includes('id="pb-idle"'));
+check('#pb-geom-transform exposes the Transform gizmo',
+  html.includes('id="pb-geom-transform"') &&
+  appSrc.includes('pb-geom-transform') && appSrc.includes('enterTransformMode('));
+check('#pb-text-transform exposes Transform for text too',
+  html.includes('id="pb-text-transform"') &&
+  appSrc.includes('pb-text-transform') && appSrc.includes('enterTransformMode('));;
 check('#inline-text-input exists inside stage',
   html.includes('id="inline-text-input"') && html.indexOf('id="inline-text-input"') > html.indexOf('id="canvas"'));
 check('duplicate #qb-array and #qb-clean removed from Edit ribbon',
