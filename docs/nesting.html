@@ -81,12 +81,12 @@
 
           <div class="screenshot">
             <img src="img/screenshots/panel-nesting.png" alt="Panel Nesting di sidebar">
-            <figcaption>Panel Nesting di sidebar: contoh pengaturan Sp (spacing), Grid, Rot (rotasi yang diizinkan), Flip, Pop/Gen/Mut/LS untuk GA, tombol Start / Re-nest / Stop / ∞, progress, dan status. (Default di versi aplikasi terbaru: Sp 2, Grid 4, Rot 0,90,180,270.)</figcaption>
+            <figcaption>Panel Nesting di sidebar: pilihan preset <b>Quality</b> (<code>Balanced</code>), <b>Space</b> (2 mm), <b>Flip</b>, <b>Rot</b> (<code>0,90,180,270</code>), bagian <b>Advanced options</b> (<code>Pop</code>, <code>Gen</code>, <code>Mut</code>, <code>LS</code>, <code>Grid</code>), tombol <b>Start</b> / <b>Re-nest</b> / <b>&infin;</b> (tombol <b>Stop</b> muncul saat proses berjalan), progress bar, dan status.</figcaption>
           </div>
 
           <div class="screenshot">
             <img src="img/screenshots/panel-sidebar.png" alt="Seluruh panel sidebar kanan">
-            <figcaption>Panel sidebar kanan secara utuh: AI Chat, Selection, Object Tree, Parts, Nesting (terbuka), dan <a href="tools.html">Tools</a> (13 generator parametrik: Box maker, Gear, Slot, Hinge box, dst).</figcaption>
+            <figcaption>Panel sidebar kanan secara utuh: AI Chat, Selection, Object Tree, Parts, Nesting (terbuka), dan <a href="tools.html">Extensions</a> (13 generator bawaan + marketplace).</figcaption>
           </div>
 
           <h2>1. Pengaturan nesting</h2>
@@ -95,14 +95,15 @@
               <tr><th style="width:24%">Pengaturan</th><th>Keterangan</th></tr>
             </thead>
             <tbody>
-              <tr><td>Sp (Spacing)</td><td>Spasi antar bagian dalam mm (setiap bagian di-offset setengah nilai di setiap sisi sebelum dipaketkan).</td></tr>
-              <tr><td>Grid</td><td>Grid snap: langkah pemindai NFP dalam mm. Semakin kecil = pemaketan lebih rapat tetapi jauh lebih lambat.</td></tr>
-              <tr><td>Rot (Rotation)</td><td>Rotasi yang diizinkan: daftar sudut (0,90), preset (1,2,3,4,8), atau range 0-360:90. Sama seperti nestjs2.</td></tr>
-              <tr><td>Flip</td><td>Izinkan membalik bagian selama pemaketan.</td></tr>
-              <tr><td>Pop (Population)</td><td>Ukuran populasi GA.</td></tr>
-              <tr><td>Gen (Generations)</td><td>Jumlah generasi GA.</td></tr>
-              <tr><td>Mut (Mutation)</td><td>Rata mutasi GA (0 = urutan orang tua dipertahankan, 1 = selalu diacak ulang).</td></tr>
-              <tr><td>LS (Local search)</td><td>Percobaan mendaki lokal setelah GA (0 = mati; semakin sedikit = lebih cepat tapi sedikit lebih longgar).</td></tr>
+              <tr><td>Quality</td><td>Preset kualitas mesin NFP/IFP: <b>Fast</b> (cepat untuk banyak part), <b>Balanced</b> (bawaan harian), <b>Max</b> (untuk bentuk cekung &amp; huruf rumit), atau <b>Custom</b> (otomatis terpilih jika opsi lanjutan diubah manual).</td></tr>
+              <tr><td>Space</td><td>Spasi antar bagian dalam mm (default <code>2</code> mm; setiap bagian di-offset setengah nilai di setiap sisi sebelum dipaketkan).</td></tr>
+              <tr><td>Flip</td><td>Izinkan membalik bagian secara horizontal selama pemaketan.</td></tr>
+              <tr><td>Rot (Rotation)</td><td>Rotasi yang diizinkan: daftar sudut (<code>0,90,180,270</code>), preset jumlah arah (<code>1,2,3,4,8</code>), atau range <code>0-360:90</code>. Sama seperti nestjs2.</td></tr>
+              <tr><td>Pop <i>(Advanced)</i></td><td>Ukuran populasi algoritma genetika (GA).</td></tr>
+              <tr><td>Gen <i>(Advanced)</i></td><td>Jumlah generasi GA.</td></tr>
+              <tr><td>Mut <i>(Advanced)</i></td><td>Rata mutasi GA (0 = urutan orang tua dipertahankan, 1 = selalu diacak ulang).</td></tr>
+              <tr><td>LS <i>(Advanced)</i></td><td>Percobaan mendaki lokal setelah GA (tukar, sisip, rotasi; 0 = mati).</td></tr>
+              <tr><td>Grid <i>(Advanced)</i></td><td>Langkah cadangan grid dalam mm (hanya dipakai pada mode cadangan NFP eksak).</td></tr>
             </tbody>
           </table>
 
@@ -125,14 +126,14 @@
           <ol>
             <li><b>Siapkan part yang akan disusun:</b> misalnya buat teks (<kbd>T</kbd>) bertuliskan <code>hello world</code> lalu klik <b>&rarr; Curve</b> agar setiap huruf menjadi loop potong terpisah (atau tetap sebagai objek teks utuh jika ingin diukir dalam satu kesatuan).</li>
             <li><b>Gambar lembar bahan (sheet):</b> tekan <kbd>Esc</kbd> terlebih dahulu agar objek tidak terpilih (supaya warna teks tidak ikut berubah), lalu klik swatch <b>Hijau / Mark</b> (<code>#00ff00</code>) dan gambar kotak lembar dengan alat <b>Box</b> (<kbd>R</kbd>).</li>
-            <li><b>Pilih lembar + semua part:</b> tekan <kbd>Ctrl+A</kbd> atau blok kotak hijau bersama semua loop huruf/part yang ingin disusun. (Tips: gunakan <kbd>Ctrl+Shift+L</kbd> — <i>Clone as nest parts</i> bila ingin menyalin part untuk ditata manual.)</li>
-            <li>Buka panel <b>Nesting</b> di sidebar kanan, atur <b>Sp</b> (mis. <code>3</code> mm) dan <b>Grid</b>, lalu klik <b>Start</b>. Hasil tata letak ditempatkan sebagai <i>live clone</i> di sebelah kanan lembar hijau asli.</li>
+            <li><b>Pilih lembar + semua part:</b> tekan <kbd>Ctrl+A</kbd> atau blok kotak hijau bersama semua loop huruf/part yang ingin disusun. (Tips: tekan <kbd>Ctrl+Shift+L</kbd> — <i>Clone as nest parts</i> pada seleksi apa pun untuk memecahnya menjadi kurva per objek induk, mis. tiap huruf teks menjadi 1 objek Array siap nesting manual.)</li>
+            <li>Buka panel <b>Nesting</b> di sidebar kanan, pilih preset <b>Quality</b> (atau atur <b>Space</b> dan <b>Rot</b>), lalu klik <b>Start</b>. Hasil tata letak ditempatkan sebagai <i>live clone</i> di sebelah kanan lembar hijau asli.</li>
             <li>Gunakan <b>Re-nest</b> untuk mencoba variasi susunan baru, atau lanjutkan penyempurnaan posisi secara manual memakai <a href="arrange.html#drag-wall"><b>Drag wall (W)</b></a>.</li>
           </ol>
 
           <div class="screenshot">
             <img src="img/screenshots/nest-hello-world.png" alt="Contoh nesting teks hello world ke dalam kotak hijau 140x80 mm">
-            <figcaption>Hasil nesting nyata di aplikasi: teks <code>hello world</code> yang dikonversi ke kurva (kiri bawah) disusun otomatis ke dalam lembar hijau 140&times;80 mm (<code>Placed 10/10 &middot; blok 136&times;44 mm</code>) dengan rotasi otomatis 0&deg;/90&deg;/180&deg;/270&deg;.</figcaption>
+            <figcaption>Hasil nesting nyata di aplikasi: teks <code>hello world</code> yang dikonversi ke kurva (kiri bawah) disusun otomatis ke dalam lembar hijau 140&times;80 mm (<code>Placed 10/10 &middot; blok 15&times;72 mm &middot; util 7%</code>) dengan rotasi otomatis 0&deg;/90&deg;/180&deg;/270&deg;.</figcaption>
           </div>
 
           <div class="callout warn"><b>Perbaiki hasil nesting secara manual:</b> setelah nesting selesai, tekan <kbd>Esc</kbd> untuk melepas seleksi grup, aktifkan tab <b>Arrange &rarr; <a href="arrange.html#drag-wall">Drag wall (W)</a></b>, lalu geser huruf/part satu per satu di dalam lembar hijau. Dinding offset akan menjaga jarak aman dan mencegah tabrakan antar huruf maupun tepi lembar.</div>
@@ -151,12 +152,12 @@
 
           <div class="screenshot">
             <img src="img/screenshots/panel-nesting.png" alt="Nesting panel in right sidebar">
-            <figcaption>Nesting panel in the sidebar: Sp (spacing), Grid step, allowed Rot angles, Flip, Pop/Gen/Mut/LS GA controls, Start / Re-nest / Stop / ∞ buttons, progress bar, and status. (Default in latest version: Sp 2, Grid 4, Rot 0,90,180,270.)</figcaption>
+            <figcaption>Nesting panel in the sidebar: <b>Quality</b> preset (<code>Balanced</code>), <b>Space</b> (2 mm), <b>Flip</b>, <b>Rot</b> (<code>0,90,180,270</code>), expandable <b>Advanced options</b> (<code>Pop</code>, <code>Gen</code>, <code>Mut</code>, <code>LS</code>, <code>Grid</code>), <b>Start</b> / <b>Re-nest</b> / <b>&infin;</b> buttons (<b>Stop</b> appears while running), progress bar, and status line.</figcaption>
           </div>
 
           <div class="screenshot">
             <img src="img/screenshots/panel-sidebar.png" alt="Full right sidebar panels">
-            <figcaption>Right sidebar layout: AI Chat, Selection, Object Tree, Parts, Nesting (expanded), and <a href="tools.html">Extensions / Tools</a>.</figcaption>
+            <figcaption>Right sidebar layout: AI Chat, Selection, Object Tree, Parts, Nesting (expanded), and <a href="tools.html">Extensions</a>.</figcaption>
           </div>
 
           <h2>1. Nesting settings</h2>
@@ -165,14 +166,15 @@
               <tr><th style="width:24%">Setting</th><th>Description</th></tr>
             </thead>
             <tbody>
-              <tr><td>Sp (Spacing)</td><td>Clearance gap between parts in mm (each contour is expanded by half this distance before packing).</td></tr>
-              <tr><td>Grid</td><td>Grid snap scan step for NFP placement in mm. Smaller values pack tighter but run slower.</td></tr>
-              <tr><td>Rot (Rotation)</td><td>Allowed part rotations: explicit angle list (0,90), preset count (1,2,3,4,8), or range 0-360:90.</td></tr>
+              <tr><td>Quality</td><td>True NFP/IFP preset: <b>Fast</b> for large part counts, <b>Balanced</b> for daily use, <b>Max</b> for concave shapes &amp; complex glyphs, or <b>Custom</b> when tweaking advanced GA values manually.</td></tr>
+              <tr><td>Space</td><td>Clearance gap between parts in mm (default <code>2</code> mm; each contour is offset by half this value on every side before packing).</td></tr>
               <tr><td>Flip</td><td>Allow mirroring parts horizontally while searching for tighter fits.</td></tr>
-              <tr><td>Pop (Population)</td><td>Genetic algorithm population size per generation.</td></tr>
-              <tr><td>Gen (Generations)</td><td>Number of GA evolution generations per run.</td></tr>
-              <tr><td>Mut (Mutation)</td><td>GA mutation rate (0 keeps parent order, 1 reshuffles completely).</td></tr>
-              <tr><td>LS (Local search)</td><td>Post-GA hill-climbing refinement passes (0 = off; higher = tighter at small time cost).</td></tr>
+              <tr><td>Rot (Rotation)</td><td>Allowed part rotations: explicit angle list (<code>0,90,180,270</code>), preset count (<code>1,2,3,4,8</code>), or range <code>0-360:90</code>.</td></tr>
+              <tr><td>Pop <i>(Advanced)</i></td><td>Genetic algorithm population size per generation.</td></tr>
+              <tr><td>Gen <i>(Advanced)</i></td><td>Number of GA evolution generations per run.</td></tr>
+              <tr><td>Mut <i>(Advanced)</i></td><td>GA mutation rate (0 keeps parent order, 1 reshuffles completely).</td></tr>
+              <tr><td>LS <i>(Advanced)</i></td><td>Post-GA local-search hill-climbing refinement trials (swap, insertion, rotation; 0 = off).</td></tr>
+              <tr><td>Grid <i>(Advanced)</i></td><td>Fallback grid step in mm (used only in exact NFP fallback mode).</td></tr>
             </tbody>
           </table>
 
@@ -195,14 +197,14 @@
           <ol>
             <li><b>Prepare parts:</b> create text (<kbd>T</kbd>) such as <code>hello world</code> and click <b>&rarr; Curve</b> so each letter becomes a separate cut loop.</li>
             <li><b>Draw a sheet boundary:</b> press <kbd>Esc</kbd> to clear selection, pick the <b>Green / Mark</b> color swatch (<code>#00ff00</code>), and draw a sheet rectangle with <b>Box</b> (<kbd>R</kbd>).</li>
-            <li><b>Select sheet + parts:</b> press <kbd>Ctrl+A</kbd> or box-select the green sheet together with every letter/part loop. (Tip: use <kbd>Ctrl+Shift+L</kbd> — <i>Clone as nest parts</i> to prepare linked nest clones manually.)</li>
-            <li>Open the <b>Nesting</b> panel in the right sidebar, set <b>Sp</b> (e.g. <code>3</code> mm) and <b>Grid</b>, and click <b>Start</b>. Packed results appear as live clones to the right of the green sheet.</li>
+            <li><b>Select sheet + parts:</b> press <kbd>Ctrl+A</kbd> or box-select the green sheet together with every letter/part loop. (Tip: press <kbd>Ctrl+Shift+L</kbd> — <i>Clone as nest parts</i> on any selection to convert each parent object into curves and group it as a separate nestable Array clone.)</li>
+            <li>Open the <b>Nesting</b> panel in the right sidebar, choose a <b>Quality</b> preset (or tune <b>Space</b> and <b>Rot</b>), and click <b>Start</b>. Packed results appear as live clones to the right of the green sheet.</li>
             <li>Click <b>Re-nest</b> to test alternate layouts, or tweak individual pieces manually with <a href="arrange.html#drag-wall"><b>Drag wall (W)</b></a>.</li>
           </ol>
 
           <div class="screenshot">
             <img src="img/screenshots/nest-hello-world.png" alt="Nesting example packing hello world text into a 140x80 mm green sheet">
-            <figcaption>Real nesting output: curve-converted <code>hello world</code> letters packed automatically into a 140&times;80 mm green sheet (<code>Placed 10/10 &middot; block 136&times;44 mm</code>) with 0&deg;/90&deg;/180&deg;/270&deg; rotation.</figcaption>
+            <figcaption>Real nesting output: curve-converted <code>hello world</code> letters packed automatically into a 140&times;80 mm green sheet (<code>Placed 10/10 &middot; blok 15&times;72 mm &middot; util 7%</code>) with 0&deg;/90&deg;/180&deg;/270&deg; rotation.</figcaption>
           </div>
 
           <div class="callout warn"><b>Manual fine-tuning:</b> after nesting finishes, press <kbd>Esc</kbd> to clear the group selection, activate <b>Arrange &rarr; <a href="arrange.html#drag-wall">Drag wall (W)</a></b>, and slide parts individually inside the green sheet — the collision wall keeps clearance gaps safe.</div>

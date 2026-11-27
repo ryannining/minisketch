@@ -47,20 +47,20 @@ window.HELP_SEARCH_INDEX = [
     id: "edit",
     title: "Edit — Mengubah Objek",
     titleEn: "Edit — Modify & Boolean",
-    desc: "Transformasi, offset, geser, array, clone, grup/bongkar grup, boolean (union/cut/intersect), join, weld, fillet, dan bersihkan loop.",
-    descEn: "Transform, offset, move, array, clone, group/ungroup, exact boolean (union/cut/intersect), join, weld, fillet, and cleanup.",
+    desc: "Transformasi, offset, geser, clone, grup/bongkar grup, boolean (union/cut/intersect), join, weld, fillet, dan bersihkan loop.",
+    descEn: "Transform, offset, move, clone, group/ungroup, exact boolean (union/cut/intersect), join, weld, fillet, and cleanup.",
     url: "edit.html",
-    tags: ["edit", "modify", "transform", "offset", "geser", "move", "array", "clone", "grup", "group", "ungroup", "boolean", "union", "cut", "intersect", "join", "weld", "Alt+W", "fillet", "clean", "Ctrl+Z", "Ctrl+G", "Ctrl+U", "Ctrl+J", "Ctrl+L", "Ctrl+Shift+L", "Ctrl+M", "Ctrl+Shift+M", "Ctrl++", "Ctrl+-", "Ctrl+0", "J", "F", "Z", "Shift+L"],
+    tags: ["edit", "modify", "transform", "offset", "geser", "move", "clone", "grup", "group", "ungroup", "boolean", "union", "cut", "intersect", "join", "weld", "Alt+W", "fillet", "clean", "Ctrl+Z", "Ctrl+G", "Ctrl+U", "Ctrl+J", "Ctrl+L", "Ctrl+Shift+L", "Ctrl+M", "Ctrl+Shift+M", "Ctrl++", "Ctrl+-", "Ctrl+0", "J", "F", "Z", "Shift+L"],
   },
   // ---------------------------------------------------------------- Arrange
   {
     id: "arrange",
     title: "Arrange — Susun Objek",
-    titleEn: "Arrange — Align, Distribute & Drag Wall",
-    desc: "Rata kiri/kanan/atas/bawah, tengah horizontal/vertikal, distribusi, Insert ke kotak hijau, dan drag wall untuk nesting manual.",
-    descEn: "Align left/right/top/bottom, center horizontally/vertically, distribute spacing, Insert into green sheet, and Drag wall for manual nesting.",
+    titleEn: "Arrange — Align, Distribute, Insert & Drag Wall",
+    desc: "Rata kiri/kanan/atas/bawah, tengah horizontal/vertikal, distribusi, Insert ke kotak hijau, Array clone, dan drag wall untuk nesting manual.",
+    descEn: "Align left/right/top/bottom, center horizontally/vertically, distribute spacing, Insert into green sheet, Array clone, and Drag wall for manual nesting.",
     url: "arrange.html",
-    tags: ["arrange", "susun", "rata", "align", "distribute", "insert", "kotak hijau", "green box", "drag wall", "wall", "dinding", "nesting manual", "manual nesting", "W"],
+    tags: ["arrange", "susun", "rata", "align", "distribute", "insert", "array", "kotak hijau", "green box", "drag wall", "wall", "dinding", "nesting manual", "manual nesting", "W"],
   },
   // ---------------------------------------------------------------- Constrain
   {
@@ -166,10 +166,10 @@ window.HELP_SEARCH_INDEX = [
     id: "nesting",
     title: "Nesting — Tata Letak Potongan",
     titleEn: "Nesting — Sheet Layout Optimizer",
-    desc: "Susun loop tertutup di atas lembar hijau dengan algoritma genetika + NFP: spasi, grid, rotasi, flip, populasi, generasi, mutasi, dan pencarian lokal.",
-    descEn: "Pack closed loops onto a green sheet using local GA + NFP nesting: spacing, grid snap, rotations, flip, population, generations, mutation, and local search.",
+    desc: "Susun loop tertutup di atas lembar hijau dengan algoritma genetika + NFP: preset Quality (Fast/Balanced/Max), Space, Rot, Flip, dan Advanced options (Pop, Gen, Mut, LS, Grid).",
+    descEn: "Pack closed loops onto a green sheet using local GA + NFP nesting: Quality presets (Fast/Balanced/Max), Space, Rot, Flip, and Advanced options (Pop, Gen, Mut, LS, Grid).",
     url: "nesting.html",
-    tags: ["nesting", "tata letak", "lembar", "lembar hijau", "sheet", "genetika", "NFP", "spasi", "spacing", "grid", "rotasi", "rotation", "flip", "populasi", "generasi", "mutasi", "Start", "Re-nest", "Stop"],
+    tags: ["nesting", "tata letak", "lembar", "lembar hijau", "sheet", "genetika", "NFP", "quality", "fast", "balanced", "max", "space", "spasi", "grid", "rotasi", "rotation", "flip", "populasi", "generasi", "mutasi", "advanced options", "Start", "Re-nest", "Stop"],
   },
   // ---------------------------------------------------------------- Settings
   {
