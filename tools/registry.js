@@ -113,6 +113,64 @@ window.MiniSketchTools = (() => {
 
   const modalOf = (tool) => (tool && tool.modalId) ? document.getElementById(tool.modalId) : null;
 
+  // ---- Automatic modal-value persistence ----------------------------------
+  // Extension modal inputs are saved automatically after a successful apply()
+  // and restored when the tool is opened again from the toolbar, so the AI
+  // does NOT need to write any localStorage save/restore code. Reopen with
+  // explicit params (double-clicked generated group, gen.params) always wins
+  // over the saved values.
+  const PARAM_KEY_PREFIX = 'minisketch.tools.params.';
+
+  function collectToolParams(tool) {
+    const modal = modalOf(tool);
+    if (!modal) return null;
+    const out = {};
+    let found = false;
+    modal.querySelectorAll('input, select, textarea').forEach(el => {
+      if (!el.id) return;
+      const type = (el.getAttribute('type') || '').toLowerCase();
+      if (type === 'radio') return;               // radio groups are not portable
+      if (type === 'checkbox') {
+        out[el.id] = { k: 'b', v: !!el.checked };
+      } else {
+        out[el.id] = { k: 'v', v: el.value };
+      }
+      found = true;
+    });
+    return found ? out : null;
+  }
+
+  function saveToolParams(tool) {
+    const collected = collectToolParams(tool);
+    if (!collected) return;
+    try { localStorage.setItem(PARAM_KEY_PREFIX + tool.id, JSON.stringify(collected)); } catch (e) { /* private mode */ }
+  }
+
+  function restoreToolParams(tool) {
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(PARAM_KEY_PREFIX + tool.id) || 'null'); } catch (e) {}
+    if (!raw || typeof raw !== 'object') return;
+    const modal = modalOf(tool);
+    if (!modal) return;
+    for (const id of Object.keys(raw)) {
+      const rec = raw[id];
+      if (!rec || typeof rec !== 'object') continue;
+      let el = null;
+      try { el = modal.querySelector('[id="' + String(id).replace(/"/g, '\\"') + '"]'); } catch (e) {}
+      if (!el) continue;
+      if (rec.k === 'b') {
+        el.checked = !!rec.v;
+      } else {
+        const val = String(rec.v == null ? '' : rec.v);
+        if (el.tagName === 'SELECT') {
+          if (Array.from(el.options).some(o => o.value === val)) el.value = val;
+        } else {
+          el.value = val;
+        }
+      }
+    }
+  }
+
   function applyToolLang(tool) {
     const modal = modalOf(tool);
     if (!modal || !tool.guide) return;
@@ -154,6 +212,7 @@ window.MiniSketchTools = (() => {
           }
           try {
             tool.apply(NS.api);
+            saveToolParams(tool); // auto-persist modal values after a successful apply
           } catch (err) {
             console.warn('[minisketch] Extension apply error (' + tool.id + '):', err);
             if (NS.api && NS.api.toast) {
@@ -684,6 +743,9 @@ window.MiniSketchTools = (() => {
         }
       }
     }
+    // Fresh toolbar opens (no explicit params) recall the last-used values;
+    // reopening a generated group with gen.params keeps those params instead.
+    if (!tool.builtIn && !params) restoreToolParams(tool);
     return true;
   };
 

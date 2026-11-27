@@ -1862,6 +1862,25 @@
       NS.openPublish(v.extracted || {}, code);
     });
 
+    // Edit with AI: embed the current editor code into the AI chat so the user
+    // can ask for changes by typing a normal chat message.
+    const impAi = el('ext-imp-ai');
+    if (impAi) impAi.addEventListener('click', () => {
+      const code = el('ext-imp-code') ? el('ext-imp-code').value : '';
+      if (!String(code || '').trim()) {
+        setStatus('ext-imp-status', 'Paste extension code first.', 'err');
+        return;
+      }
+      const v = validateImportEditor();
+      const meta = (v && v.extracted) || {};
+      NS.close();
+      if (window.MiniSketchAI && window.MiniSketchAI.editExtension) {
+        window.MiniSketchAI.editExtension(code, meta);
+      } else if (api && api.toast) {
+        api.toast('AI Chat is not loaded.');
+      }
+    });
+
     // Publish listeners
     const srvUrlEl = el('ext-pub-server-url');
     if (srvUrlEl) {

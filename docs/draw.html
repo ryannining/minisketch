@@ -92,8 +92,8 @@
               <tr><td><kbd>B</kbd></td><td>Kurva Bézier (Curve)</td><td>Klik untuk sudut, klik-tahan-geser untuk lengkung halus.</td></tr>
               <tr><td><kbd>*</kbd></td><td>Poligon / Bintang (Poly)</td><td>Titik pusat dulu, lalu radius dan sudut awal. Roda mouse atur persen dalam bintang.</td></tr>
               <tr><td><kbd>A</kbd></td><td>Busur (Arc)</td><td>Busur 3 titik: dua titik ujung lalu titik tempat lengkung.</td></tr>
-              <tr><td><kbd>E</kbd></td><td>Elips / Lingkaran</td><td>Klik dua sudut kotak pembatas (tahan <kbd>Ctrl</kbd> = pusat di klik pertama), lalu atur Width &amp; Height; selalu dibuat sebagai kurva spline.</td></tr>
-              <tr><td><kbd>R</kbd></td><td>Kotak (Box)</td><td>Klik dua sudut berlawanan (tahan <kbd>Ctrl</kbd> = pusat di klik pertama), lalu konfirmasi Width, Height &amp; Round radius.</td></tr>
+              <tr><td><kbd>E</kbd></td><td>Elips / Lingkaran</td><td>Klik dua sudut kotak pembatas (tahan <kbd>Ctrl</kbd> = pusat di klik pertama), lalu atur Width &amp; Height. Tahan <kbd>Shift</kbd> = Rx=Ry (lingkaran sempurna): jika Width = Height (via Shift atau diketik manual), dibuat objek <b>Circle asli</b> — bukan spline — sehingga <kbd>D</kbd> bisa menambah dimensi radiusnya.</td></tr>
+              <tr><td><kbd>R</kbd></td><td>Kotak (Box)</td><td>Klik dua sudut berlawanan (tahan <kbd>Ctrl</kbd> = pusat di klik pertama), lalu konfirmasi Width, Height &amp; Round radius. Tahan <kbd>Shift</kbd> = DX=DY (persegi).</td></tr>
               <tr><td><kbd>T</kbd></td><td>Teks (Text)</td><td>Isi konten, pilih font, gaya, ukuran, jarak huruf.</td></tr>
               <tr><td><kbd>I</kbd></td><td>Potong (Trim)</td><td>Potong di persimpangan. Ctrl+klik menyusuri seluruh rantai.</td></tr>
               <tr><td><kbd>Shift+E</kbd></td><td>Pisah (Separate)</td><td>Membelah tanpa menghapus (Trim tanpa kehilangan).</td></tr>
@@ -106,7 +106,7 @@
 
           <h2 id="shortcuts">2. Tips saat menggambar</h2>
           <ul>
-            <li>Tahan <kbd>Shift</kbd> saat menggambar: sudut menempel ke kelipatan 15°.</li>
+            <li>Tahan <kbd>Shift</kbd> saat menggambar: sudut menempel ke kelipatan 15°; untuk <b>Elips</b> dan <b>Kotak</b>, Shift membatasi proporsi (Rx=Ry / DX=DY).</li>
             <li>Tahan <kbd>Alt</kbd> saat menggambar: membalik status Snap sementara.</li>
             <li><kbd>Enter</kbd> menyelesaikan bentuk, <kbd>Esc</kbd> membatalkan atau mengambil garis/node terakhir kembali.</li>
             <li>Klik titik awal lagi untuk menutup lingkaran (loop lengkap).</li>

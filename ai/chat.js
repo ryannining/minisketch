@@ -2595,6 +2595,51 @@
     });
   };
 
+  // Edit-extension flow (used by the Extension Manager "Edit with AI" button):
+  // embed the current extension code into the chat as a user context message so
+  // the user can then simply say what to change. The code is NOT executed — it
+  // only joins the conversation history, and the next user message drives the
+  // AI (which replies with a full updated ```js ... ``` block, then the usual
+  // Test/Install actions apply).
+  NS.editExtension = (code, meta) => {
+    const src = String(code == null ? '' : code).trim();
+    if (!src) return false;
+    if (typeof NS.setBuilderMode === 'function') NS.setBuilderMode('ext');
+    else NS.builderMode = 'ext';
+    // Make sure the sidebar and the AI Chat panel are visible.
+    document.body.classList.add('sidebar-open');
+    const panel = document.getElementById('chat-panel');
+    if (panel) panel.open = true;
+    // Start a FRESH session so the edit context is clean: archive the current
+    // session (History) and begin a new one before embedding the code.
+    const embed = () => {
+      const name = (meta && (meta.label || meta.name || meta.id)) || 'extension';
+      const msg = (curLang() === 'id')
+        ? ('[Edit Ekstensi] Ini kode ekstensi "' + name + '" saat ini.\n' +
+           'Jangan mengubah apa pun dulu — tunggu perintah saya berikutnya, lalu kirim ulang SATU blok kode ```js ... ``` yang lengkap dan valid untuk window.MiniSketchTools.register({...}).\n\n```js\n' + src + '\n```')
+        : ('[Extension Edit] Here is the current code of the "' + name + '" extension.\n' +
+           'Do not change anything yet — wait for my next instruction, then resend ONE complete, valid ```js ... ``` code block for window.MiniSketchTools.register({...}).\n\n```js\n' + src + '\n```');
+      pushLog('user', msg);
+      renderLog();
+      const inp = document.getElementById('chat-input');
+      if (inp) { try { inp.focus(); } catch (e) {} }
+      if (api && api.toast) api.toast(tr('chat.extEditAiToast', 'New session — code embedded, tell the AI what to change'));
+    };
+    const startFresh = () => {
+      NS.log = [];
+      NS.sessionId = newSessionId();
+      NS.sessionAt = Date.now();
+      lsSet(CURRENT_ID_KEY, NS.sessionId);
+      refreshMeta();
+      setTab('chat');
+      embed();
+    };
+    if (NS.activeAbort) { try { NS.activeAbort.abort(); } catch (e) {} }
+    try { archiveCurrentSession().then(startFresh).catch(startFresh); }
+    catch (e) { startFresh(); }
+    return true;
+  };
+
   NS.send = send;
   NS.applyOps = applyOps;
   NS.stateSummary = stateSummary;

@@ -26325,7 +26325,7 @@
     } else if (d.type === 'circle' && d.c) {
       const c = d.c.id != null ? P(d.c.id) : d.c;
       if (c) {
-        const b = boxDraftBounds(c, end, !!ui.ctrlDown);
+        const b = boxDraftBounds(c, ui.shiftDown ? shiftSquareEnd(c, end, !!ui.ctrlDown) : end, !!ui.ctrlDown);
         const s0 = w2s(b.x0, b.y0);
         const s1 = w2s(b.x1, b.y1);
         const left = Math.min(s0.x, s1.x);
@@ -26357,21 +26357,13 @@
           ctx.stroke();
           ctx.restore();
         }
-        const es = w2s(end.x, end.y);
-        ctx.save();
-        ctx.setLineDash([]);
-        ctx.font = '600 11px ui-sans-serif, system-ui, sans-serif';
-        ctx.fillStyle = '#2563eb';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(fmt(b.w) + ' \u00d7 ' + fmt(b.h) + ' mm' + (b.centered ? ' (Center)' : ''), es.x + 10, es.y - 8);
-        ctx.restore();
+        drawDraftDimLabels(ctx, b);
         drawSnapMarker(end, snapped && end.snapped !== false);
       }
     } else if (d.type === 'box' && d.a) {
       const a = d.a.id != null ? P(d.a.id) : d.a;
       if (a) {
-        const b = boxDraftBounds(a, end, !!ui.ctrlDown);
+        const b = boxDraftBounds(a, ui.shiftDown ? shiftSquareEnd(a, end, !!ui.ctrlDown) : end, !!ui.ctrlDown);
         const s0 = w2s(b.x0, b.y0);
         const s1 = w2s(b.x1, b.y1);
         const left = Math.min(s0.x, s1.x);
@@ -26401,15 +26393,7 @@
           ctx.stroke();
           ctx.restore();
         }
-        const es = w2s(end.x, end.y);
-        ctx.save();
-        ctx.setLineDash([]);
-        ctx.font = '600 11px ui-sans-serif, system-ui, sans-serif';
-        ctx.fillStyle = '#2563eb';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'bottom';
-        ctx.fillText(fmt(b.w) + ' \u00d7 ' + fmt(b.h) + ' mm' + (b.centered ? ' (Center)' : ''), es.x + 10, es.y - 8);
-        ctx.restore();
+        drawDraftDimLabels(ctx, b);
         drawSnapMarker(end, snapped && end.snapped !== false);
       }
     } else if (d.type === 'arc') {
@@ -30354,6 +30338,52 @@
     };
   }
 
+  // Shift-constrain a drag end so the bound box is a square (DX=DY for the
+  // rectangle tool, Rx=Ry for the ellipse tool): the dominant axis wins and the
+  // smaller axis follows, keeping the drag direction (and the center when
+  // Ctrl-centered).
+  function shiftSquareEnd(a, end, centered) {
+    const dx = Math.abs(end.x - a.x);
+    const dy = Math.abs(end.y - a.y);
+    const m = Math.max(dx, dy);
+    if (m < 1e-12) return end;
+    const sx = end.x >= a.x ? 1 : -1;
+    const sy = end.y >= a.y ? 1 : -1;
+    return { x: a.x + sx * m, y: a.y + sy * m };
+  }
+
+  // Live dx/dy readouts on the draft preview: dx sits above the top edge with a
+  // thin guide line, dy sits to the right of the right edge. Values are the
+  // ACTUAL object dimensions (the bounding-box size), not the mouse span — so
+  // they match the finished shape even when Ctrl-centered.
+  function drawDraftDimLabels(ctx, b) {
+    const s0 = w2s(b.x0, b.y0);
+    const s1 = w2s(b.x1, b.y1);
+    const left = Math.min(s0.x, s1.x);
+    const top = Math.min(s0.y, s1.y);
+    const bw = Math.abs(s1.x - s0.x);
+    const bh = Math.abs(s1.y - s0.y);
+    const dx = b.w;
+    const dy = b.h;
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.font = '600 11px ui-sans-serif, system-ui, sans-serif';
+    ctx.fillStyle = '#1d4ed8';
+    ctx.strokeStyle = 'rgba(29, 78, 216, 0.45)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(left, top - 7);
+    ctx.lineTo(left + bw, top - 7);
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(fmt(dx), left + bw / 2, top - 9);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(fmt(dy), left + bw + 8, top + bh / 2);
+    ctx.restore();
+  }
+
   async function handleCreateClick(snap, ev) {
     const shift = ev.shiftKey;
 
@@ -30467,7 +30497,9 @@
         const a = ui.draft.c.id != null ? P(ui.draft.c.id) : ui.draft.c;
         if (!a) { cancelDraft(); render(); return; }
         const centered = !!(ui.ctrlDown || ev.ctrlKey || ev.metaKey || ui.ctrlToggle);
-        const b = boxDraftBounds(a, snap, centered);
+        // Shift = equal radii (Rx=Ry -> perfect circle)
+        const end = (ev.shiftKey || ui.shiftDown) ? shiftSquareEnd(a, snap, centered) : snap;
+        const b = boxDraftBounds(a, end, centered);
         if (b.w < 1e-7 || b.h < 1e-7) return;
         try { if (canvas.hasPointerCapture(ev.pointerId)) canvas.releasePointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
         const res = await uiFormPrompt([
@@ -30475,9 +30507,11 @@
           { name: 'h', label: 'Height (mm)', value: fmt(b.h) }
         ], {
           title: centered ? 'Ellipse (Center)' : 'Ellipse',
-          message: centered
-            ? 'Center-based (Ctrl) \u00b7 Creates an editable spline curve'
-            : 'Corner bounding box \u00b7 Creates an editable spline curve'
+          message: (Math.abs(b.w - b.h) <= 1e-6)
+            ? 'Equal Width/Height (Shift) \u00b7 creates a REAL circle entity \u2014 D adds a radius dimension'
+            : (centered
+              ? 'Center-based (Ctrl) \u00b7 Creates an editable spline curve'
+              : 'Corner bounding box \u00b7 Creates an editable spline curve')
         });
         if (res == null) {
           cancelDraft();
@@ -30493,6 +30527,21 @@
         const cx = centered ? a.x : (a.x + b.sx * w / 2);
         const cy = centered ? a.y : (a.y + b.sy * h / 2);
         pushHistory();
+        // Equal widths -> a REAL circle entity (not a spline), so D can add a
+        // radius dimension to it later.
+        if (Math.abs(w - h) <= 1e-6) {
+          const cId = materializePoint({ x: cx, y: cy });
+          const id = newId();
+          state.entities[id] = { id, type: 'circle', c: cId, r: w / 2, color: ui.color };
+          ui.draft = null;
+          ui.selection = [{ kind: 'entity', id }];
+          invalidateLoops();
+          requestSolve();
+          commit({ dirtyEntities: [id], dirtyPoints: [cId] });
+          toast('Circle created \u2014 D adds a radius dimension');
+          render();
+          return;
+        }
         const nodes = ellipseCurveNodes({ x: cx, y: cy }, Math.max(1e-6, w / 2), Math.max(1e-6, h / 2), 0);
         const pts = [];
         const o = [];
@@ -30509,7 +30558,7 @@
         invalidateLoops();
         requestSolve();
         commit();
-        toast(Math.abs(w - h) <= 1e-6 ? 'Circle curve created' : 'Ellipse curve created');
+        toast('Ellipse curve created');
       }
       render();
       return;
@@ -30524,7 +30573,9 @@
         const a = ui.draft.a.id != null ? P(ui.draft.a.id) : ui.draft.a;
         if (!a) { cancelDraft(); render(); return; }
         const centered = !!(ui.ctrlDown || ev.ctrlKey || ev.metaKey || ui.ctrlToggle);
-        const b = boxDraftBounds(a, snap, centered);
+        // Shift = square (DX=DY)
+        const end = (ev.shiftKey || ui.shiftDown) ? shiftSquareEnd(a, snap, centered) : snap;
+        const b = boxDraftBounds(a, end, centered);
         if (b.w < 1e-7 || b.h < 1e-7) return;
         try { if (canvas.hasPointerCapture(ev.pointerId)) canvas.releasePointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
         const res = await uiFormPrompt([
