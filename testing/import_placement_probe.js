@@ -205,27 +205,38 @@ console.log('white to cut');
     JSON.stringify(prims.map(p => p.color)));
 }
 
-// ---- dimension badge labels -------------------------------------------------
-console.log('dimension labels');
+// ---- dimension badge labels & orthogonal H/V geometry ---------------------
+console.log('dimension labels & geometry');
 {
-  const names = ['dimMeasureLabel'];
+  const names = ['dimMeasureLabel', 'distanceGeom'];
   const g = {
     p1: { x: 0, y: 0 }, p2: { x: 30, y: 40 },
     q1: { x: 0, y: 0 }, q2: { x: 30, y: 40 }
   };
   const fmt = (v) => String(Math.round(v * 1000) / 1000);
-  const api = new Function('fmt', names.map(slice).join('\n') + '\nreturn dimMeasureLabel;')(fmt);
-  check('D mode shows (50)', api({ axis: null }, g) === '(50)', api({ axis: null }, g));
-  check('H mode shows (H 30)', api({ axis: 'x' }, g) === '(H 30)', api({ axis: 'x' }, g));
-  check('V mode shows (V 40)', api({ axis: 'y' }, g) === '(V 40)', api({ axis: 'y' }, g));
-  check('D reference shows (55), no nesting', api({ axis: null, reference: true, value: 55 }, g) === '(55)',
-    api({ axis: null, reference: true, value: 55 }, g));
-  check('H reference still measures the X span', api({ axis: 'x', reference: true, value: 55 }, g) === '(H 30)',
-    api({ axis: 'x', reference: true, value: 55 }, g));
-  check('radius label untouched', api({ kind: 'r', value: 7 }, g) === 'R 7',
-    api({ kind: 'r', value: 7 }, g));
-  check('radius reference keeps one paren', api({ kind: 'r', reference: true, value: 7 }, g) === 'R (7)',
-    api({ kind: 'r', reference: true, value: 7 }, g));
+  const pts = { 1: { x: 0, y: 0 }, 2: { x: 30, y: 40 } };
+  const P = (id) => pts[id] || null;
+  const api = new Function('fmt', 'P', names.map(slice).join('\n') + '\nreturn { dimMeasureLabel, distanceGeom };')(fmt, P);
+  check('D mode shows (50)', api.dimMeasureLabel({ axis: null }, g) === '(50)', api.dimMeasureLabel({ axis: null }, g));
+  check('H mode shows (30) without H prefix', api.dimMeasureLabel({ axis: 'x' }, g) === '(30)', api.dimMeasureLabel({ axis: 'x' }, g));
+  check('V mode shows (40) without V prefix', api.dimMeasureLabel({ axis: 'y' }, g) === '(40)', api.dimMeasureLabel({ axis: 'y' }, g));
+  check('D reference shows (55), no nesting', api.dimMeasureLabel({ axis: null, reference: true, value: 55 }, g) === '(55)',
+    api.dimMeasureLabel({ axis: null, reference: true, value: 55 }, g));
+  check('H reference still measures the X span cleanly', api.dimMeasureLabel({ axis: 'x', reference: true, value: 55 }, g) === '(30)',
+    api.dimMeasureLabel({ axis: 'x', reference: true, value: 55 }, g));
+  check('radius label untouched', api.dimMeasureLabel({ kind: 'r', value: 7 }, g) === 'R 7',
+    api.dimMeasureLabel({ kind: 'r', value: 7 }, g));
+  check('radius reference keeps one paren', api.dimMeasureLabel({ kind: 'r', reference: true, value: 7 }, g) === 'R (7)',
+    api.dimMeasureLabel({ kind: 'r', reference: true, value: 7 }, g));
+
+  const gh = api.distanceGeom({ p1: 1, p2: 2, axis: 'x' });
+  check('H distanceGeom builds 2 vertical extension lines and 1 horizontal dim line',
+    gh && gh.q1.x === 0 && gh.q2.x === 30 && gh.q1.y === gh.q2.y && gh.q1.y > 40 && gh.nx === 0 && gh.ny === 1,
+    JSON.stringify(gh));
+  const gv = api.distanceGeom({ p1: 1, p2: 2, axis: 'y' });
+  check('V distanceGeom builds 2 horizontal extension lines and 1 vertical dim line',
+    gv && gv.q1.y === 0 && gv.q2.y === 40 && gv.q1.x === gv.q2.x && gv.q1.x > 30 && gv.nx === 1 && gv.ny === 0,
+    JSON.stringify(gv));
 }
 
 console.log(pass + ' passed, ' + fail + ' failed');

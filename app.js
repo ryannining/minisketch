@@ -25406,6 +25406,30 @@
     const dy = p2.y - p1.y;
     const len = Math.hypot(dx, dy);
     if (len < 1e-9) return null;
+    if (c.axis === 'x') {
+      // H: horizontal dimension line with two vertical extension lines
+      const midY = (p1.y + p2.y) / 2;
+      const off = c.offset == null ? (Math.abs(dy) / 2 + 26) : c.offset;
+      const dimY = midY + off;
+      return {
+        p1, p2,
+        q1: { x: p1.x, y: dimY },
+        q2: { x: p2.x, y: dimY },
+        nx: 0, ny: 1, off, len: Math.abs(dx)
+      };
+    }
+    if (c.axis === 'y') {
+      // V: vertical dimension line with two horizontal extension lines
+      const midX = (p1.x + p2.x) / 2;
+      const off = c.offset == null ? (Math.abs(dx) / 2 + 26) : c.offset;
+      const dimX = midX + off;
+      return {
+        p1, p2,
+        q1: { x: dimX, y: p1.y },
+        q2: { x: dimX, y: p2.y },
+        nx: 1, ny: 0, off, len: Math.abs(dy)
+      };
+    }
     const nx = -dy / len;
     const ny = dx / len;
     const off = c.offset == null ? 26 : c.offset;
@@ -25800,10 +25824,14 @@
     ctx.strokeStyle = color;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    const e1x = q1s.x + (q1s.x - p1s.x) * 0.08;
-    const e1y = q1s.y + (q1s.y - p1s.y) * 0.08;
-    const e2x = q2s.x + (q2s.x - p2s.x) * 0.08;
-    const e2y = q2s.y + (q2s.y - p2s.y) * 0.08;
+    const ext1 = Math.hypot(q1s.x - p1s.x, q1s.y - p1s.y);
+    const ext2 = Math.hypot(q2s.x - p2s.x, q2s.y - p2s.y);
+    const ov1 = ext1 > 1e-3 ? Math.min(6, ext1 * 0.15) / ext1 : 0;
+    const ov2 = ext2 > 1e-3 ? Math.min(6, ext2 * 0.15) / ext2 : 0;
+    const e1x = q1s.x + (q1s.x - p1s.x) * ov1;
+    const e1y = q1s.y + (q1s.y - p1s.y) * ov1;
+    const e2x = q2s.x + (q2s.x - p2s.x) * ov2;
+    const e2y = q2s.y + (q2s.y - p2s.y) * ov2;
     ctx.moveTo(p1s.x, p1s.y);
     ctx.lineTo(e1x, e1y);
     ctx.moveTo(p2s.x, p2s.y);
@@ -25814,14 +25842,16 @@
 
     ctx.fillStyle = color;
     const back = arrowAngle + Math.PI;
-    drawArrow(q1s.x, q1s.y, arrowAngle, 6);
-    drawArrow(q2s.x, q2s.y, back, 6);
+    if (Math.hypot(q2s.x - q1s.x, q2s.y - q1s.y) >= 1) {
+      drawArrow(q1s.x, q1s.y, arrowAngle, 6);
+      drawArrow(q2s.x, q2s.y, back, 6);
+    }
 
     const mx = (q1s.x + q2s.x) / 2;
     const my = (q1s.y + q2s.y) / 2;
     const sign = Math.sign(g.off) || 1;
     const nxs = g.nx * sign;
-    const nys = -g.ny * sign;
+    const nys = g.ny * sign;
     const labelTxt = labelText || dimMeasureLabel(c, g);
     // dimMeasureLabel already carries its own parentheses; the plain labelText
     // path (point-to-line) keeps the reference wrapper as before.
@@ -25829,14 +25859,14 @@
       mx + nxs * 13, my + nys * 13, c.id, isSel);
   }
 
-  // Label of a point-to-point measure: the axis letter (D/H/V) plus the value
-  // it measures — X span for H, Y span for V, straight distance for D. D is
-  // the default measure and carries no letter, and the whole label is one pair
-  // of parentheses: (100), (H 100), (V 100) — never nested.
+  // Label of a point-to-point measure: reports the X span when axis === 'x',
+  // Y span when axis === 'y', or straight distance otherwise. The orthogonal
+  // vs aligned extension lines already show the orientation visually, so no
+  // H/V/D prefix letter is needed; wrapped in one pair of parentheses: (100).
   function dimMeasureLabel(c, g) {
     if (c.kind) return 'R ' + (c.reference ? '(' + fmt(c.value) + ')' : fmt(c.value));
-    if (c.axis === 'x') return '(H ' + fmt(Math.abs(g.p2.x - g.p1.x)) + ')';
-    if (c.axis === 'y') return '(V ' + fmt(Math.abs(g.p2.y - g.p1.y)) + ')';
+    if (c.axis === 'x') return '(' + fmt(Math.abs(g.p2.x - g.p1.x)) + ')';
+    if (c.axis === 'y') return '(' + fmt(Math.abs(g.p2.y - g.p1.y)) + ')';
     return '(' + fmt(c.reference ? c.value : Math.hypot(g.p2.x - g.p1.x, g.p2.y - g.p1.y)) + ')';
   }
 
@@ -29984,8 +30014,9 @@
         const c = state.constraints[dimHit];
         if (c) {
           if (c.type === 'distance' && c.kind !== 'radius') {
+            const g = distanceGeom(c);
             pushHistory();
-            ui.drag = { kind: 'dimOffset', id: dimHit, startWorld: world, orig: c.offset == null ? 26 : c.offset, moved: false };
+            ui.drag = { kind: 'dimOffset', id: dimHit, startWorld: world, orig: g ? g.off : (c.offset == null ? 26 : c.offset), moved: false };
           } else if (c.type === 'pointDim' && dimOffsetNormal(c)) {
             pushHistory();
             ui.drag = { kind: 'dimOffset', id: dimHit, startWorld: world, orig: c.offset == null ? 22 : c.offset, moved: false };
@@ -34715,7 +34746,11 @@ function cmdSplitCurve() {
         if ((c.axis || null) !== (axis || null)) {
           const p1 = P(c.p1), p2 = P(c.p2);
           if (p1 && p2) {
+            const side = c.offset != null && c.offset < 0 ? -1 : 1;
             c.axis = axis;
+            c.offset = axis === 'x' ? side * (Math.abs(p2.y - p1.y) / 2 + 26)
+              : axis === 'y' ? side * (Math.abs(p2.x - p1.x) / 2 + 26)
+              : side * 26;
             c.value = round2(axis === 'x' ? Math.abs(p2.x - p1.x) :
               axis === 'y' ? Math.abs(p2.y - p1.y) : dist(p1, p2));
             refreshReferenceDimensions();
