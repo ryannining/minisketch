@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en" data-doc-lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Layers &amp; Pick Filter | Bantuan MiniSketch</title>
+<title>Layers &amp; Pick Filter | MiniSketch Help</title>
 <link rel="stylesheet" href="help.css">
+<script>try{var p=new URLSearchParams(location.search).get("lang"),l=(p==="en"||p==="id")?p:(localStorage.getItem("minisketch.help.lang")||"en");if(l!=="en"&&l!=="id")l="en";document.documentElement.dataset.docLang=l;document.documentElement.lang=l;}catch(e){}</script>
 </head>
 <body>
 <div class="help-shell">
@@ -15,17 +16,17 @@
       <div class="help-mark">M</div>
       <div>
         <div class="help-title">Layers &amp; Pick Filter</div>
-        <div class="help-subtitle">Layer, pindah objek antar layer, pick filter Plasticity-style, dan memudarkan layer lain</div>
+        <div class="help-subtitle">Layers, moving objects between layers, Plasticity-style pick filters, and layer dimming</div>
       </div>
     </div>
     <div class="help-spacer"></div>
     <div class="help-search">
       <span class="search-icon" aria-hidden="true">&#128269;</span>
-      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
-      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+      <input id="help-search-input" type="text" placeholder="Search help topics…" autocomplete="off" spellcheck="false" aria-label="Search help topics">
+      <button class="clear-btn" id="help-search-clear" title="Clear search" aria-hidden="true">&#215;</button>
     </div>
-    <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
-    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+    <div id="help-search-results" style="display:none;"></div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">No matching topics.</div>
   </header>
 
   <div class="help-body">
@@ -72,45 +73,90 @@
 
     <main class="help-content">
       <div class="help-page">
-        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Layers &amp; Pick Filter</div>
+        <div data-lang="id">
+          <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Layers &amp; Pick Filter</div>
 
-        <h1>Layers &amp; Pick Filter</h1>
-        <p class="help-lead">Layer mengatur di mana geometri baru digambar dan memungkinkan mengelola objek dalam gambar yang kompleks.</p>
+          <h1>Layers &amp; Pick Filter</h1>
+          <p class="help-lead">Layer mengatur di mana geometri baru digambar dan memungkinkan mengelola objek dalam gambar yang kompleks.</p>
 
-        <div class="screenshot">
-          <img src="img/screenshots/panel-layers.png" alt="Panel Layers dan pick filter">
-          <figcaption>Panel Layers di sisi kiri kanvas: pick filter (titik/garis/loop, pintasan Alt+1 / Alt+2 / Alt+3), Layer 1 aktif dengan tombol pindah objek (⇨), visibilitas, hapus, dan tombol tambah/naik/turun/dim.</figcaption>
+          <div class="screenshot">
+            <img src="img/screenshots/panel-layers.png" alt="Panel Layers dan pick filter">
+            <figcaption>Panel Layers di sisi kiri kanvas: pick filter (titik/garis/loop, pintasan Alt+1 / Alt+2 / Alt+3), Layer 1 aktif dengan tombol pindah objek (⇨), visibilitas, hapus, dan tombol tambah/naik/turun/dim.</figcaption>
+          </div>
+
+          <h2>1. Layer</h2>
+          <ul>
+            <li>Layer aktif menerima geometri baru.</li>
+            <li>Setiap baris layer punya tombol panah untuk memindahkan pilihan ke layer itu.</li>
+            <li>Tambah layer baru dengan tombol <b>+</b> di panel Layers.</li>
+            <li>Pindah layer naik/turun untuk mengubah urutan gambar (yang di atas gambar di atas).</li>
+            <li>Titik, label dimensi, dan badge constraint hanya tampil di layer aktif.</li>
+          </ul>
+
+          <h2>2. Pick filter (gaya Plasticity)</h2>
+          <p>Pick filter di panel Layers menentukan jenis objek apa yang bisa dipilih kursor. Gunakan pintasan <kbd>Alt+1</kbd> / <kbd>Alt+2</kbd> / <kbd>Alt+3</kbd>:</p>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:20%">Tombol</th><th style="width:20%">Jenis</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><kbd>Alt+1</kbd></td><td>Points</td><td>Titik dapat dipilih.</td></tr>
+              <tr><td><kbd>Alt+2</kbd></td><td>Lines</td><td>Garis dapat dipilih.</td></tr>
+              <tr><td><kbd>Alt+3</kbd></td><td>Loops</td><td>Loop dapat dipilih.</td></tr>
+            </tbody>
+          </table>
+          <div class="callout info"><b>Matikan satu jenis dan kursor mengabaikannya sepenuhnya.</b> Jadi mengedit titik tidak akan menyeret garis atau loop secara tidak sengaja. Ikon redup = terkunci, kursor mengabaikan jenis itu.</div>
+
+          <h2>3. Memudarkan layer lain</h2>
+          <p>Tombol <b>&#9680;</b> di panel Layers memudarkan (fade) stroke dan loop fill dari setiap layer kecuali yang aktif. Untuk menyembunyikan fill layer lain sepenuhnya, gunakan Settings &rarr; Renderer &rarr; Loop fills &middot; other layers.</p>
+
+          <div class="help-footer">
+            <span>Layers &amp; Pick Filter</span>
+            <span>Selanjutnya: <a href="settings.html">Settings — Pengaturan</a></span>
+          </div>
         </div>
 
-        <h2>1. Layer</h2>
-        <ul>
-          <li>Layer aktif menerima geometri baru.</li>
-          <li>Setiap baris layer punya tombol panah untuk memindahkan pilihan ke layer itu.</li>
-          <li>Tambah layer baru dengan tombol <b>+</b> di panel Layers.</li>
-          <li>Pindah layer naik/turun untuk mengubah urutan gambar (yang di atas gambar di atas).</li>
-          <li>Titik, label dimensi, dan badge constraint hanya tampil di layer aktif.</li>
-        </ul>
+        <div data-lang="en">
+          <div class="breadcrumb"><a href="index.html">Home</a> <span class="sep">&#8250;</span> Layers &amp; Pick Filter</div>
 
-        <h2>2. Pick filter (gaya Plasticity)</h2>
-        <p>Pick filter di panel Layers menentukan jenis objek apa yang bisa dipilih kursor. Gunakan pintasan <kbd>Alt+1</kbd> / <kbd>Alt+2</kbd> / <kbd>Alt+3</kbd>:</p>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:20%">Tombol</th><th style="width:20%">Jenis</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td><kbd>Alt+1</kbd></td><td>Points</td><td>Titik dapat dipilih.</td></tr>
-            <tr><td><kbd>Alt+2</kbd></td><td>Lines</td><td>Garis dapat dipilih.</td></tr>
-            <tr><td><kbd>Alt+3</kbd></td><td>Loops</td><td>Loop dapat dipilih.</td></tr>
-          </tbody>
-        </table>
-        <div class="callout info"><b>Matikan satu jenis dan kursor mengabaikannya sepenuhnya.</b> Jadi mengedit titik tidak akan menyeret garis atau loop secara tidak sengaja. Ikon redup = terkunci, kursor mengabaikan jenis itu.</div>
+          <h1>Layers &amp; Pick Filter</h1>
+          <p class="help-lead">Layers organize where new geometry is created and help manage dense multi-part drawings.</p>
 
-        <h2>3. Memudarkan layer lain</h2>
-        <p>Tombol <b>&#9680;</b> di panel Layers memudarkan (fade) stroke dan loop fill dari setiap layer kecuali yang aktif. Untuk menyembunyikan fill layer lain sepenuhnya, gunakan Settings &rarr; Renderer &rarr; Loop fills &middot; other layers.</p>
+          <div class="screenshot">
+            <img src="img/screenshots/panel-layers.png" alt="Layers and pick filter panel">
+            <figcaption>Layers panel on the left of the canvas: pick filters (points/lines/loops via Alt+1 / Alt+2 / Alt+3), active Layer 1 with move-selection-here arrow (⇨), visibility, delete, and add/reorder/dim buttons.</figcaption>
+          </div>
 
-        <div class="help-footer">
-          <span>Layers &amp; Pick Filter</span>
-          <span>Selanjutnya: <a href="settings.html">Settings — Pengaturan</a></span>
+          <h2>1. Layers</h2>
+          <ul>
+            <li>New geometry is always drawn onto the active layer.</li>
+            <li>Each layer row has an arrow button to move currently selected objects onto that layer.</li>
+            <li>Add layers with the <b>+</b> button in the Layers panel.</li>
+            <li>Move layers up/down to control draw stacking order.</li>
+            <li>Control points, dimension labels, and constraint badges only appear on the active layer.</li>
+          </ul>
+
+          <h2>2. Pick filter (Plasticity-style)</h2>
+          <p>Pick filters in the Layers panel toggle which element types the cursor can select. Shortcuts <kbd>Alt+1</kbd> / <kbd>Alt+2</kbd> / <kbd>Alt+3</kbd>:</p>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:20%">Shortcut</th><th style="width:20%">Type</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><kbd>Alt+1</kbd></td><td>Points</td><td>Allow picking points/nodes.</td></tr>
+              <tr><td><kbd>Alt+2</kbd></td><td>Lines</td><td>Allow picking lines, arcs, circles, and curves.</td></tr>
+              <tr><td><kbd>Alt+3</kbd></td><td>Loops</td><td>Allow picking closed loops inside faces.</td></tr>
+            </tbody>
+          </table>
+          <div class="callout info"><b>Toggle off a type and the cursor ignores it completely.</b> When editing vertices, disabling Lines/Loops prevents accidentally dragging lines or faces. Dimmed icon = filtered out.</div>
+
+          <h2>3. Dimming other layers</h2>
+          <p>The <b>&#9680;</b> button in the Layers panel dims strokes and loop fills on every non-active layer. To hide inactive-layer fills completely, open Settings &rarr; Renderer &rarr; Loop fills &middot; other layers.</p>
+
+          <div class="help-footer">
+            <span>Layers &amp; Pick Filter</span>
+            <span>Next: <a href="settings.html">Settings — Preferences</a></span>
+          </div>
         </div>
       </div>
     </main>

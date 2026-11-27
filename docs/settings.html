@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en" data-doc-lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Settings — Pengaturan | Bantuan MiniSketch</title>
+<title>Settings — Preferences | MiniSketch Help</title>
 <link rel="stylesheet" href="help.css">
+<script>try{var p=new URLSearchParams(location.search).get("lang"),l=(p==="en"||p==="id")?p:(localStorage.getItem("minisketch.help.lang")||"en");if(l!=="en"&&l!=="id")l="en";document.documentElement.dataset.docLang=l;document.documentElement.lang=l;}catch(e){}</script>
 </head>
 <body>
 <div class="help-shell">
@@ -14,18 +15,18 @@
     <div class="help-brand">
       <div class="help-mark">M</div>
       <div>
-        <div class="help-title">Settings — Pengaturan</div>
-        <div class="help-subtitle">Renderer, Geometry, Comments, Curves, Text, Paste, CNC, dan AI chat</div>
+        <div class="help-title">Settings — Preferences</div>
+        <div class="help-subtitle">History, Renderer, Geometry, Comments, Curves, Text, Paste, CNC, and AI chat</div>
       </div>
     </div>
     <div class="help-spacer"></div>
     <div class="help-search">
       <span class="search-icon" aria-hidden="true">&#128269;</span>
-      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
-      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+      <input id="help-search-input" type="text" placeholder="Search help topics…" autocomplete="off" spellcheck="false" aria-label="Search help topics">
+      <button class="clear-btn" id="help-search-clear" title="Clear search" aria-hidden="true">&#215;</button>
     </div>
-    <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
-    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+    <div id="help-search-results" style="display:none;"></div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">No matching topics.</div>
   </header>
 
   <div class="help-body">
@@ -72,159 +73,318 @@
 
     <main class="help-content">
       <div class="help-page">
-        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Settings — Pengaturan</div>
+        <div data-lang="id">
+          <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Settings — Pengaturan</div>
 
-        <h1>Settings — Pengaturan</h1>
-        <p class="help-lead">Buka melalui <b>Tool ▸ Settings</b>. Semua toleransi dan kepadatan di satu tempat. Nilai diingat per browser. Tekan <b>Apply</b> untuk menyimpan.</p>
+          <h1>Settings — Pengaturan</h1>
+          <p class="help-lead">Buka melalui <b>Tool ▸ Settings</b>. Semua toleransi dan kepadatan di satu tempat. Nilai diingat per browser. Tekan <b>Apply</b> untuk menyimpan.</p>
 
-        <div class="screenshot">
-          <img src="img/screenshots/menu-tool.png" alt="Menu Tool terbuka">
-          <figcaption>Settings dibuka melalui menu <b>Tool ▸ Settings…</b>; di menu yang sama ada View grid (#), Snap (Shift+5), Points, Show dimension, Auto dimension (Alt+D), Auto solve, Undo moves view, dan Send to KaryaCNC (Alt+Q).</figcaption>
+          <div class="screenshot">
+            <img src="img/screenshots/menu-tool.png" alt="Menu Tool terbuka">
+            <figcaption>Settings dibuka melalui menu <b>Tool ▸ Settings…</b>; di menu yang sama ada View grid (#), Snap (Shift+5), Points, Show dimension, Auto dimension (Alt+D), Auto solve, Undo moves view, dan Send to KaryaCNC (Alt+Q).</figcaption>
+          </div>
+
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-settings.png" alt="Dialog Settings">
+            <figcaption>Dialog Settings dengan kotak pencarian ("Cari pengaturan…"), grup HISTORY / RENDERER / GEOMETRY, nilai per kolom dengan satuan mm/°/ms, serta tombol Reset defaults dan Apply.</figcaption>
+          </div>
+
+          <div class="callout info"><b>Cari pengaturan:</b> gunakan kotak pencarian di atas dialog Settings (mis. offset, snap, curve). Keterangan tiap pengaturan muncul sebagai tooltip saat kolom difokuskan.</div>
+
+          <h2>0. History (riwayat undo)</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Undo moves the view</td><td>Off</td><td>Jika menyala, menekan Undo/Redo juga mengembalikan posisi pan &amp; zoom kamera ke saat langkah tersebut dibuat (bisa juga di-toggle cepat dari menu <b>Tool</b>).</td></tr>
+            </tbody>
+          </table>
+
+          <h2>1. Renderer (tampilan kanvas)</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Point size</td><td>6.4 px</td><td>Sisi penanda titik persegi pada zoom 100%.</td></tr>
+              <tr><td>Handle grab</td><td>6 px</td><td>Seberapa dekat kontrol knob Bézier harus berada untuk menang klik.</td></tr>
+              <tr><td>Point min / max at zoom</td><td>50% / 125%</td><td>Ukuran penanda mengikuti zoom, tidak pernah menyusut di bawah min atau melebihi max.</td></tr>
+              <tr><td>Badge min / max at zoom</td><td>25% / 200%</td><td>Badge constraint dan label dimensi tidak pernah menyusut/melebihi persentase ini.</td></tr>
+              <tr><td>Line width / Selected line width</td><td>2 px / 2.6 px</td><td>Lebar stroke geometri dan objek terpilih pada zoom 100%.</td></tr>
+              <tr><td>Part stroke</td><td>2 px</td><td>Lebar stroke part assembly (tidak pernah dipotong/ diekspor).</td></tr>
+              <tr><td>Line min / max at zoom</td><td>50% / 125%</td><td>Lebar garis mengikuti zoom dengan batas min/max.</td></tr>
+              <tr><td>Anti-aliasing</td><td>On (Smooth)</td><td>Matikan = gambar setengah resolusi dan upscale dengan piksel keras (lebih cepat untuk file besar).</td></tr>
+              <tr><td>Canvas resolution</td><td>100%</td><td>Resolusi kanvas gambar. 50% isi sepertiganya piksel — dial kecepatan termurah.</td></tr>
+              <tr><td>Loop fill · plain / selected / yellow / gray</td><td>warna heksadesimal</td><td>Warna dasar fill loop. Loop bersarang lebih dalam otomatis lebih terang.</td></tr>
+              <tr><td>Loop fills · current / other layers</td><td>On / On</td><td>Mengaktifkan fill interior di layer aktif dan/atau layer lain.</td></tr>
+              <tr><td>Loop fill resolution</td><td>50%</td><td>Resolusi layer fill offscreen relatif kanvas. 50% menampilkan setempat piksel fill dan tidak terlihat bedanya.</td></tr>
+            </tbody>
+          </table>
+
+          <h2>2. Geometry (toleransi geometri)</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Chain tolerance</td><td>0.1 mm</td><td>Ujung yang lebih dekat dari ini menjadi satu node saat grouping (Ctrl+G) atau offsetting (Ctrl+J).</td></tr>
+              <tr><td>Join tolerance</td><td>0.1 mm</td><td>Toleransi CNC: titik yang lebih dekat dari ini dihitung sebagai satu titik sambung. Jaga di bawah setengah segmen terpendek.</td></tr>
+              <tr><td>Loop closure gap</td><td>0.25 mm</td><td>Jarak maksimal antara ujung segmen yang masih dianggap oleh loop deteksi sebagai loop tertutup.</td></tr>
+              <tr><td>Join imported points</td><td>On</td><td>Nyalakan untuk memadatkan ujung segmen warna sama saat impor SVG/PDF/DXF/CDR.</td></tr>
+              <tr><td>Join imported distance</td><td>0.1 mm</td><td>Seberapa dekat ujung segmen warna sama sebelum impor memadatkannya.</td></tr>
+              <tr><td>Arrow key nudge</td><td>1 mm</td><td>Sejauh panah gerakkan objek/titik pada zoom 100%. Semakin zoom out, semakin jauh per tekan.</td></tr>
+              <tr><td>Curve fit tolerance</td><td>0.2 mm</td><td>Ctrl+K pasang kurva kubik sebanyak mungkin tetap dalam jarak ini dari polyline asli.</td></tr>
+              <tr><td>Boolean result</td><td>Exact (PathBool)</td><td>Boolean hitung pada kurva asli: arc tetap arc, sudut tetap eksak.</td></tr>
+              <tr><td>Curve sharp corner</td><td>25°</td><td>Ctrl+K menjaga vertex sebagai sudut tajam jika polyline belok setidaknya sejauh ini.</td></tr>
+              <tr><td>Auto dimension</td><td>Off</td><td>Saat menggambar, snap juga meninggalkan constraint Midpoint / On line.</td></tr>
+              <tr><td>Auto solve</td><td>Off</td><td>Drag menjalankan solve penuh secara teratur tanpa menunggu mouse dilepas.</td></tr>
+              <tr><td>Auto solve interval</td><td>100 ms</td><td>Interval antar solve otomatis saat drag.</td></tr>
+              <tr><td>Object detail (artTol)</td><td>0.1 mm</td><td>Simplifikasi objek grup, paste, dan offset saat di-flatten ke lines atau dikirim ke KaryaCNC.</td></tr>
+              <tr><td>Offset miter limit</td><td>4×</td><td>Sejauh mana sudut miter boleh menjorok sebelum Clipper memotong ujung runcingnya.</td></tr>
+              <tr><td>Drag wall thickness</td><td>1 mm</td><td>Amplop offset sekeliling objek compound saat Drag wall. 0 = outline itu sendiri.</td></tr>
+              <tr><td>Offset corners</td><td>Sharp (miter)</td><td>Bentuk sudut offset: tajam (miter), bulat, atau persegi (bevel).</td></tr>
+              <tr><td>Rounded corner detail</td><td>0.05 mm</td><td>Chord tolerance untuk sudut bulat.</td></tr>
+              <tr><td>Offset detail</td><td>0.05 mm</td><td>Simplifikasi kontur hasil offset.</td></tr>
+            </tbody>
+          </table>
+
+          <h2>3. Comments (komentar)</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Comment size</td><td>3 mm</td><td>Tinggi teks setiap komentar.</td></tr>
+              <tr><td>Comment min size</td><td>20 px</td><td>Zoom out tidak pernah mengecilkan komentar di bawah ini (0 = bebas menyusut).</td></tr>
+              <tr><td>Comment color</td><td>#ffcc00</td><td>Satu warna untuk semua komentar, kode hex biasa.</td></tr>
+            </tbody>
+          </table>
+
+          <h2>4. Curves (kurva)</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Curve segments per span</td><td>12</td><td>Seberapa halus kurva kubik divisualkan (digunakan gambar, grouping, offsetting, dan kirim ke KaryaCNC).</td></tr>
+              <tr><td>Arc segments per turn</td><td>72</td><td>Kepadatan sampel busur: 72 = satu segmen setiap lima derajat.</td></tr>
+              <tr><td>Circle chord</td><td>1.5 mm</td><td>Lari lurus terdekat untuk mendekati lingkaran. Semakin kecil = lebih bundar dan lebih berat.</td></tr>
+            </tbody>
+          </table>
+
+          <h2>5. Text (teks)</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Text outline detail</td><td>0.08 mm</td><td>Detail default objek teks baru: seberapa rapat outline mengikuti glip.</td></tr>
+              <tr><td>Text raster size</td><td>1100 px</td><td>Glip ditrace pada ukuran raster ini. Semakin besar = lebih tajam dan lebih lambat.</td></tr>
+            </tbody>
+          </table>
+
+          <h2>6. Paste (tempel gambar)</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Largest pasted object</td><td>300 mm</td><td>Gambar yang ditempel/diseret dibatasi ukuran ini. Dimensikan frame untuk menskalakan ke ukuran asli.</td></tr>
+            </tbody>
+          </table>
+
+          <h2>7. CNC</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Flatten tolerance</td><td>0.05 mm</td><td>Circles dan arcs di-flatten sehingga tidak menyimpang lebih dari ini. 0.05 mm default laser, 0.02 mm untuk detail halus.</td></tr>
+            </tbody>
+          </table>
+
+          <h2>8. AI chat (bawa kunci sendiri)</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>AI bridge URL</td><td>(kosong)</td><td>Server AI bridge (<code>server/serve.js</code>), mis. <code>http://127.0.0.1:8090</code>. Kosong = pakai server yang melayani MiniSketch.</td></tr>
+              <tr><td>Google Gemini</td><td>Off</td><td>Centang jika menggunakan Gemini Developer API langsung (menggunakan endpoint resmi Google AI dan menyembunyikan Base URL kustom).</td></tr>
+              <tr><td>AI API base URL</td><td>(kosong)</td><td>Endpoint OpenAI-compatible milik Anda, tanpa <code>/chat/completions</code> (diabaikan saat Google Gemini aktif).</td></tr>
+              <tr><td>AI API key</td><td>(kosong, password)</td><td>Kunci API Anda. Dikirim ke bridge setiap permintaan dan tidak pernah disimpan di server.</td></tr>
+              <tr><td>AI model</td><td>(dari dropdown panel)</td><td>Isi nama model di Settings atau pilih langsung di <b>panel AI Chat</b> (dropdown atas; tombol <b>🔄</b> memuat daftar model provider).</td></tr>
+              <tr><td>AI reasoning level</td><td>Normal</td><td>Tingkat penalaran model (<code>Off</code> / <code>Low</code> / <code>Normal</code>) untuk model yang mendukung thinking/reasoning (bisa juga diganti cepat di panel AI Chat).</td></tr>
+              <tr><td>Mode output AI (SVG / Extension)</td><td>Mode: SVG</td><td>Dipilih langsung lewat dropdown di <b>panel AI Chat</b> (<a href="ai.html">Mode: SVG</a> atau <a href="ai.html#mode-extension">Mode: Extension</a>) dan otomatis tersimpan di browser agar tidak reset saat restart.</td></tr>
+              <tr><td>AI agent rounds</td><td>4×</td><td>Berapa kali agen boleh looping (emit tool calls &rarr; execute &rarr; verify) sebelum harus memberi jawaban akhir.</td></tr>
+            </tbody>
+          </table>
+          <div class="callout warn"><b>Tidak ada kunci yang dikirim bersama repositori.</b> Anda menyetel kunci sendiri. Tanpa server sama sekali, tab chat kembali ke mode offline: mem-parsing perintah sederhana Indonesia/English tanpa LLM.</div>
+
+          <div class="callout tip"><b>Nilai kecil = outline lebih rapat dengan lebih banyak titik. Nilai besar = lebih sedikit titik, hasil lebih kasar.</b> Tekan Apply untuk menyimpan; diingat per browser.</div>
+
+          <div class="help-footer">
+            <span>Settings — Pengaturan</span>
+            <span>Sebelumnya: <a href="layers.html">Layers &amp; Pick Filter</a> &nbsp;•&nbsp; Selanjutnya: <a href="solver.html">Solver — Mode Penyelesaian</a></span>
+          </div>
         </div>
 
-        <div class="screenshot">
-          <img src="img/screenshots/dialog-settings.png" alt="Dialog Settings">
-          <figcaption>Dialog Settings dengan kotak pencarian ("Cari pengaturan…"), grup HISTORY / RENDERER / GEOMETRY, nilai per kolom dengan satuan mm/°/ms, serta tombol Reset defaults dan Apply.</figcaption>
-        </div>
+        <div data-lang="en">
+          <div class="breadcrumb"><a href="index.html">Home</a> <span class="sep">&#8250;</span> Settings — Preferences</div>
 
-        <div class="callout info"><b>Cari pengaturan:</b> gunakan kotak pencarian di atas dialog Settings (mis. offset, snap, curve). Keterangan tiap pengaturan muncul sebagai tooltip saat kolom difokuskan.</div>
+          <h1>Settings — Preferences</h1>
+          <p class="help-lead">Open via <b>Tool ▸ Settings</b>. Every tolerance, rendering knob, and AI setting lives in one place, remembered per browser. Click <b>Apply</b> to save.</p>
 
-        <h2>0. History (riwayat undo)</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Undo moves the view</td><td>Off</td><td>Jika menyala, menekan Undo/Redo juga mengembalikan posisi pan &amp; zoom kamera ke saat langkah tersebut dibuat (bisa juga di-toggle cepat dari menu <b>Tool</b>).</td></tr>
-          </tbody>
-        </table>
+          <div class="screenshot">
+            <img src="img/screenshots/menu-tool.png" alt="Open Tool menu">
+            <figcaption>Open Settings via <b>Tool ▸ Settings…</b>; the same menu holds quick toggles for View grid (#), Snap (Shift+5), Points, Show dimension, Auto dimension (Alt+D), Auto solve, Undo moves view, and Send to KaryaCNC (Alt+Q).</figcaption>
+          </div>
 
-        <h2>1. Renderer (tampilan kanvas)</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Point size</td><td>6.4 px</td><td>Sisi penanda titik persegi pada zoom 100%.</td></tr>
-            <tr><td>Handle grab</td><td>6 px</td><td>Seberapa dekat kontrol knob Bézier harus berada untuk menang klik.</td></tr>
-            <tr><td>Point min / max at zoom</td><td>50% / 125%</td><td>Ukuran penanda mengikuti zoom, tidak pernah menyusut di bawah min atau melebihi max.</td></tr>
-            <tr><td>Badge min / max at zoom</td><td>25% / 200%</td><td>Badge constraint dan label dimensi tidak pernah menyusut/melebihi persentase ini.</td></tr>
-            <tr><td>Line width / Selected line width</td><td>2 px / 2.6 px</td><td>Lebar stroke geometri dan objek terpilih pada zoom 100%.</td></tr>
-            <tr><td>Part stroke</td><td>2 px</td><td>Lebar stroke part assembly (tidak pernah dipotong/ diekspor).</td></tr>
-            <tr><td>Line min / max at zoom</td><td>50% / 125%</td><td>Lebar garis mengikuti zoom dengan batas min/max.</td></tr>
-            <tr><td>Anti-aliasing</td><td>On (Smooth)</td><td>Matikan = gambar setengah resolusi dan upscale dengan piksel keras (lebih cepat untuk file besar).</td></tr>
-            <tr><td>Canvas resolution</td><td>100%</td><td>Resolusi kanvas gambar. 50% isi sepertiganya piksel — dial kecepatan termurah.</td></tr>
-            <tr><td>Loop fill · plain / selected / yellow / gray</td><td>warna heksadesimal</td><td>Warna dasar fill loop. Loop bersarang lebih dalam otomatis lebih terang.</td></tr>
-            <tr><td>Loop fills · current / other layers</td><td>On / On</td><td>Mengaktifkan fill interior di layer aktif dan/atau layer lain.</td></tr>
-            <tr><td>Loop fill resolution</td><td>50%</td><td>Resolusi layer fill offscreen relatif kanvas. 50% menampilkan setempat piksel fill dan tidak terlihat bedanya.</td></tr>
-          </tbody>
-        </table>
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-settings.png" alt="Settings dialog">
+            <figcaption>Settings dialog with live search bar, grouped sections (HISTORY / RENDERER / GEOMETRY / etc.), unit badges (mm/°/ms), Reset defaults, and Apply.</figcaption>
+          </div>
 
-        <h2>2. Geometry (toleransi geometri)</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Chain tolerance</td><td>0.1 mm</td><td>Ujung yang lebih dekat dari ini menjadi satu node saat grouping (Ctrl+G) atau offsetting (Ctrl+J).</td></tr>
-            <tr><td>Join tolerance</td><td>0.1 mm</td><td>Toleransi CNC: titik yang lebih dekat dari ini dihitung sebagai satu titik sambung. Jaga di bawah setengah segmen terpendek.</td></tr>
-            <tr><td>Loop closure gap</td><td>0.25 mm</td><td>Jarak maksimal antara ujung segmen yang masih dianggap oleh loop deteksi sebagai loop tertutup.</td></tr>
-            <tr><td>Join imported points</td><td>On</td><td>Nyalakan untuk memadatkan ujung segmen warna sama saat impor SVG/PDF/DXF/CDR.</td></tr>
-            <tr><td>Join imported distance</td><td>0.1 mm</td><td>Seberapa dekat ujung segmen warna sama sebelum impor memadatkannya.</td></tr>
-            <tr><td>Arrow key nudge</td><td>1 mm</td><td>Sejauh panah gerakkan objek/titik pada zoom 100%. Semakin zoom out, semakin jauh per tekan.</td></tr>
-            <tr><td>Curve fit tolerance</td><td>0.2 mm</td><td>Ctrl+K pasang kurva kubik sebanyak mungkin tetap dalam jarak ini dari polyline asli.</td></tr>
-            <tr><td>Boolean result</td><td>Exact (PathBool)</td><td>Boolean hitung pada kurva asli: arc tetap arc, sudut tetap eksak.</td></tr>
-            <tr><td>Curve sharp corner</td><td>25°</td><td>Ctrl+K menjaga vertex sebagai sudut tajam jika polyline belok setidaknya sejauh ini.</td></tr>
-            <tr><td>Auto dimension</td><td>Off</td><td>Saat menggambar, snap juga meninggalkan constraint Midpoint / On line.</td></tr>
-            <tr><td>Auto solve</td><td>Off</td><td>Drag menjalankan solve penuh secara teratur tanpa menunggu mouse dilepas.</td></tr>
-            <tr><td>Auto solve interval</td><td>100 ms</td><td>Interval antar solve otomatis saat drag.</td></tr>
-            <tr><td>Object detail (artTol)</td><td>0.1 mm</td><td>Simplifikasi objek grup, paste, dan offset saat di-flatten ke lines atau dikirim ke KaryaCNC.</td></tr>
-            <tr><td>Offset miter limit</td><td>4×</td><td>Sejauh mana sudut miter boleh menjorok sebelum Clipper memotong ujung runcingnya.</td></tr>
-            <tr><td>Drag wall thickness</td><td>1 mm</td><td>Amplop offset sekeliling objek compound saat Drag wall. 0 = outline itu sendiri.</td></tr>
-            <tr><td>Offset corners</td><td>Sharp (miter)</td><td>Bentuk sudut offset: tajam (miter), bulat, atau persegi (bevel).</td></tr>
-            <tr><td>Rounded corner detail</td><td>0.05 mm</td><td>Chord tolerance untuk sudut bulat.</td></tr>
-            <tr><td>Offset detail</td><td>0.05 mm</td><td>Simplifikasi kontur hasil offset.</td></tr>
-          </tbody>
-        </table>
+          <div class="callout info"><b>Search settings:</b> filter parameters using the search box at the top (e.g. offset, snap, curve). Hovering or focusing a field shows detailed hints.</div>
 
-        <h2>3. Comments (komentar)</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Comment size</td><td>3 mm</td><td>Tinggi teks setiap komentar.</td></tr>
-            <tr><td>Comment min size</td><td>20 px</td><td>Zoom out tidak pernah mengecilkan komentar di bawah ini (0 = bebas menyusut).</td></tr>
-            <tr><td>Comment color</td><td>#ffcc00</td><td>Satu warna untuk semua komentar, kode hex biasa.</td></tr>
-          </tbody>
-        </table>
+          <h2>0. History (undo stack)</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Setting</th><th style="width:14%">Default</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Undo moves the view</td><td>Off</td><td>When enabled, Undo/Redo also restores the pan &amp; zoom camera position to when that edit was made (also toggleable from the <b>Tool</b> menu).</td></tr>
+            </tbody>
+          </table>
 
-        <h2>4. Curves (kurva)</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Curve segments per span</td><td>12</td><td>Seberapa halus kurva kubik divisualkan (digunakan gambar, grouping, offsetting, dan kirim ke KaryaCNC).</td></tr>
-            <tr><td>Arc segments per turn</td><td>72</td><td>Kepadatan sampel busur: 72 = satu segmen setiap lima derajat.</td></tr>
-            <tr><td>Circle chord</td><td>1.5 mm</td><td>Lari lurus terdekat untuk mendekati lingkaran. Semakin kecil = lebih bundar dan lebih berat.</td></tr>
-          </tbody>
-        </table>
+          <h2>1. Renderer (canvas display)</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Setting</th><th style="width:14%">Default</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Point size</td><td>6.4 px</td><td>Square point marker size at 100% zoom.</td></tr>
+              <tr><td>Handle grab</td><td>6 px</td><td>Hit radius for grabbing Bézier handles over lines.</td></tr>
+              <tr><td>Point min / max at zoom</td><td>50% / 125%</td><td>Clamps point marker scaling across extreme zoom levels.</td></tr>
+              <tr><td>Badge min / max at zoom</td><td>25% / 200%</td><td>Clamps constraint badge and dimension label scaling.</td></tr>
+              <tr><td>Line width / Selected line width</td><td>2 px / 2.6 px</td><td>Stroke widths for normal and selected geometry at 100% zoom.</td></tr>
+              <tr><td>Part stroke</td><td>2 px</td><td>Stroke width for rigid assembly parts (never cut or exported).</td></tr>
+              <tr><td>Line min / max at zoom</td><td>50% / 125%</td><td>Clamps stroke scaling across zoom levels.</td></tr>
+              <tr><td>Anti-aliasing</td><td>On (Smooth)</td><td>Disable to render half-res with crisp pixel upscaling for huge drawings.</td></tr>
+              <tr><td>Canvas resolution</td><td>100%</td><td>Internal canvas resolution multiplier; 50% cuts pixel fill cost by ~75%.</td></tr>
+              <tr><td>Loop fill · plain / selected / yellow / gray</td><td>hex colors</td><td>Base fill colors for closed loops; nested holes brighten automatically.</td></tr>
+              <tr><td>Loop fills · current / other layers</td><td>On / On</td><td>Show/hide interior loop shading on active and inactive layers.</td></tr>
+              <tr><td>Loop fill resolution</td><td>50%</td><td>Offscreen resolution multiplier for loop shading.</td></tr>
+            </tbody>
+          </table>
 
-        <h2>5. Text (teks)</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Text outline detail</td><td>0.08 mm</td><td>Detail default objek teks baru: seberapa rapat outline mengikuti glip.</td></tr>
-            <tr><td>Text raster size</td><td>1100 px</td><td>Glip ditrace pada ukuran raster ini. Semakin besar = lebih tajam dan lebih lambat.</td></tr>
-          </tbody>
-        </table>
+          <h2>2. Geometry (tolerances)</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Setting</th><th style="width:14%">Default</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Chain tolerance</td><td>0.1 mm</td><td>Maximum endpoint gap merged when grouping (Ctrl+G) or offsetting (Ctrl+J).</td></tr>
+              <tr><td>Join tolerance</td><td>0.1 mm</td><td>CNC weld tolerance for adjacent endpoints. Keep below half of your shortest segment.</td></tr>
+              <tr><td>Loop closure gap</td><td>0.25 mm</td><td>Maximum gap treated as closed by loop detection.</td></tr>
+              <tr><td>Join imported points</td><td>On</td><td>Weld nearby matching-color endpoints during SVG/PDF/DXF/CDR imports.</td></tr>
+              <tr><td>Join imported distance</td><td>0.1 mm</td><td>Maximum weld distance during vector import.</td></tr>
+              <tr><td>Arrow key nudge</td><td>1 mm</td><td>Step distance when nudging objects/points with arrow keys at 100% zoom.</td></tr>
+              <tr><td>Curve fit tolerance</td><td>0.2 mm</td><td>Maximum deviation allowed when fitting cubic curves with Ctrl+K.</td></tr>
+              <tr><td>Boolean result</td><td>Exact (PathBool)</td><td>Exact curve-preserving booleans keep arcs and corners intact.</td></tr>
+              <tr><td>Curve sharp corner</td><td>25°</td><td>Minimum turn angle kept as a crisp corner during Ctrl+K curve fitting.</td></tr>
+              <tr><td>Auto dimension</td><td>Off</td><td>Snapping while drawing automatically adds Midpoint / On line constraints.</td></tr>
+              <tr><td>Auto solve</td><td>Off</td><td>Periodically solve constraints during drag without waiting for mouse release.</td></tr>
+              <tr><td>Auto solve interval</td><td>100 ms</td><td>Interval between live drag solves when Auto solve is enabled.</td></tr>
+              <tr><td>Object detail (artTol)</td><td>0.1 mm</td><td>Flattening precision for grouped, pasted, and offset objects when sent to KaryaCNC.</td></tr>
+              <tr><td>Offset miter limit</td><td>4×</td><td>Maximum sharp miter extension before clipping beveled corners.</td></tr>
+              <tr><td>Drag wall thickness</td><td>1 mm</td><td>Collision clearance offset around objects during Drag wall (W).</td></tr>
+              <tr><td>Offset corners</td><td>Sharp (miter)</td><td>Corner style for offsets: sharp miter, round, or square bevel.</td></tr>
+              <tr><td>Rounded corner detail</td><td>0.05 mm</td><td>Chord tolerance for rounded offset corners.</td></tr>
+              <tr><td>Offset detail</td><td>0.05 mm</td><td>Simplification tolerance for offset contours.</td></tr>
+            </tbody>
+          </table>
 
-        <h2>6. Paste (tempel gambar)</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Largest pasted object</td><td>300 mm</td><td>Gambar yang ditempel/diseret dibatasi ukuran ini. Dimensikan frame untuk menskalakan ke ukuran asli.</td></tr>
-          </tbody>
-        </table>
+          <h2>3. Comments</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Setting</th><th style="width:14%">Default</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Comment size</td><td>3 mm</td><td>World-space text height for canvas notes.</td></tr>
+              <tr><td>Comment min size</td><td>20 px</td><td>Minimum screen-space readable text size when zoomed out (0 = scale freely).</td></tr>
+              <tr><td>Comment color</td><td>#ffcc00</td><td>Hex color used for canvas notes.</td></tr>
+            </tbody>
+          </table>
 
-        <h2>7. CNC</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Flatten tolerance</td><td>0.05 mm</td><td>Circles dan arcs di-flatten sehingga tidak menyimpang lebih dari ini. 0.05 mm default laser, 0.02 mm untuk detail halus.</td></tr>
-          </tbody>
-        </table>
+          <h2>4. Curves</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Setting</th><th style="width:14%">Default</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Curve segments per span</td><td>12</td><td>Subdivision count per cubic Bézier span for display, grouping, offsets, and CNC export.</td></tr>
+              <tr><td>Arc segments per turn</td><td>72</td><td>Arc tessellation density (72 = one segment per 5 degrees).</td></tr>
+              <tr><td>Circle chord</td><td>1.5 mm</td><td>Chord deviation limit when tessellating circles.</td></tr>
+            </tbody>
+          </table>
 
-        <h2>8. AI chat (bawa kunci sendiri)</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>AI bridge URL</td><td>(kosong)</td><td>Server AI bridge (<code>server/serve.js</code>), mis. <code>http://127.0.0.1:8090</code>. Kosong = pakai server yang melayani MiniSketch.</td></tr>
-            <tr><td>Google Gemini</td><td>Off</td><td>Centang jika menggunakan Gemini Developer API langsung (menggunakan endpoint resmi Google AI dan menyembunyikan Base URL kustom).</td></tr>
-            <tr><td>AI API base URL</td><td>(kosong)</td><td>Endpoint OpenAI-compatible milik Anda, tanpa <code>/chat/completions</code> (diabaikan saat Google Gemini aktif).</td></tr>
-            <tr><td>AI API key</td><td>(kosong, password)</td><td>Kunci API Anda. Dikirim ke bridge setiap permintaan dan tidak pernah disimpan di server.</td></tr>
-            <tr><td>AI model</td><td>(dari dropdown panel)</td><td>Isi nama model di Settings atau pilih langsung di <b>panel AI Chat</b> (dropdown atas; tombol <b>🔄</b> memuat daftar model provider).</td></tr>
-            <tr><td>AI reasoning level</td><td>Normal</td><td>Tingkat penalaran model (<code>Off</code> / <code>Low</code> / <code>Normal</code>) untuk model yang mendukung thinking/reasoning (bisa juga diganti cepat di panel AI Chat).</td></tr>
-            <tr><td>Mode output AI (SVG / Extension)</td><td>Mode: SVG</td><td>Dipilih langsung lewat dropdown di <b>panel AI Chat</b> (<a href="ai.html">Mode: SVG</a> atau <a href="ai.html#mode-extension">Mode: Extension</a>) dan otomatis tersimpan di browser agar tidak reset saat restart.</td></tr>
-            <tr><td>AI agent rounds</td><td>4×</td><td>Berapa kali agen boleh looping (emit tool calls &rarr; execute &rarr; verify) sebelum harus memberi jawaban akhir.</td></tr>
-          </tbody>
-        </table>
-        <div class="callout warn"><b>Tidak ada kunci yang dikirim bersama repositori.</b> Anda menyetel kunci sendiri. Tanpa server sama sekali, tab chat kembali ke mode offline: mem-parsing perintah sederhana Indonesia/English tanpa LLM.</div>
+          <h2>5. Text</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Setting</th><th style="width:14%">Default</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Text outline detail</td><td>0.08 mm</td><td>Default outline accuracy for new text objects.</td></tr>
+              <tr><td>Text raster size</td><td>1100 px</td><td>Internal glyph tracing resolution; larger = sharper but slower.</td></tr>
+            </tbody>
+          </table>
 
-        <div class="callout tip"><b>Nilai kecil = outline lebih rapat dengan lebih banyak titik. Nilai besar = lebih sedikit titik, hasil lebih kasar.</b> Tekan Apply untuk menyimpan; diingat per browser.</div>
+          <h2>6. Paste (images)</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Setting</th><th style="width:14%">Default</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Largest pasted object</td><td>300 mm</td><td>Maximum initial size for pasted/dropped images; dimension its green frame to rescale accurately.</td></tr>
+            </tbody>
+          </table>
 
-        <div class="help-footer">
-          <span>Settings — Pengaturan</span>
-          <span>Sebelumnya: <a href="layers.html">Layers &amp; Pick Filter</a> &nbsp;•&nbsp; Selanjutnya: <a href="solver.html">Solver — Mode Penyelesaian</a></span>
+          <h2>7. CNC</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Setting</th><th style="width:14%">Default</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Flatten tolerance</td><td>0.05 mm</td><td>Maximum deviation when flattening circles and arcs for KaryaCNC (0.05 mm laser default, 0.02 mm fine).</td></tr>
+            </tbody>
+          </table>
+
+          <h2>8. AI chat (Bring Your Own Key)</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:28%">Setting</th><th style="width:14%">Default</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>AI bridge URL</td><td>(blank)</td><td>Local AI bridge URL (<code>server/serve.js</code>), e.g. <code>http://127.0.0.1:8090</code>. Blank uses the origin serving MiniSketch.</td></tr>
+              <tr><td>Google Gemini</td><td>Off</td><td>Check when using the Gemini Developer API directly (uses the official Google AI endpoint and hides custom Base URL).</td></tr>
+              <tr><td>AI API base URL</td><td>(blank)</td><td>Your OpenAI-compatible base URL without <code>/chat/completions</code> (ignored when Google Gemini is enabled).</td></tr>
+              <tr><td>AI API key</td><td>(blank, password)</td><td>Your personal API key. Sent to the bridge per request and never stored on the server.</td></tr>
+              <tr><td>AI model</td><td>(from panel dropdown)</td><td>Set a model ID here or pick directly in the <b>AI Chat panel</b> (click <b>🔄</b> to load provider models).</td></tr>
+              <tr><td>AI reasoning level</td><td>Normal</td><td>Reasoning effort (<code>Off</code> / <code>Low</code> / <code>Normal</code>) for thinking-capable models (also switchable from the AI Chat panel).</td></tr>
+              <tr><td>AI output mode (SVG / Extension)</td><td>Mode: SVG</td><td>Selected directly via the dropdown in the <b>AI Chat panel</b> (<a href="ai.html">Mode: SVG</a> or <a href="ai.html#mode-extension">Mode: Extension</a>) and persisted across browser restarts.</td></tr>
+              <tr><td>AI agent rounds</td><td>4×</td><td>Maximum tool-call → execute → verify loop rounds per turn before finalizing.</td></tr>
+            </tbody>
+          </table>
+          <div class="callout warn"><b>No keys are bundled with the app.</b> Supply your own API key. Without a bridge or key, AI Chat falls back to offline command parsing (EN/ID).</div>
+
+          <div class="callout tip"><b>Smaller numbers = tighter outlines with more vertices; larger numbers = fewer vertices, coarser detail.</b> Click Apply to save locally per browser.</div>
+
+          <div class="help-footer">
+            <span>Settings — Preferences</span>
+            <span>Previous: <a href="layers.html">Layers &amp; Pick Filter</a> &nbsp;•&nbsp; Next: <a href="solver.html">Solver — Solve Modes</a></span>
+          </div>
         </div>
       </div>
     </main>

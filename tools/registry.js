@@ -500,6 +500,9 @@ window.MiniSketchTools = (() => {
       if (recIdx >= 0) installedRecords[recIdx] = record;
       else installedRecords.push(record);
       saveInstalled();
+      if (!o.silentSync && window.MiniSketchCloud && window.MiniSketchCloud.onExtensionSaved) {
+        window.MiniSketchCloud.onExtensionSaved(record);
+      }
     }
 
     if (NS.api) {
@@ -522,6 +525,9 @@ window.MiniSketchTools = (() => {
     saveDisabled();
     syncToolsRow();
     notifyChange();
+    if (window.MiniSketchCloud && window.MiniSketchCloud.onDisabledExtensionsChanged) {
+      window.MiniSketchCloud.onDisabledExtensionsChanged();
+    }
     return true;
   };
 
@@ -542,7 +548,60 @@ window.MiniSketchTools = (() => {
     installedRecords = installedRecords.filter(r => r.id !== key);
     saveInstalled();
     notifyChange();
+    if (window.MiniSketchCloud && window.MiniSketchCloud.onExtensionDeleted) {
+      window.MiniSketchCloud.onExtensionDeleted(key);
+    }
     return { ok: true };
+  };
+
+  NS.exportExtensions = () => installedRecords.map(r => Object.assign({}, r));
+
+  NS.setDisabledList = (ids) => {
+    disabledIds = new Set(Array.isArray(ids) ? ids.map(String) : []);
+    saveDisabled();
+    syncToolsRow();
+    notifyChange();
+  };
+
+  NS.replaceSyncedExtensions = (records, opts) => {
+    const o = opts || {};
+    const incoming = Array.isArray(records) ? records.filter(r => r && r.id && r.code) : [];
+    const incomingIds = new Set(incoming.map(r => String(r.id).toLowerCase()));
+    if (o.pruneMissing) {
+      for (const cur of [...installedRecords]) {
+        if (!incomingIds.has(cur.id)) {
+          const tool = NS.list.find(t => t.id === cur.id);
+          if (tool && !tool.builtIn) {
+            NS.close(cur.id);
+            const m = modalOf(tool);
+            if (m && m.parentNode) m.parentNode.removeChild(m);
+            const b = document.getElementById('btn-' + cur.id);
+            if (b && b.parentNode) b.parentNode.removeChild(b);
+            NS.list = NS.list.filter(t => t.id !== cur.id);
+          }
+          installedRecords = installedRecords.filter(r => r.id !== cur.id);
+        }
+      }
+      saveInstalled();
+    }
+    for (const r of incoming) {
+      NS.installExtension({
+        id: r.id,
+        name: r.name || r.label || r.id,
+        label: r.label || r.name || r.id,
+        title: r.title || '',
+        version: r.version || '1.0.0',
+        author: r.author || 'Community',
+        category: r.category || 'CNC Utility',
+        description: r.description || '',
+        icon: r.icon || '',
+        source: r.source || 'local',
+        sourceUrl: r.sourceUrl || '',
+        catalogUrl: r.catalogUrl || ''
+      }, r.code, { silentSync: true });
+    }
+    syncToolsRow();
+    notifyChange();
   };
 
   NS.getCatalogState = () => {

@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en" data-doc-lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Berkas — Open / Import / Save / Export | Bantuan MiniSketch</title>
+<title>Files — Open / Import / Save / Export | MiniSketch Help</title>
 <link rel="stylesheet" href="help.css">
+<script>try{var p=new URLSearchParams(location.search).get("lang"),l=(p==="en"||p==="id")?p:(localStorage.getItem("minisketch.help.lang")||"en");if(l!=="en"&&l!=="id")l="en";document.documentElement.dataset.docLang=l;document.documentElement.lang=l;}catch(e){}</script>
 </head>
 <body>
 <div class="help-shell">
@@ -14,18 +15,18 @@
     <div class="help-brand">
       <div class="help-mark">M</div>
       <div>
-        <div class="help-title">Berkas — Open / Import / Save / Export</div>
-        <div class="help-subtitle">Buka .sketch/.json, impor gabung, simpan, dan ekspor SVG</div>
+        <div class="help-title">Files — Open / Import / Save / Export</div>
+        <div class="help-subtitle">Open .sketch/.json, merge imports, save, export SVG, and optional Google Cloud Sync</div>
       </div>
     </div>
     <div class="help-spacer"></div>
     <div class="help-search">
       <span class="search-icon" aria-hidden="true">&#128269;</span>
-      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
-      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+      <input id="help-search-input" type="text" placeholder="Search help topics…" autocomplete="off" spellcheck="false" aria-label="Search help topics">
+      <button class="clear-btn" id="help-search-clear" title="Clear search" aria-hidden="true">&#215;</button>
     </div>
     <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
-    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">No matching topics.</div>
   </header>
 
   <div class="help-body">
@@ -72,47 +73,108 @@
 
     <main class="help-content">
       <div class="help-page">
-        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Berkas — Open / Import / Save / Export</div>
+        <div data-lang="id">
+          <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Berkas — Open / Import / Save / Export</div>
 
-        <h1>Menu Berkas</h1>
-        <p class="help-lead">Buka melalui tombol <b>File</b> di ribbon. Semua operasi berkas juga punya tombol pintas keyboard.</p>
+          <h1>Menu Berkas</h1>
+          <p class="help-lead">Buka melalui tombol <b>File</b> di ribbon. Semua operasi berkas juga punya tombol pintas keyboard.</p>
 
-        <div class="screenshot">
-          <img src="img/screenshots/menu-file.png" alt="Menu Berkas terbuka">
-          <figcaption>Menu Berkas: New, Open… (replace), Import… (merge), Save (Ctrl+S), Save as… (Ctrl+Shift+S), Export SVG… (Ctrl+E), Lang: English/Indonesia, dan Help (?).</figcaption>
+          <div class="screenshot">
+            <img src="img/screenshots/menu-file.png" alt="Menu Berkas terbuka">
+            <figcaption>Menu Berkas: New, Open… (replace), Import… (merge), Save (Ctrl+S), Save as… (Ctrl+Shift+S), Export SVG… (Ctrl+E), Lang: English/Indonesia, dan Help (?).</figcaption>
+          </div>
+
+          <h2>1. Operasi berkas</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:26%">Pintasan / Menu</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><kbd>Ctrl+O</kbd> — Open</td><td>Mengganti seluruh sketsa dengan file <b>.sketch</b> / <b>.json</b> dan menyesuaikan tampilan (frame).</td></tr>
+              <tr><td><kbd>Ctrl+I</kbd> — Import</td><td>Menggabungkan file ke sketsa yang aktif: isi lama tetap di posisinya, geometri impor ditempatkan di kanan konten yang sudah ada (jarak 50 mm, rata atas) atau di pusat viewport bila halaman kosong.</td></tr>
+              <tr><td><kbd>Ctrl+S</kbd> — Save</td><td>Menyimpan / mengunduh berkas <code>.sketch</code> ke disk (atau menimpa file yang terhubung); sementara di browser, setiap edit otomatis tersimpan lokal secara berkala.</td></tr>
+              <tr><td><kbd>Ctrl+Shift+S</kbd> — Save as</td><td>Selalu menanyakan nama file baru, unduh <code>.sketch</code>.</td></tr>
+              <tr><td><kbd>Ctrl+E</kbd> — Export SVG</td><td>Ekspor SVG dengan opsi: hanya objek terpilih, hanya layer terlihat, atau hanya layer aktif, dengan garis hairline untuk Inkscape.</td></tr>
+            </tbody>
+          </table>
+
+          <div class="callout info"><b>Perbedaan Open vs Import:</b> Open <i>mengganti</i> seluruh sketsa. Import <i>menggabungkan</i> ke sketsa aktif tanpa menghapus yang sudah ada.</div>
+
+          <h2>2. Status file aktif</h2>
+          <p>Nama file yang sedang dibuka tampil sebagai keterangan kecil di bawah panel warna strip (dan di judul tab browser jika ada). Titik kecil di sebelahnya menyala saat dokumen berbeda dari file di disk. Klik keterangan itu = Save.</p>
+
+          <h2>3. Format yang didukung</h2>
+          <ul>
+            <li><b>.sketch / .json</b> — format native MiniSketch, readable JSON, dibuka dengan Open.</li>
+            <li><b>.svg</b> — impor vektor (lihat halaman Import).</li>
+            <li><b>.pdf</b> — gambar vektor dengan ukuran cetak asli.</li>
+            <li><b>.cdr</b> — CorelDRAW X4 dan lebih baru.</li>
+            <li><b>.dxf</b> — ASCII DXF dari program CAD (biner tidak didukung, simpan ulang sebagai ASCII DXF).</li>
+          </ul>
+
+          <h2 id="cloud-sync">4. Akun Google &amp; Cloud Sync (Opsional)</h2>
+          <p>MiniSketch selalu berjalan <b>local-first &amp; offline</b> — tanpa login sekalipun, seluruh sketsa, ekstensi, pengaturan, dan riwayat AI tetap tersimpan aman di browser lokal Anda.</p>
+          <ul>
+            <li>Jika ingin menyinkronkan sketsa aktif, pengaturan, ekstensi, dan sesi AI Chat antar-perangkat, klik tombol akun di pojok kanan atas ribbon untuk membuka <b>Account &amp; Cloud Sync</b> dan masuk dengan Google.</li>
+            <li>Secara bawaan, sinkronisasi berjalan <b>manual (on-demand)</b> agar proses menggambar di kanvas selalu instan tanpa jeda upload otomatis setiap kali Anda menggeser objek. Tekan <b>Sync</b> di header akun atau gunakan menu modal akun (<b>Upload Local Data Now</b> / <b>Pull Cloud Data</b>) saat Anda siap menyinkronkan. Opsi <i>Auto-sync changes</i> tetap bisa diaktifkan kapan saja di jendela akun.</li>
+          </ul>
+
+          <div class="help-footer">
+            <span>Berkas — Open / Import / Save / Export</span>
+            <span>Selanjutnya: <a href="import.html">Import — SVG / PDF / CDR / DXF</a></span>
+          </div>
         </div>
 
-        <h2>1. Operasi berkas</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:26%">Pintasan / Menu</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td><kbd>Ctrl+O</kbd> — Open</td><td>Mengganti seluruh sketsa dengan file <b>.sketch</b> / <b>.json</b> dan menyesuaikan tampilan (frame).</td></tr>
-            <tr><td><kbd>Ctrl+I</kbd> — Import</td><td>Menggabungkan file ke sketsa yang aktif: isi lama tetap di posisinya, geometri impor ditempatkan di kanan konten yang sudah ada (jarak 50 mm, rata atas) atau di pusat viewport bila halaman kosong.</td></tr>
-            <tr><td><kbd>Ctrl+S</kbd> — Save</td><td>Menyimpan / mengunduh berkas <code>.sketch</code> ke disk (atau menimpa file yang terhubung); sementara di browser, setiap edit otomatis tersimpan lokal secara berkala.</td></tr>
-            <tr><td><kbd>Ctrl+Shift+S</kbd> — Save as</td><td>Selalu menanyakan nama file baru, unduh <code>.sketch</code>.</td></tr>
-            <tr><td><kbd>Ctrl+E</kbd> — Export SVG</td><td>Ekspor SVG dengan opsi: hanya objek terpilih, hanya layer terlihat, atau hanya layer aktif, dengan garis hairline untuk Inkscape.</td></tr>
-          </tbody>
-        </table>
+        <div data-lang="en">
+          <div class="breadcrumb"><a href="index.html">Home</a> <span class="sep">&#8250;</span> Files — Open / Import / Save / Export</div>
 
-        <div class="callout info"><b>Perbedaan Open vs Import:</b> Open <i>mengganti</i> seluruh sketsa. Import <i>menggabungkan</i> ke sketsa aktif tanpa menghapus yang sudah ada.</div>
+          <h1>File Menu</h1>
+          <p class="help-lead">Open via the <b>File</b> button in the top ribbon. Every file action also has a keyboard shortcut.</p>
 
-        <h2>2. Status file aktif</h2>
-        <p>Nama file yang sedang dibuka tampil sebagai keterangan kecil di bawah panel warna strip (dan di judul tab browser jika ada). Titik kecil di sebelahnya menyala saat dokumen berbeda dari file di disk. Klik keterangan itu = Save.</p>
+          <div class="screenshot">
+            <img src="img/screenshots/menu-file.png" alt="Open File menu">
+            <figcaption>File Menu: New, Open… (replace), Import… (merge), Save (Ctrl+S), Save as… (Ctrl+Shift+S), Export SVG… (Ctrl+E), Lang: English/Indonesia, and Help (?).</figcaption>
+          </div>
 
-        <h2>3. Format yang didukung</h2>
-        <ul>
-          <li><b>.sketch / .json</b> — format native MiniSketch, readable JSON, dibuka dengan Open.</li>
-          <li><b>.svg</b> — impor vektor (lihat halaman Import).</li>
-          <li><b>.pdf</b> — gambar vektor dengan ukuran cetak asli.</li>
-          <li><b>.cdr</b> — CorelDRAW X4 dan lebih baru.</li>
-          <li><b>.dxf</b> — ASCII DXF dari program CAD (biner tidak didukung, simpan ulang sebagai ASCII DXF).</li>
-        </ul>
+          <h2>1. File Operations</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:26%">Shortcut / Menu</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><kbd>Ctrl+O</kbd> — Open</td><td>Replaces the current sketch with a <b>.sketch</b> / <b>.json</b> file and frames the view to fit.</td></tr>
+              <tr><td><kbd>Ctrl+I</kbd> — Import</td><td>Merges a file into the active sketch: existing geometry stays in place and imported items land to the right of existing content (50 mm gap, top-aligned), or centered if the page is empty.</td></tr>
+              <tr><td><kbd>Ctrl+S</kbd> — Save</td><td>Saves / downloads a <code>.sketch</code> file to disk (or overwrites the linked file); locally in the browser, edits also autosave periodically.</td></tr>
+              <tr><td><kbd>Ctrl+Shift+S</kbd> — Save as</td><td>Always prompts for a new filename and downloads <code>.sketch</code>.</td></tr>
+              <tr><td><kbd>Ctrl+E</kbd> — Export SVG</td><td>Exports SVG with options for selection only, visible layers only, or active layer only, plus hairline strokes for Inkscape.</td></tr>
+            </tbody>
+          </table>
 
-        <div class="help-footer">
-          <span>Berkas — Open / Import / Save / Export</span>
-          <span>Selanjutnya: <a href="import.html">Import — SVG / PDF / CDR / DXF</a></span>
+          <div class="callout info"><b>Open vs. Import:</b> Open <i>replaces</i> the entire sketch. Import <i>merges</i> into the active sketch without deleting existing work.</div>
+
+          <h2>2. Active File Indicator</h2>
+          <p>The current filename appears as a subtle caption below the stroke color strip (and in the browser tab title). A small dot lights up when the canvas has unsaved changes compared to disk. Clicking that label runs Save.</p>
+
+          <h2>3. Supported Formats</h2>
+          <ul>
+            <li><b>.sketch / .json</b> — native MiniSketch readable JSON format opened with Open.</li>
+            <li><b>.svg</b> — vector import (see the Import page).</li>
+            <li><b>.pdf</b> — vector graphics imported at true print scale.</li>
+            <li><b>.cdr</b> — CorelDRAW X4 and newer.</li>
+            <li><b>.dxf</b> — ASCII DXF from CAD programs (binary DXF is not supported; re-export as ASCII DXF).</li>
+          </ul>
+
+          <h2 data-anchor="cloud-sync">4. Google Account &amp; Cloud Sync (Optional)</h2>
+          <p>MiniSketch is strictly <b>local-first &amp; works offline</b> — even without signing in, your sketches, extensions, settings, and AI chat history remain saved safely in local browser storage.</p>
+          <ul>
+            <li>To sync your active workspace, preferences, extensions, and AI sessions across devices, click the account chip in the top-right ribbon to open <b>Account &amp; Cloud Sync</b> and sign in with Google.</li>
+            <li>By default, cloud sync is <b>manual (on-demand)</b> so editing stays lag-free without background uploads on every drag. Click <b>Sync</b> in the header or use <b>Upload Local Data Now</b> / <b>Pull Cloud Data</b> inside the account dialog whenever you want to sync. You can optionally enable <i>Auto-sync changes</i> inside the dialog.</li>
+          </ul>
+
+          <div class="help-footer">
+            <span>Files — Open / Import / Save / Export</span>
+            <span>Next: <a href="import.html">Import — SVG / PDF / CDR / DXF</a></span>
+          </div>
         </div>
       </div>
     </main>

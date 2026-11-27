@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en" data-doc-lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Draw — Menggambar | Bantuan MiniSketch</title>
+<title>Draw — Sketching Tools | MiniSketch Help</title>
 <link rel="stylesheet" href="help.css">
+<script>try{var p=new URLSearchParams(location.search).get("lang"),l=(p==="en"||p==="id")?p:(localStorage.getItem("minisketch.help.lang")||"en");if(l!=="en"&&l!=="id")l="en";document.documentElement.dataset.docLang=l;document.documentElement.lang=l;}catch(e){}</script>
 </head>
 <body>
 <div class="help-shell">
@@ -14,18 +15,18 @@
     <div class="help-brand">
       <div class="help-mark">M</div>
       <div>
-        <div class="help-title">Draw — Menggambar</div>
-        <div class="help-subtitle">Semua alat gambar di tab Draw dan cara menggunakannya</div>
+        <div class="help-title">Draw — Sketching Tools</div>
+        <div class="help-subtitle">All drawing tools on the Draw tab and how to use them</div>
       </div>
     </div>
     <div class="help-spacer"></div>
     <div class="help-search">
       <span class="search-icon" aria-hidden="true">&#128269;</span>
-      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
-      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+      <input id="help-search-input" type="text" placeholder="Search help topics…" autocomplete="off" spellcheck="false" aria-label="Search help topics">
+      <button class="clear-btn" id="help-search-clear" title="Clear search" aria-hidden="true">&#215;</button>
     </div>
     <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
-    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">No matching topics.</div>
   </header>
 
   <div class="help-body">
@@ -56,95 +57,190 @@
 
     <main class="help-content">
       <div class="help-page">
-        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Draw — Menggambar</div>
+        <div data-lang="id">
+          <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Draw — Menggambar</div>
 
-        <h1>Tab Draw — Menggambar</h1>
-        <p class="help-lead">Tab Draw adalah tempat utama untuk membuat geometri. Semua alat tersedia sebagai tombol besar di ribbon dan melalui tombol pintas huruf pada keyboard.</p>
+          <h1>Tab Draw — Menggambar</h1>
+          <p class="help-lead">Tab Draw adalah tempat utama untuk membuat geometri. Semua alat tersedia sebagai tombol besar di ribbon dan melalui tombol pintas huruf pada keyboard.</p>
 
-        <div class="screenshot-wrap">
-          <div class="screenshot">
-            <img src="img/screenshots/draw-ribbon.png" alt="Tab Draw aktif di ribbon">
-            <figcaption>Tab Draw aktif: Select, Line, Curve, Arc, Circle, Box, Poly, Text, Trim, Separate, Note.</figcaption>
+          <div class="screenshot-wrap">
+            <div class="screenshot">
+              <img src="img/screenshots/draw-ribbon.png" alt="Tab Draw aktif di ribbon">
+              <figcaption>Tab Draw aktif: Select, Line, Curve, Arc, Circle, Box, Poly, Text, Trim, Separate, Note.</figcaption>
+            </div>
+          </div>
+
+          <h2>Contoh menggambar kotak dan garis</h2>
+          <div class="screenshot-wrap">
+            <div class="screenshot">
+              <img src="img/screenshots/draw-kotak.png" alt="Contoh kotak tertutup di kanvas dengan badge H/V">
+              <figcaption>Hasil alat Box (R): kotak menjadi loop tertutup dengan badge otomatis <b>H</b>/<b>V</b> pada garisnya serta strip ukuran <b>L / T / W / H / Wt / Z</b> di kanan atas kanvas.</figcaption>
+            </div>
+            <div class="screenshot">
+              <img src="img/screenshots/draw-contoh.png" alt="Alat Line menggambar garis">
+              <figcaption>Alat Line (Shift+B): klik titik awal lalu arahkan titik akhir. Marker hijau "point" menandai snap ke sudut kotak yang sudah ada.</figcaption>
+            </div>
+          </div>
+
+          <h2>1. Daftar alat dan tombol pintas</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:22%">Tombol</th><th style="width:20%">Alat</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><kbd>Shift+B</kbd></td><td>Garis (Line)</td><td>Klik titik awal, titik akhir, dan seterusnya untuk rangkaian garis.</td></tr>
+              <tr><td><kbd>B</kbd></td><td>Kurva Bézier (Curve)</td><td>Klik untuk sudut, klik-tahan-geser untuk lengkung halus.</td></tr>
+              <tr><td><kbd>*</kbd></td><td>Poligon / Bintang (Poly)</td><td>Titik pusat dulu, lalu radius dan sudut awal. Roda mouse atur persen dalam bintang.</td></tr>
+              <tr><td><kbd>A</kbd></td><td>Busur (Arc)</td><td>Busur 3 titik: dua titik ujung lalu titik tempat lengkung.</td></tr>
+              <tr><td><kbd>E</kbd></td><td>Lingkaran (Circle)</td><td>Titik pusat lalu radius.</td></tr>
+              <tr><td><kbd>R</kbd></td><td>Kotak (Box)</td><td>Drag untuk menentukan ukuran.</td></tr>
+              <tr><td><kbd>T</kbd></td><td>Teks (Text)</td><td>Isi konten, pilih font, gaya, ukuran, jarak huruf.</td></tr>
+              <tr><td><kbd>I</kbd></td><td>Potong (Trim)</td><td>Potong di persimpangan. Ctrl+klik menyusuri seluruh rantai.</td></tr>
+              <tr><td><kbd>Shift+E</kbd></td><td>Pisah (Separate)</td><td>Membelah tanpa menghapus (Trim tanpa kehilangan).</td></tr>
+              <tr><td><kbd>;</kbd></td><td>Catatan (Note)</td><td>Menaruh komentar kuning di kanvas sebagai pengingat — tidak pernah dipotong atau dikirim ke KaryaCNC.</td></tr>
+              <tr><td><kbd>Ctrl+M</kbd></td><td>Transformasi (tab Edit)</td><td>Pindahkan, putar, atau skala objek terpilih.</td></tr>
+            </tbody>
+          </table>
+
+          <div class="callout info"><b>Mode saat menggambar:</b> <kbd>F1</kbd> pilih/geser (titik &amp; garis terkunci), <kbd>F2</kbd> edit node, <kbd>F3</kbd> titik junction.</div>
+
+          <h2 id="shortcuts">2. Tips saat menggambar</h2>
+          <ul>
+            <li>Tahan <kbd>Shift</kbd> saat menggambar: sudut menempel ke kelipatan 15°.</li>
+            <li>Tahan <kbd>Alt</kbd> saat menggambar: membalik status Snap sementara.</li>
+            <li><kbd>Enter</kbd> menyelesaikan bentuk, <kbd>Esc</kbd> membatalkan atau mengambil garis/node terakhir kembali.</li>
+            <li>Klik titik awal lagi untuk menutup lingkaran (loop lengkap).</li>
+            <li>Saat menggambar, titik baru menempel ke titik yang sudah ada, titik tengah garis, dan titik terdekat pada garis — masing-masing membuat constraint Midpoint / On line yang sungguhan.</li>
+            <li><kbd>Shift+5</kbd> (%) menghidupkan/mematikan snap. Mati berarti mati: tidak ada yang menempel sama sekali.</li>
+            <li>Grid snapping hanya aktif saat grid nyala (<kbd>#</kbd>).</li>
+          </ul>
+
+          <h3>Urutan prioritas snap</h3>
+          <p>Saat snap nyala, kursor menempel ke target pertama yang ditemukan mengikuti urutan ini (dari paling spesifik ke paling umum):</p>
+          <ol>
+            <li><b>Titik</b> yang sudah ada (berwarna sama akan dilebur/weld; warna lain hanya dipakai sebagai posisi, ditandai marker amber <i>snap-only</i>).</li>
+            <li><b>Titik asal</b> (0,0).</li>
+            <li><b>Geometri garis/busur/kurva</b> — termasuk <i>midpoint</i> dan <i>on line</i>.</li>
+            <li><b>Pusat loop tertutup</b> (centroid; untuk lingkaran = pusatnya).</li>
+            <li><b>Grid</b> — hanya bila grid tampil (<kbd>#</kbd>).</li>
+          </ol>
+          <p>Jika snap dimatikan lewat menu Tool (<i>Snap leaves constraints</i>), menempel ke garis tidak lagi meninggalkan constraint Midpoint / On line.</p>
+
+          <h2>3. Alat khusus</h2>
+          <h3>Kotak (Box, R) — sudut membulat dengan roda mouse</h3>
+          <p>Tarik dua sudut berlawanan seperti biasa. Selama menarik, <b>putar roda mouse</b> untuk mengatur radius fillet (tahan <kbd>Shift</kbd> = langkah halus). Saat kotak diletakkan, muncul konfirmasi radius (0 = sudut tajam). Jika Anda <b>tidak pernah</b> memutar roda, kotak langsung dibuat dengan sudut tajam tanpa ditanya.</p>
+
+          <h3>Kurva Bézier</h3>
+          <p>Klik untuk sudut, klik-tahan-geser untuk lengkung halus, klik node pertama untuk menutup. <kbd>Enter</kbd>, klik ganda, atau klik kanan mengakhiri kurva; <kbd>Esc</kbd> membatalkan. Preview mengikuti aturan yang sama, jadi yang terlihat itulah hasilnya.</p>
+
+          <h3>Busur (3 titik)</h3>
+          <p>Klik dua titik ujung yang dilalui busur, lalu titik ketiga tempat busur melengkung. Jika tiga titik segaris, alat menolak. Tekan <kbd>Space</kbd> di langkah ketiga untuk beralih antara busur dan lingkaran penuh melalui ketiga titik.</p>
+
+          <h3>Potong (Trim)</h3>
+          <p>Klik satu span, bagian itu hilang, sisanya tetap. Ctrl+klik menyaluri seluruh rantai garis, busur, dan kurva yang bersentuh sekaligus. Kurva tertutup tidak punya ujung, jadi klik biasa membelah di setiap persimpangan.</p>
+
+          <h3>Pisah (Separate)</h3>
+          <p>Sama seperti potong tetapi tidak menghapus apa pun — seperti Trim tanpa kehilangan bentuk.</p>
+
+          <div class="callout warn"><b>Catatan:</b> setelah selesai menggambar, tekan <kbd>F9</kbd> untuk menyelesaikan sketsa sehingga dimensi penggerak dan constraint terapkan ke geometri. Dimensi yang belum terpenuhi digambar warna amber.</div>
+
+          <div class="help-footer">
+            <span>Draw — Menggambar</span>
+            <span>Selanjutnya: <a href="edit.html">Edit — Mengubah Objek</a></span>
           </div>
         </div>
 
-        <h2>Contoh menggambar kotak dan garis</h2>
-        <div class="screenshot-wrap">
-          <div class="screenshot">
-            <img src="img/screenshots/draw-kotak.png" alt="Contoh kotak tertutup di kanvas dengan badge H/V">
-            <figcaption>Hasil alat Box (R): kotak menjadi loop tertutup dengan badge otomatis <b>H</b>/<b>V</b> pada garisnya serta strip ukuran <b>L / T / W / H / Wt / Z</b> di kanan atas kanvas.</figcaption>
+        <div data-lang="en">
+          <div class="breadcrumb"><a href="index.html">Home</a> <span class="sep">&#8250;</span> Draw — Sketching Tools</div>
+
+          <h1>Draw Tab — Sketching Tools</h1>
+          <p class="help-lead">The Draw tab is where you create geometry. Every tool is available both on the ribbon and via single-key or chorded shortcuts.</p>
+
+          <div class="screenshot-wrap">
+            <div class="screenshot">
+              <img src="img/screenshots/draw-ribbon.png" alt="Draw ribbon tab active">
+              <figcaption>Draw tab: Select, Line, Curve, Arc, Circle, Box, Poly, Text, Trim, Separate, Note.</figcaption>
+            </div>
           </div>
-          <div class="screenshot">
-            <img src="img/screenshots/draw-contoh.png" alt="Alat Line menggambar garis">
-            <figcaption>Alat Line (Shift+B): klik titik awal lalu arahkan titik akhir. Marker hijau "point" menandai snap ke sudut kotak yang sudah ada.</figcaption>
+
+          <h2>Drawing Boxes &amp; Lines</h2>
+          <div class="screenshot-wrap">
+            <div class="screenshot">
+              <img src="img/screenshots/draw-kotak.png" alt="Closed rectangle with H/V badges on canvas">
+              <figcaption>Box tool (R): automatically creates a closed loop with <b>H</b>/<b>V</b> constraint badges and shows the <b>L / T / W / H / Wt / Z</b> strip at the top right.</figcaption>
+            </div>
+            <div class="screenshot">
+              <img src="img/screenshots/draw-contoh.png" alt="Line tool snapping to a corner">
+              <figcaption>Line tool (Shift+B): click start and end points. Green "point" marker confirms snapping onto an existing box corner.</figcaption>
+            </div>
           </div>
-        </div>
 
-        <h2>1. Daftar alat dan tombol pintas</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:22%">Tombol</th><th style="width:20%">Alat</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td><kbd>Shift+B</kbd></td><td>Garis (Line)</td><td>Klik titik awal, titik akhir, dan seterusnya untuk rangkaian garis.</td></tr>
-            <tr><td><kbd>B</kbd></td><td>Kurva Bézier (Curve)</td><td>Klik untuk sudut, klik-tahan-geser untuk lengkung halus.</td></tr>
-            <tr><td><kbd>*</kbd></td><td>Poligon / Bintang (Poly)</td><td>Titik pusat dulu, lalu radius dan sudut awal. Roda mouse atur persen dalam bintang.</td></tr>
-            <tr><td><kbd>A</kbd></td><td>Busur (Arc)</td><td>Busur 3 titik: dua titik ujung lalu titik tempat lengkung.</td></tr>
-            <tr><td><kbd>E</kbd></td><td>Lingkaran (Circle)</td><td>Titik pusat lalu radius.</td></tr>
-            <tr><td><kbd>R</kbd></td><td>Kotak (Box)</td><td>Drag untuk menentukan ukuran.</td></tr>
-            <tr><td><kbd>T</kbd></td><td>Teks (Text)</td><td>Isi konten, pilih font, gaya, ukuran, jarak huruf.</td></tr>
-            <tr><td><kbd>I</kbd></td><td>Potong (Trim)</td><td>Potong di persimpangan. Ctrl+klik menyusuri seluruh rantai.</td></tr>
-            <tr><td><kbd>Shift+E</kbd></td><td>Pisah (Separate)</td><td>Membelah tanpa menghapus (Trim tanpa kehilangan).</td></tr>
-            <tr><td><kbd>;</kbd></td><td>Catatan (Note)</td><td>Menaruh komentar kuning di kanvas sebagai pengingat — tidak pernah dipotong atau dikirim ke KaryaCNC.</td></tr>
-            <tr><td><kbd>Ctrl+M</kbd></td><td>Transformasi (tab Edit)</td><td>Pindahkan, putar, atau skala objek terpilih.</td></tr>
-          </tbody>
-        </table>
+          <h2>1. Tool &amp; Shortcut List</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:22%">Shortcut</th><th style="width:20%">Tool</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><kbd>Shift+B</kbd></td><td>Line</td><td>Click start point, end point, and continue for connected segments.</td></tr>
+              <tr><td><kbd>B</kbd></td><td>Bézier Curve</td><td>Click for sharp corners, click-hold-drag for smooth tangent handles.</td></tr>
+              <tr><td><kbd>*</kbd></td><td>Polygon / Star (Poly)</td><td>Click center, then outer radius and start angle. Mouse wheel adjusts inner star ratio.</td></tr>
+              <tr><td><kbd>A</kbd></td><td>Arc</td><td>3-point arc: two endpoints, then a third point on the curve.</td></tr>
+              <tr><td><kbd>E</kbd></td><td>Circle</td><td>Click center, then radius.</td></tr>
+              <tr><td><kbd>R</kbd></td><td>Box</td><td>Click two opposite corners to draw a rectangle.</td></tr>
+              <tr><td><kbd>T</kbd></td><td>Text</td><td>Enter text, choose font, weight/style, height, and tracking.</td></tr>
+              <tr><td><kbd>I</kbd></td><td>Trim</td><td>Trim segments at intersections. Ctrl+click follows an entire chain.</td></tr>
+              <tr><td><kbd>Shift+E</kbd></td><td>Separate</td><td>Split at intersections without deleting any segment.</td></tr>
+              <tr><td><kbd>;</kbd></td><td>Note</td><td>Place yellow canvas annotations for reminders — never cut or exported to KaryaCNC.</td></tr>
+              <tr><td><kbd>Ctrl+M</kbd></td><td>Transform (Edit tab)</td><td>Move, rotate, or scale selected geometry precisely.</td></tr>
+            </tbody>
+          </table>
 
-        <div class="callout info"><b>Mode saat menggambar:</b> <kbd>F1</kbd> pilih/geser (titik &amp; garis terkunci), <kbd>F2</kbd> edit node, <kbd>F3</kbd> titik junction.</div>
+          <div class="callout info"><b>Selection modes while drawing:</b> <kbd>F1</kbd> whole-object move, <kbd>F2</kbd> edit points/nodes, <kbd>F3</kbd> junction pick.</div>
 
-        <h2 id="shortcuts">2. Tips saat menggambar</h2>
-        <ul>
-          <li>Tahan <kbd>Shift</kbd> saat menggambar: sudut menempel ke kelipatan 15°.</li>
-          <li>Tahan <kbd>Alt</kbd> saat menggambar: membalik status Snap sementara.</li>
-          <li><kbd>Enter</kbd> menyelesaikan bentuk, <kbd>Esc</kbd> membatalkan atau mengambil garis/node terakhir kembali.</li>
-          <li>Klik titik awal lagi untuk menutup lingkaran (loop lengkap).</li>
-          <li>Saat menggambar, titik baru menempel ke titik yang sudah ada, titik tengah garis, dan titik terdekat pada garis — masing-masing membuat constraint Midpoint / On line yang sungguhan.</li>
-          <li><kbd>Shift+5</kbd> (%) menghidupkan/mematikan snap. Mati berarti mati: tidak ada yang menempel sama sekali.</li>
-          <li>Grid snapping hanya aktif saat grid nyala (<kbd>#</kbd>).</li>
-        </ul>
+          <h2 data-anchor="shortcuts">2. Drawing Tips &amp; Snapping</h2>
+          <ul>
+            <li>Hold <kbd>Shift</kbd> while drawing: locks angles to 15° increments.</li>
+            <li>Hold <kbd>Alt</kbd> while drawing: temporarily inverts Snap state.</li>
+            <li><kbd>Enter</kbd> finishes the current shape; <kbd>Esc</kbd> cancels or steps back the last node/line.</li>
+            <li>Click the starting point again to close a chain into a closed loop.</li>
+            <li>Snapping onto existing points, line midpoints, or edges creates real Midpoint / On-line constraints automatically.</li>
+            <li><kbd>Shift+5</kbd> (%) toggles Snap on/off globally. Off means zero snapping.</li>
+            <li>Grid snap is only active when the grid is visible (<kbd>#</kbd>).</li>
+          </ul>
 
-        <h3>Urutan prioritas snap</h3>
-        <p>Saat snap nyala, kursor menempel ke target pertama yang ditemukan mengikuti urutan ini (dari paling spesifik ke paling umum):</p>
-        <ol>
-          <li><b>Titik</b> yang sudah ada (berwarna sama akan dilebur/weld; warna lain hanya dipakai sebagai posisi, ditandai marker amber <i>snap-only</i>).</li>
-          <li><b>Titik asal</b> (0,0).</li>
-          <li><b>Geometri garis/busur/kurva</b> — termasuk <i>midpoint</i> dan <i>on line</i>.</li>
-          <li><b>Pusat loop tertutup</b> (centroid; untuk lingkaran = pusatnya).</li>
-          <li><b>Grid</b> — hanya bila grid tampil (<kbd>#</kbd>).</li>
-        </ol>
-        <p>Jika snap dimatikan lewat menu Tool (<i>Snap leaves constraints</i>), menempel ke garis tidak lagi meninggalkan constraint Midpoint / On line.</p>
+          <h3>Snap Priority Order</h3>
+          <p>When Snap is enabled, the cursor latches onto the first match in this priority order:</p>
+          <ol>
+            <li><b>Existing points</b> (same color welds automatically; different color snaps position-only with an amber <i>snap-only</i> indicator).</li>
+            <li><b>Origin</b> (0,0).</li>
+            <li><b>Edges (line/arc/curve)</b> — including <i>midpoint</i> and <i>on-line</i>.</li>
+            <li><b>Closed loop center</b> (centroid; circle center).</li>
+            <li><b>Grid</b> — only while grid display is active (<kbd>#</kbd>).</li>
+          </ol>
+          <p>Disabling <i>Snap leaves constraints</i> in the Tool menu allows snapping to geometry without adding Midpoint / On-line constraints.</p>
 
-        <h2>3. Alat khusus</h2>
-        <h3>Kotak (Box, R) — sudut membulat dengan roda mouse</h3>
-        <p>Tarik dua sudut berlawanan seperti biasa. Selama menarik, <b>putar roda mouse</b> untuk mengatur radius fillet (tahan <kbd>Shift</kbd> = langkah halus). Saat kotak diletakkan, muncul konfirmasi radius (0 = sudut tajam). Jika Anda <b>tidak pernah</b> memutar roda, kotak langsung dibuat dengan sudut tajam tanpa ditanya.</p>
+          <h2>3. Tool-Specific Behaviors</h2>
+          <h3>Box (R) — Rounded Corners via Mouse Wheel</h3>
+          <p>Drag two opposite corners as usual. While dragging, <b>scroll the mouse wheel</b> to set corner fillet radius (hold <kbd>Shift</kbd> for fine steps). On placement, confirm the radius (0 = sharp). If you never scroll the wheel, corners remain sharp with zero extra prompt.</p>
 
-        <h3>Kurva Bézier</h3>
-        <p>Klik untuk sudut, klik-tahan-geser untuk lengkung halus, klik node pertama untuk menutup. <kbd>Enter</kbd>, klik ganda, atau klik kanan mengakhiri kurva; <kbd>Esc</kbd> membatalkan. Preview mengikuti aturan yang sama, jadi yang terlihat itulah hasilnya.</p>
+          <h3>Bézier Curve (B)</h3>
+          <p>Click for corners, click-drag for smooth handles, or click the first node to close. <kbd>Enter</kbd>, double-click, or right-click ends the curve; <kbd>Esc</kbd> cancels.</p>
 
-        <h3>Busur (3 titik)</h3>
-        <p>Klik dua titik ujung yang dilalui busur, lalu titik ketiga tempat busur melengkung. Jika tiga titik segaris, alat menolak. Tekan <kbd>Space</kbd> di langkah ketiga untuk beralih antara busur dan lingkaran penuh melalui ketiga titik.</p>
+          <h3>3-Point Arc (A)</h3>
+          <p>Click two endpoints, then the bulge point. Collinear points are rejected. Press <kbd>Space</kbd> on the third step to toggle between an arc and a full 3-point circle.</p>
 
-        <h3>Potong (Trim)</h3>
-        <p>Klik satu span, bagian itu hilang, sisanya tetap. Ctrl+klik menyaluri seluruh rantai garis, busur, dan kurva yang bersentuh sekaligus. Kurva tertutup tidak punya ujung, jadi klik biasa membelah di setiap persimpangan.</p>
+          <h3>Trim (I)</h3>
+          <p>Click any span to remove up to intersections. Ctrl+click trims along connected chains. Closed loops split cleanly at every crossing.</p>
 
-        <h3>Pisah (Separate)</h3>
-        <p>Sama seperti potong tetapi tidak menghapus apa pun — seperti Trim tanpa kehilangan bentuk.</p>
+          <h3>Separate (Shift+E)</h3>
+          <p>Splits spans at intersections just like Trim, keeping every resulting piece.</p>
 
-        <div class="callout warn"><b>Catatan:</b> setelah selesai menggambar, tekan <kbd>F9</kbd> untuk menyelesaikan sketsa sehingga dimensi penggerak dan constraint terapkan ke geometri. Dimensi yang belum terpenuhi digambar warna amber.</div>
+          <div class="callout warn"><b>Reminder:</b> after finishing constrained geometry, press <kbd>F9</kbd> to run the solver if using manual mode. Unsatisfied driving dimensions draw in amber.</div>
 
-        <div class="help-footer">
-          <span>Draw — Menggambar</span>
-          <span>Selanjutnya: <a href="edit.html">Edit — Mengubah Objek</a></span>
+          <div class="help-footer">
+            <span>Draw — Sketching Tools</span>
+            <span>Next: <a href="edit.html">Edit — Modify Objects</a></span>
+          </div>
         </div>
       </div>
     </main>

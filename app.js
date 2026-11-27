@@ -214,6 +214,7 @@
     document.documentElement.setAttribute('data-theme', themeName);
     if (!opts || opts.persist !== false) {
       try { localStorage.setItem(THEME_KEY, themeName); } catch (err) { /* ignore */ }
+      if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) window.MiniSketchCloud.scheduleSync('prefs');
     }
     const btn = document.getElementById('btn-theme');
     if (btn) {
@@ -1536,6 +1537,7 @@
   function savePickFilter() {
     try {
       localStorage.setItem(PICK_FILTER_KEY, JSON.stringify(pickFilter));
+      if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) window.MiniSketchCloud.scheduleSync('prefs');
     } catch (err) { /* ignore */ }
   }
   function setPickFilter(kind, on) {
@@ -1733,6 +1735,7 @@
   function saveSettings() {
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) window.MiniSketchCloud.scheduleSync('prefs');
     } catch (err) { /* private mode: the values just are not remembered */ }
   }
 
@@ -1782,8 +1785,8 @@
     if (inp) {
       const isExt = !!(window.MiniSketchAI && window.MiniSketchAI.builderMode === 'ext');
       inp.placeholder = isExt
-        ? 'Describe a parametric CNC tool to build… (e.g. "coaster generator with inner pattern")'
-        : 'Describe a vector image… (Shift+Enter for a new line)';
+        ? uiT('chat.inputPhExt', 'Describe a parametric CNC tool to build… (e.g. "coaster generator with inner pattern")')
+        : uiT('chat.inputPhSvg', 'Describe a vector image… (Shift+Enter for a new line)');
     }
   }
   window.syncAiQuickControls = syncAiQuickControls;
@@ -2127,7 +2130,10 @@
     } catch (err) { return []; }
   }
   function saveAiProviders() {
-    try { localStorage.setItem(AI_PROVIDERS_KEY, JSON.stringify(aiProviders)); } catch (err) { /* private mode */ }
+    try {
+      localStorage.setItem(AI_PROVIDERS_KEY, JSON.stringify(aiProviders));
+      if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) window.MiniSketchCloud.scheduleSync('prefs');
+    } catch (err) { /* private mode */ }
   }
   let aiProviders = loadAiProviders();
   const isGeminiBaseUrl = (base) => /generativelanguage\.googleapis\.com|generativelanguage\.google\.com/.test(String(base || ''));
@@ -3605,6 +3611,7 @@
       docDirty = false;
       paintFileDirty(false);
       if (!quiet) setSavedLabel('saved');
+      if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) window.MiniSketchCloud.scheduleSync('doc');
     } catch (err) {
       if (!quiet) toast('Browser storage is unavailable', { type: 'error' });
     }
@@ -3621,6 +3628,7 @@
         grid: !!ui.showGrid, snap: !!ui.snap, points: !!ui.showPoints, dims: !!ui.showAnnots,
         dimOthers: !!ui.dimOthers
       }));
+      if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) window.MiniSketchCloud.scheduleSync('prefs');
     } catch (err) { /* storage blocked */ }
   }
   function scheduleViewSave() {
@@ -5136,6 +5144,7 @@
   function saveSolveMode() {
     try {
       localStorage.setItem(SOLVE_MODE_KEY, ui.solveMode);
+      if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) window.MiniSketchCloud.scheduleSync('prefs');
     } catch (err) { /* private mode: the mode just is not remembered */ }
   }
 
@@ -7299,7 +7308,10 @@
     }
     clipboard = payload;
     clipboard.t = Date.now();
-    const json = CLIP_MARK + JSON.stringify(clipboard);
+    const safeJson = JSON.stringify(clipboard).replace(/[<>&]/g, ch =>
+      ch === '<' ? '\\u003c' : ch === '>' ? '\\u003e' : '\\u0026'
+    );
+    const json = CLIP_MARK + safeJson;
     clipPayloadText = json;
     // The SVG rendering is computed up front so both routes can share it; the
     // PNG is a screenshot of the current frame cropped to the selection —
@@ -19945,17 +19957,57 @@
   }
 
   function importClipboardText(text) {
-    if (!text || text.indexOf(CLIP_MARK) !== 0) return false;
+    if (!text) return false;
+    const idx = text.indexOf(CLIP_MARK);
+    if (idx < 0) return false;
+    const body = text.slice(idx + CLIP_MARK.length);
+    const extractObj = (str) => {
+      const start = str.indexOf('\x7b');
+      if (start < 0) return null;
+      let depth = 0, inStr = false, esc = false;
+      for (let j = start; j < str.length; j++) {
+        const ch = str[j];
+        if (inStr) {
+          if (esc) esc = false;
+          else if (ch === '\\') esc = true;
+          else if (ch === '"') inStr = false;
+        } else {
+          if (ch === '"') inStr = true;
+          else if (ch === '\x7b') depth++;
+          else if (ch === '\x7d') {
+            depth--;
+            if (depth === 0) return str.slice(start, j + 1);
+          }
+        }
+      }
+      return null;
+    };
     let data = null;
+    let cleanJson = extractObj(body) || body;
     try {
-      data = JSON.parse(text.slice(CLIP_MARK.length));
+      data = JSON.parse(cleanJson);
     } catch (err) {
-      return false;
+      const stripped = body
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&quot;/g, '"')
+        .replace(/&#34;/g, '"')
+        .replace(/&#39;|&#x27;/gi, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&');
+      cleanJson = extractObj(stripped);
+      if (!cleanJson) return false;
+      try {
+        data = JSON.parse(cleanJson);
+      } catch (err2) {
+        return false;
+      }
     }
     if (!data || !Array.isArray(data.points) || !Array.isArray(data.entities)) return false;
     if (!data.entities.length && !data.points.length) return false;
     clipboard = data;
-    clipPayloadText = text;
+    clipPayloadText = CLIP_MARK + cleanJson;
     return true;
   }
 
@@ -19985,13 +20037,53 @@
       htmlHead: html.slice(0, 70)
     });
 
-    // The payload can sit anywhere in a slot — some platforms wrap/reflow the
-    // HTML flavour (BOM, fragment markers) which would hide a payload that does
-    // not start at offset 0. Locate the marker and slice from there.
+    // The payload can sit anywhere in a slot — browsers wrap/reflow the HTML
+    // flavour (<html><head></head><body>...</body></html>, BOM, CF_HTML fragment
+    // comments) or escape entities. Locate the marker and extract the balanced
+    // JSON object so trailing </body></html> tags never break JSON.parse.
     const clipFrom = (s) => {
       if (!s) return null;
       const i = s.indexOf(CLIP_MARK);
-      return i >= 0 ? s.slice(i) : null;
+      if (i < 0) return null;
+      const body = s.slice(i + CLIP_MARK.length);
+      const extractObj = (str) => {
+        const start = str.indexOf('\x7b');
+        if (start < 0) return null;
+        let depth = 0, inStr = false, esc = false;
+        for (let j = start; j < str.length; j++) {
+          const ch = str[j];
+          if (inStr) {
+            if (esc) esc = false;
+            else if (ch === '\\') esc = true;
+            else if (ch === '"') inStr = false;
+          } else {
+            if (ch === '"') inStr = true;
+            else if (ch === '\x7b') depth++;
+            else if (ch === '\x7d') {
+              depth--;
+              if (depth === 0) return CLIP_MARK + str.slice(start, j + 1);
+            }
+          }
+        }
+        return null;
+      };
+      const direct = extractObj(body);
+      if (direct) {
+        try {
+          JSON.parse(direct.slice(CLIP_MARK.length));
+          return direct;
+        } catch (err) { /* fall through to HTML entity decode */ }
+      }
+      const stripped = body
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&quot;/g, '"')
+        .replace(/&#34;/g, '"')
+        .replace(/&#39;|&#x27;/gi, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&');
+      return extractObj(stripped) || direct || (CLIP_MARK + body);
     };
     let clipText = clipFrom(text) || clipFrom(html);
 
@@ -21001,7 +21093,10 @@
   } catch (err) { /* private mode / corrupt: start empty */ }
 
   function fontFavSave() {
-    try { localStorage.setItem(FONT_FAV_KEY, JSON.stringify([...fontFavorites])); }
+    try {
+      localStorage.setItem(FONT_FAV_KEY, JSON.stringify([...fontFavorites]));
+      if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) window.MiniSketchCloud.scheduleSync('prefs');
+    }
     catch (err) { /* private mode: favourites just do not persist */ }
   }
   const fontFavIs = (family) => fontFavorites.has(family);
@@ -21315,6 +21410,7 @@
     const btns = document.querySelectorAll('[data-help-lang]');
     for (const b of btns) b.classList.toggle('is-on', b.getAttribute('data-help-lang') === want);
     try { localStorage.setItem(HELP_LANG_KEY, want); } catch (err) { /* private mode */ }
+    if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) window.MiniSketchCloud.scheduleSync('prefs');
     const body = document.getElementById('help-body');
     if (body) body.scrollTop = 0;
   }
@@ -21382,7 +21478,15 @@
     const modal = document.getElementById('docs-modal');
     if (!modal) return;
     const frame = document.getElementById('docs-frame');
-    if (frame) frame.src = page ? 'docs/' + page : 'docs/index.html';
+    if (frame) {
+      const lang = helpLang();
+      const raw = page ? 'docs/' + page : 'docs/index.html';
+      const hashIdx = raw.indexOf('#');
+      const base = hashIdx >= 0 ? raw.slice(0, hashIdx) : raw;
+      const hash = hashIdx >= 0 ? raw.slice(hashIdx) : '';
+      const sep = base.indexOf('?') >= 0 ? '&' : '?';
+      frame.src = base + sep + 'lang=' + encodeURIComponent(lang) + hash;
+    }
     modal.classList.remove('hidden');
   }
 
@@ -34380,6 +34484,7 @@ function cmdSplitCurve() {
       localStorage.setItem(CNC_KEY, JSON.stringify({
         host: cnc.host, port: cnc.port, scope: cnc.scope, chain: cnc.chain, route: cnc.route
       }));
+      if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) window.MiniSketchCloud.scheduleSync('prefs');
     } catch (err) { /* ignore */ }
   }
 
@@ -34693,7 +34798,10 @@ function cmdSplitCurve() {
 
   function costSaveInputs() {
     if (!costApplyInputs()) { toast('No preset selected'); return; }
-    try { localStorage.setItem(COST_KEY, costPresetsText()); } catch (err) { /* no storage */ }
+    try {
+      localStorage.setItem(COST_KEY, costPresetsText());
+      if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) window.MiniSketchCloud.scheduleSync('prefs');
+    } catch (err) { /* no storage */ }
     costFillPresets();   // the edited name may have changed the option label
     costMeasure();
     costRender();
@@ -36478,9 +36586,22 @@ function cmdSplitCurve() {
       if (window.MiniSketchTools && window.MiniSketchTools.setLang) window.MiniSketchTools.setLang(want);
       setHelpLang(want);
       syncGuideLangMenu();
+      syncAiQuickControls();
+      if (window.MiniSketchAI && window.MiniSketchAI.refreshLanguage) window.MiniSketchAI.refreshLanguage();
+      const docsFrame = document.getElementById('docs-frame');
+      if (docsFrame && docsFrame.contentWindow) {
+        try { docsFrame.contentWindow.postMessage({ type: 'minisketch-doc-lang', lang: want }, '*'); } catch (err) {}
+      }
       updateUI();
       render();
     }
+    window._msApplyGuideLang = setGuideLang;
+    window.addEventListener('message', (e) => {
+      const d = e && e.data;
+      if (d && d.type === 'minisketch-set-lang' && (d.lang === 'en' || d.lang === 'id')) {
+        setGuideLang(d.lang);
+      }
+    });
     if (langEn) langEn.addEventListener('click', () => setGuideLang('en'));
     if (langId) langId.addEventListener('click', () => setGuideLang('id'));
     syncGuideLangMenu();
@@ -38558,7 +38679,10 @@ function cmdSplitCurve() {
     };
     const save = () => {
       if (isSlideOver()) return;
-      try { localStorage.setItem(LAYOUT_KEY, JSON.stringify({ side: side.offsetWidth })); } catch (err) { /* blocked */ }
+      try {
+        localStorage.setItem(LAYOUT_KEY, JSON.stringify({ side: side.offsetWidth }));
+        if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) window.MiniSketchCloud.scheduleSync('prefs');
+      } catch (err) { /* blocked */ }
     };
 
     restoreSaved();
@@ -38645,6 +38769,109 @@ function cmdSplitCurve() {
     installGlobalErrorHandler();
     if (window.MiniSketchExtensions) window.MiniSketchExtensions.mount(toolApi());
     if (window.MiniSketchAI) window.MiniSketchAI.mount(toolApi());
+    window.MiniSketchSyncBridge = {
+      exportPrefsBundle: () => ({
+        theme: themeName,
+        lang: (window.MiniSketchTools && window.MiniSketchTools.lang) || helpLang(),
+        solveMode: ui.solveMode,
+        settings: Object.assign({}, settings),
+        aiProviders: Array.isArray(aiProviders) ? aiProviders.slice() : [],
+        pickFilter: Object.assign({}, pickFilter),
+        view: {
+          ox: view.ox, oy: view.oy, zoom: view.zoom,
+          grid: !!ui.showGrid, snap: !!ui.snap, points: !!ui.showPoints, dims: !!ui.showAnnots,
+          dimOthers: !!ui.dimOthers
+        },
+        cncConfig: { host: cnc.host, port: cnc.port, scope: cnc.scope, chain: cnc.chain, route: cnc.route },
+        costPresets: costPresetsText(),
+        fontFavorites: [...fontFavorites]
+      }),
+      applyPrefsBundle: (data) => {
+        if (!data || typeof data !== 'object') return;
+        if (data.theme === 'light' || data.theme === 'dark') {
+          applyTheme(data.theme, { persist: false, render: false });
+        }
+        if ((data.lang === 'en' || data.lang === 'id') && typeof window._msApplyGuideLang === 'function') {
+          window._msApplyGuideLang(data.lang);
+        }
+        loadSettings();
+        if (typeof applySettingsForm === 'function') applySettingsForm();
+        aiProviders = loadAiProviders();
+        loadPickFilter();
+        syncPickFilterUI();
+        loadSolveMode();
+        cncLoadSettings();
+        costLoadPresets();
+        costFillPresets();
+        if (Array.isArray(data.fontFavorites)) {
+          fontFavorites = new Set(data.fontFavorites.filter(x => typeof x === 'string'));
+        }
+        if (data.view && typeof data.view === 'object') {
+          if (isFinite(data.view.ox)) view.ox = +data.view.ox;
+          if (isFinite(data.view.oy)) view.oy = +data.view.oy;
+          if (isFinite(data.view.zoom)) view.zoom = clamp(+data.view.zoom, 0.03, 100);
+          if (typeof data.view.grid === 'boolean') ui.showGrid = data.view.grid;
+          if (typeof data.view.snap === 'boolean') ui.snap = data.view.snap;
+          if (typeof data.view.points === 'boolean') ui.showPoints = data.view.points;
+          if (typeof data.view.dims === 'boolean') ui.showAnnots = data.view.dims;
+          if (typeof data.view.dimOthers === 'boolean') ui.dimOthers = data.view.dimOthers;
+        }
+        if (data.layoutSideWidth && isFinite(+data.layoutSideWidth) && +data.layoutSideWidth >= 220) {
+          const sideEl = document.getElementById('sidebar');
+          if (sideEl && window.innerWidth > 900) sideEl.style.width = Math.round(+data.layoutSideWidth) + 'px';
+        }
+        if (typeof data.docName === 'string') setFileName(data.docName || null);
+        updateUI();
+        resize();
+      },
+      exportActiveDoc: () => ({
+        doc: JSON.parse(serializeDoc()),
+        name: save.name || 'Untitled',
+        dirty: !!docDirty
+      }),
+      applyRemoteSketch: (sketchObj, name) => {
+        try {
+          loadDocument(sketchObj, true);
+          setFileName(name && name !== 'Untitled' ? name : null);
+          if (sketchObj.view && isFinite(sketchObj.view.zoom)) {
+            view = {
+              ox: isFinite(sketchObj.view.ox) ? +sketchObj.view.ox : view.ox,
+              oy: isFinite(sketchObj.view.oy) ? +sketchObj.view.oy : view.oy,
+              zoom: clamp(+sketchObj.view.zoom, 0.03, 100)
+            };
+          }
+          persistNow(true);
+          invalidateLoops();
+          updateUI();
+          updateHistoryButtons();
+          render();
+        } catch (err) {
+          console.warn('[minisketch-cloud] Failed to load remote sketch:', err);
+        }
+      },
+      hasUserLocalWork: () => {
+        if (docDirty) return true;
+        try { return !!localStorage.getItem(STORAGE_KEY); } catch (err) { return false; }
+      },
+      isDragging: () => !!ui.drag,
+      confirmSyncOverwrite: async (cloudName, count) => {
+        return await uiConfirm(
+          'Found an active Cloud Sketch "' + cloudName + '" (' + count + ' entities).\n\n' +
+          'Load your Cloud Sketch onto the canvas? Cancel keeps your local canvas and syncs it to Cloud.',
+          { okText: 'Use Cloud Sketch', cancelText: 'Keep Local' }
+        );
+      },
+      confirmLoadCloudSketch: async (cloudName) => {
+        return await uiConfirm(
+          'Load "' + cloudName + '" from Cloud and replace the current canvas?',
+          { danger: true, okText: 'Load' }
+        );
+      },
+      toast
+    };
+    if (window.MiniSketchCloud && window.MiniSketchCloud.init) {
+      window.MiniSketchCloud.init();
+    }
     initModalBehavior();
     bindCanvas();
     bindUI();

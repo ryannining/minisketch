@@ -61,6 +61,41 @@ function handler(req, res) {
   }
   if (rel.endsWith('/')) rel += 'index.html';
 
+  // Serve whitelisted modular Firebase browser SDK bundles from local
+  // node_modules so Google Login & Firestore work without external CDNs while
+  // keeping the rest of /node_modules/ inaccessible.
+  const VENDOR_FIREBASE_FILES = new Set([
+    'firebase-app.js',
+    'firebase-auth.js',
+    'firebase-firestore.js'
+  ]);
+  if (rel.startsWith('/vendor/firebase/')) {
+    const fname = rel.slice('/vendor/firebase/'.length);
+    if (!VENDOR_FIREBASE_FILES.has(fname)) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('not found');
+      return;
+    }
+    const fbFile = path.join(ROOT, 'node_modules', 'firebase', fname);
+    fs.readFile(fbFile, 'utf8', (err, text) => {
+      if (err) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('firebase sdk unavailable');
+        return;
+      }
+      const patched = text.replace(
+        /from\s*["']https:\/\/www\.gstatic\.com\/firebasejs\/[^"']+\/firebase-app\.js["']/g,
+        'from"./firebase-app.js"'
+      );
+      res.writeHead(200, {
+        'Content-Type': 'text/javascript; charset=utf-8',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      });
+      res.end(patched);
+    });
+    return;
+  }
+
   // Secrets and server code never leave the machine: the static side must
   // not serve the API key or the bridge source.
   if (rel === '/server/.env' || rel === '/.env' || rel.startsWith('/.env.') ||

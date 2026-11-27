@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en" data-doc-lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Edit — Mengubah Objek | Bantuan MiniSketch</title>
+<title>Edit — Modify Objects | MiniSketch Help</title>
 <link rel="stylesheet" href="help.css">
+<script>try{var p=new URLSearchParams(location.search).get("lang"),l=(p==="en"||p==="id")?p:(localStorage.getItem("minisketch.help.lang")||"en");if(l!=="en"&&l!=="id")l="en";document.documentElement.dataset.docLang=l;document.documentElement.lang=l;}catch(e){}</script>
 </head>
 <body>
 <div class="help-shell">
@@ -14,18 +15,18 @@
     <div class="help-brand">
       <div class="help-mark">M</div>
       <div>
-        <div class="help-title">Edit — Mengubah Objek</div>
-        <div class="help-subtitle">Transformasi, offset, geser, array, grup, boolean, join, fillet, dan bersihkan loop</div>
+        <div class="help-title">Edit — Modify Objects</div>
+        <div class="help-subtitle">Transform, offset, move, array, group, boolean, join, fillet, and cleanup</div>
       </div>
     </div>
     <div class="help-spacer"></div>
     <div class="help-search">
       <span class="search-icon" aria-hidden="true">&#128269;</span>
-      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
-      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+      <input id="help-search-input" type="text" placeholder="Search help topics…" autocomplete="off" spellcheck="false" aria-label="Search help topics">
+      <button class="clear-btn" id="help-search-clear" title="Clear search" aria-hidden="true">&#215;</button>
     </div>
     <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
-    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">No matching topics.</div>
   </header>
 
   <div class="help-body">
@@ -56,108 +57,215 @@
 
     <main class="help-content">
       <div class="help-page">
-        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Edit — Mengubah Objek</div>
+        <div data-lang="id">
+          <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Edit — Mengubah Objek</div>
 
-        <h1>Tab Edit — Mengubah Objek</h1>
-        <p class="help-lead">Tab Edit berisi alat untuk mengubah, memanipulasi, dan memadukan objek yang sudah digambar di kanvas.</p>
+          <h1>Tab Edit — Mengubah Objek</h1>
+          <p class="help-lead">Tab Edit berisi alat untuk mengubah, memanipulasi, dan memadukan objek yang sudah digambar di kanvas.</p>
 
-        <div class="screenshot">
-          <img src="img/screenshots/edit-ribbon.png" alt="Tab Edit aktif di ribbon">
-          <figcaption>Tab Edit aktif: Transform, Offset, Move, Array, Flip X/Y, Rotasi 90°, Group, Ungroup, Clone, Connected, Clean up, Boolean (Union/Cut/Intersect), serta Join, Weld, Sharp (\), dan Clean di ujung kanan.</figcaption>
+          <div class="screenshot">
+            <img src="img/screenshots/edit-ribbon.png" alt="Tab Edit aktif di ribbon">
+            <figcaption>Tab Edit aktif: Transform, Offset, Move, Array, Flip X/Y, Rotasi 90°, Group, Ungroup, Clone, Connected, Clean up, Boolean (Union/Cut/Intersect), serta Join, Weld, Sharp (\), dan Clean di ujung kanan.</figcaption>
+          </div>
+
+          <h2>1. Pintasan utama di Edit</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:26%">Pintasan</th><th>Fungsi</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><kbd>Panah kiri/kanan/atas/bawah</kbd></td><td>Geser pilihan 1 mm (nilai diatur di Settings &rarr; Geometry &rarr; Arrow key nudge).</td></tr>
+              <tr><td><kbd>Ctrl+A</kbd></td><td>Pilih semua objek.</td></tr>
+              <tr><td><kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd></td><td>Salin / Tempel (sketsa + SVG + PNG ke clipboard sistem).</td></tr>
+              <tr><td><kbd>Ctrl+D</kbd></td><td>Duplikat di tempat yang sama.</td></tr>
+              <tr><td><kbd>Del</kbd></td><td>Hapus pilihan.</td></tr>
+              <tr><td><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Shift+Z</kbd></td><td>Batalkan / Ulangi.</td></tr>
+              <tr><td><kbd>Ctrl+G</kbd> / <kbd>Ctrl+U</kbd></td><td>Bungkus pilihan menjadi satu grup / bongkar grup.</td></tr>
+              <tr><td><kbd>Ctrl+L</kbd> / <kbd>Ctrl+Shift+L</kbd></td><td>Buat <i>live clone</i> (mengikuti master) / Clone terpecah sebagai bagian siap nesting.</td></tr>
+              <tr><td><kbd>Ctrl+J</kbd></td><td>Offset (preview putus-putus; roda mouse ubah jarak).</td></tr>
+              <tr><td><kbd>Ctrl+M</kbd></td><td>Transformasi (skala, putar, dan geser presisi lewat panel Transform).</td></tr>
+              <tr><td><kbd>Ctrl+Shift+M</kbd></td><td>Move interaktif (klik titik referensi, lalu titik tujuan, konfirmasi dx/dy).</td></tr>
+              <tr><td><kbd>Ctrl++</kbd> / <kbd>Ctrl+-</kbd> / <kbd>Ctrl+0</kbd></td><td>Boolean union / cut (target dulu, lalu alat terakhir) / intersect pada loop. Tahan <kbd>Shift</kbd> = simpan loop asli, hasil ditambahkan di atasnya.</td></tr>
+              <tr><td><kbd>J</kbd> / <kbd>Alt+W</kbd></td><td>Join titik bersentuhan / Weld titik bercelah sesuai jarak dialog.</td></tr>
+              <tr><td><kbd>F</kbd></td><td>Buat fillet pada sudut.</td></tr>
+              <tr><td><kbd>Z</kbd> / <kbd>Shift+L</kbd></td><td>Bersihkan seleksi ke loop utuh / Deteksi ulang loop &amp; weld junction.</td></tr>
+              <tr><td><kbd>Ctrl+K</kbd></td><td>Pasang kurva melalui polyline (dialog Tolerance + Sharp corner).</td></tr>
+            </tbody>
+          </table>
+
+          <h2>2. Cara memilih objek</h2>
+          <p>Semua interaksi pemilihan memakai mouse di atas kanvas:</p>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:30%">Gestur</th><th>Hasil</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><b>Klik kiri</b> pada objek</td><td>Memilih bentuk loop itu saja (bukan isi/children di dalamnya).</td></tr>
+              <tr><td><b>Klik kiri di dalam</b> loop tertutup</td><td>Memilih bentuk loop tersebut.</td></tr>
+              <tr><td><b>Seret langsung</b> pada garis / titik / objek</td><td>Langsung memindahkan objek bersangkutan (atau seluruh seleksi) begitu ditekan dan digeser — tanpa menunggu, tanpa berubah menjadi marquee.</td></tr>
+              <tr><td><b>Di dalam loop tertutup</b>: seret cepat vs tahan ±200 ms dulu</td><td>Seret cepat = kotak seleksi marquee; tahan sebentar dulu lalu seret = memilih dan memindahkan loop tersebut.</td></tr>
+              <tr><td><b>Tarik persegi (marquee)</b> dari ruang kosong</td><td>Seleksi marquee — memilih semua titik/objek di dalam persegi.</td></tr>
+              <tr><td><b>Shift+klik</b></td><td>Menambah ke seleksi, atau mengurangi bila objek itu sudah terpilih (toggle).</td></tr>
+              <tr><td><b>Ctrl+klik</b> pada loop</td><td>Memilih loop itu <b>beserta semua yang ada di dalamnya</b> (children dan lubang).</td></tr>
+              <tr><td><b>Dobel-klik</b> di dalam loop</td><td>Memilih loop beserta seluruh isinya, tanpa pernah meng-toggle keluar (aman untuk memastikan semuanya terpilih).</td></tr>
+              <tr><td><b>Klik kanan</b> (tanpa geser) pada tumpukan objek</td><td>Memilih objek <b>di bawah</b> yang teratas; klik berulang menelusuri makin ke bawah lewat objek yang bertumpuk di titik itu.</td></tr>
+              <tr><td><b>Alt+klik</b></td><td>Sama seperti klik kanan — memilih loop di bawah objek teratas (praktis di Linux, yang sering memakan Alt).</td></tr>
+              <tr><td><b>Seret tombol kanan / tengah</b></td><td>Pan (menggeser kanvas). Seret tombol tengah = pan gaya Inkscape.</td></tr>
+              <tr><td><b>Seret label dimensi</b></td><td>Menggeser label ke samping tanpa mengubah nilainya.</td></tr>
+            </tbody>
+          </table>
+          <div class="callout info"><b>Pick filter (panel Layers):</b> <kbd>Alt+1</kbd> titik, <kbd>Alt+2</kbd> garis, <kbd>Alt+3</kbd> loop — matikan satu jenis agar kursor mengabaikannya total, jadi mengedit titik tidak akan tak sengaja menyambar garis atau loop.</div>
+          <div class="callout info">Seleksi marquee memilih <b>titik-titik</b>; setelah itu objek yang titiknya terpilih ikut terpilih sebagai satu kesatuan. Dobel-klik adalah cara cepat mengambil satu loop lengkap dengan seluruh child-nya.</div>
+
+          <h2>3. Transformasi dan Offset</h2>
+          <h3>Transformasi (Ctrl+M)</h3>
+          <p>Pindahkan, putar, dan ubah ukuran objek melalui panel Transform yang melayang. Sudut, skala X/Y, dan pergeseran dx/dy dapat diisi langsung. Kunci perbandingan lebar/tinggi dengan ikon gembok agar proporsi tetap.</p>
+
+          <h3>Offset (Ctrl+J)</h3>
+          <p>Membuat salinan paralel dari loop terpilih pada jarak tertentu. Preview ditampilkan putus-putus saat menyesuaikan roda mouse. Sudut offset dapat diatur tajam (miter), bulat, atau persegi (bevel) di Settings &rarr; Geometry &rarr; Offset corners.</p>
+
+          <h3>Geser (Ctrl+Shift+M)</h3>
+          <p>Pilih titik referensi (juga menempel ke marker part), lalu tujuan, kemudian konfirmasi dx dan dy.</p>
+
+          <h2>4. Grup dan Boolean</h2>
+          <h3>Group / Ungroup (Ctrl+G / Ctrl+U)</h3>
+          <p>Group menggabungkan pilihan menjadi satu objek yang dapat dipindah sebagai satu satuan. Ungroup meledakkan grup kembali ke kurva dan garis yang bisa diedit.</p>
+
+          <h3>Boolean: Union / Cut / Intersect (Ctrl++ / Ctrl+- / Ctrl+0)</h3>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:20%">Operasi</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Union (Ctrl++)</td><td>Gabungkan loop terpilih menjadi satu bentuk.</td></tr>
+              <tr><td>Cut (Ctrl+-)</td><td>Potong: loop target dulu, lalu loop alat TERAKHIR. Tahan <kbd>Shift</kbd> (atau <kbd>Shift</kbd>+klik tombol) pada Union/Cut/Intersect = menyimpan loop asli, hasil ditambahkan di atasnya.</td></tr>
+              <tr><td>Intersect (Ctrl+0)</td><td>Bidang irisan kedua loop.</td></tr>
+            </tbody>
+          </table>
+          <div class="callout info"><b>Boolean eksak:</b> defaultnya menghitung pada kurva asli (PathBool) — arc tetap arc, sudut tetap eksak, sehingga constraint selamat setelah operasi. Tersedia juga opsi legacy Clipper melalui Settings &rarr; Geometry &rarr; Boolean result.</div>
+
+          <h2>5. Join, Fillet, dan Bersihkan</h2>
+          <h3>Join points (J)</h3>
+          <p>Menyambung titik terpilih yang bersentuh (pada satu spot). Dengan loop tertutup, J membersihkan titik ganda di sekitar setiap loop. Meminta konfirmasi jika lebih dari 100 titik diseleksi.</p>
+
+          <h3>Fillet (F)</h3>
+          <p>Membuat sudut melengkung pada dua garis atau titik sudut yang dipilih.</p>
+
+          <h3>Clean up (Z)</h3>
+          <p>Tanpa seleksi: mencari constraint mati dan geometri ukuran nol. Dengan seleksi: mempertahankan loop utuhnya.</p>
+
+          <h3>Fit curve (Ctrl+K)</h3>
+          <p>Pasang kurva kubik melalui geometri lurus. Dialog menampilkan Tolerance dan Sharp corner dengan hitungan langsung titik masuk dan node keluar. Toleransi lebih kecil mengikuti bentuk lebih rapat (lebih banyak node). Tekan Ctrl+K lagi pada hasil untuk mencocokkan ulang.</p>
+
+          <div class="help-footer">
+            <span>Edit — Mengubah Objek</span>
+            <span>Selanjutnya: <a href="arrange.html">Arrange — Susun Objek</a></span>
+          </div>
         </div>
 
-        <h2>1. Pintasan utama di Edit</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:26%">Pintasan</th><th>Fungsi</th></tr>
-          </thead>
-          <tbody>
-            <tr><td><kbd>Panah kiri/kanan/atas/bawah</kbd></td><td>Geser pilihan 1 mm (nilai diatur di Settings &rarr; Geometry &rarr; Arrow key nudge).</td></tr>
-            <tr><td><kbd>Ctrl+A</kbd></td><td>Pilih semua objek.</td></tr>
-            <tr><td><kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd></td><td>Salin / Tempel (sketsa + SVG + PNG ke clipboard sistem).</td></tr>
-            <tr><td><kbd>Ctrl+D</kbd></td><td>Duplikat di tempat yang sama.</td></tr>
-            <tr><td><kbd>Del</kbd></td><td>Hapus pilihan.</td></tr>
-            <tr><td><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Shift+Z</kbd></td><td>Batalkan / Ulangi.</td></tr>
-            <tr><td><kbd>Ctrl+G</kbd> / <kbd>Ctrl+U</kbd></td><td>Bungkus pilihan menjadi satu grup / bongkar grup.</td></tr>
-            <tr><td><kbd>Ctrl+L</kbd> / <kbd>Ctrl+Shift+L</kbd></td><td>Buat <i>live clone</i> (mengikuti master) / Clone terpecah sebagai bagian siap nesting.</td></tr>
-            <tr><td><kbd>Ctrl+J</kbd></td><td>Offset (preview putus-putus; roda mouse ubah jarak).</td></tr>
-            <tr><td><kbd>Ctrl+M</kbd></td><td>Transformasi (skala, putar, dan geser presisi lewat panel Transform).</td></tr>
-            <tr><td><kbd>Ctrl+Shift+M</kbd></td><td>Move interaktif (klik titik referensi, lalu titik tujuan, konfirmasi dx/dy).</td></tr>
-            <tr><td><kbd>Ctrl++</kbd> / <kbd>Ctrl+-</kbd> / <kbd>Ctrl+0</kbd></td><td>Boolean union / cut (target dulu, lalu alat terakhir) / intersect pada loop. Tahan <kbd>Shift</kbd> = simpan loop asli, hasil ditambahkan di atasnya.</td></tr>
-            <tr><td><kbd>J</kbd> / <kbd>Alt+W</kbd></td><td>Join titik bersentuhan / Weld titik bercelah sesuai jarak dialog.</td></tr>
-            <tr><td><kbd>F</kbd></td><td>Buat fillet pada sudut.</td></tr>
-            <tr><td><kbd>Z</kbd> / <kbd>Shift+L</kbd></td><td>Bersihkan seleksi ke loop utuh / Deteksi ulang loop &amp; weld junction.</td></tr>
-            <tr><td><kbd>Ctrl+K</kbd></td><td>Pasang kurva melalui polyline (dialog Tolerance + Sharp corner).</td></tr>
-          </tbody>
-        </table>
+        <div data-lang="en">
+          <div class="breadcrumb"><a href="index.html">Home</a> <span class="sep">&#8250;</span> Edit — Modify Objects</div>
 
-        <h2>2. Cara memilih objek</h2>
-        <p>Semua interaksi pemilihan memakai mouse di atas kanvas:</p>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:30%">Gestur</th><th>Hasil</th></tr>
-          </thead>
-          <tbody>
-            <tr><td><b>Klik kiri</b> pada objek</td><td>Memilih bentuk loop itu saja (bukan isi/children di dalamnya).</td></tr>
-            <tr><td><b>Klik kiri di dalam</b> loop tertutup</td><td>Memilih bentuk loop tersebut.</td></tr>
-            <tr><td><b>Seret langsung</b> pada garis / titik / objek</td><td>Langsung memindahkan objek bersangkutan (atau seluruh seleksi) begitu ditekan dan digeser — tanpa menunggu, tanpa berubah menjadi marquee.</td></tr>
-            <tr><td><b>Di dalam loop tertutup</b>: seret cepat vs tahan ±200 ms dulu</td><td>Seret cepat = kotak seleksi marquee; tahan sebentar dulu lalu seret = memilih dan memindahkan loop tersebut.</td></tr>
-            <tr><td><b>Tarik persegi (marquee)</b> dari ruang kosong</td><td>Seleksi marquee — memilih semua titik/objek di dalam persegi.</td></tr>
-            <tr><td><b>Shift+klik</b></td><td>Menambah ke seleksi, atau mengurangi bila objek itu sudah terpilih (toggle).</td></tr>
-            <tr><td><b>Ctrl+klik</b> pada loop</td><td>Memilih loop itu <b>beserta semua yang ada di dalamnya</b> (children dan lubang).</td></tr>
-            <tr><td><b>Dobel-klik</b> di dalam loop</td><td>Memilih loop beserta seluruh isinya, tanpa pernah meng-toggle keluar (aman untuk memastikan semuanya terpilih).</td></tr>
-            <tr><td><b>Klik kanan</b> (tanpa geser) pada tumpukan objek</td><td>Memilih objek <b>di bawah</b> yang teratas; klik berulang menelusuri makin ke bawah lewat objek yang bertumpuk di titik itu.</td></tr>
-            <tr><td><b>Alt+klik</b></td><td>Sama seperti klik kanan — memilih loop di bawah objek teratas (praktis di Linux, yang sering memakan Alt).</td></tr>
-            <tr><td><b>Seret tombol kanan / tengah</b></td><td>Pan (menggeser kanvas). Seret tombol tengah = pan gaya Inkscape.</td></tr>
-            <tr><td><b>Seret label dimensi</b></td><td>Menggeser label ke samping tanpa mengubah nilainya.</td></tr>
-          </tbody>
-        </table>
-        <div class="callout info"><b>Pick filter (panel Layers):</b> <kbd>Alt+1</kbd> titik, <kbd>Alt+2</kbd> garis, <kbd>Alt+3</kbd> loop — matikan satu jenis agar kursor mengabaikannya total, jadi mengedit titik tidak akan tak sengaja menyambar garis atau loop.</div>
-        <div class="callout info">Seleksi marquee memilih <b>titik-titik</b>; setelah itu objek yang titiknya terpilih ikut terpilih sebagai satu kesatuan. Dobel-klik adalah cara cepat mengambil satu loop lengkap dengan seluruh child-nya.</div>
+          <h1>Edit Tab — Modify Objects</h1>
+          <p class="help-lead">The Edit tab collects all tools for transforming, offsetting, grouping, cleaning up, and Boolean-combining canvas geometry.</p>
 
-        <h2>3. Transformasi dan Offset</h2>
-        <h3>Transformasi (Ctrl+M)</h3>
-        <p>Pindahkan, putar, dan ubah ukuran objek melalui panel Transform yang melayang. Sudut, skala X/Y, dan pergeseran dx/dy dapat diisi langsung. Kunci perbandingan lebar/tinggi dengan ikon gembok agar proporsi tetap.</p>
+          <div class="screenshot">
+            <img src="img/screenshots/edit-ribbon.png" alt="Edit ribbon tab active">
+            <figcaption>Edit tab: Transform, Offset, Move, Array, Flip X/Y, Rotate 90°, Group, Ungroup, Clone, Connected, Clean up, Boolean (Union/Cut/Intersect), plus Join, Weld, Sharp (\), and Clean on the right.</figcaption>
+          </div>
 
-        <h3>Offset (Ctrl+J)</h3>
-        <p>Membuat salinan paralel dari loop terpilih pada jarak tertentu. Preview ditampilkan putus-putus saat menyesuaikan roda mouse. Sudut offset dapat diatur tajam (miter), bulat, atau persegi (bevel) di Settings &rarr; Geometry &rarr; Offset corners.</p>
+          <h2>1. Key Edit Shortcuts</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:26%">Shortcut</th><th>Action</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><kbd>Arrow keys</kbd></td><td>Nudge selection 1 mm (configurable in Settings &rarr; Geometry &rarr; Arrow key nudge).</td></tr>
+              <tr><td><kbd>Ctrl+A</kbd></td><td>Select all entities.</td></tr>
+              <tr><td><kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd></td><td>Copy / Paste (copies sketch + SVG + PNG to the system clipboard simultaneously).</td></tr>
+              <tr><td><kbd>Ctrl+D</kbd></td><td>Duplicate in place.</td></tr>
+              <tr><td><kbd>Del</kbd></td><td>Delete selection.</td></tr>
+              <tr><td><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Shift+Z</kbd></td><td>Undo / Redo.</td></tr>
+              <tr><td><kbd>Ctrl+G</kbd> / <kbd>Ctrl+U</kbd></td><td>Group selection into one object / Ungroup.</td></tr>
+              <tr><td><kbd>Ctrl+L</kbd> / <kbd>Ctrl+Shift+L</kbd></td><td>Create a <i>live clone</i> (tracks master edits) / Clone split as nestable parts.</td></tr>
+              <tr><td><kbd>Ctrl+J</kbd></td><td>Offset (dashed preview; mouse wheel adjusts distance).</td></tr>
+              <tr><td><kbd>Ctrl+M</kbd></td><td>Transform (scale, rotate, and move precisely via the Transform panel).</td></tr>
+              <tr><td><kbd>Ctrl+Shift+M</kbd></td><td>Interactive Move (click reference point, target point, then confirm dx/dy).</td></tr>
+              <tr><td><kbd>Ctrl++</kbd> / <kbd>Ctrl+-</kbd> / <kbd>Ctrl+0</kbd></td><td>Boolean union / cut (target first, tool last) / intersect on closed loops. Hold <kbd>Shift</kbd> to keep original loops and add the result on top.</td></tr>
+              <tr><td><kbd>J</kbd> / <kbd>Alt+W</kbd></td><td>Join coincident points / Weld points within dialog tolerance.</td></tr>
+              <tr><td><kbd>F</kbd></td><td>Fillet corners.</td></tr>
+              <tr><td><kbd>Z</kbd> / <kbd>Shift+L</kbd></td><td>Prune selection to complete loops / Re-detect loops &amp; weld junctions.</td></tr>
+              <tr><td><kbd>Ctrl+K</kbd></td><td>Fit cubic Bézier curves through polylines (Tolerance + Sharp corner dialog).</td></tr>
+            </tbody>
+          </table>
 
-        <h3>Geser (Ctrl+Shift+M)</h3>
-        <p>Pilih titik referensi (juga menempel ke marker part), lalu tujuan, kemudian konfirmasi dx dan dy.</p>
+          <h2>2. Selecting Objects</h2>
+          <p>Canvas mouse interactions:</p>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:30%">Gesture</th><th>Result</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><b>Left-click</b> on an entity</td><td>Selects that contour alone (not nested children inside).</td></tr>
+              <tr><td><b>Left-click inside</b> a closed loop</td><td>Selects that closed loop.</td></tr>
+              <tr><td><b>Drag directly</b> on a line / point / edge</td><td>Immediately drags that object (or the active selection) without switching to marquee mode.</td></tr>
+              <tr><td><b>Inside a closed loop</b>: quick drag vs. hold ~200 ms</td><td>Quick drag = marquee selection box; brief hold then drag = selects and moves that loop.</td></tr>
+              <tr><td><b>Drag marquee box</b> from empty canvas</td><td>Box selection — selects all points/objects inside the rectangle.</td></tr>
+              <tr><td><b>Shift+click</b></td><td>Adds to selection or toggles an already-selected item off.</td></tr>
+              <tr><td><b>Ctrl+click</b> on a loop</td><td>Selects the loop <b>and everything inside it</b> (inner cutouts and children).</td></tr>
+              <tr><td><b>Double-click</b> inside a loop</td><td>Selects the loop and all inner children without toggling off.</td></tr>
+              <tr><td><b>Right-click</b> (stationary) on stacked geometry</td><td>Selects the item <b>underneath</b> the top object; repeated clicks cycle deeper through overlapping layers.</td></tr>
+              <tr><td><b>Alt+click</b></td><td>Same as stationary right-click — cycles beneath stacked loops (useful where Linux intercepts Alt-drag).</td></tr>
+              <tr><td><b>Right / middle-mouse drag</b></td><td>Pan the canvas. Middle-drag matches Inkscape-style panning.</td></tr>
+              <tr><td><b>Drag a dimension label</b></td><td>Repositions the label cleanly without changing its numeric value.</td></tr>
+            </tbody>
+          </table>
+          <div class="callout info"><b>Pick filter (Layers panel):</b> <kbd>Alt+1</kbd> points, <kbd>Alt+2</kbd> lines, <kbd>Alt+3</kbd> loops — turn off any type so the cursor ignores it completely while editing nodes or lines.</div>
 
-        <h2>4. Grup dan Boolean</h2>
-        <h3>Group / Ungroup (Ctrl+G / Ctrl+U)</h3>
-        <p>Group menggabungkan pilihan menjadi satu objek yang dapat dipindah sebagai satu satuan. Ungroup meledakkan grup kembali ke kurva dan garis yang bisa diedit.</p>
+          <h2>3. Transform &amp; Offset</h2>
+          <h3>Transform (Ctrl+M)</h3>
+          <p>Move, rotate, and scale selections from the floating Transform panel. Enter rotation angle, X/Y scale, or dx/dy directly, and lock aspect ratio with the padlock toggle.</p>
 
-        <h3>Boolean: Union / Cut / Intersect (Ctrl++ / Ctrl+- / Ctrl+0)</h3>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:20%">Operasi</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Union (Ctrl++)</td><td>Gabungkan loop terpilih menjadi satu bentuk.</td></tr>
-            <tr><td>Cut (Ctrl+-)</td><td>Potong: loop target dulu, lalu loop alat TERAKHIR. Tahan <kbd>Shift</kbd> (atau <kbd>Shift</kbd>+klik tombol) pada Union/Cut/Intersect = menyimpan loop asli, hasil ditambahkan di atasnya.</td></tr>
-            <tr><td>Intersect (Ctrl+0)</td><td>Bidang irisan kedua loop.</td></tr>
-          </tbody>
-        </table>
-        <div class="callout info"><b>Boolean eksak:</b> defaultnya menghitung pada kurva asli (PathBool) — arc tetap arc, sudut tetap eksak, sehingga constraint selamat setelah operasi. Tersedia juga opsi legacy Clipper melalui Settings &rarr; Geometry &rarr; Boolean result.</div>
+          <h3>Offset (Ctrl+J)</h3>
+          <p>Creates a parallel inset/outset contour from selected loops with a dashed live preview controlled by the mouse wheel. Corner style (miter, round, bevel) is set in Settings &rarr; Geometry &rarr; Offset corners.</p>
 
-        <h2>5. Join, Fillet, dan Bersihkan</h2>
-        <h3>Join points (J)</h3>
-        <p>Menyambung titik terpilih yang bersentuh (pada satu spot). Dengan loop tertutup, J membersihkan titik ganda di sekitar setiap loop. Meminta konfirmasi jika lebih dari 100 titik diseleksi.</p>
+          <h3>Move (Ctrl+Shift+M)</h3>
+          <p>Click a reference point (snaps to part markers too), click destination, and confirm exact dx and dy.</p>
 
-        <h3>Fillet (F)</h3>
-        <p>Membuat sudut melengkung pada dua garis atau titik sudut yang dipilih.</p>
+          <h2>4. Groups &amp; Exact Booleans</h2>
+          <h3>Group / Ungroup (Ctrl+G / Ctrl+U)</h3>
+          <p>Group wraps selected geometry into one rigid unit; Ungroup explodes groups back into editable curves and lines.</p>
 
-        <h3>Clean up (Z)</h3>
-        <p>Tanpa seleksi: mencari constraint mati dan geometri ukuran nol. Dengan seleksi: mempertahankan loop utuhnya.</p>
+          <h3>Boolean: Union / Cut / Intersect (Ctrl++ / Ctrl+- / Ctrl+0)</h3>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:20%">Operation</th><th>Behavior</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Union (Ctrl++)</td><td>Merges selected closed loops into a single outline.</td></tr>
+              <tr><td>Cut (Ctrl+-)</td><td>Subtracts the LAST selected tool loop from earlier target loop(s). Hold <kbd>Shift</kbd> to preserve source loops.</td></tr>
+              <tr><td>Intersect (Ctrl+0)</td><td>Keeps the overlapping region of selected loops.</td></tr>
+            </tbody>
+          </table>
+          <div class="callout info"><b>Exact Booleans:</b> defaults to native curve math (PathBool) — arcs stay arcs and sharp corners remain exact. Legacy polygon Clipper mode is also available under Settings &rarr; Geometry &rarr; Boolean result.</div>
 
-        <h3>Fit curve (Ctrl+K)</h3>
-        <p>Pasang kurva kubik melalui geometri lurus. Dialog menampilkan Tolerance dan Sharp corner dengan hitungan langsung titik masuk dan node keluar. Toleransi lebih kecil mengikuti bentuk lebih rapat (lebih banyak node). Tekan Ctrl+K lagi pada hasil untuk mencocokkan ulang.</p>
+          <h2>5. Join, Fillet &amp; Cleanup</h2>
+          <h3>Join points (J)</h3>
+          <p>Merges coincident selected endpoints (or removes duplicate vertices around closed loops). Confirms before merging &gt; 100 points.</p>
 
-        <div class="help-footer">
-          <span>Edit — Mengubah Objek</span>
-          <span>Selanjutnya: <a href="arrange.html">Arrange — Susun Objek</a></span>
+          <h3>Fillet (F)</h3>
+          <p>Rounds sharp corners between two selected lines or corner vertices.</p>
+
+          <h3>Clean up (Z)</h3>
+          <p>With no selection: finds dead constraints and zero-length entities. With a selection: prunes to complete closed loops.</p>
+
+          <h3>Fit curve (Ctrl+K)</h3>
+          <p>Fits cubic Béziers over polylines using live-updated Tolerance and Sharp corner thresholds.</p>
+
+          <div class="help-footer">
+            <span>Edit — Modify Objects</span>
+            <span>Next: <a href="arrange.html">Arrange — Position &amp; Align</a></span>
+          </div>
         </div>
       </div>
     </main>

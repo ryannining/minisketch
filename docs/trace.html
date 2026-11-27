@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en" data-doc-lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Image Trace — Jejak Gambar | Bantuan MiniSketch</title>
+<title>Image Trace — Bitmap to Vector | MiniSketch Help</title>
 <link rel="stylesheet" href="help.css">
+<script>try{var p=new URLSearchParams(location.search).get("lang"),l=(p==="en"||p==="id")?p:(localStorage.getItem("minisketch.help.lang")||"en");if(l!=="en"&&l!=="id")l="en";document.documentElement.dataset.docLang=l;document.documentElement.lang=l;}catch(e){}</script>
 </head>
 <body>
 <div class="help-shell">
@@ -14,18 +15,18 @@
     <div class="help-brand">
       <div class="help-mark">M</div>
       <div>
-        <div class="help-title">Image Trace — Jejak Gambar</div>
-        <div class="help-subtitle">Jejakkan gambar paste atau seretan menjadi kurva yang bisa diedit</div>
+        <div class="help-title">Image Trace — Bitmap to Vector</div>
+        <div class="help-subtitle">Trace pasted or dropped bitmap images into editable vector curves</div>
       </div>
     </div>
     <div class="help-spacer"></div>
     <div class="help-search">
       <span class="search-icon" aria-hidden="true">&#128269;</span>
-      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
-      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+      <input id="help-search-input" type="text" placeholder="Search help topics…" autocomplete="off" spellcheck="false" aria-label="Search help topics">
+      <button class="clear-btn" id="help-search-clear" title="Clear search" aria-hidden="true">&#215;</button>
     </div>
-    <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
-    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+    <div id="help-search-results" style="display:none;"></div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">No matching topics.</div>
   </header>
 
   <div class="help-body">
@@ -72,56 +73,112 @@
 
     <main class="help-content">
       <div class="help-page">
-        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Image Trace — Jejak Gambar</div>
+        <div data-lang="id">
+          <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Image Trace — Jejak Gambar</div>
 
-        <h1>Image Trace — Jejak Gambar</h1>
-        <p class="help-lead">Tempel gambar dari clipboard (<kbd>Ctrl+V</kbd>) atau seret berkas gambar ke kanvas. Gambar ditrace secara lokal dan masuk sebagai satu objek dengan tiga titik dan dua garis bantu hijau — sama seperti objek teks.</p>
+          <h1>Image Trace — Jejak Gambar</h1>
+          <p class="help-lead">Tempel gambar dari clipboard (<kbd>Ctrl+V</kbd>) atau seret berkas gambar ke kanvas. Gambar ditrace secara lokal dan masuk sebagai satu objek dengan tiga titik dan dua garis bantu hijau — sama seperti objek teks.</p>
 
-        <div class="screenshot">
-          <img src="img/screenshots/dialog-trace.png" alt="Dialog Paste image (trace)">
-          <figcaption>Dialog Paste image: pratinjau kontur langsung (2 contours · 50 points), radio Trace to geometry / Keep as image, slider Detail line/curve, Speckle, Threshold, Blur, Simplify, checkbox sudut, DPI, dan Width (mm).</figcaption>
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-trace.png" alt="Dialog Paste image (trace)">
+            <figcaption>Dialog Paste image: pratinjau kontur langsung (2 contours · 50 points), radio Trace to geometry / Keep as image, slider Detail line/curve, Speckle, Threshold, Blur, Simplify, checkbox sudut, DPI, dan Width (mm).</figcaption>
+          </div>
+
+          <h2>1. Dialog trace</h2>
+          <p>Dialog trace menampilkan <b>pratinjau langsung</b> dari kontur di sebelah pengaturan, jadi kamu bisa menyesuaikan sambil melihat hasilnya, bukan menekan OK buta. Setiap pengaturan yang mengubah pratinjau punya slider untuk pengaturan kasar dan kotak angka untuk nilai persis (ketik di kotak untuk nilai yang tidak tercapai slider).</p>
+
+          <table class="kb">
+            <thead>
+              <tr><th style="width:24%">Pengaturan</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Detail line</td><td>Seberapa rapat tepi lurus mengikuti gambar. Semakin rendah = lebih banyak titik; semakin tinggi = lebih sederhana.</td></tr>
+              <tr><td>Detail curve</td><td>Seberapa rapat lengkungan mengikuti gambar. Semakin rendah = lebih banyak titik; semakin tinggi = lebih sederhana.</td></tr>
+              <tr><td>Speckle</td><td>Gumpalan yang lebih kecil dari nilai ini (dalam piksel sumber) diabaikan sebagai noise.</td></tr>
+              <tr><td>Threshold</td><td>Piksel yang lebih gelap dari nilai ini dihitung sebagai bentuk. Semakin tinggi, semakin banyak gambar dipertahankan.</td></tr>
+              <tr><td>Blur</td><td>Blur diterapkan sebelum trace. Semakin tinggi, semakin halus piksel noise.</td></tr>
+              <tr><td>Simplify</td><td>Sejauh mana titik trace boleh menyimpang dari garis keliling sebelum dihilangkan. Semakin tinggi = lebih sedikit titik.</td></tr>
+              <tr><td>Keep sharp corners</td><td>Pertahankan sudut tajam saat trace.</td></tr>
+              <tr><td>Remove noise lines</td><td>Hilangkan garis noise kecil.</td></tr>
+              <tr><td>Fit real curves</td><td>Pasang kurva asli pada &#8594; Curve (lebih sedikit node, sudut dipertahankan).</td></tr>
+              <tr><td>Pixel density (dpi)</td><td>Kepadatan piksel sumber.</td></tr>
+              <tr><td>Width (mm)</td><td>Lebar objek hasil trace dalam mm.</td></tr>
+            </tbody>
+          </table>
+
+          <div class="callout info"><b>Hanya bagian gelap yang di-trace:</b> latar putih tidak ikut, jadi mesin tidak akan mencoba memotong seluruh lembar. Baris di bawah pratinjau menghitung jumlah kontur dan titik yang akan benar-benar dihasilkan impor. Pengaturanmu diingat, jadi gambar berikutnya mulai dari tempat kamu berhenti.</div>
+
+          <h2>2. Mode</h2>
+          <ul>
+            <li><b>Trace to geometry</b> — jejakkan gambar menjadi kurva dan garis yang bisa diedit.</li>
+            <li><b>Keep as image</b> — simpan sebagai gambar referensi (bukan geometri potong). <b>Double-click</b> gambar referensi atau bitmap hasil impor PDF kapan saja untuk membuka ulang dialog Trace dan mengonversinya ke geometri.</li>
+          </ul>
+
+          <h2>3. Catatan penting</h2>
+          <ul>
+            <li>Hanya teks yang benar-benar merupakan dokumen SVG yang diperlakukan sebagai vektor. Paste teks atau gambar biasa berperilaku seperti sebelumnya.</li>
+            <li>Jika editor meninggalkan pratinjau PNG di clipboard di samping markup, vektor yang menang.</li>
+            <li>Hasil trace bisa diedit lebih lanjut dengan <kbd>&rarr; Curve</kbd>, <kbd>Ctrl+K</kbd> (fit curve), dan boolean.</li>
+          </ul>
+
+          <div class="help-footer">
+            <span>Image Trace — Jejak Gambar</span>
+            <span>Selanjutnya: <a href="nesting.html">Nesting — Tata Letak Potongan</a></span>
+          </div>
         </div>
 
-        <h2>1. Dialog trace</h2>
-        <p>Dialog trace menampilkan <b>pratinjau langsung</b> dari kontur di sebelah pengaturan, jadi kamu bisa menyesuaikan sambil melihat hasilnya, bukan menekan OK buta. Setiap pengaturan yang mengubah pratinjau punya slider untuk pengaturan kasar dan kotak angka untuk nilai persis (ketik di kotak untuk nilai yang tidak tercapai slider).</p>
+        <div data-lang="en">
+          <div class="breadcrumb"><a href="index.html">Home</a> <span class="sep">&#8250;</span> Image Trace — Bitmap to Vector</div>
 
-        <table class="kb">
-          <thead>
-            <tr><th style="width:24%">Pengaturan</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Detail line</td><td>Seberapa rapat tepi lurus mengikuti gambar. Semakin rendah = lebih banyak titik; semakin tinggi = lebih sederhana.</td></tr>
-            <tr><td>Detail curve</td><td>Seberapa rapat lengkungan mengikuti gambar. Semakin rendah = lebih banyak titik; semakin tinggi = lebih sederhana.</td></tr>
-            <tr><td>Speckle</td><td>Gumpalan yang lebih kecil dari nilai ini (dalam piksel sumber) diabaikan sebagai noise.</td></tr>
-            <tr><td>Threshold</td><td>Piksel yang lebih gelap dari nilai ini dihitung sebagai bentuk. Semakin tinggi, semakin banyak gambar dipertahankan.</td></tr>
-            <tr><td>Blur</td><td>Blur diterapkan sebelum trace. Semakin tinggi, semakin halus piksel noise.</td></tr>
-            <tr><td>Simplify</td><td>Sejauh mana titik trace boleh menyimpang dari garis keliling sebelum dihilangkan. Semakin tinggi = lebih sedikit titik.</td></tr>
-            <tr><td>Keep sharp corners</td><td>Pertahankan sudut tajam saat trace.</td></tr>
-            <tr><td>Remove noise lines</td><td>Hilangkan garis noise kecil.</td></tr>
-            <tr><td>Fit real curves</td><td>Pasang kurva asli pada &#8594; Curve (lebih sedikit node, sudut dipertahankan).</td></tr>
-            <tr><td>Pixel density (dpi)</td><td>Kepadatan piksel sumber.</td></tr>
-            <tr><td>Width (mm)</td><td>Lebar objek hasil trace dalam mm.</td></tr>
-          </tbody>
-        </table>
+          <h1>Image Trace — Bitmap to Vector</h1>
+          <p class="help-lead">Paste an image from the clipboard (<kbd>Ctrl+V</kbd>) or drop an image file onto the canvas. Bitmaps are traced locally and inserted as a framed object with three points and two green guides — just like text objects.</p>
 
-        <div class="callout info"><b>Hanya bagian gelap yang di-trace:</b> latar putih tidak ikut, jadi mesin tidak akan mencoba memotong seluruh lembar. Baris di bawah pratinjau menghitung jumlah kontur dan titik yang akan benar-benar dihasilkan impor. Pengaturanmu diingat, jadi gambar berikutnya mulai dari tempat kamu berhenti.</div>
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-trace.png" alt="Paste image trace dialog">
+            <figcaption>Paste image dialog: live contour preview (2 contours · 50 points), Trace to geometry / Keep as image toggle, Detail line/curve, Speckle, Threshold, Blur, Simplify sliders, corner checkboxes, DPI, and Width (mm).</figcaption>
+          </div>
 
-        <h2>2. Mode</h2>
-        <ul>
-          <li><b>Trace to geometry</b> — jejakkan gambar menjadi kurva dan garis yang bisa diedit.</li>
-          <li><b>Keep as image</b> — simpan sebagai gambar referensi (bukan geometri potong). <b>Double-click</b> gambar referensi atau bitmap hasil impor PDF kapan saja untuk membuka ulang dialog Trace dan mengonversinya ke geometri.</li>
-        </ul>
+          <h2>1. Trace dialog</h2>
+          <p>The trace dialog shows a <b>live contour preview</b> beside the controls so you can dial in settings visually before clicking OK. Every parameter has a coarse slider and an exact numeric box for fine control.</p>
 
-        <h2>3. Catatan penting</h2>
-        <ul>
-          <li>Hanya teks yang benar-benar merupakan dokumen SVG yang diperlakukan sebagai vektor. Paste teks atau gambar biasa berperilaku seperti sebelumnya.</li>
-          <li>Jika editor meninggalkan pratinjau PNG di clipboard di samping markup, vektor yang menang.</li>
-          <li>Hasil trace bisa diedit lebih lanjut dengan <kbd>&rarr; Curve</kbd>, <kbd>Ctrl+K</kbd> (fit curve), dan boolean.</li>
-        </ul>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:24%">Setting</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Detail line</td><td>How closely straight edges hug the bitmap. Lower = more points; higher = simpler.</td></tr>
+              <tr><td>Detail curve</td><td>How closely curved edges follow the bitmap. Lower = more points; higher = simpler.</td></tr>
+              <tr><td>Speckle</td><td>Blobs smaller than this area (in source pixels) are discarded as noise.</td></tr>
+              <tr><td>Threshold</td><td>Pixels darker than this cutoff count as solid shape. Higher values include lighter areas.</td></tr>
+              <tr><td>Blur</td><td>Pre-trace smoothing to soften pixelated edges and grain.</td></tr>
+              <tr><td>Simplify</td><td>Maximum contour simplification tolerance. Higher = fewer output points.</td></tr>
+              <tr><td>Keep sharp corners</td><td>Preserve crisp corner vertices during tracing.</td></tr>
+              <tr><td>Remove noise lines</td><td>Strip tiny stray noise strokes.</td></tr>
+              <tr><td>Fit real curves</td><td>Fit genuine Bézier splines on &#8594; Curve (fewer nodes, sharp corners kept).</td></tr>
+              <tr><td>Pixel density (dpi)</td><td>Source image resolution used to calculate physical size.</td></tr>
+              <tr><td>Width (mm)</td><td>Target physical width of the traced object in mm.</td></tr>
+            </tbody>
+          </table>
 
-        <div class="help-footer">
-          <span>Image Trace — Jejak Gambar</span>
-          <span>Selanjutnya: <a href="nesting.html">Nesting — Tata Letak Potongan</a></span>
+          <div class="callout info"><b>Only dark regions are traced:</b> white backgrounds are ignored so the CNC doesn't cut out the canvas sheet. The summary under the preview shows the exact contour and point counts that will be generated. Settings are remembered across traces.</div>
+
+          <h2>2. Modes</h2>
+          <ul>
+            <li><b>Trace to geometry</b> — trace the image immediately into editable curves and lines.</li>
+            <li><b>Keep as image</b> — place as a non-cutting reference image. <b>Double-click</b> any reference image or imported PDF bitmap anytime to reopen the Trace dialog and convert it to geometry.</li>
+          </ul>
+
+          <h2>3. Key notes</h2>
+          <ul>
+            <li>Only valid SVG documents copied to the clipboard are imported as vectors; plain text or raster images behave as expected.</li>
+            <li>When a vector app places both SVG markup and a PNG preview on the clipboard, vectors take priority automatically.</li>
+            <li>Refine traced geometry anytime using <kbd>&rarr; Curve</kbd>, <kbd>Ctrl+K</kbd> (fit curve), and boolean tools.</li>
+          </ul>
+
+          <div class="help-footer">
+            <span>Image Trace — Bitmap to Vector</span>
+            <span>Next: <a href="nesting.html">Nesting — Sheet Layout Optimizer</a></span>
+          </div>
         </div>
       </div>
     </main>

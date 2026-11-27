@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en" data-doc-lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Nesting — Tata Letak Potongan | Bantuan MiniSketch</title>
+<title>Nesting — Sheet Layout Optimizer | MiniSketch Help</title>
 <link rel="stylesheet" href="help.css">
+<script>try{var p=new URLSearchParams(location.search).get("lang"),l=(p==="en"||p==="id")?p:(localStorage.getItem("minisketch.help.lang")||"en");if(l!=="en"&&l!=="id")l="en";document.documentElement.dataset.docLang=l;document.documentElement.lang=l;}catch(e){}</script>
 </head>
 <body>
 <div class="help-shell">
@@ -14,18 +15,18 @@
     <div class="help-brand">
       <div class="help-mark">M</div>
       <div>
-        <div class="help-title">Nesting — Tata Letak Potongan</div>
-        <div class="help-subtitle">Susun loop tertutup di atas lembar dengan algoritma genetika + NFP</div>
+        <div class="help-title">Nesting — Sheet Layout Optimizer</div>
+        <div class="help-subtitle">Pack closed loops onto green sheets using genetic algorithms + NFP</div>
       </div>
     </div>
     <div class="help-spacer"></div>
     <div class="help-search">
       <span class="search-icon" aria-hidden="true">&#128269;</span>
-      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
-      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+      <input id="help-search-input" type="text" placeholder="Search help topics…" autocomplete="off" spellcheck="false" aria-label="Search help topics">
+      <button class="clear-btn" id="help-search-clear" title="Clear search" aria-hidden="true">&#215;</button>
     </div>
-    <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
-    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+    <div id="help-search-results" style="display:none;"></div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">No matching topics.</div>
   </header>
 
   <div class="help-body">
@@ -72,72 +73,144 @@
 
     <main class="help-content">
       <div class="help-page">
-        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Nesting — Tata Letak Potongan</div>
+        <div data-lang="id">
+          <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Nesting — Tata Letak Potongan</div>
 
-        <h1>Tab Nesting</h1>
-        <p class="help-lead">Nesting menyusun loop tertutup di atas lembar (sheet) menggunakan algoritma genetika (GA) + No-Fit Polygon (NFP), sepenuhnya di browser — tanpa server.</p>
+          <h1>Tab Nesting</h1>
+          <p class="help-lead">Nesting menyusun loop tertutup di atas lembar (sheet) menggunakan algoritma genetika (GA) + No-Fit Polygon (NFP), sepenuhnya di browser — tanpa server.</p>
 
-        <div class="screenshot">
-          <img src="img/screenshots/panel-nesting.png" alt="Panel Nesting di sidebar">
-          <figcaption>Panel Nesting di sidebar: contoh pengaturan Sp (spacing), Grid, Rot (rotasi yang diizinkan), Flip, Pop/Gen/Mut/LS untuk GA, tombol Start / Re-nest / Stop / ∞, progress, dan status. (Default di versi aplikasi terbaru: Sp 2, Grid 4, Rot 0,90,180,270.)</figcaption>
+          <div class="screenshot">
+            <img src="img/screenshots/panel-nesting.png" alt="Panel Nesting di sidebar">
+            <figcaption>Panel Nesting di sidebar: contoh pengaturan Sp (spacing), Grid, Rot (rotasi yang diizinkan), Flip, Pop/Gen/Mut/LS untuk GA, tombol Start / Re-nest / Stop / ∞, progress, dan status. (Default di versi aplikasi terbaru: Sp 2, Grid 4, Rot 0,90,180,270.)</figcaption>
+          </div>
+
+          <div class="screenshot">
+            <img src="img/screenshots/panel-sidebar.png" alt="Seluruh panel sidebar kanan">
+            <figcaption>Panel sidebar kanan secara utuh: AI Chat, Selection, Object Tree, Parts, Nesting (terbuka), dan <a href="tools.html">Tools</a> (13 generator parametrik: Box maker, Gear, Slot, Hinge box, dst).</figcaption>
+          </div>
+
+          <h2>1. Pengaturan nesting</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:24%">Pengaturan</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Sp (Spacing)</td><td>Spasi antar bagian dalam mm (setiap bagian di-offset setengah nilai di setiap sisi sebelum dipaketkan).</td></tr>
+              <tr><td>Grid</td><td>Grid snap: langkah pemindai NFP dalam mm. Semakin kecil = pemaketan lebih rapat tetapi jauh lebih lambat.</td></tr>
+              <tr><td>Rot (Rotation)</td><td>Rotasi yang diizinkan: daftar sudut (0,90), preset (1,2,3,4,8), atau range 0-360:90. Sama seperti nestjs2.</td></tr>
+              <tr><td>Flip</td><td>Izinkan membalik bagian selama pemaketan.</td></tr>
+              <tr><td>Pop (Population)</td><td>Ukuran populasi GA.</td></tr>
+              <tr><td>Gen (Generations)</td><td>Jumlah generasi GA.</td></tr>
+              <tr><td>Mut (Mutation)</td><td>Rata mutasi GA (0 = urutan orang tua dipertahankan, 1 = selalu diacak ulang).</td></tr>
+              <tr><td>LS (Local search)</td><td>Percobaan mendaki lokal setelah GA (0 = mati; semakin sedikit = lebih cepat tapi sedikit lebih longgar).</td></tr>
+            </tbody>
+          </table>
+
+          <h2>2. Tombol kontrol</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:24%">Tombol</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Start</td><td>Nest loop terpilih ke kanan lembar hijau (sheet loop).</td></tr>
+              <tr><td>Re-nest</td><td>Nest bagian yang sama lagi tanpa memilih ulang (mengganti hasil sebelumnya).</td></tr>
+              <tr><td>Stop</td><td>Berhenti dan simpan hasil terbaik saat ini.</td></tr>
+              <tr><td>&#8734; (Infinite)</td><td>Terus re-nest dengan benih GA segar sampai Stop; hanya tata letak terbaik yang diterapkan.</td></tr>
+            </tbody>
+          </table>
+
+          <div class="callout info"><b>Semua proses berjalan di browser (worker).</b> Untuk file besar, jendela bisa membeku beberapa saat saat dibangun. Nyalakan "keep each group as one object" di impor untuk membuatnya jauh lebih ringan.</div>
+
+          <h2>3. Cara kerja untuk pemula (contoh teks &ldquo;hello world&rdquo;)</h2>
+          <ol>
+            <li><b>Siapkan part yang akan disusun:</b> misalnya buat teks (<kbd>T</kbd>) bertuliskan <code>hello world</code> lalu klik <b>&rarr; Curve</b> agar setiap huruf menjadi loop potong terpisah (atau tetap sebagai objek teks utuh jika ingin diukir dalam satu kesatuan).</li>
+            <li><b>Gambar lembar bahan (sheet):</b> tekan <kbd>Esc</kbd> terlebih dahulu agar objek tidak terpilih (supaya warna teks tidak ikut berubah), lalu klik swatch <b>Hijau / Mark</b> (<code>#00ff00</code>) dan gambar kotak lembar dengan alat <b>Box</b> (<kbd>R</kbd>).</li>
+            <li><b>Pilih lembar + semua part:</b> tekan <kbd>Ctrl+A</kbd> atau blok kotak hijau bersama semua loop huruf/part yang ingin disusun. (Tips: gunakan <kbd>Ctrl+Shift+L</kbd> — <i>Clone as nest parts</i> bila ingin menyalin part untuk ditata manual.)</li>
+            <li>Buka panel <b>Nesting</b> di sidebar kanan, atur <b>Sp</b> (mis. <code>3</code> mm) dan <b>Grid</b>, lalu klik <b>Start</b>. Hasil tata letak ditempatkan sebagai <i>live clone</i> di sebelah kanan lembar hijau asli.</li>
+            <li>Gunakan <b>Re-nest</b> untuk mencoba variasi susunan baru, atau lanjutkan penyempurnaan posisi secara manual memakai <a href="arrange.html#drag-wall"><b>Drag wall (W)</b></a>.</li>
+          </ol>
+
+          <div class="screenshot">
+            <img src="img/screenshots/nest-hello-world.png" alt="Contoh nesting teks hello world ke dalam kotak hijau 140x80 mm">
+            <figcaption>Hasil nesting nyata di aplikasi: teks <code>hello world</code> yang dikonversi ke kurva (kiri bawah) disusun otomatis ke dalam lembar hijau 140&times;80 mm (<code>Placed 10/10 &middot; blok 136&times;44 mm</code>) dengan rotasi otomatis 0&deg;/90&deg;/180&deg;/270&deg;.</figcaption>
+          </div>
+
+          <div class="callout warn"><b>Perbaiki hasil nesting secara manual:</b> setelah nesting selesai, tekan <kbd>Esc</kbd> untuk melepas seleksi grup, aktifkan tab <b>Arrange &rarr; <a href="arrange.html#drag-wall">Drag wall (W)</a></b>, lalu geser huruf/part satu per satu di dalam lembar hijau. Dinding offset akan menjaga jarak aman dan mencegah tabrakan antar huruf maupun tepi lembar.</div>
+
+          <div class="help-footer">
+            <span>Nesting — Tata Letak Potongan</span>
+            <span>Selanjutnya: <a href="layers.html">Layers &amp; Pick Filter</a></span>
+          </div>
         </div>
 
-        <div class="screenshot">
-          <img src="img/screenshots/panel-sidebar.png" alt="Seluruh panel sidebar kanan">
-          <figcaption>Panel sidebar kanan secara utuh: AI Chat, Selection, Object Tree, Parts, Nesting (terbuka), dan <a href="tools.html">Tools</a> (13 generator parametrik: Box maker, Gear, Slot, Hinge box, dst).</figcaption>
-        </div>
+        <div data-lang="en">
+          <div class="breadcrumb"><a href="index.html">Home</a> <span class="sep">&#8250;</span> Nesting — Sheet Layout Optimizer</div>
 
-        <h2>1. Pengaturan nesting</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:24%">Pengaturan</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Sp (Spacing)</td><td>Spasi antar bagian dalam mm (setiap bagian di-offset setengah nilai di setiap sisi sebelum dipaketkan).</td></tr>
-            <tr><td>Grid</td><td>Grid snap: langkah pemindai NFP dalam mm. Semakin kecil = pemaketan lebih rapat tetapi jauh lebih lambat.</td></tr>
-            <tr><td>Rot (Rotation)</td><td>Rotasi yang diizinkan: daftar sudut (0,90), preset (1,2,3,4,8), atau range 0-360:90. Sama seperti nestjs2.</td></tr>
-            <tr><td>Flip</td><td>Izinkan membalik bagian selama pemaketan.</td></tr>
-            <tr><td>Pop (Population)</td><td>Ukuran populasi GA.</td></tr>
-            <tr><td>Gen (Generations)</td><td>Jumlah generasi GA.</td></tr>
-            <tr><td>Mut (Mutation)</td><td>Rata mutasi GA (0 = urutan orang tua dipertahankan, 1 = selalu diacak ulang).</td></tr>
-            <tr><td>LS (Local search)</td><td>Percobaan mendaki lokal setelah GA (0 = mati; semakin sedikit = lebih cepat tapi sedikit lebih longgar).</td></tr>
-          </tbody>
-        </table>
+          <h1>Nesting Panel</h1>
+          <p class="help-lead">Nesting automatically packs closed loops onto a material sheet using a Genetic Algorithm (GA) + No-Fit Polygon (NFP) engine running 100% locally in a browser worker.</p>
 
-        <h2>2. Tombol kontrol</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:24%">Tombol</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Start</td><td>Nest loop terpilih ke kanan lembar hijau (sheet loop).</td></tr>
-            <tr><td>Re-nest</td><td>Nest bagian yang sama lagi tanpa memilih ulang (mengganti hasil sebelumnya).</td></tr>
-            <tr><td>Stop</td><td>Berhenti dan simpan hasil terbaik saat ini.</td></tr>
-            <tr><td>&#8734; (Infinite)</td><td>Terus re-nest dengan benih GA segar sampai Stop; hanya tata letak terbaik yang diterapkan.</td></tr>
-          </tbody>
-        </table>
+          <div class="screenshot">
+            <img src="img/screenshots/panel-nesting.png" alt="Nesting panel in right sidebar">
+            <figcaption>Nesting panel in the sidebar: Sp (spacing), Grid step, allowed Rot angles, Flip, Pop/Gen/Mut/LS GA controls, Start / Re-nest / Stop / ∞ buttons, progress bar, and status. (Default in latest version: Sp 2, Grid 4, Rot 0,90,180,270.)</figcaption>
+          </div>
 
-        <div class="callout info"><b>Semua proses berjalan di browser (worker).</b> Untuk file besar, jendela bisa membeku beberapa saat saat dibangun. Nyalakan "keep each group as one object" di impor untuk membuatnya jauh lebih ringan.</div>
+          <div class="screenshot">
+            <img src="img/screenshots/panel-sidebar.png" alt="Full right sidebar panels">
+            <figcaption>Right sidebar layout: AI Chat, Selection, Object Tree, Parts, Nesting (expanded), and <a href="tools.html">Extensions / Tools</a>.</figcaption>
+          </div>
 
-        <h2>3. Cara kerja untuk pemula (contoh teks &ldquo;hello world&rdquo;)</h2>
-        <ol>
-          <li><b>Siapkan part yang akan disusun:</b> misalnya buat teks (<kbd>T</kbd>) bertuliskan <code>hello world</code> lalu klik <b>&rarr; Curve</b> agar setiap huruf menjadi loop potong terpisah (atau tetap sebagai objek teks utuh jika ingin diukir dalam satu kesatuan).</li>
-          <li><b>Gambar lembar bahan (sheet):</b> tekan <kbd>Esc</kbd> terlebih dahulu agar objek tidak terpilih (supaya warna teks tidak ikut berubah), lalu klik swatch <b>Hijau / Mark</b> (<code>#00ff00</code>) dan gambar kotak lembar dengan alat <b>Box</b> (<kbd>R</kbd>).</li>
-          <li><b>Pilih lembar + semua part:</b> tekan <kbd>Ctrl+A</kbd> atau blok kotak hijau bersama semua loop huruf/part yang ingin disusun. (Tips: gunakan <kbd>Ctrl+Shift+L</kbd> — <i>Clone as nest parts</i> bila ingin menyalin part untuk ditata manual.)</li>
-          <li>Buka panel <b>Nesting</b> di sidebar kanan, atur <b>Sp</b> (mis. <code>3</code> mm) dan <b>Grid</b>, lalu klik <b>Start</b>. Hasil tata letak ditempatkan sebagai <i>live clone</i> di sebelah kanan lembar hijau asli.</li>
-          <li>Gunakan <b>Re-nest</b> untuk mencoba variasi susunan baru, atau lanjutkan penyempurnaan posisi secara manual memakai <a href="arrange.html#drag-wall"><b>Drag wall (W)</b></a>.</li>
-        </ol>
+          <h2>1. Nesting settings</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:24%">Setting</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Sp (Spacing)</td><td>Clearance gap between parts in mm (each contour is expanded by half this distance before packing).</td></tr>
+              <tr><td>Grid</td><td>Grid snap scan step for NFP placement in mm. Smaller values pack tighter but run slower.</td></tr>
+              <tr><td>Rot (Rotation)</td><td>Allowed part rotations: explicit angle list (0,90), preset count (1,2,3,4,8), or range 0-360:90.</td></tr>
+              <tr><td>Flip</td><td>Allow mirroring parts horizontally while searching for tighter fits.</td></tr>
+              <tr><td>Pop (Population)</td><td>Genetic algorithm population size per generation.</td></tr>
+              <tr><td>Gen (Generations)</td><td>Number of GA evolution generations per run.</td></tr>
+              <tr><td>Mut (Mutation)</td><td>GA mutation rate (0 keeps parent order, 1 reshuffles completely).</td></tr>
+              <tr><td>LS (Local search)</td><td>Post-GA hill-climbing refinement passes (0 = off; higher = tighter at small time cost).</td></tr>
+            </tbody>
+          </table>
 
-        <div class="screenshot">
-          <img src="img/screenshots/nest-hello-world.png" alt="Contoh nesting teks hello world ke dalam kotak hijau 140x80 mm">
-          <figcaption>Hasil nesting nyata di aplikasi: teks <code>hello world</code> yang dikonversi ke kurva (kiri bawah) disusun otomatis ke dalam lembar hijau 140&times;80 mm (<code>Placed 10/10 &middot; blok 136&times;44 mm</code>) dengan rotasi otomatis 0&deg;/90&deg;/180&deg;/270&deg;.</figcaption>
-        </div>
+          <h2>2. Control buttons</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:24%">Button</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Start</td><td>Nest selected parts onto the right side of the selected green sheet loop.</td></tr>
+              <tr><td>Re-nest</td><td>Run a new pass on the same selection and replace the previous layout.</td></tr>
+              <tr><td>Stop</td><td>Stop the worker and keep the best layout found so far.</td></tr>
+              <tr><td>&#8734; (Infinite)</td><td>Continuously re-nest with fresh GA seeds until stopped, applying only improvements.</td></tr>
+            </tbody>
+          </table>
 
-        <div class="callout warn"><b>Perbaiki hasil nesting secara manual:</b> setelah nesting selesai, tekan <kbd>Esc</kbd> untuk melepas seleksi grup, aktifkan tab <b>Arrange &rarr; <a href="arrange.html#drag-wall">Drag wall (W)</a></b>, lalu geser huruf/part satu per satu di dalam lembar hijau. Dinding offset akan menjaga jarak aman dan mencegah tabrakan antar huruf maupun tepi lembar.</div>
+          <div class="callout info"><b>Runs locally in a browser worker.</b> For dense vector imports, keeping "keep each group as one object" enabled drastically speeds up NFP computation.</div>
 
-        <div class="help-footer">
-          <span>Nesting — Tata Letak Potongan</span>
-          <span>Selanjutnya: <a href="layers.html">Layers &amp; Pick Filter</a></span>
+          <h2>3. Beginner walkthrough (&ldquo;hello world&rdquo; example)</h2>
+          <ol>
+            <li><b>Prepare parts:</b> create text (<kbd>T</kbd>) such as <code>hello world</code> and click <b>&rarr; Curve</b> so each letter becomes a separate cut loop.</li>
+            <li><b>Draw a sheet boundary:</b> press <kbd>Esc</kbd> to clear selection, pick the <b>Green / Mark</b> color swatch (<code>#00ff00</code>), and draw a sheet rectangle with <b>Box</b> (<kbd>R</kbd>).</li>
+            <li><b>Select sheet + parts:</b> press <kbd>Ctrl+A</kbd> or box-select the green sheet together with every letter/part loop. (Tip: use <kbd>Ctrl+Shift+L</kbd> — <i>Clone as nest parts</i> to prepare linked nest clones manually.)</li>
+            <li>Open the <b>Nesting</b> panel in the right sidebar, set <b>Sp</b> (e.g. <code>3</code> mm) and <b>Grid</b>, and click <b>Start</b>. Packed results appear as live clones to the right of the green sheet.</li>
+            <li>Click <b>Re-nest</b> to test alternate layouts, or tweak individual pieces manually with <a href="arrange.html#drag-wall"><b>Drag wall (W)</b></a>.</li>
+          </ol>
+
+          <div class="screenshot">
+            <img src="img/screenshots/nest-hello-world.png" alt="Nesting example packing hello world text into a 140x80 mm green sheet">
+            <figcaption>Real nesting output: curve-converted <code>hello world</code> letters packed automatically into a 140&times;80 mm green sheet (<code>Placed 10/10 &middot; block 136&times;44 mm</code>) with 0&deg;/90&deg;/180&deg;/270&deg; rotation.</figcaption>
+          </div>
+
+          <div class="callout warn"><b>Manual fine-tuning:</b> after nesting finishes, press <kbd>Esc</kbd> to clear the group selection, activate <b>Arrange &rarr; <a href="arrange.html#drag-wall">Drag wall (W)</a></b>, and slide parts individually inside the green sheet — the collision wall keeps clearance gaps safe.</div>
+
+          <div class="help-footer">
+            <span>Nesting — Sheet Layout Optimizer</span>
+            <span>Next: <a href="layers.html">Layers &amp; Pick Filter</a></span>
+          </div>
         </div>
       </div>
     </main>

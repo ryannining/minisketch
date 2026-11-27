@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en" data-doc-lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Extensions — Panel Ekstensi &amp; Marketplace | Bantuan MiniSketch</title>
+<title>Extensions — Panel &amp; Marketplace | MiniSketch Help</title>
 <link rel="stylesheet" href="help.css">
+<script>try{var p=new URLSearchParams(location.search).get("lang"),l=(p==="en"||p==="id")?p:(localStorage.getItem("minisketch.help.lang")||"en");if(l!=="en"&&l!=="id")l="en";document.documentElement.dataset.docLang=l;document.documentElement.lang=l;}catch(e){}</script>
 </head>
 <body>
 <div class="help-shell">
@@ -14,18 +15,18 @@
     <div class="help-brand">
       <div class="help-mark">M</div>
       <div>
-        <div class="help-title">Extensions — Panel Ekstensi &amp; Marketplace</div>
-        <div class="help-subtitle">Kelola generator bawaan &amp; custom, pasang dari Marketplace, impor kode .js bersyntax-highlight, dan terbitkan</div>
+        <div class="help-title">Extensions — Panel &amp; Marketplace</div>
+        <div class="help-subtitle">Manage built-in &amp; custom generators, install from Marketplace, edit .js with syntax highlighting, and publish</div>
       </div>
     </div>
     <div class="help-spacer"></div>
     <div class="help-search">
       <span class="search-icon" aria-hidden="true">&#128269;</span>
-      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
-      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+      <input id="help-search-input" type="text" placeholder="Search help topics…" autocomplete="off" spellcheck="false" aria-label="Search help topics">
+      <button class="clear-btn" id="help-search-clear" title="Clear search" aria-hidden="true">&#215;</button>
     </div>
     <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
-    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">No matching topics.</div>
   </header>
 
   <div class="help-body">
@@ -72,82 +73,164 @@
 
     <main class="help-content">
       <div class="help-page">
-        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Extensions — Panel Ekstensi &amp; Marketplace</div>
+        <div data-lang="id">
+          <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Extensions — Panel Ekstensi &amp; Marketplace</div>
 
-        <h1>Panel Extensions &amp; Marketplace</h1>
-        <p class="help-lead">Panel <b>Extensions</b> terletak di bagian bawah sidebar kanan (menggantikan nama panel <i>Tools</i> sebelumnya). Di sini tersusun seluruh alat generator bawaan maupun ekstensi buatan Anda sendiri, hasil <a href="ai.html#mode-extension">AI Chat Mode: Extension</a>, file lokal <code>.js</code>, maupun paket dari Marketplace.</p>
+          <h1>Panel Extensions &amp; Marketplace</h1>
+          <p class="help-lead">Panel <b>Extensions</b> terletak di bagian bawah sidebar kanan (menggantikan nama panel <i>Tools</i> sebelumnya). Di sini tersusun seluruh alat generator bawaan maupun ekstensi buatan Anda sendiri, hasil <a href="ai.html#mode-extension">AI Chat Mode: Extension</a>, file lokal <code>.js</code>, maupun paket dari Marketplace.</p>
 
-        <h2>1. Panel Extensions di Sidebar Kanan</h2>
-        <ul>
-          <li><b>Daftar tombol alat aktif:</b> menampilkan semua generator yang sedang <i>Enabled</i> (bawaan <a href="tools.html">13 generator parametrik</a> + ekstensi tambahan) lengkap dengan ikon vektor, label, dan nomor versi (mis. <code>v1.0.0</code>). Angka di header panel (<code>Extensions N</code>) menunjukkan jumlah ekstensi yang sedang aktif.</li>
-          <li><b>Tombol <code>Check Updates</code>:</b> memeriksa apakah ada versi lebih baru untuk ekstensi yang dipasang dari Marketplace atau URL sumber tersimpan. Jika ada pembaruan, label berubah menjadi <code>Updates (N)</code> berwarna biru agar bisa diperbarui satu klik.</li>
-          <li><b>Tombol <code>Marketplace…</code>:</b> membuka jendela <b>Extension Manager &amp; Marketplace</b> (juga bisa dibuka lewat menu <b>File ▸ Extensions &amp; Marketplace…</b>).</li>
-        </ul>
-        <div class="callout info"><b>Catatan lokasi Array:</b> tombol <b>Array</b> yang dulu berada di panel bawah sidebar kini dipindahkan ke ribbon atas pada tab <b>Edit</b> agar panel Extensions fokus menampung generator parametrik dan ekstensi.</div>
+          <h2>1. Panel Extensions di Sidebar Kanan</h2>
+          <ul>
+            <li><b>Daftar tombol alat aktif:</b> menampilkan semua generator yang sedang <i>Enabled</i> (bawaan <a href="tools.html">13 generator parametrik</a> + ekstensi tambahan) lengkap dengan ikon vektor, label, dan nomor versi (mis. <code>v1.0.0</code>). Angka di header panel (<code>Extensions N</code>) menunjukkan jumlah ekstensi yang sedang aktif.</li>
+            <li><b>Tombol <code>Check Updates</code>:</b> memeriksa apakah ada versi lebih baru untuk ekstensi yang dipasang dari Marketplace atau URL sumber tersimpan. Jika ada pembaruan, label berubah menjadi <code>Updates (N)</code> berwarna biru agar bisa diperbarui satu klik.</li>
+            <li><b>Tombol <code>Marketplace…</code>:</b> membuka jendela <b>Extension Manager &amp; Marketplace</b> (juga bisa dibuka lewat menu <b>File ▸ Extensions &amp; Marketplace…</b>).</li>
+          </ul>
+          <div class="callout info"><b>Catatan lokasi Array:</b> tombol <b>Array</b> yang dulu berada di panel bawah sidebar kini dipindahkan ke ribbon atas pada tab <b>Edit</b> agar panel Extensions fokus menampung generator parametrik dan ekstensi.</div>
 
-        <h2>2. Jendela Extension Manager (4 Tab)</h2>
-        <p>Klik <b>Marketplace…</b> atau <b>File ▸ Extensions &amp; Marketplace…</b> untuk membuka dialog pengelola dengan empat tab:</p>
+          <h2>2. Jendela Extension Manager (4 Tab)</h2>
+          <p>Klik <b>Marketplace…</b> atau <b>File ▸ Extensions &amp; Marketplace…</b> untuk membuka dialog pengelola dengan empat tab:</p>
 
-        <table class="kb">
-          <thead>
-            <tr><th style="width:20%">Tab</th><th>Fungsi &amp; Tombol Utama</th></tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><b>Installed</b></td>
-              <td>
-                Daftar semua alat yang terdaftar (bawaan maupun tambahan) dengan kolom pencarian dan label asal sumber (<code>Built-in</code>, <code>AI Builder</code>, <code>Marketplace</code>, <code>URL</code>, <code>Local</code>, <code>Preview</code>).<br>
-                • Sakelar <b>Enabled / Disabled</b>: menyembunyikan atau memunculkan tombol alat di panel Extensions tanpa menghapusnya.<br>
-                • <b>Open</b>: langsung membuka dialog parameter alat.<br>
-                • <b>Edit</b>, <b>Publish</b>, <b>Export .js</b>, <b>Uninstall</b>: tersedia untuk semua ekstensi non-bawaan.<br>
-                • <b>Check Updates</b>, <b>Update All</b>, &amp; centang <b>Auto-update</b>: mengecek dan memasang versi baru otomatis saat aplikasi dibuka.
-              </td>
-            </tr>
-            <tr>
-              <td><b>Marketplace</b></td>
-              <td>
-                Menelusuri katalog ekstensi komunitas. Secara bawaan membaca dari server lokal (<code>api/marketplace/catalog</code> atau <code>marketplace/catalog.json</code>), namun kolom URL di atas bisa diisi tautan <code>catalog.json</code> dari repositori GitHub atau jsDelivr CDN mana saja.<br>
-                • Filter berdasarkan <b>kata kunci</b> atau <b>kategori</b>.<br>
-                • <b>Test Run</b>: memuat ekstensi secara sementara (tidak disimpan permanen) dan langsung membuka dialognya untuk dicoba di kanvas.<br>
-                • <b>Install / Update</b>: memasang ekstensi secara permanen ke browser dan menyimpan URL sumbernya agar bisa diperbarui nanti.
-              </td>
-            </tr>
-            <tr>
-              <td><b>Add / Import</b></td>
-              <td>
-                Memasang ekstensi dari berkas <code>.js</code> lokal (<b>Load .js file…</b>), URL mentah (<b>Fetch URL</b>), atau menulis/mengedit kode langsung di editor terintegrasi.<br>
-                • <b>Syntax Highlighting warna</b> untuk JavaScript, HTML/SVG, dan CSS serta dukungan tombol <kbd>Tab</kbd> untuk indentasi 2 spasi.<br>
-                • <b>Validate</b>: memeriksa sintaks JavaScript, keamanan ikon SVG, kecocokan ID elemen modal, serta kontrak API MiniSketch.<br>
-                • <b>Test Run</b>, <b>Publish…</b>, dan <b>Install</b> permanen ke <code>localStorage</code>.
-              </td>
-            </tr>
-            <tr>
-              <td><b>Publish</b></td>
-              <td>
-                Menerbitkan ekstensi agar bisa dibagikan ke pengguna lain:<br>
-                • Isi metadata (<b>Extension ID</b>, <b>Display Name</b>, <b>Version</b>, <b>Author</b>, <b>Category</b>, <b>Description</b>) atau klik <b>Auto-fill metadata from code</b>.<br>
-                • Target <b>MiniSketch Server (Port 8090 / Hosted)</b>: unggah langsung ke katalog server lokal/hosted (opsional isi <i>Publish Key</i> bila server mengaktifkannya).<br>
-                • Target <b>GitHub Static Repo (Free CDN)</b>: push langsung ke repositori GitHub dengan Personal Access Token (<code>contents:write</code>, hanya disimpan di browser), atau klik <b>Download .js</b> + <b>Copy catalog.json entry</b> untuk commit manual.
-              </td>
-            </tr>
-          </tbody>
-        </table>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:20%">Tab</th><th>Fungsi &amp; Tombol Utama</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><b>Installed</b></td>
+                <td>
+                  Daftar semua alat yang terdaftar (bawaan maupun tambahan) dengan kolom pencarian dan label asal sumber (<code>Built-in</code>, <code>AI Builder</code>, <code>Marketplace</code>, <code>URL</code>, <code>Local</code>, <code>Preview</code>).<br>
+                  • Sakelar <b>Enabled / Disabled</b>: menyembunyikan atau memunculkan tombol alat di panel Extensions tanpa menghapusnya.<br>
+                  • <b>Open</b>: langsung membuka dialog parameter alat.<br>
+                  • <b>Edit</b>, <b>Publish</b>, <b>Export .js</b>, <b>Uninstall</b>: tersedia untuk semua ekstensi non-bawaan.<br>
+                  • <b>Check Updates</b>, <b>Update All</b>, &amp; centang <b>Auto-update</b>: mengecek dan memasang versi baru otomatis saat aplikasi dibuka.
+                </td>
+              </tr>
+              <tr>
+                <td><b>Marketplace</b></td>
+                <td>
+                  Menelusuri katalog ekstensi komunitas. Secara bawaan membaca dari server lokal (<code>api/marketplace/catalog</code> atau <code>marketplace/catalog.json</code>), namun kolom URL di atas bisa diisi tautan <code>catalog.json</code> dari repositori GitHub atau jsDelivr CDN mana saja.<br>
+                  • Filter berdasarkan <b>kata kunci</b> atau <b>kategori</b>.<br>
+                  • <b>Test Run</b>: memuat ekstensi secara sementara (tidak disimpan permanen) dan langsung membuka dialognya untuk dicoba di kanvas.<br>
+                  • <b>Install / Update</b>: memasang ekstensi secara permanen ke browser dan menyimpan URL sumbernya agar bisa diperbarui nanti.
+                </td>
+              </tr>
+              <tr>
+                <td><b>Add / Import</b></td>
+                <td>
+                  Memasang ekstensi dari berkas <code>.js</code> lokal (<b>Load .js file…</b>), URL mentah (<b>Fetch URL</b>), atau menulis/mengedit kode langsung di editor terintegrasi.<br>
+                  • <b>Syntax Highlighting warna</b> untuk JavaScript, HTML/SVG, dan CSS serta dukungan tombol <kbd>Tab</kbd> untuk indentasi 2 spasi.<br>
+                  • <b>Validate</b>: memeriksa sintaks JavaScript, keamanan ikon SVG, kecocokan ID elemen modal, serta kontrak API MiniSketch.<br>
+                  • <b>Test Run</b>, <b>Publish…</b>, dan <b>Install</b> permanen ke <code>localStorage</code>.
+                </td>
+              </tr>
+              <tr>
+                <td><b>Publish</b></td>
+                <td>
+                  Menerbitkan ekstensi agar bisa dibagikan ke pengguna lain:<br>
+                  • Isi metadata (<b>Extension ID</b>, <b>Display Name</b>, <b>Version</b>, <b>Author</b>, <b>Category</b>, <b>Description</b>) atau klik <b>Auto-fill metadata from code</b>.<br>
+                  • Target <b>MiniSketch Server (Port 8090 / Hosted)</b>: unggah langsung ke katalog server lokal/hosted (opsional isi <i>Publish Key</i> bila server mengaktifkannya).<br>
+                  • Target <b>GitHub Static Repo (Free CDN)</b>: push langsung ke repositori GitHub dengan Personal Access Token (<code>contents:write</code>, hanya disimpan di browser), atau klik <b>Download .js</b> + <b>Copy catalog.json entry</b> untuk commit manual.
+                </td>
+              </tr>
+            </tbody>
+          </table>
 
-        <h2>3. Membuat Ekstensi dengan AI &amp; Perbaikan Otomatis</h2>
-        <p>Cara tercepat membuat alat CNC custom adalah melalui <a href="ai.html#mode-extension">AI Chat — Mode: Extension</a>. Alurnya:</p>
-        <ol>
-          <li>Pilih <b>Mode: Extension</b> di panel AI Chat, lalu jelaskan alat parametrik yang diinginkan (mis. <i>"buatkan tool gantungan kunci dengan parameter diameter lubang dan offset base"</i>).</li>
-          <li>Kode yang dihasilkan AI otomatis divalidasi dan muncul di <b>Panel Testing Extension</b> tepat di atas kotak prompt chat.</li>
-          <li>Klik <b>Test Run</b> untuk mencoba dialog alat di kanvas tanpa mengotori daftar ekstensi permanen, atau klik <b>Edit…</b> bila ingin menyunting kodenya di tab <i>Add / Import</i>.</li>
-          <li>Jika kode gagal validasi, klik <b>Minta AI Perbaiki</b>; dan jika error muncul saat alat dijalankan dengan seleksi di kanvas, tombol <b>Fix with AI</b> otomatis muncul di dialog alat untuk mengirim error beserta kodenya kembali ke AI agar diperbaiki.</li>
-          <li>Jika sudah sesuai, klik <b>Install</b> agar alat tersimpan permanen di panel <b>Extensions</b>.</li>
-        </ol>
+          <h2>3. Membuat Ekstensi dengan AI &amp; Perbaikan Otomatis</h2>
+          <p>Cara tercepat membuat alat CNC custom adalah melalui <a href="ai.html#mode-extension">AI Chat — Mode: Extension</a>. Alurnya:</p>
+          <ol>
+            <li>Pilih <b>Mode: Extension</b> di panel AI Chat, lalu jelaskan alat parametrik yang diinginkan (mis. <i>"buatkan tool gantungan kunci dengan parameter diameter lubang dan offset base"</i>).</li>
+            <li>Kode yang dihasilkan AI otomatis divalidasi dan muncul di <b>Panel Testing Extension</b> tepat di atas kotak prompt chat.</li>
+            <li>Klik <b>Test Run</b> untuk mencoba dialog alat di kanvas tanpa mengotori daftar ekstensi permanen, atau klik <b>Edit…</b> bila ingin menyunting kodenya di tab <i>Add / Import</i>.</li>
+            <li>Jika kode gagal validasi, klik <b>Minta AI Perbaiki</b>; dan jika error muncul saat alat dijalankan dengan seleksi di kanvas, tombol <b>Fix with AI</b> otomatis muncul di dialog alat untuk mengirim error beserta kodenya kembali ke AI agar diperbaiki.</li>
+            <li>Jika sudah sesuai, klik <b>Install</b> agar alat tersimpan permanen di panel <b>Extensions</b>.</li>
+          </ol>
 
-        <div class="callout tip"><b>Aman saat uji coba:</b> ekstensi yang dibuka lewat <b>Test Run</b> hanya dimuat sementara di sesi aktif hingga Anda menekan <b>Install</b>. Semua geometri yang dibuat ekstensi masuk ke kanvas dalam satu langkah Undo (<kbd>Ctrl+Z</kbd>) dan dapat diklik ganda nanti untuk mengedit ulang parameternya jika dibungkus dengan metadata generator.</div>
+          <div class="callout tip"><b>Aman saat uji coba:</b> ekstensi yang dibuka lewat <b>Test Run</b> hanya dimuat sementara di sesi aktif hingga Anda menekan <b>Install</b>. Semua geometri yang dibuat ekstensi masuk ke kanvas dalam satu langkah Undo (<kbd>Ctrl+Z</kbd>) dan dapat diklik ganda nanti untuk mengedit ulang parameternya jika dibungkus dengan metadata generator.</div>
 
-        <div class="help-footer">
-          <span>Extensions — Panel Ekstensi &amp; Marketplace</span>
-          <span>Sebelumnya: <a href="tools.html">Tools — Generator Parametrik</a> &nbsp;•&nbsp; Selanjutnya: <a href="parts.html">Parts — Part &amp; Assembly</a></span>
+          <div class="help-footer">
+            <span>Extensions — Panel Ekstensi &amp; Marketplace</span>
+            <span>Sebelumnya: <a href="tools.html">Tools — Generator Parametrik</a> &nbsp;•&nbsp; Selanjutnya: <a href="parts.html">Parts — Part &amp; Assembly</a></span>
+          </div>
+        </div>
+
+        <div data-lang="en">
+          <div class="breadcrumb"><a href="index.html">Home</a> <span class="sep">&#8250;</span> Extensions — Panel &amp; Marketplace</div>
+
+          <h1>Extensions Panel &amp; Marketplace</h1>
+          <p class="help-lead">The <b>Extensions</b> panel lives at the bottom of the right sidebar (replacing the old <i>Tools</i> panel). It holds all built-in parametric generators alongside your own tools from <a href="ai.html#mode-extension">AI Chat Mode: Extension</a>, local <code>.js</code> files, and Marketplace packages.</p>
+
+          <h2>1. Right-Sidebar Extensions Panel</h2>
+          <ul>
+            <li><b>Active tool grid:</b> displays every currently <i>Enabled</i> generator (the <a href="tools.html">13 built-in parametric tools</a> plus custom extensions) with vector icon, label, and semantic version (e.g. <code>v1.0.0</code>). The badge in the panel header (<code>Extensions N</code>) shows how many tools are active.</li>
+            <li><b><code>Check Updates</code> button:</b> checks for newer versions of extensions installed from a Marketplace catalog or saved source URL. When updates exist, the label turns blue (<code>Updates (N)</code>) for one-click upgrading.</li>
+            <li><b><code>Marketplace…</code> button:</b> opens the <b>Extension Manager &amp; Marketplace</b> dialog (also reachable from <b>File ▸ Extensions &amp; Marketplace…</b>).</li>
+          </ul>
+          <div class="callout info"><b>Array button note:</b> the <b>Array</b> tool moved from the bottom sidebar panel to the top <b>Edit</b> ribbon tab so the Extensions panel stays dedicated to parametric generators and extensions.</div>
+
+          <h2>2. Extension Manager Window (4 Tabs)</h2>
+          <p>Click <b>Marketplace…</b> or <b>File ▸ Extensions &amp; Marketplace…</b> to open the four-tab manager:</p>
+
+          <table class="kb">
+            <thead>
+              <tr><th style="width:20%">Tab</th><th>Purpose &amp; Key Actions</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><b>Installed</b></td>
+                <td>
+                  Lists all registered tools (built-in and custom) with search filtering and source badges (<code>Built-in</code>, <code>AI Builder</code>, <code>Marketplace</code>, <code>URL</code>, <code>Local</code>, <code>Preview</code>).<br>
+                  • <b>Enabled / Disabled</b> toggle: hide or show a tool button in the Extensions panel without uninstalling it.<br>
+                  • <b>Open</b>: launch the tool's parameter dialog.<br>
+                  • <b>Edit</b>, <b>Publish</b>, <b>Export .js</b>, <b>Uninstall</b>: available on all non-built-in extensions.<br>
+                  • <b>Check Updates</b>, <b>Update All</b>, &amp; <b>Auto-update</b>: check and install newer versions automatically on startup.
+                </td>
+              </tr>
+              <tr>
+                <td><b>Marketplace</b></td>
+                <td>
+                  Browse community extension catalogs. By default it loads the local server catalog (<code>api/marketplace/catalog</code> or <code>marketplace/catalog.json</code>), and you can paste any GitHub or jsDelivr CDN <code>catalog.json</code> URL at the top.<br>
+                  • Filter by <b>keyword</b> or <b>category</b>.<br>
+                  • <b>Test Run</b>: load the extension <b>temporarily</b> (without saving) and open its dialog immediately.<br>
+                  • <b>Install / Update</b>: save permanently to browser storage and keep the source URL for future updates.
+                </td>
+              </tr>
+              <tr>
+                <td><b>Add / Import</b></td>
+                <td>
+                  Load extensions from a local <code>.js</code> file (<b>Load .js file…</b>), fetch a raw URL (<b>Fetch URL</b>), or write/edit code directly in the integrated editor.<br>
+                  • <b>Color syntax highlighting</b> for JavaScript, HTML/SVG, and CSS plus <kbd>Tab</kbd> 2-space indentation support.<br>
+                  • <b>Validate</b>: checks JS syntax, safe SVG icon rules, matching modal element IDs, and MiniSketch tool contracts.<br>
+                  • <b>Test Run</b>, <b>Publish…</b>, and permanent <b>Install</b> into <code>localStorage</code>.
+                </td>
+              </tr>
+              <tr>
+                <td><b>Publish</b></td>
+                <td>
+                  Share your extension with others:<br>
+                  • Fill metadata (<b>Extension ID</b>, <b>Display Name</b>, <b>Version</b>, <b>Author</b>, <b>Category</b>, <b>Description</b>) or click <b>Auto-fill metadata from code</b>.<br>
+                  • Target <b>MiniSketch Server (Port 8090 / Hosted)</b>: publish straight to your server catalog (optional <i>Publish Key</i> if configured).<br>
+                  • Target <b>GitHub Static Repo (Free CDN)</b>: push straight to GitHub using a Personal Access Token (<code>contents:write</code>, stored only locally), or use <b>Download .js</b> + <b>Copy catalog.json entry</b> for manual commits.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h2>3. Building Extensions with AI &amp; Auto-Repair</h2>
+          <p>The fastest way to create custom CNC generators is <a href="ai.html#mode-extension">AI Chat — Mode: Extension</a>:</p>
+          <ol>
+            <li>Select <b>Mode: Extension</b> in the AI Chat panel and describe the parametric tool you want (e.g. <i>"build a keychain wrapper tool with hole diameter and outer offset inputs"</i>).</li>
+            <li>The generated code is automatically validated and placed in the pinned <b>Extension Testing Panel</b> right above the chat prompt.</li>
+            <li>Click <b>Test Run</b> to try the tool dialog on the canvas before committing, or click <b>Edit…</b> to refine the code in the <i>Add / Import</i> editor.</li>
+            <li>If validation fails, click <b>Fix with AI</b>; if a runtime error occurs while testing on the canvas, a <b>Fix with AI</b> button also appears inside the tool dialog to send the error and code back for repair.</li>
+            <li>Once satisfied, click <b>Install</b> to save the tool permanently in the <b>Extensions</b> panel.</li>
+          </ol>
+
+          <div class="callout tip"><b>Safe testing:</b> extensions launched via <b>Test Run</b> stay strictly in-memory for the active session until you click <b>Install</b>. Geometry created by extensions commits in one Undo step (<kbd>Ctrl+Z</kbd>) and supports double-click parametric editing when created inside a generator group.</div>
+
+          <div class="help-footer">
+            <span>Extensions — Panel &amp; Marketplace</span>
+            <span>Previous: <a href="tools.html">Tools — Parametric Generators</a> &nbsp;•&nbsp; Next: <a href="parts.html">Parts — Rigid Parts &amp; Assembly</a></span>
+          </div>
         </div>
       </div>
     </main>

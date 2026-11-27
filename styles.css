@@ -4816,4 +4816,197 @@ details.chat-ext-code pre {
   outline-offset: 1px;
 }
 
+/* ---- Cloud Auth & Sync Modal -------------------------------------------- */
+.cloud-auth-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  height: 28px;
+}
+.cloud-auth-btn:hover {
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+}
+.cloud-auth-btn.is-signed-in {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent-ink);
+}
+.cloud-auth-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--faint);
+  flex: 0 0 auto;
+}
+.cloud-auth-dot.is-synced { background: #22c55e; }
+.cloud-auth-dot.is-pending { background: #f59e0b; }
+.cloud-auth-dot.is-syncing { background: var(--accent); animation: cloudPulse 1.1s infinite ease-in-out; }
+.cloud-auth-dot.is-error { background: var(--danger); }
+.cloud-auth-dot.is-guest { background: var(--muted); }
+.cloud-auth-dot.is-local { background: var(--faint); }
+@keyframes cloudPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.cloud-auth-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+.cloud-box {
+  width: min(560px, 94vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cloud-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.cloud-pane[hidden] { display: none; }
+.cloud-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.cloud-actions-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.cloud-profile-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.cloud-user-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+.cloud-user-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cloud-user-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cloud-user-email {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cloud-sync-state {
+  font-size: 11.5px;
+  color: var(--accent-ink);
+  margin-top: 2px;
+}
+.cloud-profile-btns {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+.cloud-autosync-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 2px;
+}
+.cloud-autosync-row input {
+  margin: 0;
+  cursor: pointer;
+}
+.cloud-save-bar {
+  display: flex;
+  gap: 8px;
+}
+.cloud-save-bar .ext-input { flex: 1 1 auto; }
+.cloud-section-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.cloud-sketch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.cloud-sketch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.cloud-sketch-info {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.cloud-sketch-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cloud-sketch-meta {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.cloud-sketch-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.ext-cloud-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.ext-cloud-user {
+  font-size: 12px;
+  color: var(--text-2);
+  flex: 1 1 200px;
+}
+
 

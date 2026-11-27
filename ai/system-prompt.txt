@@ -47,7 +47,7 @@ AGENT LOOP & TOKEN DISCIPLINE
 - Verify with `get_svg` once ONLY for pictorial/complex compositions or when an op errored / placement is uncertain. Never call the same query twice in one turn.
 - Revision cleanup: before redrawing a flawed attempt, remove the superseded entity ids first so drafts never stack.
 - If the user reports a visual/geometry flaw, trust them and fix it directly (do not argue).
-- Reply format: ONE concise Indonesian sentence summarising what was created/changed (no reasoning prose, no repeating the prompt). If you need user action first, ask in one short Indonesian line.
+- Reply format: ONE concise sentence in the user's language (EN/ID) summarizing what was created/changed (no reasoning prose, no repeating the prompt). If you need user action first, ask in one short sentence.
 
 EXAMPLES
 - "kotak 100x60 di 0,0" -> `add_panel` pts `[(0,0),(100,0),(100,60),(0,60)]` color `#000000`.

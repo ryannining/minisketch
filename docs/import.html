@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en" data-doc-lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Import — SVG / PDF / CDR / DXF | Bantuan MiniSketch</title>
+<title>Import — SVG / PDF / CDR / DXF | MiniSketch Help</title>
 <link rel="stylesheet" href="help.css">
+<script>try{var p=new URLSearchParams(location.search).get("lang"),l=(p==="en"||p==="id")?p:(localStorage.getItem("minisketch.help.lang")||"en");if(l!=="en"&&l!=="id")l="en";document.documentElement.dataset.docLang=l;document.documentElement.lang=l;}catch(e){}</script>
 </head>
 <body>
 <div class="help-shell">
@@ -15,17 +16,17 @@
       <div class="help-mark">M</div>
       <div>
         <div class="help-title">Import — SVG / PDF / CDR / DXF</div>
-        <div class="help-subtitle">Impor file vektor dengan pengaturan grup, warna, teks, dan clipping path</div>
+        <div class="help-subtitle">Import vector files with group, color mapping, text, and clipping path options</div>
       </div>
     </div>
     <div class="help-spacer"></div>
     <div class="help-search">
       <span class="search-icon" aria-hidden="true">&#128269;</span>
-      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
-      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+      <input id="help-search-input" type="text" placeholder="Search help topics…" autocomplete="off" spellcheck="false" aria-label="Search help topics">
+      <button class="clear-btn" id="help-search-clear" title="Clear search" aria-hidden="true">&#215;</button>
     </div>
-    <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
-    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+    <div id="help-search-results" style="display:none;"></div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">No matching topics.</div>
   </header>
 
   <div class="help-body">
@@ -72,49 +73,98 @@
 
     <main class="help-content">
       <div class="help-page">
-        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Import — SVG / PDF / CDR / DXF</div>
+        <div data-lang="id">
+          <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Import — SVG / PDF / CDR / DXF</div>
 
-        <h1>Import file vektor</h1>
-        <p class="help-lead">Buka melalui <b>File ▸ Import…</b> (<kbd>Ctrl+I</kbd>). Dialog impor menampilkan ukuran dalam milimeter, jumlah objek/segmen/grup, dan pemetaan setiap warna ke operasi KaryaCNC yang akan dipakai.</p>
+          <h1>Import file vektor</h1>
+          <p class="help-lead">Buka melalui <b>File ▸ Import…</b> (<kbd>Ctrl+I</kbd>). Dialog impor menampilkan ukuran dalam milimeter, jumlah objek/segmen/grup, dan pemetaan setiap warna ke operasi KaryaCNC yang akan dipakai.</p>
 
-        <div class="screenshot">
-          <img src="img/screenshots/dialog-svg-import.png" alt="Dialog Import SVG">
-          <figcaption>Dialog Import SVG: ringkasan ukuran/objek/segmen (100 × 70 mm · 3 shapes · 12 segments), opsi Keep each group, Filled areas, Text objects, dan pemetaan tiap warna file ke operasi KaryaCNC (Cut/Drill/Engrave).</figcaption>
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-svg-import.png" alt="Dialog Import SVG">
+            <figcaption>Dialog Import SVG: ringkasan ukuran/objek/segmen (100 × 70 mm · 3 shapes · 12 segments), opsi Keep each group, Filled areas, Text objects, dan pemetaan tiap warna file ke operasi KaryaCNC (Cut/Drill/Engrave).</figcaption>
+          </div>
+
+          <h2>1. SVG</h2>
+          <p>Membaca path, polyline, polygon, garis, kotak, lingkaran, elips, grup bersarang, transformasi, style inline, kelas <code>&lt;style&gt;</code>, simbol <code>&lt;use&gt;</code>, dan <b>clipping path</b> (dipotong betulan dengan Clipper). Teks dan embedded bitmap dilaporkan sebagai dilewati, tidak diimpor diam-diam.</p>
+
+          <h2>2. PDF</h2>
+          <p>Gambar vektor diimpor sebagai path dengan ukuran cetak asli (1 pt = 1/72 inci, dikonversi ke mm) dengan warna dipertahankan. Bitmap yang tertanam (image XObject, termasuk transparansi) masuk sebagai gambar acuan di posisi aslinya — double-click untuk trace. Teks di dalam PDF dilewati kecuali diekspor sebagai outline.</p>
+
+          <h2>3. CDR (CorelDRAW)</h2>
+          <p>CorelDRAW X4 dan lebih baru mengimpor bentuk vektor dengan ukuran asli beserta warna — garis, kotak, lingkaran, dan elips masuk sebagai objek native. Dialog menanyakan perlakuan teks (komentar, objek teks, atau dilewati) dan apakah warna asli dipertahankan.</p>
+
+          <h2>4. DXF (ASCII)</h2>
+          <p>DXF ASCII dari sebagian besar program CAD diimpor sebagai garis, lingkaran, busur, dan kurva native dengan ukuran asli. Tampilan langsung di-zoom pas. <b>DXF biner tidak didukung</b> — simpan ulang sebagai ASCII DXF.</p>
+
+          <h2>5. Pengaturan dialog impor</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:30%">Pengaturan</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Keep each group as one object</td><td>Default nyala. Setiap <code>&lt;g&gt;</code> menjadi satu objek berframe (cocok untuk file customer). Matikan dan bentuk masuk sebagai garis/kurva yang bisa diedit, tetap terpilih sebagai grup; <kbd>Ctrl+U</kbd> melepasnya.</td></tr>
+              <tr><td>Filled areas</td><td>Gray = batas material; Yellow = balik arah offset; Ignore = abaikan fill.</td></tr>
+              <tr><td>Text objects</td><td>Comments, text objects, atau Skip.</td></tr>
+              <tr><td>Join endpoints (weld)</td><td>Gabungkan ujung segmen warna sama menjadi satu titik sehingga kontur tiba terhubung dan loop tertutup.</td></tr>
+              <tr><td>Join distance (mm)</td><td>Jarak maksimum ujung segmen untuk di-weld. Jaga di bawah setengah segmen terpendek dalam file.</td></tr>
+            </tbody>
+          </table>
+
+          <div class="callout info"><b>Semua impor datang sebagai satu langkah undo.</b> Segmen lurus menjadi garis, kurva tetap bawa handle, lingkaran tetap lingkaran, dan area terisi mengambil fill loop Gray (atau Yellow). Setiap warna berkas dipetakan ke operasi KaryaCNC terdekat dan bisa diubah sebelum mengimpor.</div>
+
+          <div class="callout warn"><b>Join imported points:</b> jika aktif, ujung segmen warna sama yang bertemu dalam join tolerance di-weld sehingga kontur tiba terhubung. Nilai yang terlalu besar dapat memadatkan ujung segmen pendek ke tetangga dan menghilangkannya. Matikan (Off) untuk mengimpor segmen persis sebagaimana file menggambarkannya.</div>
+
+          <div class="help-footer">
+            <span>Import — SVG / PDF / CDR / DXF</span>
+            <span>Sebelumnya: <a href="files.html">Berkas — Open / Import / Save / Export</a> &nbsp;•&nbsp; Selanjutnya: <a href="text.html">Teks &amp; Font</a></span>
+          </div>
         </div>
 
-        <h2>1. SVG</h2>
-        <p>Membaca path, polyline, polygon, garis, kotak, lingkaran, elips, grup bersarang, transformasi, style inline, kelas <code>&lt;style&gt;</code>, simbol <code>&lt;use&gt;</code>, dan <b>clipping path</b> (dipotong betulan dengan Clipper). Teks dan embedded bitmap dilaporkan sebagai dilewati, tidak diimpor diam-diam.</p>
+        <div data-lang="en">
+          <div class="breadcrumb"><a href="index.html">Home</a> <span class="sep">&#8250;</span> Import — SVG / PDF / CDR / DXF</div>
 
-        <h2>2. PDF</h2>
-        <p>Gambar vektor diimpor sebagai path dengan ukuran cetak asli (1 pt = 1/72 inci, dikonversi ke mm) dengan warna dipertahankan. Bitmap yang tertanam (image XObject, termasuk transparansi) masuk sebagai gambar acuan di posisi aslinya — double-click untuk trace. Teks di dalam PDF dilewati kecuali diekspor sebagai outline.</p>
+          <h1>Import Vector Files</h1>
+          <p class="help-lead">Open via <b>File ▸ Import…</b> (<kbd>Ctrl+I</kbd>). The import dialog displays dimensions in millimeters, shape/segment/group counts, and maps each file color to a KaryaCNC operation.</p>
 
-        <h2>3. CDR (CorelDRAW)</h2>
-        <p>CorelDRAW X4 dan lebih baru mengimpor bentuk vektor dengan ukuran asli beserta warna — garis, kotak, lingkaran, dan elips masuk sebagai objek native. Dialog menanyakan perlakuan teks (komentar, objek teks, atau dilewati) dan apakah warna asli dipertahankan.</p>
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-svg-import.png" alt="SVG Import dialog">
+            <figcaption>SVG Import dialog: size/shape/segment summary (100 × 70 mm · 3 shapes · 12 segments), Keep each group, Filled areas, Text objects options, and per-color KaryaCNC operation mapping (Cut/Drill/Engrave).</figcaption>
+          </div>
 
-        <h2>4. DXF (ASCII)</h2>
-        <p>DXF ASCII dari sebagian besar program CAD diimpor sebagai garis, lingkaran, busur, dan kurva native dengan ukuran asli. Tampilan langsung di-zoom pas. <b>DXF biner tidak didukung</b> — simpan ulang sebagai ASCII DXF.</p>
+          <h2>1. SVG</h2>
+          <p>Reads paths, polylines, polygons, lines, rects, circles, ellipses, nested groups, transforms, inline styles, <code>&lt;style&gt;</code> classes, <code>&lt;use&gt;</code> symbols, and <b>clipping paths</b> (boolean-clipped cleanly via Clipper). Skipped text or embedded bitmaps are explicitly reported rather than silently ignored.</p>
 
-        <h2>5. Pengaturan dialog impor</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:30%">Pengaturan</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Keep each group as one object</td><td>Default nyala. Setiap <code>&lt;g&gt;</code> menjadi satu objek berframe (cocok untuk file customer). Matikan dan bentuk masuk sebagai garis/kurva yang bisa diedit, tetap terpilih sebagai grup; <kbd>Ctrl+U</kbd> melepasnya.</td></tr>
-            <tr><td>Filled areas</td><td>Gray = batas material; Yellow = balik arah offset; Ignore = abaikan fill.</td></tr>
-            <tr><td>Text objects</td><td>Comments, text objects, atau Skip.</td></tr>
-            <tr><td>Join endpoints (weld)</td><td>Gabungkan ujung segmen warna sama menjadi satu titik sehingga kontur tiba terhubung dan loop tertutup.</td></tr>
-            <tr><td>Join distance (mm)</td><td>Jarak maksimum ujung segmen untuk di-weld. Jaga di bawah setengah segmen terpendek dalam file.</td></tr>
-          </tbody>
-        </table>
+          <h2>2. PDF</h2>
+          <p>Vector artwork is imported as paths at true print scale (1 pt = 1/72 inch converted to mm) with colors preserved. Embedded bitmaps (image XObjects, including transparency) land as reference images in their original positions — double-click any image to trace it. Embedded PDF text is skipped unless exported as outlines.</p>
 
-        <div class="callout info"><b>Semua impor datang sebagai satu langkah undo.</b> Segmen lurus menjadi garis, kurva tetap bawa handle, lingkaran tetap lingkaran, dan area terisi mengambil fill loop Gray (atau Yellow). Setiap warna berkas dipetakan ke operasi KaryaCNC terdekat dan bisa diubah sebelum mengimpor.</div>
+          <h2>3. CDR (CorelDRAW)</h2>
+          <p>CorelDRAW X4 and newer files import vectors at true size with colors intact — lines, boxes, circles, and ellipses come in as native entities. The dialog lets you choose how to handle text (notes, text objects, or skip) and color mapping.</p>
 
-        <div class="callout warn"><b>Join imported points:</b> jika aktif, ujung segmen warna sama yang bertemu dalam join tolerance di-weld sehingga kontur tiba terhubung. Nilai yang terlalu besar dapat memadatkan ujung segmen pendek ke tetangga dan menghilangkannya. Matikan (Off) untuk mengimpor segmen persis sebagaimana file menggambarkannya.</div>
+          <h2>4. DXF (ASCII)</h2>
+          <p>ASCII DXF files from CAD tools import as native lines, circles, arcs, and splines at 1:1 scale, and the viewport frames the drawing automatically. <b>Binary DXF is not supported</b> — re-save as ASCII DXF.</p>
 
-        <div class="help-footer">
-          <span>Import — SVG / PDF / CDR / DXF</span>
-          <span>Sebelumnya: <a href="files.html">Berkas — Open / Import / Save / Export</a> &nbsp;•&nbsp; Selanjutnya: <a href="text.html">Teks &amp; Font</a></span>
+          <h2>5. Import dialog options</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:30%">Option</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Keep each group as one object</td><td>On by default. Each <code>&lt;g&gt;</code> becomes a framed object (ideal for customer artwork). Turn off to import directly as editable lines/curves selected as a group; <kbd>Ctrl+U</kbd> ungroups.</td></tr>
+              <tr><td>Filled areas</td><td>Gray = material boundary; Yellow = flip offset direction; Ignore = skip fills.</td></tr>
+              <tr><td>Text objects</td><td>Comments, text objects, or Skip.</td></tr>
+              <tr><td>Join endpoints (weld)</td><td>Welds matching-color segment endpoints within tolerance so contours arrive connected as closed loops.</td></tr>
+              <tr><td>Join distance (mm)</td><td>Maximum gap to weld between segment ends. Keep below half of the shortest segment in the file.</td></tr>
+            </tbody>
+          </table>
+
+          <div class="callout info"><b>Every import is a single undo step.</b> Straight segments become lines, curves retain Bézier handles, circles remain native circles, and filled areas receive Gray or Yellow loop fills. File colors map to the nearest KaryaCNC operation and can be customized before importing.</div>
+
+          <div class="callout warn"><b>Join imported points:</b> when enabled, nearby same-color endpoints within tolerance are welded into shared nodes. Too large a tolerance may collapse short segments into neighbors — turn it Off to preserve exact raw segments.</div>
+
+          <div class="help-footer">
+            <span>Import — SVG / PDF / CDR / DXF</span>
+            <span>Previous: <a href="files.html">Files — Open / Import / Save / Export</a> &nbsp;•&nbsp; Next: <a href="text.html">Text &amp; Fonts</a></span>
+          </div>
         </div>
       </div>
     </main>

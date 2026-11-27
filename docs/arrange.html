@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en" data-doc-lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Arrange — Susun Objek | Bantuan MiniSketch</title>
+<title>Arrange — Position &amp; Align | MiniSketch Help</title>
 <link rel="stylesheet" href="help.css">
+<script>try{var p=new URLSearchParams(location.search).get("lang"),l=(p==="en"||p==="id")?p:(localStorage.getItem("minisketch.help.lang")||"en");if(l!=="en"&&l!=="id")l="en";document.documentElement.dataset.docLang=l;document.documentElement.lang=l;}catch(e){}</script>
 </head>
 <body>
 <div class="help-shell">
@@ -14,18 +15,18 @@
     <div class="help-brand">
       <div class="help-mark">M</div>
       <div>
-        <div class="help-title">Arrange — Susun Objek</div>
-        <div class="help-subtitle">Rata, tengah, distribusi, dan drag wall untuk nesting manual</div>
+        <div class="help-title">Arrange — Position &amp; Align</div>
+        <div class="help-subtitle">Align, center, distribute, Insert into green sheet, and Drag wall manual nesting</div>
       </div>
     </div>
     <div class="help-spacer"></div>
     <div class="help-search">
       <span class="search-icon" aria-hidden="true">&#128269;</span>
-      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
-      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+      <input id="help-search-input" type="text" placeholder="Search help topics…" autocomplete="off" spellcheck="false" aria-label="Search help topics">
+      <button class="clear-btn" id="help-search-clear" title="Clear search" aria-hidden="true">&#215;</button>
     </div>
     <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
-    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">No matching topics.</div>
   </header>
 
   <div class="help-body">
@@ -56,71 +57,142 @@
 
     <main class="help-content">
       <div class="help-page">
-        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Arrange — Susun Objek</div>
+        <div data-lang="id">
+          <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Arrange — Susun Objek</div>
 
-        <h1>Tab Arrange — Susun Objek</h1>
-        <p class="help-lead">Digunakan untuk mengatur posisi dan relasi antar objek di kanvas: rata tepi, tengah, distribusi jarak sama, dan drag wall untuk nesting manual.</p>
+          <h1>Tab Arrange — Susun Objek</h1>
+          <p class="help-lead">Digunakan untuk mengatur posisi dan relasi antar objek di kanvas: rata tepi, tengah, distribusi jarak sama, dan drag wall untuk nesting manual.</p>
 
-        <div class="screenshot">
-          <img src="img/screenshots/arrange-ribbon.png" alt="Tab Arrange aktif di ribbon">
-          <figcaption>Tab Arrange aktif: Drag wall + kolom tebal wall, Align L/Center H/Align R, Align T/Center V/Align B, Distribute H/V, dan Insert (masukkan ke kotak hijau).</figcaption>
+          <div class="screenshot">
+            <img src="img/screenshots/arrange-ribbon.png" alt="Tab Arrange aktif di ribbon">
+            <figcaption>Tab Arrange aktif: Drag wall + kolom tebal wall, Align L/Center H/Align R, Align T/Center V/Align B, Distribute H/V, dan Insert (masukkan ke kotak hijau).</figcaption>
+          </div>
+
+          <h2>1. Align (Rata tepi)</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:26%">Tombol</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Align L</td><td>Rata tepi kiri dari objek terpilih.</td></tr>
+              <tr><td>Center H</td><td>Tengah secara horizontal (rata titik tengah vertikal).</td></tr>
+              <tr><td>Align R</td><td>Rata tepi kanan dari objek terpilih.</td></tr>
+              <tr><td>Align T</td><td>Rata tepi atas dari objek terpilih.</td></tr>
+              <tr><td>Center V</td><td>Tengah secara vertikal (rata titik tengah horizontal).</td></tr>
+              <tr><td>Align B</td><td>Rata tepi bawah dari objek terpilih.</td></tr>
+            </tbody>
+          </table>
+
+          <h2>2. Distribute (Distribusi)</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:26%">Tombol</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Distribute H</td><td>Distribusikan secara horizontal dengan jarak sama antar objek.</td></tr>
+              <tr><td>Distribute V</td><td>Distribusikan secara vertikal dengan jarak sama antar objek.</td></tr>
+            </tbody>
+          </table>
+
+          <h2 id="drag-wall">3. Drag wall (W)</h2>
+          <p class="help-lead">Drag wall adalah pengaman nesting manual — sangat cocok dipakai setelah <a href="nesting.html">Nesting</a> otomatis untuk merapatkan atau memindahkan part di dalam lembar hijau tanpa risiko bertabrakan. Pilih bentuk tertutup, clone hasil nesting, group, atau beberapa objek, atur tebal wall (default 1 mm), lalu geser di kanvas.</p>
+          <ul>
+            <li>Seluruh pilihan dianggap satu objek compound. App mengambil <b>kontur terluar</b> dan membungkusnya dengan amplop offset hidup (collision wall).</li>
+            <li>Amplop hanya digambar saat drag dan <b>tidak pernah</b> ditambahkan ke gambar, dipotong, atau diekspor.</li>
+            <li>Saat pointer bergerak, wall diuji terhadap objek lain (termasuk huruf/part tetangga dan batas lembar hijau). Jika akan melewati penghalang, pilihan menahan posisi bebas collision terakhir (wall berubah merah dengan badge <b>BLOCKED</b> dan pratinjau hantu di posisi kursor). Saat posisi bersih ditemukan, wall kembali hijau (<b>CLEAR</b>) dan objek mengikuti lagi.</li>
+            <li>Loop terluar dipakai sebagai poligon (loop dalam/lubang diabaikan). Garis/busur terbuka dipakai apa adanya. Group memakai bounding box-nya.</li>
+            <li>Part yang berada penuh di dalam outline lembar tetap sah — berguna untuk menata part di dalam lembar.</li>
+            <li>Gunakan mode Release/Manual solve untuk nesting yang tepat, karena drag dengan live-solve dapat merusak cached wall.</li>
+          </ul>
+
+          <div class="screenshot">
+            <img src="img/screenshots/arrange-drag-wall.png" alt="Drag wall 1.5 mm menahan huruf hasil nesting agar tidak bertabrakan">
+            <figcaption>Memperbaiki hasil nesting <code>hello world</code> secara manual dengan <b>Drag wall (1.5 mm)</b>: huruf <code>o</code> berhenti aman di posisi bebas benturan terakhir (<code>BLOCKED</code> di kanan atas) lengkap dengan amplop merah putus-putus dan bayangan posisi kursor.</figcaption>
+          </div>
+
+          <div class="callout warn"><b>Tebal wall</b> diatur lewat bar wall melayang yang muncul saat alat <b>Drag wall</b> aktif (tombol <b>&minus;/+</b>) atau Settings &rarr; Geometry &rarr; Drag wall thickness (bawaan 1 mm). 0 = outline itu sendiri; 1 mm menjaga jarak 1 mm ke setiap objek lain.</div>
+
+          <h2>4. Insert ke Kotak Hijau</h2>
+          <p>Tombol <b>Insert</b> memindahkan semua objek non-hijau yang sedang dipilih secara bersama-sama (sebagai satu kesatuan) ke tengah kotak pandu <b>Hijau (Mark)</b>:</p>
+          <ul>
+            <li>Posisi relatif antar objek di dalam pilihan tetap terjaga (lubang atau teks di dalam desain tidak bertumpuk di tengah).</li>
+            <li>Jika ukuran grup lebih pas bila diputar 90°, MiniSketch otomatis memutarnya 90° agar muat di dalam kotak hijau.</li>
+            <li>Berguna untuk memposisikan batch desain atau hasil gambar cepat ke lembar kerja/bahan berwarna hijau.</li>
+          </ul>
+
+          <div class="help-footer">
+            <span>Arrange — Susun Objek</span>
+            <span>Selanjutnya: <a href="constrain.html">Constrain — Batasan &amp; Dimensi</a></span>
+          </div>
         </div>
 
-        <h2>1. Align (Rata tepi)</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:26%">Tombol</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Align L</td><td>Rata tepi kiri dari objek terpilih.</td></tr>
-            <tr><td>Center H</td><td>Tengah secara horizontal (rata titik tengah vertikal).</td></tr>
-            <tr><td>Align R</td><td>Rata tepi kanan dari objek terpilih.</td></tr>
-            <tr><td>Align T</td><td>Rata tepi atas dari objek terpilih.</td></tr>
-            <tr><td>Center V</td><td>Tengah secara vertikal (rata titik tengah horizontal).</td></tr>
-            <tr><td>Align B</td><td>Rata tepi bawah dari objek terpilih.</td></tr>
-          </tbody>
-        </table>
+        <div data-lang="en">
+          <div class="breadcrumb"><a href="index.html">Home</a> <span class="sep">&#8250;</span> Arrange — Position &amp; Align</div>
 
-        <h2>2. Distribute (Distribusi)</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:26%">Tombol</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Distribute H</td><td>Distribusikan secara horizontal dengan jarak sama antar objek.</td></tr>
-            <tr><td>Distribute V</td><td>Distribusikan secara vertikal dengan jarak sama antar objek.</td></tr>
-          </tbody>
-        </table>
+          <h1>Arrange Tab — Position &amp; Align</h1>
+          <p class="help-lead">Position and relate objects across the canvas: edge alignment, centering, equal-gap distribution, and Drag wall for collision-safe manual nesting.</p>
 
-        <h2 id="drag-wall">3. Drag wall (W)</h2>
-        <p class="help-lead">Drag wall adalah pengaman nesting manual — sangat cocok dipakai setelah <a href="nesting.html">Nesting</a> otomatis untuk merapatkan atau memindahkan part di dalam lembar hijau tanpa risiko bertabrakan. Pilih bentuk tertutup, clone hasil nesting, group, atau beberapa objek, atur tebal wall (default 1 mm), lalu geser di kanvas.</p>
-        <ul>
-          <li>Seluruh pilihan dianggap satu objek compound. App mengambil <b>kontur terluar</b> dan membungkusnya dengan amplop offset hidup (collision wall).</li>
-          <li>Amplop hanya digambar saat drag dan <b>tidak pernah</b> ditambahkan ke gambar, dipotong, atau diekspor.</li>
-          <li>Saat pointer bergerak, wall diuji terhadap objek lain (termasuk huruf/part tetangga dan batas lembar hijau). Jika akan melewati penghalang, pilihan menahan posisi bebas collision terakhir (wall berubah merah dengan badge <b>BLOCKED</b> dan pratinjau hantu di posisi kursor). Saat posisi bersih ditemukan, wall kembali hijau (<b>CLEAR</b>) dan objek mengikuti lagi.</li>
-          <li>Loop terluar dipakai sebagai poligon (loop dalam/lubang diabaikan). Garis/busur terbuka dipakai apa adanya. Group memakai bounding box-nya.</li>
-          <li>Part yang berada penuh di dalam outline lembar tetap sah — berguna untuk menata part di dalam lembar.</li>
-          <li>Gunakan mode Release/Manual solve untuk nesting yang tepat, karena drag dengan live-solve dapat merusak cached wall.</li>
-        </ul>
+          <div class="screenshot">
+            <img src="img/screenshots/arrange-ribbon.png" alt="Arrange ribbon tab active">
+            <figcaption>Arrange tab: Drag wall + thickness input, Align L/Center H/Align R, Align T/Center V/Align B, Distribute H/V, and Insert (pack into green sheet).</figcaption>
+          </div>
 
-        <div class="screenshot">
-          <img src="img/screenshots/arrange-drag-wall.png" alt="Drag wall 1.5 mm menahan huruf hasil nesting agar tidak bertabrakan">
-          <figcaption>Memperbaiki hasil nesting <code>hello world</code> secara manual dengan <b>Drag wall (1.5 mm)</b>: huruf <code>o</code> berhenti aman di posisi bebas benturan terakhir (<code>BLOCKED</code> di kanan atas) lengkap dengan amplop merah putus-putus dan bayangan posisi kursor.</figcaption>
-        </div>
+          <h2>1. Align</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:26%">Button</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Align L</td><td>Align selected objects to the leftmost edge.</td></tr>
+              <tr><td>Center H</td><td>Center horizontally along the shared midline.</td></tr>
+              <tr><td>Align R</td><td>Align selected objects to the rightmost edge.</td></tr>
+              <tr><td>Align T</td><td>Align selected objects to the top edge.</td></tr>
+              <tr><td>Center V</td><td>Center vertically along the shared midline.</td></tr>
+              <tr><td>Align B</td><td>Align selected objects to the bottom edge.</td></tr>
+            </tbody>
+          </table>
 
-        <div class="callout warn"><b>Tebal wall</b> diatur lewat bar wall melayang yang muncul saat alat <b>Drag wall</b> aktif (tombol <b>&minus;/+</b>) atau Settings &rarr; Geometry &rarr; Drag wall thickness (bawaan 1 mm). 0 = outline itu sendiri; 1 mm menjaga jarak 1 mm ke setiap objek lain.</div>
+          <h2>2. Distribute</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:26%">Button</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Distribute H</td><td>Distribute selected objects evenly along the horizontal axis.</td></tr>
+              <tr><td>Distribute V</td><td>Distribute selected objects evenly along the vertical axis.</td></tr>
+            </tbody>
+          </table>
 
-        <h2>4. Insert ke Kotak Hijau</h2>
-        <p>Tombol <b>Insert</b> memindahkan semua objek non-hijau yang sedang dipilih secara bersama-sama (sebagai satu kesatuan) ke tengah kotak pandu <b>Hijau (Mark)</b>:</p>
-        <ul>
-          <li>Posisi relatif antar objek di dalam pilihan tetap terjaga (lubang atau teks di dalam desain tidak bertumpuk di tengah).</li>
-          <li>Jika ukuran grup lebih pas bila diputar 90°, MiniSketch otomatis memutarnya 90° agar muat di dalam kotak hijau.</li>
-          <li>Berguna untuk memposisikan batch desain atau hasil gambar cepat ke lembar kerja/bahan berwarna hijau.</li>
-        </ul>
+          <h2 data-anchor="drag-wall">3. Drag wall (W)</h2>
+          <p class="help-lead">Drag wall adds a live collision safety buffer — ideal right after automated <a href="nesting.html">Nesting</a> to nudge or pack parts inside a green sheet without overlap. Select any closed shape, nest clone, group, or multi-selection, set wall thickness (default 1 mm), and drag.</p>
+          <ul>
+            <li>The selection moves as one compound shape wrapped in a live offset collision envelope.</li>
+            <li>The envelope is drawn only while dragging and is <b>never</b> added to the sketch, cut, or exported.</li>
+            <li>If moving into an obstacle (neighbor parts or sheet boundaries), the selection stops at the last collision-free position (showing a red wall, <b>BLOCKED</b> badge, and cursor ghost). Once clear, the wall turns green (<b>CLEAR</b>) and follows again.</li>
+            <li>Closed shapes use outer polygons (inner holes ignored); open lines/arcs test as-is; groups use their bounding box.</li>
+            <li>Parts wholly inside a larger green sheet boundary remain allowed so you can arrange freely inside the sheet.</li>
+            <li>Use On-release or Manual solver mode while nesting so live-solve doesn't disturb cached walls.</li>
+          </ul>
 
-        <div class="help-footer">
-          <span>Arrange — Susun Objek</span>
-          <span>Selanjutnya: <a href="constrain.html">Constrain — Batasan &amp; Dimensi</a></span>
+          <div class="screenshot">
+            <img src="img/screenshots/arrange-drag-wall.png" alt="Drag wall 1.5 mm blocking part collision">
+            <figcaption>Fine-tuning nested <code>hello world</code> letters with <b>Drag wall (1.5 mm)</b>: the letter <code>o</code> stops safely at the last collision-free spot (<code>BLOCKED</code> at top right) with a dashed red envelope and cursor ghost preview.</figcaption>
+          </div>
+
+          <div class="callout warn"><b>Wall thickness</b> is adjusted from the floating wall bar while <b>Drag wall</b> is active (<b>&minus;/+</b>) or under Settings &rarr; Geometry &rarr; Drag wall thickness (default 1 mm). 0 = exact boundary contact; 1 mm enforces 1 mm clearance.</div>
+
+          <h2>4. Insert into Green Sheet</h2>
+          <p>The <b>Insert</b> button centers all selected non-green objects together as a single cohesive group inside a <b>Green (Mark)</b> guide box:</p>
+          <ul>
+            <li>Relative offsets inside the selection (such as holes or engraved text) remain intact.</li>
+            <li>If rotating 90° yields a better fit inside the green rectangle, MiniSketch rotates automatically.</li>
+            <li>Great for quickly centering parts onto a stock sheet rectangle.</li>
+          </ul>
+
+          <div class="help-footer">
+            <span>Arrange — Position &amp; Align</span>
+            <span>Next: <a href="constrain.html">Constrain — Constraints &amp; Dimensions</a></span>
+          </div>
         </div>
       </div>
     </main>

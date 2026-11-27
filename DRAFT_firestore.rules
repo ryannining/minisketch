@@ -1,0 +1,330 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- Shared Auth & Validation Helpers ---------------------------------
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9._-]+$');
+    }
+
+    function isValidExtId(id) {
+      return id is string && id.size() >= 2 && id.size() <= 40 && id.matches('^[a-z][a-z0-9-]{1,39}$');
+    }
+
+    function isOptString(data, field, maxLen) {
+      return !(field in data) || (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isOptBool(data, field) {
+      return !(field in data) || data[field] is bool;
+    }
+
+    function isOptNumber(data, field) {
+      return !(field in data) || data[field] is int || data[field] is float;
+    }
+
+    function isOptMap(data, field) {
+      return !(field in data) || data[field] is map;
+    }
+
+    function isOptList(data, field, maxLen) {
+      return !(field in data) || (data[field] is list && data[field].size() <= maxLen);
+    }
+
+    // ---- Validation: UserProfile ------------------------------------------
+    function validUserProfileKeys(data) {
+      return data.keys().hasAll(['uid', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'createdAt', 'updatedAt']);
+    }
+
+    function validUserProfileData(data, userId) {
+      return data.uid is string && data.uid == userId
+        && isOptString(data, 'email', 320)
+        && isOptString(data, 'displayName', 160)
+        && isOptString(data, 'photoURL', 1024);
+    }
+
+    // ---- Validation: UserPreferences --------------------------------------
+    function validPreferencesKeys(data) {
+      return data.keys().hasAll(['createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'theme', 'lang', 'solveMode', 'builderMode', 'chatCurrentId',
+          'docName', 'fileName', 'layoutSideWidth', 'marketplaceUrl', 'serverUrl',
+          'extAutoUpdate', 'githubCfg', 'settings', 'aiProviders', 'pickFilter',
+          'view', 'cncConfig', 'costPresets', 'nestPrefs', 'imgOpts',
+          'fontFavorites', 'textPrefs', 'toolParams', 'disabledExtensions',
+          'updatedAtMs', 'createdAt', 'updatedAt'
+        ]);
+    }
+
+    function validPreferencesData(data) {
+      return (!( 'theme' in data ) || data.theme in ['dark', 'light'])
+        && (!( 'lang' in data ) || data.lang in ['en', 'id'])
+        && (!( 'solveMode' in data ) || data.solveMode in ['release', 'manual', 'live'])
+        && (!( 'builderMode' in data ) || data.builderMode in ['svg', 'ext'])
+        && isOptString(data, 'chatCurrentId', 128)
+        && isOptString(data, 'docName', 256)
+        && isOptString(data, 'fileName', 256)
+        && isOptNumber(data, 'layoutSideWidth')
+        && isOptString(data, 'marketplaceUrl', 1024)
+        && isOptString(data, 'serverUrl', 1024)
+        && isOptBool(data, 'extAutoUpdate')
+        && isOptMap(data, 'githubCfg')
+        && isOptMap(data, 'settings')
+        && isOptList(data, 'aiProviders', 64)
+        && isOptMap(data, 'pickFilter')
+        && isOptMap(data, 'view')
+        && isOptMap(data, 'cncConfig')
+        && isOptString(data, 'costPresets', 32768)
+        && isOptMap(data, 'nestPrefs')
+        && isOptMap(data, 'imgOpts')
+        && isOptList(data, 'fontFavorites', 500)
+        && isOptMap(data, 'textPrefs')
+        && isOptMap(data, 'toolParams')
+        && isOptList(data, 'disabledExtensions', 200)
+        && isOptNumber(data, 'updatedAtMs');
+    }
+
+    // ---- Validation: UserExtension ----------------------------------------
+    function validUserExtensionKeys(data) {
+      return data.keys().hasAll(['id', 'name', 'label', 'version', 'code', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'id', 'name', 'label', 'title', 'version', 'author', 'category',
+          'description', 'icon', 'source', 'sourceUrl', 'catalogUrl', 'code',
+          'installedAt', 'updatedAtStr', 'createdAt', 'updatedAt'
+        ]);
+    }
+
+    function validUserExtensionData(data, extId) {
+      return data.id is string && data.id == extId && isValidExtId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.label is string && data.label.size() >= 1 && data.label.size() <= 120
+        && data.version is string && data.version.size() >= 1 && data.version.size() <= 32
+        && data.code is string && data.code.size() >= 1 && data.code.size() <= 220000
+        && isOptString(data, 'title', 300)
+        && isOptString(data, 'author', 120)
+        && isOptString(data, 'category', 80)
+        && isOptString(data, 'description', 1000)
+        && isOptString(data, 'icon', 8192)
+        && isOptString(data, 'source', 40)
+        && isOptString(data, 'sourceUrl', 1024)
+        && isOptString(data, 'catalogUrl', 1024)
+        && isOptString(data, 'installedAt', 64)
+        && isOptString(data, 'updatedAtStr', 64);
+    }
+
+    // ---- Validation: UserSketch -------------------------------------------
+    function validUserSketchKeys(data) {
+      return data.keys().hasAll(['id', 'name', 'format', 'version', 'state', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'id', 'name', 'format', 'version', 'isActive', 'entityCount',
+          'state', 'view', 'updatedAtMs', 'createdAt', 'updatedAt'
+        ]);
+    }
+
+    function validUserSketchData(data, sketchId) {
+      return data.id is string && data.id == sketchId
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 200
+        && data.format is string && data.format.size() >= 1 && data.format.size() <= 40
+        && (data.version is int || data.version is float) && data.version >= 1
+        && data.state is map
+        && isOptBool(data, 'isActive')
+        && isOptNumber(data, 'entityCount')
+        && isOptMap(data, 'view')
+        && isOptNumber(data, 'updatedAtMs');
+    }
+
+    // ---- Validation: UserChatSession --------------------------------------
+    function validUserChatKeys(data) {
+      return data.keys().hasAll(['id', 'title', 'archived', 'at', 'updatedAtMs', 'count', 'messages', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'id', 'title', 'archived', 'at', 'updatedAtMs', 'count', 'img',
+          'messages', 'createdAt', 'updatedAt'
+        ]);
+    }
+
+    function validUserChatData(data, sessionId) {
+      return data.id is string && data.id == sessionId
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && data.archived is bool
+        && (data.at is int || data.at is float)
+        && (data.updatedAtMs is int || data.updatedAtMs is float)
+        && (data.count is int || data.count is float) && data.count >= 0 && data.count <= 200
+        && isOptBool(data, 'img')
+        && data.messages is list && data.messages.size() <= 200;
+    }
+
+    // ---- Validation: MarketplaceExtension ---------------------------------
+    function validMarketplaceKeys(data) {
+      return data.keys().hasAll(['id', 'name', 'label', 'version', 'author', 'authorUid', 'category', 'code', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'id', 'name', 'label', 'version', 'author', 'authorUid',
+          'category', 'description', 'icon', 'code', 'createdAt', 'updatedAt'
+        ]);
+    }
+
+    function validMarketplaceData(data, extId) {
+      return data.id is string && data.id == extId && isValidExtId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.label is string && data.label.size() >= 1 && data.label.size() <= 120
+        && data.version is string && data.version.size() >= 1 && data.version.size() <= 32
+        && data.author is string && data.author.size() >= 1 && data.author.size() <= 120
+        && data.authorUid is string && data.authorUid.size() >= 1 && data.authorUid.size() <= 128
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 80
+        && data.code is string && data.code.size() >= 1 && data.code.size() <= 220000
+        && isOptString(data, 'description', 1000)
+        && isOptString(data, 'icon', 8192);
+    }
+
+    // ---- Private User Namespace (/users/{userId}) -------------------------
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create: if isValidId(userId) && isOwner(userId) && isEmailVerified()
+        && validUserProfileKeys(request.resource.data)
+        && validUserProfileData(request.resource.data, userId)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow update: if isValidId(userId) && isOwner(userId) && isEmailVerified()
+        && validUserProfileKeys(request.resource.data)
+        && validUserProfileData(request.resource.data, userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['email', 'displayName', 'photoURL', 'updatedAt'])
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if isValidId(userId) && isOwner(userId) && isEmailVerified();
+
+      match /sync_docs/{docId} {
+        allow get: if isValidId(userId) && docId == 'preferences' && isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isValidId(userId) && docId == 'preferences' && isOwner(userId) && isEmailVerified()
+          && validPreferencesKeys(request.resource.data)
+          && validPreferencesData(request.resource.data)
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+        allow update: if isValidId(userId) && docId == 'preferences' && isOwner(userId) && isEmailVerified()
+          && validPreferencesKeys(request.resource.data)
+          && validPreferencesData(request.resource.data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'theme', 'lang', 'solveMode', 'builderMode', 'chatCurrentId',
+            'docName', 'fileName', 'layoutSideWidth', 'marketplaceUrl', 'serverUrl',
+            'extAutoUpdate', 'githubCfg', 'settings', 'aiProviders', 'pickFilter',
+            'view', 'cncConfig', 'costPresets', 'nestPrefs', 'imgOpts',
+            'fontFavorites', 'textPrefs', 'toolParams', 'disabledExtensions',
+            'updatedAtMs', 'updatedAt'
+          ])
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if isValidId(userId) && docId == 'preferences' && isOwner(userId) && isEmailVerified();
+      }
+
+      match /extensions/{extId} {
+        allow get: if isValidId(userId) && isValidExtId(extId) && isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isValidId(userId) && isValidExtId(extId) && isOwner(userId) && isEmailVerified()
+          && validUserExtensionKeys(request.resource.data)
+          && validUserExtensionData(request.resource.data, extId)
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidExtId(extId) && isOwner(userId) && isEmailVerified()
+          && validUserExtensionKeys(request.resource.data)
+          && validUserExtensionData(request.resource.data, extId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'name', 'label', 'title', 'version', 'author', 'category',
+            'description', 'icon', 'source', 'sourceUrl', 'catalogUrl', 'code',
+            'installedAt', 'updatedAtStr', 'updatedAt'
+          ])
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if isValidId(userId) && isValidExtId(extId) && isOwner(userId) && isEmailVerified();
+      }
+
+      match /sketches/{sketchId} {
+        allow get: if isValidId(userId) && isValidId(sketchId) && isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isValidId(userId) && isValidId(sketchId) && isOwner(userId) && isEmailVerified()
+          && validUserSketchKeys(request.resource.data)
+          && validUserSketchData(request.resource.data, sketchId)
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(sketchId) && isOwner(userId) && isEmailVerified()
+          && validUserSketchKeys(request.resource.data)
+          && validUserSketchData(request.resource.data, sketchId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'name', 'format', 'version', 'isActive', 'entityCount',
+            'state', 'view', 'updatedAtMs', 'updatedAt'
+          ])
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if isValidId(userId) && isValidId(sketchId) && isOwner(userId) && isEmailVerified();
+      }
+
+      match /chat_sessions/{sessionId} {
+        allow get: if isValidId(userId) && isValidId(sessionId) && isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isValidId(userId) && isValidId(sessionId) && isOwner(userId) && isEmailVerified()
+          && validUserChatKeys(request.resource.data)
+          && validUserChatData(request.resource.data, sessionId)
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(sessionId) && isOwner(userId) && isEmailVerified()
+          && validUserChatKeys(request.resource.data)
+          && validUserChatData(request.resource.data, sessionId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'title', 'archived', 'at', 'updatedAtMs', 'count', 'img',
+            'messages', 'updatedAt'
+          ])
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if isValidId(userId) && isValidId(sessionId) && isOwner(userId) && isEmailVerified();
+      }
+    }
+
+    // ---- Public Community Marketplace (/marketplace_extensions/{extId}) ---
+    match /marketplace_extensions/{extId} {
+      // Public catalog readable by all users (PII is absent; author is public alias).
+      allow get: if isValidExtId(extId);
+      allow list: if true;
+      allow create: if isValidExtId(extId) && isEmailVerified()
+        && validMarketplaceKeys(request.resource.data)
+        && validMarketplaceData(request.resource.data, extId)
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow update: if isValidExtId(extId) && isEmailVerified()
+        && resource.data.authorUid == request.auth.uid
+        && validMarketplaceKeys(request.resource.data)
+        && validMarketplaceData(request.resource.data, extId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'label', 'version', 'author', 'category', 'description',
+          'icon', 'code', 'updatedAt'
+        ])
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.authorUid == resource.data.authorUid
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if isValidExtId(extId) && isEmailVerified()
+        && resource.data.authorUid == request.auth.uid;
+    }
+
+    // ---- Fail-Closed Catch-All --------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

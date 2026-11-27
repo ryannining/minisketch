@@ -1,0 +1,161 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Private Google-authenticated user profile for MiniSketch cloud sync.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "description": "Google account email" },
+        "displayName": { "type": "string", "description": "Display name" },
+        "photoURL": { "type": "string", "description": "Avatar URL" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "createdAt", "updatedAt"]
+    },
+    "UserPreferences": {
+      "title": "User Preferences",
+      "description": "All MiniSketch workspace settings, tool parameters, UI/theme/language preferences, AI providers, CNC & cost configs, and disabled extension IDs.",
+      "type": "object",
+      "properties": {
+        "theme": { "type": "string", "enum": ["dark", "light"] },
+        "lang": { "type": "string", "enum": ["en", "id"] },
+        "solveMode": { "type": "string", "enum": ["release", "manual", "live"] },
+        "builderMode": { "type": "string", "enum": ["svg", "ext"] },
+        "chatCurrentId": { "type": "string" },
+        "docName": { "type": "string" },
+        "fileName": { "type": "string" },
+        "layoutSideWidth": { "type": "number" },
+        "marketplaceUrl": { "type": "string" },
+        "serverUrl": { "type": "string" },
+        "extAutoUpdate": { "type": "boolean" },
+        "githubCfg": { "type": "object" },
+        "settings": { "type": "object" },
+        "aiProviders": { "type": "array", "items": { "type": "object" } },
+        "pickFilter": { "type": "object" },
+        "view": { "type": "object" },
+        "cncConfig": { "type": "object" },
+        "costPresets": { "type": "string" },
+        "nestPrefs": { "type": "object" },
+        "imgOpts": { "type": "object" },
+        "fontFavorites": { "type": "array", "items": { "type": "string" } },
+        "textPrefs": { "type": "object" },
+        "toolParams": { "type": "object" },
+        "disabledExtensions": { "type": "array", "items": { "type": "string" } },
+        "updatedAtMs": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["createdAt", "updatedAt"]
+    },
+    "UserExtension": {
+      "title": "User Installed Extension",
+      "description": "Custom, AI-generated, local, or marketplace extension installed in a user's workspace.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "label": { "type": "string" },
+        "title": { "type": "string" },
+        "version": { "type": "string" },
+        "author": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "icon": { "type": "string" },
+        "source": { "type": "string" },
+        "sourceUrl": { "type": "string" },
+        "catalogUrl": { "type": "string" },
+        "code": { "type": "string" },
+        "installedAt": { "type": "string" },
+        "updatedAtStr": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "label", "version", "code", "createdAt", "updatedAt"]
+    },
+    "UserSketch": {
+      "title": "User Cloud Sketch",
+      "description": "Synced MiniSketch active document or named cloud sketch snapshot.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "format": { "type": "string" },
+        "version": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "entityCount": { "type": "number" },
+        "state": { "type": "object" },
+        "view": { "type": "object" },
+        "updatedAtMs": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "format", "version", "state", "createdAt", "updatedAt"]
+    },
+    "UserChatSession": {
+      "title": "User AI Chat Session",
+      "description": "Synced AI chat conversation session (active or archived history).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "archived": { "type": "boolean" },
+        "at": { "type": "number" },
+        "updatedAtMs": { "type": "number" },
+        "count": { "type": "number" },
+        "img": { "type": "boolean" },
+        "messages": { "type": "array", "items": { "type": "object" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "archived", "at", "updatedAtMs", "count", "messages", "createdAt", "updatedAt"]
+    },
+    "MarketplaceExtension": {
+      "title": "Marketplace Extension",
+      "description": "Public community-shared MiniSketch extension bound to its authenticated publisher UID.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "label": { "type": "string" },
+        "version": { "type": "string" },
+        "author": { "type": "string" },
+        "authorUid": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "icon": { "type": "string" },
+        "code": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "label", "version", "author", "authorUid", "category", "code", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user profile (PII strictly isolated to owner)."
+    },
+    "/users/{userId}/sync_docs/{docId}": {
+      "schema": { "$ref": "#/entities/UserPreferences" },
+      "description": "User workspace preferences and settings document (docId = 'preferences')."
+    },
+    "/users/{userId}/extensions/{extId}": {
+      "schema": { "$ref": "#/entities/UserExtension" },
+      "description": "User-installed custom/AI/marketplace extension definition."
+    },
+    "/users/{userId}/sketches/{sketchId}": {
+      "schema": { "$ref": "#/entities/UserSketch" },
+      "description": "Active autosaved sketch ('active') and named cloud sketches."
+    },
+    "/users/{userId}/chat_sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/UserChatSession" },
+      "description": "AI Chat sessions and history synchronized across user devices."
+    },
+    "/marketplace_extensions/{extId}": {
+      "schema": { "$ref": "#/entities/MarketplaceExtension" },
+      "description": "Publicly readable community marketplace catalog with authorUid ownership enforcement."
+    }
+  }
+}

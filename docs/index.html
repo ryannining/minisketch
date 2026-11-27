@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en" data-doc-lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Bantuan MiniSketch — Panduan Lengkap</title>
+<title>MiniSketch Help — Complete Guide</title>
 <link rel="stylesheet" href="help.css">
+<script>try{var p=new URLSearchParams(location.search).get("lang"),l=(p==="en"||p==="id")?p:(localStorage.getItem("minisketch.help.lang")||"en");if(l!=="en"&&l!=="id")l="en";document.documentElement.dataset.docLang=l;document.documentElement.lang=l;}catch(e){}</script>
 </head>
 <body>
 <div class="help-shell">
@@ -15,8 +16,8 @@
     <div class="help-brand">
       <div class="help-mark">M</div>
       <div>
-        <div class="help-title">Bantuan MiniSketch</div>
-        <div class="help-subtitle">Panduan lengkap semua fitur sketsa 2D constraint — bahasa Indonesia</div>
+        <div class="help-title">MiniSketch Help</div>
+        <div class="help-subtitle">Complete guide to every 2D constraint sketching &amp; CNC feature</div>
       </div>
     </div>
 
@@ -24,11 +25,11 @@
 
     <div class="help-search">
       <span class="search-icon" aria-hidden="true">&#128269;</span>
-      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
-      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+      <input id="help-search-input" type="text" placeholder="Search help topics…" autocomplete="off" spellcheck="false" aria-label="Search help topics">
+      <button class="clear-btn" id="help-search-clear" title="Clear search" aria-hidden="true">&#215;</button>
     </div>
     <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
-    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">No matching topics.</div>
   </header>
 
   <!-- ---------- Body: nav + content ---------- -->
@@ -76,146 +77,286 @@
 
     <main class="help-content">
       <div class="help-page">
-        <div class="breadcrumb"><a href="index.html">Beranda</a></div>
+        <div data-lang="id">
+          <div class="breadcrumb"><a href="index.html">Beranda</a></div>
 
-        <h1>Selamat datang di Bantuan MiniSketch</h1>
-        <p class="help-lead">MiniSketch adalah <b>sketsa 2D berbasis batasan (constraint sketcher)</b> yang berjalan di browser — tanpa instalasi, tanpa build step. Gambar dengan dimensi nyata (mm), tambahkan batasan geometri, buat bagian CNC dengan alat generator, susun pada lembar (nesting), dan kirim ke mesin KaryaCNC — semuanya dalam satu tab.</p>
+          <h1>Selamat datang di Bantuan MiniSketch</h1>
+          <p class="help-lead">MiniSketch adalah <b>sketsa 2D berbasis batasan (constraint sketcher)</b> yang berjalan di browser — tanpa instalasi, tanpa build step. Gambar dengan dimensi nyata (mm), tambahkan batasan geometri, buat bagian CNC dengan alat generator, susun pada lembar (nesting), dan kirim ke mesin KaryaCNC — semuanya dalam satu tab.</p>
 
-        <div class="callout info"><b>Pintasan terpenting:</b> tekan <kbd>?</kbd> di aplikasi untuk membuka jendela Help bawaan (bilingual: English / Indonesia). Dokumentasi di sini adalah versi web yang lebih detail, dibuka per fitur.</div>
+          <div class="callout info"><b>Pintasan terpenting:</b> tekan <kbd>?</kbd> di aplikasi untuk membuka jendela Help bawaan (bilingual: English / Indonesia). Dokumentasi di sini adalah versi web yang lebih detail, dibuka per fitur.</div>
 
-        <!-- Quick start -->
-        <h2>1. Mulai cepat (Quick Start)</h2>
-        <ol>
-          <li>Buka MiniSketch lewat server lokal (<code>http://127.0.0.1:8090</code> dari <code>node server/serve.js</code>) agar AI Chat dan jembatan WebSocket ke KaryaCNC lokal aktif, atau buka langsung dari disk (<code>file://</code>) untuk menggambar offline.</li>
-          <li>Lembar gambar kosong akan muncul dengan tema gelap. Ribbon atas berisi menu <b>File</b> dan <b>Tool</b> serta tab kerja: Draw, Edit, Arrange, Parts, Constrain, KaryaCNC.</li>
-          <li>Pilih alat gambar di tab <b>Draw</b> (mis. <kbd>Shift+B</kbd> garis, <kbd>B</kbd> kurva, <kbd>E</kbd> lingkaran, <kbd>R</kbd> kotak, <kbd>T</kbd> teks) lalu klik di kanvas.</li>
-          <li>Atur ukuran tepat lewat strip <b>L / T / W / H</b> di atas kanvas atau tambahkan dimensi (<kbd>D</kbd>), lalu tekan <kbd>F9</kbd> bila memakai mode solver manual.</li>
-          <li>Simpan proyek ke file <code>.sketch</code> dengan <kbd>Ctrl+S</kbd> (atau <kbd>Ctrl+Shift+S</kbd> untuk nama baru). Setiap edit juga otomatis tersimpan sementara di browser.</li>
-        </ol>
+          <h2>1. Mulai cepat (Quick Start)</h2>
+          <ol>
+            <li>Buka MiniSketch lewat server lokal (<code>http://127.0.0.1:8090</code> dari <code>node server/serve.js</code>) agar AI Chat dan jembatan WebSocket ke KaryaCNC lokal aktif, atau buka langsung dari disk (<code>file://</code>) untuk menggambar offline.</li>
+            <li>Lembar gambar kosong akan muncul dengan tema gelap. Ribbon atas berisi menu <b>File</b> dan <b>Tool</b> serta tab kerja: Draw, Edit, Arrange, Parts, Constrain, KaryaCNC.</li>
+            <li>Pilih alat gambar di tab <b>Draw</b> (mis. <kbd>Shift+B</kbd> garis, <kbd>B</kbd> kurva, <kbd>E</kbd> lingkaran, <kbd>R</kbd> kotak, <kbd>T</kbd> teks) lalu klik di kanvas.</li>
+            <li>Atur ukuran tepat lewat strip <b>L / T / W / H</b> di atas kanvas atau tambahkan dimensi (<kbd>D</kbd>), lalu tekan <kbd>F9</kbd> bila memakai mode solver manual.</li>
+            <li>Simpan proyek ke file <code>.sketch</code> dengan <kbd>Ctrl+S</kbd> (atau <kbd>Ctrl+Shift+S</kbd> untuk nama baru). Setiap edit juga otomatis tersimpan sementara di browser.</li>
+          </ol>
 
-        <h2 id="pemula">1B. Konsep dasar CNC untuk pemula</h2>
-        <p>Sebelum memotong di mesin atau menata nesting, pahami 4 aturan inti di MiniSketch:</p>
-        <ul>
-          <li><b>Loop tertutup vs garis terbuka:</b> bentuk yang ujungnya benar-benar menyatu (mis. kotak, lingkaran, atau rangkaian garis yang kembali ke titik awal) otomatis terdeteksi sebagai <b>loop tertutup</b> dan diberi warna isi tipis. Nesting, Boolean, dan <i>Extrude wall</i> membutuhkan loop tertutup. Jika loop belum terdeteksi padahal tampak menyambung, pilih objek lalu klik <b>Cleanup loops</b> (<kbd>Shift+L</kbd>) atau <b>Weld</b> (<kbd>Alt+W</kbd>).</li>
-          <li><b>Warna garis = operasi mesin:</b> tidak ada pemetaan per layer untuk mesin. <b>Hitam</b> = Potong (Cut), <b>Biru</b> = Engrave, <b>Merah</b> = Drill/Gores, <b>Hijau</b> = Mark / Garis bantu / Lembar nesting (tidak dipotong sebagai jalur cut utama).</li>
-          <li><b>Isi loop Gray &amp; Yellow:</b> klik di dalam loop lalu pilih <b>Gray</b> untuk menandai batas bahan/luar (semua di dalamnya ikut dibalik offset), atau <b>Yellow</b> untuk membalik arah offset satu kontur saja.</li>
-          <li><b>Mode F1 / F2 / F3:</b> <kbd>F1</kbd> menggeser objek utuh, <kbd>F2</kbd> (bawaan) mengedit titik/node, dan <kbd>F3</kbd> memilih titik pertemuan (<i>junction</i>).</li>
-        </ul>
+          <h2 id="pemula">1B. Konsep dasar CNC untuk pemula</h2>
+          <p>Sebelum memotong di mesin atau menata nesting, pahami 4 aturan inti di MiniSketch:</p>
+          <ul>
+            <li><b>Loop tertutup vs garis terbuka:</b> bentuk yang ujungnya benar-benar menyatu (mis. kotak, lingkaran, atau rangkaian garis yang kembali ke titik awal) otomatis terdeteksi sebagai <b>loop tertutup</b> dan diberi warna isi tipis. Nesting, Boolean, dan <i>Extrude wall</i> membutuhkan loop tertutup. Jika loop belum terdeteksi padahal tampak menyambung, pilih objek lalu klik <b>Cleanup loops</b> (<kbd>Shift+L</kbd>) atau <b>Weld</b> (<kbd>Alt+W</kbd>).</li>
+            <li><b>Warna garis = operasi mesin:</b> tidak ada pemetaan per layer untuk mesin. <b>Hitam</b> = Potong (Cut), <b>Biru</b> = Engrave, <b>Merah</b> = Drill/Gores, <b>Hijau</b> = Mark / Garis bantu / Lembar nesting (tidak dipotong sebagai jalur cut utama).</li>
+            <li><b>Isi loop Gray &amp; Yellow:</b> klik di dalam loop lalu pilih <b>Gray</b> untuk menandai batas bahan/luar (semua di dalamnya ikut dibalik offset), atau <b>Yellow</b> untuk membalik arah offset satu kontur saja.</li>
+            <li><b>Mode F1 / F2 / F3:</b> <kbd>F1</kbd> menggeser objek utuh, <kbd>F2</kbd> (bawaan) mengedit titik/node, dan <kbd>F3</kbd> memilih titik pertemuan (<i>junction</i>).</li>
+          </ul>
 
-        <div class="screenshot-wrap">
-          <div class="screenshot">
-            <img src="img/screenshots/app-beranda.png" alt="Tampilan awal MiniSketch">
-            <figcaption>Tampilan awal: ribbon atas (File, Tool, tab Draw–KaryaCNC), kanvas kosong, panel kanan (AI Chat, Selection, Object Tree, Parts, Nesting, Extensions).</figcaption>
+          <div class="screenshot-wrap">
+            <div class="screenshot">
+              <img src="img/screenshots/app-beranda.png" alt="Tampilan awal MiniSketch">
+              <figcaption>Tampilan awal: ribbon atas (File, Tool, tab Draw–KaryaCNC), kanvas kosong, panel kanan (AI Chat, Selection, Object Tree, Parts, Nesting, Extensions).</figcaption>
+            </div>
+            <div class="screenshot">
+              <img src="img/screenshots/draw-contoh.png" alt="Contoh menggambar kotak dan garis">
+              <figcaption>Contoh menggambar: alat Line aktif menggambar garis horizontal di bawah kotak.</figcaption>
+            </div>
           </div>
-          <div class="screenshot">
-            <img src="img/screenshots/draw-contoh.png" alt="Contoh menggambar kotak dan garis">
-            <figcaption>Contoh menggambar: alat Line aktif menggambar garis horizontal di bawah kotak.</figcaption>
+
+          <h2>2. Semua fitur secara singkat</h2>
+          <p>Setiap kartu di bawah membuka halaman penjelasan detail per fitur.</p>
+          <div class="feature-grid">
+            <a href="draw.html" class="feature-card">
+              <span class="card-icon">✏️</span>
+              <h3>Draw — Menggambar</h3>
+              <p>Garis, kurva Bézier, busur, lingkaran, kotak, poligon/bintang, teks, potong dan pisah.</p>
+            </a>
+            <a href="edit.html" class="feature-card">
+              <span class="card-icon">🛠️</span>
+              <h3>Edit — Mengubah Objek</h3>
+              <p>Transformasi, offset, geser, array, grup, boolean, join, fillet, bersihkan loop.</p>
+            </a>
+            <a href="arrange.html" class="feature-card">
+              <span class="card-icon">📐</span>
+              <h3>Arrange — Susun Objek</h3>
+              <p>Rata, tengah, distribusi, dan drag wall untuk nesting manual.</p>
+            </a>
+            <a href="constrain.html" class="feature-card">
+              <span class="card-icon">🔗</span>
+              <h3>Constrain — Batasan &amp; Dimensi</h3>
+              <p>Coincident, horizontal/vertikal, sejajar, tegak lurus, sama panjang, dimensi penggerak.</p>
+            </a>
+            <a href="tools.html" class="feature-card">
+              <span class="card-icon">🧰</span>
+              <h3>Tools — 13 Generator &amp; Clone</h3>
+              <p>Box maker, Hinge/Slide/Pull top, Gear, Slot, Flex pattern, Extrude wall, Spiral, Text weld, Array/Clone.</p>
+            </a>
+            <a href="extensions.html" class="feature-card">
+              <span class="card-icon">🔌</span>
+              <h3>Extensions &amp; Marketplace</h3>
+              <p>Kelola alat bawaan &amp; custom, pasang dari Marketplace, editor ber-syntax highlight, cek update, dan publish.</p>
+            </a>
+            <a href="parts.html" class="feature-card">
+              <span class="card-icon">🧩</span>
+              <h3>Parts — Part &amp; Assembly</h3>
+              <p>Buat part kaku dan gabungkan dengan mate (pin, slider, string, arc).</p>
+            </a>
+            <a href="karyacnc.html" class="feature-card">
+              <span class="card-icon">🖥️</span>
+              <h3>KaryaCNC — Kirim ke Mesin</h3>
+              <p>Dialog kirim, estimasi biaya, dan warna operasi (hitam potong, merah gores, dll).</p>
+            </a>
+            <a href="files.html" class="feature-card">
+              <span class="card-icon">📁</span>
+              <h3>Berkas — Open / Import / Save / Export</h3>
+              <p>Buka <code>.sketch</code> / <code>.json</code>, impor gabung, simpan, ekspor SVG, &amp; Cloud Sync.</p>
+            </a>
+            <a href="import.html" class="feature-card">
+              <span class="card-icon">📥</span>
+              <h3>Import — SVG / PDF / CDR / DXF</h3>
+              <p>Impor file vektor dengan pengaturan grup, warna, teks, dan clipping path.</p>
+            </a>
+            <a href="text.html" class="feature-card">
+              <span class="card-icon">🔤</span>
+              <h3>Teks &amp; Font</h3>
+              <p>Objek teks, font single-line / system / imported, ukuran, jarak huruf, dan fit ke kurva.</p>
+            </a>
+            <a href="trace.html" class="feature-card">
+              <span class="card-icon">🖼️</span>
+              <h3>Image Trace — Jejak Gambar</h3>
+              <p>Jejakkan gambar hasil paste atau seretan menjadi kurva yang bisa diedit.</p>
+            </a>
+            <a href="nesting.html" class="feature-card">
+              <span class="card-icon">🧮</span>
+              <h3>Nesting — Tata Letak Potongan</h3>
+              <p>Susun loop tertutup di lembar dengan algoritma genetika + NFP di browser.</p>
+            </a>
+            <a href="settings.html" class="feature-card">
+              <span class="card-icon">⚙️</span>
+              <h3>Settings — Pengaturan</h3>
+              <p>Renderer, Geometry, Comments, Curves, Text, Paste, CNC, dan AI chat.</p>
+            </a>
+            <a href="shortcuts.html" class="feature-card">
+              <span class="card-icon">⌨️</span>
+              <h3>Pintasan Keyboard</h3>
+              <p>Semua tombol pintas berkas, alat, edit, constraint, tampilan, dan mesin.</p>
+            </a>
+            <a href="ai.html" class="feature-card">
+              <span class="card-icon">✨</span>
+              <h3>AI Chat (SVG &amp; Extension)</h3>
+              <p>Buat desain vektor SVG atau bangun ekstensi alat CNC custom dengan panel testing permanen &amp; Vision.</p>
+            </a>
+          </div>
+
+          <h2>3. Tentang aplikasi ini</h2>
+          <ul>
+            <li><b>Constraint solver nyata</b> — coincidance, horizontal/vertikal, midpoint/on-line, perpendicular, parallel, angle, aspect; tiga mode solve (saat dilepas, live saat drag, manual <kbd>F9</kbd>).</li>
+            <li><b>Boolean eksak pada Bézier asli</b> — union / intersect / subtract dijalankan pada geometri kubik asli, kurva tetap kurva (tidak disegi poligon).</li>
+            <li><b>Tiga belas alat generator parametrik</b> — kotak, gear, finger joint, living hinge, spiral, slot, dan lain-lain. Double-click hasil untuk membuka dialog parameternya kembali dan rebuild di tempat.</li>
+            <li><b>Nesting dan image tracing bawaan</b> — mesin nest GA + NFP lokal (port KaryaCNC nestjs2) dan tracer raster→kurva dengan pengaturan yang bisa dibuka kembali.</li>
+            <li><b>Dua bahasa, satu saklar</b> — File → Lang: English / Indonesia menuliskan ulang antarmuka, panel AI, dan dokumentasi ini.</li>
+            <li><b>Local-first dan pribadi</b> — autosave ke browser (dengan crash-recovery <code>.bak</code>), simpan JSON <code>.sketch</code> yang dapat dibaca, ekspor SVG, dan sinkronisasi cloud opsional lewat akun Google. AI chat adalah bring-your-own-key; tidak ada kunci yang dikirim bersama repositori.</li>
+            <li><b>Zero build</b> — tag <code>&lt;script&gt;</code> biasa, berkas statis, bekerja langsung dari disk.</li>
+          </ul>
+
+          <div class="callout tip"><b>Butuh ilustrasi?</b> Setiap halaman fitur dilengkapi screenshot langsung dari aplikasi. Jika ingin mencoba aplikasi itu sendiri, buka <a href="../index.html" target="_blank" rel="noopener">MiniSketch App</a> (atau <code>http://127.0.0.1:8090/index.html</code> saat server berjalan).</div>
+
+          <div class="help-footer">
+            <span>MiniSketch Help — dokumentasi fitur lengkap</span>
+            <span>Ketik kata kunci di kotak pencarian di atas untuk mencari topik.</span>
           </div>
         </div>
 
-        <!-- Feature grid -->
-        <h2>2. Semua fitur secara singkat</h2>
-        <p>Setiap kartu di bawah membuka halaman penjelasan detail per fitur.</p>
-        <div class="feature-grid">
-          <a href="draw.html" class="feature-card">
-            <span class="card-icon">✏️</span>
-            <h3>Draw — Menggambar</h3>
-            <p>Garis, kurva Bézier, busur, lingkaran, kotak, poligon/bintang, teks, potong dan pisah.</p>
-          </a>
-          <a href="edit.html" class="feature-card">
-            <span class="card-icon">🛠️</span>
-            <h3>Edit — Mengubah Objek</h3>
-            <p>Transformasi, offset, geser, array, grup, boolean, join, fillet, bersihkan loop.</p>
-          </a>
-          <a href="arrange.html" class="feature-card">
-            <span class="card-icon">📐</span>
-            <h3>Arrange — Susun Objek</h3>
-            <p>Rata, tengah, distribusi, dan drag wall untuk nesting manual.</p>
-          </a>
-          <a href="constrain.html" class="feature-card">
-            <span class="card-icon">🔗</span>
-            <h3>Constrain — Batasan &amp; Dimensi</h3>
-            <p>Coincident, horizontal/vertikal, sejajar, tegak lurus, sama panjang, dimensi penggerak.</p>
-          </a>
-          <a href="tools.html" class="feature-card">
-            <span class="card-icon">🧰</span>
-            <h3>Tools — 13 Generator &amp; Clone</h3>
-            <p>Box maker, Hinge/Slide/Pull top, Gear, Slot, Flex pattern, Extrude wall, Spiral, Text weld, Array/Clone.</p>
-          </a>
-          <a href="extensions.html" class="feature-card">
-            <span class="card-icon">🔌</span>
-            <h3>Extensions &amp; Marketplace</h3>
-            <p>Kelola alat bawaan &amp; custom, pasang dari Marketplace, editor ber-syntax highlight, cek update, dan publish.</p>
-          </a>
-          <a href="parts.html" class="feature-card">
-            <span class="card-icon">🧩</span>
-            <h3>Parts — Part &amp; Assembly</h3>
-            <p>Buat part kaku dan gabungkan dengan mate (pin, slider, string, arc).</p>
-          </a>
-          <a href="karyacnc.html" class="feature-card">
-            <span class="card-icon">🖥️</span>
-            <h3>KaryaCNC — Kirim ke Mesin</h3>
-            <p>Dialog kirim, estimasi biaya, dan warna operasi (hitam potong, merah gores, dll).</p>
-          </a>
-          <a href="files.html" class="feature-card">
-            <span class="card-icon">📁</span>
-            <h3>Berkas — Open / Import / Save / Export</h3>
-            <p>Buka <code>.sketch</code> / <code>.json</code>, impor gabung, simpan, ekspor SVG.</p>
-          </a>
-          <a href="import.html" class="feature-card">
-            <span class="card-icon">📥</span>
-            <h3>Import — SVG / PDF / CDR / DXF</h3>
-            <p>Impor file vektor dengan pengaturan grup, warna, teks, dan clipping path.</p>
-          </a>
-          <a href="text.html" class="feature-card">
-            <span class="card-icon">🔤</span>
-            <h3>Teks &amp; Font</h3>
-            <p>Objek teks, font single-line / system / imported, ukuran, jarak huruf, dan fit ke kurva.</p>
-          </a>
-          <a href="trace.html" class="feature-card">
-            <span class="card-icon">🖼️</span>
-            <h3>Image Trace — Jejak Gambar</h3>
-            <p>Jejakkan gambar hasil paste atau seretan menjadi kurva yang bisa diedit.</p>
-          </a>
-          <a href="nesting.html" class="feature-card">
-            <span class="card-icon">🧮</span>
-            <h3>Nesting — Tata Letak Potongan</h3>
-            <p>Susun loop tertutup di lembar dengan algoritma genetika + NFP di browser.</p>
-          </a>
-          <a href="settings.html" class="feature-card">
-            <span class="card-icon">⚙️</span>
-            <h3>Settings — Pengaturan</h3>
-            <p>Renderer, Geometry, Comments, Curves, Text, Paste, CNC, dan AI chat.</p>
-          </a>
-          <a href="shortcuts.html" class="feature-card">
-            <span class="card-icon">⌨️</span>
-            <h3>Pintasan Keyboard</h3>
-            <p>Semua tombol pintas berkas, alat, edit, constraint, tampilan, dan mesin.</p>
-          </a>
-          <a href="ai.html" class="feature-card">
-            <span class="card-icon">✨</span>
-            <h3>AI Chat (SVG &amp; Extension)</h3>
-            <p>Buat desain vektor SVG atau bangun ekstensi alat CNC custom dengan panel testing permanen &amp; Vision.</p>
-          </a>
-        </div>
+        <div data-lang="en">
+          <div class="breadcrumb"><a href="index.html">Home</a></div>
 
-        <!-- Bahan teknis singkat -->
-        <h2>3. Tentang aplikasi ini</h2>
-        <ul>
-          <li><b>Constraint solver nyata</b> — coincidance, horizontal/vertikal, midpoint/on-line, perpendicular, parallel, angle, aspect; tiga mode solve (saat dilepas, live saat drag, manual <kbd>F9</kbd>).</li>
-          <li><b>Boolean eksak pada Bézier asli</b> — union / intersect / subtract dijalankan pada geometri kubik asli, kurva tetap kurva (tidak disegi poligon).</li>
-          <li><b>Tiga belas alat generator parametrik</b> — kotak, gear, finger joint, living hinge, spiral, slot, dan lain-lain. Double-click hasil untuk membuka dialog parameternya kembali dan rebuild di tempat.</li>
-          <li><b>Nesting dan image tracing bawaan</b> — mesin nest GA + NFP lokal (port KaryaCNC nestjs2) dan tracer raster→kurva dengan pengaturan yang bisa dibuka kembali.</li>
-          <li><b>Dua bahasa, satu saklar</b> — File → Lang: English / Indonesia menuliskan ulang panduan dan Help.</li>
-          <li><b>Local-first dan pribadi</b> — autosave ke browser (dengan crash-recovery <code>.bak</code>), simpan JSON <code>.sketch</code> yang dapat dibaca, ekspor SVG, dan <kbd>Ctrl+C</kbd> / <kbd>Ctrl+Shift+C</kbd> menyalin ke clipboard dalam tiga bentuk sekaligus. AI chat adalah bring-your-own-key; tidak ada kunci yang dikirim bersama repositori.</li>
-          <li><b>Zero build</b> — tag <code>&lt;script&gt;</code> biasa, berkas statis, bekerja langsung dari disk.</li>
-        </ul>
+          <h1>Welcome to MiniSketch Help</h1>
+          <p class="help-lead">MiniSketch is a browser-based <b>2D constraint sketcher</b> with zero installation and no build step. Draw in real millimeters, add geometric constraints, build parametric CNC parts, nest loops onto sheets, and send jobs straight to KaryaCNC — all in one tab.</p>
 
-        <div class="callout tip"><b>Butuh ilustrasi?</b> Setiap halaman fitur dilengkapi screenshot langsung dari aplikasi. Jika ingin mencoba aplikasi itu sendiri, buka <a href="../index.html" target="_blank" rel="noopener">MiniSketch App</a> (atau <code>http://127.0.0.1:8090/index.html</code> saat server berjalan).</div>
+          <div class="callout info"><b>Most useful shortcut:</b> press <kbd>?</kbd> inside the app to open the built-in quick Help window (English / Indonesian). This web documentation provides the full feature-by-feature reference.</div>
 
-        <div class="help-footer">
-          <span>MiniSketch Help — dokumentasi fitur lengkap</span>
-          <span>Ketik kata kunci di kotak pencarian di atas untuk mencari topik.</span>
+          <h2>1. Quick Start</h2>
+          <ol>
+            <li>Open MiniSketch via the local server (<code>http://127.0.0.1:8090</code> using <code>node server/serve.js</code>) to enable AI Chat and the local KaryaCNC WebSocket bridge, or open directly from disk (<code>file://</code>) for offline sketching.</li>
+            <li>A dark empty sheet appears. The top ribbon holds the <b>File</b> and <b>Tool</b> menus plus workflow tabs: Draw, Edit, Arrange, Parts, Constrain, and KaryaCNC.</li>
+            <li>Pick a drawing tool on the <b>Draw</b> tab (e.g. <kbd>Shift+B</kbd> line, <kbd>B</kbd> curve, <kbd>E</kbd> circle, <kbd>R</kbd> box, <kbd>T</kbd> text) and click on the canvas.</li>
+            <li>Set exact sizes via the floating <b>L / T / W / H</b> strip above the canvas or add dimensions (<kbd>D</kbd>), then press <kbd>F9</kbd> when using manual solver mode.</li>
+            <li>Save your project as a <code>.sketch</code> file with <kbd>Ctrl+S</kbd> (or <kbd>Ctrl+Shift+S</kbd> to save a new copy). Edits are also autosaved locally in your browser.</li>
+          </ol>
+
+          <h2 data-anchor="pemula">1B. Core CNC Concepts for Beginners</h2>
+          <p>Before cutting or nesting parts, keep these four MiniSketch rules in mind:</p>
+          <ul>
+            <li><b>Closed loops vs. open paths:</b> shapes whose endpoints join seamlessly (boxes, circles, or closed line chains) are automatically detected as <b>closed loops</b> with a subtle interior fill. Nesting, Booleans, and <i>Extrude wall</i> require closed loops. If a connected shape does not show a fill, select it and run <b>Cleanup loops</b> (<kbd>Shift+L</kbd>) or <b>Weld</b> (<kbd>Alt+W</kbd>).</li>
+            <li><b>Stroke color = machine operation:</b> colors map directly to CNC operations rather than layers. <b>Black</b> = Cut, <b>Blue</b> = Engrave, <b>Red</b> = Drill/Score, <b>Green</b> = Mark / Construction guide / Nesting sheet (not cut as a main pass).</li>
+            <li><b>Gray &amp; Yellow loop fills:</b> click inside a closed loop and choose <b>Gray</b> to mark an outer material boundary (inner cuts flip offset direction automatically), or <b>Yellow</b> to invert offset direction on a single contour.</li>
+            <li><b>F1 / F2 / F3 selection modes:</b> <kbd>F1</kbd> drags whole objects, <kbd>F2</kbd> (default) edits points/nodes, and <kbd>F3</kbd> picks junctions.</li>
+          </ul>
+
+          <div class="screenshot-wrap">
+            <div class="screenshot">
+              <img src="img/screenshots/app-beranda.png" alt="MiniSketch workspace overview">
+              <figcaption>Initial workspace: top ribbon (File, Tool, Draw–KaryaCNC tabs), blank canvas, and right sidebar (AI Chat, Selection, Object Tree, Parts, Nesting, Extensions).</figcaption>
+            </div>
+            <div class="screenshot">
+              <img src="img/screenshots/draw-contoh.png" alt="Drawing a box and line example">
+              <figcaption>Drawing example: Line tool snapping horizontally beneath an existing rectangle.</figcaption>
+            </div>
+          </div>
+
+          <h2>2. Features at a Glance</h2>
+          <p>Click any card below to open its dedicated feature guide.</p>
+          <div class="feature-grid">
+            <a href="draw.html" class="feature-card">
+              <span class="card-icon">✏️</span>
+              <h3>Draw — Sketching Tools</h3>
+              <p>Lines, Bézier curves, arcs, circles, boxes, polygons/stars, text, trim, and separate.</p>
+            </a>
+            <a href="edit.html" class="feature-card">
+              <span class="card-icon">🛠️</span>
+              <h3>Edit — Modify Objects</h3>
+              <p>Transform, offset, move, array, group, exact booleans, join, fillet, and cleanup.</p>
+            </a>
+            <a href="arrange.html" class="feature-card">
+              <span class="card-icon">📐</span>
+              <h3>Arrange — Align &amp; Layout</h3>
+              <p>Align, center, distribute spacing, Insert into green sheet, and Drag wall manual nesting.</p>
+            </a>
+            <a href="constrain.html" class="feature-card">
+              <span class="card-icon">🔗</span>
+              <h3>Constrain — Constraints &amp; Dim.</h3>
+              <p>Coincident, horizontal/vertical, parallel, perpendicular, equal, and driving dimensions.</p>
+            </a>
+            <a href="tools.html" class="feature-card">
+              <span class="card-icon">🧰</span>
+              <h3>Tools — 13 Generators &amp; Clone</h3>
+              <p>Box maker, Hinge/Slide/Pull top, Gear, Slot, Flex pattern, Extrude wall, Spiral, Text weld, Array/Clone.</p>
+            </a>
+            <a href="extensions.html" class="feature-card">
+              <span class="card-icon">🔌</span>
+              <h3>Extensions &amp; Marketplace</h3>
+              <p>Manage built-in &amp; custom tools, browse Marketplace, edit with syntax highlighting, check updates, and publish.</p>
+            </a>
+            <a href="parts.html" class="feature-card">
+              <span class="card-icon">🧩</span>
+              <h3>Parts — Rigid Parts &amp; Assembly</h3>
+              <p>Freeze geometry into rigid parts and connect mechanisms with mates (pin, slider, string, arc).</p>
+            </a>
+            <a href="karyacnc.html" class="feature-card">
+              <span class="card-icon">🖥️</span>
+              <h3>KaryaCNC — Send to Machine</h3>
+              <p>Send dialog, cutting cost estimator, and machine operation stroke colors.</p>
+            </a>
+            <a href="files.html" class="feature-card">
+              <span class="card-icon">📁</span>
+              <h3>Files — Open / Save / Export</h3>
+              <p>Open <code>.sketch</code> / <code>.json</code>, merge imports, save locally, export SVG, and optional Cloud Sync.</p>
+            </a>
+            <a href="import.html" class="feature-card">
+              <span class="card-icon">📥</span>
+              <h3>Import — SVG / PDF / CDR / DXF</h3>
+              <p>Import vector files with group preservation, color mapping, text modes, and clipping paths.</p>
+            </a>
+            <a href="text.html" class="feature-card">
+              <span class="card-icon">🔤</span>
+              <h3>Text &amp; Fonts</h3>
+              <p>Text objects, single-line / system / imported fonts, tracking, outline detail, and curve fitting.</p>
+            </a>
+            <a href="trace.html" class="feature-card">
+              <span class="card-icon">🖼️</span>
+              <h3>Image Trace — Bitmap to Vector</h3>
+              <p>Trace pasted or dropped bitmap images into editable vector curves locally.</p>
+            </a>
+            <a href="nesting.html" class="feature-card">
+              <span class="card-icon">🧮</span>
+              <h3>Nesting — Sheet Packing</h3>
+              <p>Pack closed loops onto green sheets using local genetic algorithms + NFP.</p>
+            </a>
+            <a href="settings.html" class="feature-card">
+              <span class="card-icon">⚙️</span>
+              <h3>Settings — Preferences</h3>
+              <p>Renderer, Geometry tolerances, Comments, Curves, Text, Paste, CNC, and AI chat.</p>
+            </a>
+            <a href="shortcuts.html" class="feature-card">
+              <span class="card-icon">⌨️</span>
+              <h3>Keyboard Shortcuts</h3>
+              <p>Complete reference for file, drawing, editing, constraint, view, and machine hotkeys.</p>
+            </a>
+            <a href="ai.html" class="feature-card">
+              <span class="card-icon">✨</span>
+              <h3>AI Chat (SVG &amp; Extension)</h3>
+              <p>Generate CNC-ready SVG vectors or custom parametric Extensions with permanent testing panel &amp; Vision.</p>
+            </a>
+          </div>
+
+          <h2>3. About MiniSketch</h2>
+          <ul>
+            <li><b>Real constraint solver</b> — coincidence, horizontal/vertical, midpoint/on-line, perpendicular, parallel, angle, aspect; three solve modes (on release, live while dragging, or manual <kbd>F9</kbd>).</li>
+            <li><b>Exact Booleans on native Béziers</b> — union / intersect / cut operate directly on cubic curves so arcs stay smooth instead of flattening to polygons.</li>
+            <li><b>13 parametric generators</b> — boxes, gears, finger joints, living hinges, spirals, slots, and more. Double-click any generated result to reopen its parameter dialog and rebuild in place.</li>
+            <li><b>Built-in nesting &amp; image tracing</b> — local GA + NFP sheet packer and raster-to-curve tracer with editable parameters.</li>
+            <li><b>Dual language, one switch</b> — <b>File → Lang: English / Indonesia</b> switches the entire UI, AI panel, and this documentation seamlessly.</li>
+            <li><b>Local-first &amp; private</b> — browser autosave (with crash-recovery <code>.bak</code>), readable JSON <code>.sketch</code> files, SVG export, and optional Google Cloud Sync. AI chat is bring-your-own-key; no API keys ship with the repository.</li>
+            <li><b>Zero build</b> — plain static scripts that work directly from disk or localhost.</li>
+          </ul>
+
+          <div class="callout tip"><b>Need to try it live?</b> Open the <a href="../index.html" target="_blank" rel="noopener">MiniSketch App</a> (or <code>http://127.0.0.1:8090/index.html</code> when running the local server).</div>
+
+          <div class="help-footer">
+            <span>MiniSketch Help — complete feature documentation</span>
+            <span>Type a keyword in the search bar above to find any topic.</span>
+          </div>
         </div>
       </div>
     </main>

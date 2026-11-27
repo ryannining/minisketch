@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en" data-doc-lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Solver — Mode Penyelesaian | Bantuan MiniSketch</title>
+<title>Solver — Solve Modes | MiniSketch Help</title>
 <link rel="stylesheet" href="help.css">
+<script>try{var p=new URLSearchParams(location.search).get("lang"),l=(p==="en"||p==="id")?p:(localStorage.getItem("minisketch.help.lang")||"en");if(l!=="en"&&l!=="id")l="en";document.documentElement.dataset.docLang=l;document.documentElement.lang=l;}catch(e){}</script>
 </head>
 <body>
 <div class="help-shell">
@@ -14,18 +15,18 @@
     <div class="help-brand">
       <div class="help-mark">M</div>
       <div>
-        <div class="help-title">Solver — Mode Penyelesaian</div>
-        <div class="help-subtitle">On release, manual (F9), dan live — serta dimensi belum terpenuhi (amber)</div>
+        <div class="help-title">Solver — Solve Modes</div>
+        <div class="help-subtitle">On release, manual (F9), and live modes — plus unsatisfied (amber) dimensions</div>
       </div>
     </div>
     <div class="help-spacer"></div>
     <div class="help-search">
       <span class="search-icon" aria-hidden="true">&#128269;</span>
-      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
-      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+      <input id="help-search-input" type="text" placeholder="Search help topics…" autocomplete="off" spellcheck="false" aria-label="Search help topics">
+      <button class="clear-btn" id="help-search-clear" title="Clear search" aria-hidden="true">&#215;</button>
     </div>
-    <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
-    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+    <div id="help-search-results" style="display:none;"></div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">No matching topics.</div>
   </header>
 
   <div class="help-body">
@@ -72,56 +73,112 @@
 
     <main class="help-content">
       <div class="help-page">
-        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Solver — Mode Penyelesaian</div>
+        <div data-lang="id">
+          <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Solver — Mode Penyelesaian</div>
 
-        <h1>Solver — Mode Penyelesaian</h1>
-        <p class="help-lead">Solver adalah mesin yang menerapkan dimensi penggerak dan constraint ke geometri. Ada tiga mode yang bisa diubah melalui chip solver di baris status ribbon.</p>
+          <h1>Solver — Mode Penyelesaian</h1>
+          <p class="help-lead">Solver adalah mesin yang menerapkan dimensi penggerak dan constraint ke geometri. Ada tiga mode yang bisa diubah melalui chip solver di baris status ribbon.</p>
 
-        <div class="screenshot">
-          <img src="img/screenshots/status-solver.png" alt="Chip solver di baris status ribbon">
-          <figcaption>Chip solver di baris status ribbon menampilkan mode aktif: "unsolved · F9 · release" (amber saat ada dimensi belum terpenuhi). Klik chip untuk mengganti mode release → manual → live.</figcaption>
+          <div class="screenshot">
+            <img src="img/screenshots/status-solver.png" alt="Chip solver di baris status ribbon">
+            <figcaption>Chip solver di baris status ribbon menampilkan mode aktif: "unsolved · F9 · release" (amber saat ada dimensi belum terpenuhi). Klik chip untuk mengganti mode release → manual → live.</figcaption>
+          </div>
+
+          <h2>1. Tiga mode solver</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:22%">Mode</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><b>On release</b> (default)</td><td>Drag tidak memicu solve. Satu solve dijalankan saat mouse dilepas (dan hanya jika objek yang disentuh benar-benar terhubung constraint aktif). Mengedit tetap ringan walau geometri banyak.</td></tr>
+              <tr><td><b>Manual</b></td><td>Hanya <kbd>F9</kbd> yang menjalankan solve. Cocok untuk nesting manual atau saat ingin mengontrol kapan geometri diselesaikan.</td></tr>
+              <tr><td><b>Live</b></td><td>Solve setiap gerakan (perilaku lama). Lebih responsif tapi lebih berat pada file besar.</td></tr>
+            </tbody>
+          </table>
+          <div class="callout info"><kbd>F9</kbd> selalu solve segera, apa pun mode yang dipilih.</div>
+
+          <h2>2. Mengubah mode</h2>
+          <ol>
+            <li>Klik chip <b>solver</b> di baris status ribbon (status tulisan "solver idle" / "solver ok").</li>
+            <li>Pilih mode: on release → manual → live.</li>
+            <li>Mode baru langsung berlaku.</li>
+          </ol>
+
+          <h2>3. Dimensi belum terpenuhi (amber)</h2>
+          <p>Dimensi penggerak yang nilainya belum terpenuhi oleh geometri saat ini digambar dengan <b>warna amber</b>. Jendela KaryaCNC juga memperingatkan sebelum mengirim jika ada dimensi amber.</p>
+          <ul>
+            <li>Tekan <kbd>F9</kbd> untuk menyelesaikan sketsa setelah mengubah dimensi.</li>
+            <li>Pilih dimensi lalu tekan <kbd>Enter</kbd> untuk mengedit nilainya.</li>
+            <li>Tekan <kbd>Shift+D</kbd> pada dimensi untuk berpindah antara penggerak dan referensi.</li>
+          </ul>
+
+          <div class="callout warn"><b>Sebaiknya:</b> gunakan mode On release saat menggambar banyak geometri, lalu tekan <kbd>F9</kbd> sekali selesai. Hindari mode Live pada file besar karena solve berulang akan menguras performa.</div>
+
+          <h2>4. Hubungan dengan fitur lain</h2>
+          <ul>
+            <li><b>Drag wall (W):</b> gunakan mode Release/Manual untuk nesting yang tepat, karena drag dengan live-solve dapat merusak cached wall.</li>
+            <li><b>Constraint:</b> sebelum constraint dipasang, sketsa diperiksa (duplikasi atau kontradiksi ditolak).</li>
+            <li><b>Auto solve (Settings ▸ Geometry):</b> jika nyala, drag menjalankan solve penuh secara teratur tanpa menunggu mouse dilepas.</li>
+          </ul>
+
+          <div class="help-footer">
+            <span>Solver — Mode Penyelesaian</span>
+            <span>Sebelumnya: <a href="settings.html">Settings — Pengaturan</a> &nbsp;•&nbsp; Selanjutnya: <a href="shortcuts.html">Pintasan Keyboard Lengkap</a></span>
+          </div>
         </div>
 
-        <h2>1. Tiga mode solver</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:22%">Mode</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td><b>On release</b> (default)</td><td>Drag tidak memicu solve. Satu solve dijalankan saat mouse dilepas. Mengedit tetap ringan walau geometri banyak.</td></tr>
-            <tr><td><b>Manual</b></td><td>Hanya <kbd>F9</kbd> yang menjalankan solve. Cocok untuk nesting manual atau saat ingin mengontrol kapan geometri diselesaikan.</td></tr>
-            <tr><td><b>Live</b></td><td>Solve setiap gerakan (perilaku lama). Lebih responsif tapi lebih berat pada file besar.</td></tr>
-          </tbody>
-        </table>
-        <div class="callout info"><kbd>F9</kbd> selalu solve segera, apa pun mode yang dipilih.</div>
+        <div data-lang="en">
+          <div class="breadcrumb"><a href="index.html">Home</a> <span class="sep">&#8250;</span> Solver — Solve Modes</div>
 
-        <h2>2. Mengubah mode</h2>
-        <ol>
-          <li>Klik chip <b>solver</b> di baris status ribbon (status tulisan "solver idle" / "solver ok").</li>
-          <li>Pilih mode: on release → manual → live.</li>
-          <li>Mode baru langsung berlaku.</li>
-        </ol>
+          <h1>Solver — Solve Modes</h1>
+          <p class="help-lead">The geometric solver applies driving dimensions and constraints to your geometry. Switch between its three modes using the solver status chip in the ribbon bar.</p>
 
-        <h2>3. Dimensi belum terpenuhi (amber)</h2>
-        <p>Dimensi penggerak yang nilainya belum terpenuhi oleh geometri saat ini digambar dengan <b>warna amber</b>. Jendela KaryaCNC juga memperingatkan sebelum mengirim jika ada dimensi amber.</p>
-        <ul>
-          <li>Tekan <kbd>F9</kbd> untuk menyelesaikan sketsa setelah mengubah dimensi.</li>
-          <li>Pilih dimensi lalu tekan <kbd>Enter</kbd> untuk mengedit nilainya.</li>
-          <li>Tekan <kbd>Shift+D</kbd> pada dimensi untuk berpindah antara penggerak dan referensi.</li>
-        </ul>
+          <div class="screenshot">
+            <img src="img/screenshots/status-solver.png" alt="Solver chip in the ribbon status bar">
+            <figcaption>Solver status chip in the ribbon: shows the active mode ("unsolved · F9 · release", highlighted amber when constraints need solving). Click the chip to cycle release → manual → live.</figcaption>
+          </div>
 
-        <div class="callout warn"><b>Sebaiknya:</b> gunakan mode On release saat menggambar banyak geometri, lalu tekan <kbd>F9</kbd> sekali selesai. Hindari mode Live pada file besar karena solve berulang akan menguras performa.</div>
+          <h2>1. Three solver modes</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:22%">Mode</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><b>On release</b> (default)</td><td>Dragging does not trigger live solves; one focused solve runs on mouse release only if constrained geometry was moved, keeping large sketches snappy.</td></tr>
+              <tr><td><b>Manual</b></td><td>Only <kbd>F9</kbd> solves constraints. Best for manual nesting or when you want complete control over when geometry updates.</td></tr>
+              <tr><td><b>Live</b></td><td>Continuously solves every pointer move during drag. Immediate feedback, though heavier on large files.</td></tr>
+            </tbody>
+          </table>
+          <div class="callout info"><kbd>F9</kbd> always triggers an immediate full solve regardless of the selected mode.</div>
 
-        <h2>4. Hubungan dengan fitur lain</h2>
-        <ul>
-          <li><b>Drag wall (W):</b> gunakan mode Release/Manual untuk nesting yang tepat, karena drag dengan live-solve dapat merusak cached wall.</li>
-          <li><b>Constraint:</b> sebelum constraint dipasang, sketsa diperiksa (duplikasi atau kontradiksi ditolak).</li>
-          <li><b>Auto solve (Settings ▸ Geometry):</b> jika nyala, drag menjalankan solve penuh secara teratur tanpa menunggu mouse dilepas.</li>
-        </ul>
+          <h2>2. Changing modes</h2>
+          <ol>
+            <li>Click the <b>solver</b> chip in the ribbon status bar ("solver idle" / "solver ok").</li>
+            <li>Cycle between on release → manual → live.</li>
+            <li>The selected mode takes effect immediately.</li>
+          </ol>
 
-        <div class="help-footer">
-          <span>Solver — Mode Penyelesaian</span>
-          <span>Sebelumnya: <a href="settings.html">Settings — Pengaturan</a> &nbsp;•&nbsp; Selanjutnya: <a href="shortcuts.html">Pintasan Keyboard Lengkap</a></span>
+          <h2>3. Unsatisfied dimensions (amber)</h2>
+          <p>Driving dimensions that do not yet match their target value are rendered in <b>amber</b>. KaryaCNC export warns if any amber dimensions remain unresolved.</p>
+          <ul>
+            <li>Press <kbd>F9</kbd> to solve after editing dimension values.</li>
+            <li>Select a dimension and press <kbd>Enter</kbd> to change its value.</li>
+            <li>Press <kbd>Shift+D</kbd> on a selected dimension to toggle between driving and reference mode.</li>
+          </ul>
+
+          <div class="callout warn"><b>Tip:</b> stay on On release while sketching complex parts and hit <kbd>F9</kbd> when finished. Avoid Live mode on heavy imports.</div>
+
+          <h2>4. Interaction with other tools</h2>
+          <ul>
+            <li><b>Drag wall (W):</b> use Release or Manual mode so live solving never invalidates cached collision walls mid-drag.</li>
+            <li><b>Constraints:</b> duplicate or contradictory constraints are checked and rejected before insertion.</li>
+            <li><b>Auto solve (Settings ▸ Geometry):</b> periodically solves while dragging when explicitly turned on.</li>
+          </ul>
+
+          <div class="help-footer">
+            <span>Solver — Solve Modes</span>
+            <span>Previous: <a href="settings.html">Settings — Preferences</a> &nbsp;•&nbsp; Next: <a href="shortcuts.html">Complete Keyboard Shortcuts</a></span>
+          </div>
         </div>
       </div>
     </main>

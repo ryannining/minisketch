@@ -947,7 +947,11 @@
       nameSpan.textContent = item.name || item.label || item.id;
       const metaSpan = document.createElement('span');
       metaSpan.className = 'ext-meta';
-      metaSpan.textContent = 'v' + (item.version || '1.0.0') + ' · by ' + (item.author || 'Community') + ' · ' + (item.category || 'CNC Utility');
+      const cloudStatus = (window.MiniSketchCloud && window.MiniSketchCloud.getStatus) ? window.MiniSketchCloud.getStatus() : null;
+      const isCloudItem = item.sourceType === 'cloud';
+      const isCloudOwner = !!(isCloudItem && cloudStatus && cloudStatus.user && item.authorUid && item.authorUid === cloudStatus.user.uid);
+      const srcTag = isCloudItem ? (isCloudOwner ? ' · Cloud (Yours)' : ' · Cloud') : '';
+      metaSpan.textContent = 'v' + (item.version || '1.0.0') + ' · by ' + (item.author || 'Community') + ' · ' + (item.category || 'CNC Utility') + srcTag;
       titleLine.appendChild(iconSpan);
       titleLine.appendChild(nameSpan);
       titleLine.appendChild(metaSpan);
@@ -984,6 +988,42 @@
       testBtn.addEventListener('click', () => previewMarketplaceItem(item, testBtn));
       actions.appendChild(testBtn);
 
+      if (isCloudOwner) {
+        const editPubBtn = document.createElement('button');
+        editPubBtn.type = 'button';
+        editPubBtn.className = 'btn small';
+        editPubBtn.textContent = 'Edit';
+        editPubBtn.title = 'Update your published Cloud extension';
+        editPubBtn.addEventListener('click', () => {
+          if (el('ext-pub-target')) {
+            el('ext-pub-target').value = 'cloud';
+            syncPublishTargetUI();
+          }
+          NS.openPublish(item, item.code || '');
+        });
+        actions.appendChild(editPubBtn);
+
+        const delPubBtn = document.createElement('button');
+        delPubBtn.type = 'button';
+        delPubBtn.className = 'btn small danger';
+        delPubBtn.textContent = 'Delete';
+        delPubBtn.title = 'Remove your extension from Cloud Community Marketplace';
+        delPubBtn.addEventListener('click', async () => {
+          const ok = window.uiConfirm
+            ? await window.uiConfirm('Remove "' + (item.name || item.id) + '" from Cloud Community Marketplace?', { danger: true })
+            : true;
+          if (!ok) return;
+          const res = await window.MiniSketchCloud.deleteMarketplace(item.id);
+          if (res && res.ok) {
+            setStatus('ext-mkt-status', 'Removed "' + item.id + '" from Cloud Marketplace.', 'ok');
+            refreshMarketplace();
+          } else {
+            setStatus('ext-mkt-status', 'Delete failed: ' + ((res && res.error) || 'permission denied'), 'err');
+          }
+        });
+        actions.appendChild(delPubBtn);
+      }
+
       row.appendChild(main);
       row.appendChild(actions);
       listEl.appendChild(row);
@@ -1004,41 +1044,74 @@
     const customUrl = String((urlInput && urlInput.value) || '').trim();
     const primaryUrl = customUrl || defaultMarketplaceUrl();
     lsSet(MKT_URL_KEY, customUrl || primaryUrl);
+    if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) {
+      window.MiniSketchCloud.scheduleSync('prefs');
+    }
 
     mktLoading = true;
     mktError = '';
     renderMarketplace();
     setStatus('ext-mkt-status', 'Fetching catalog…', '');
 
-    try {
-      let usedUrl = primaryUrl;
-      let list = null;
+    let cloudList = [];
+    if (window.MiniSketchCloud && window.MiniSketchCloud.listMarketplace) {
       try {
-        list = await fetchCatalogJson(primaryUrl);
+        cloudList = await window.MiniSketchCloud.listMarketplace();
       } catch (err) {
-        // Fallback to static catalog.json if default API endpoint isn't mounted (e.g. GitHub Pages)
+        cloudList = [];
+      }
+    }
+
+    let usedUrl = primaryUrl;
+    let httpList = null;
+    let httpErr = null;
+    try {
+      try {
+        httpList = await fetchCatalogJson(primaryUrl);
+      } catch (err) {
         if (primaryUrl === 'api/marketplace/catalog') {
           usedUrl = 'marketplace/catalog.json';
-          list = await fetchCatalogJson(usedUrl);
+          httpList = await fetchCatalogJson(usedUrl);
         } else {
           throw err;
         }
       }
-      mktItems = list.filter(x => x && x.id && x.scriptUrl);
-      mktSourceResolved = usedUrl;
-      mktLoading = false;
-      setStatus('ext-mkt-status', mktItems.length + ' extension(s) available · ' + usedUrl, 'ok');
-      renderMarketplace();
     } catch (err) {
-      mktLoading = false;
-      mktItems = [];
-      mktError = 'Cannot load catalog from "' + primaryUrl + '": ' + String(err && err.message || err) + '. Start "node server/serve.js" (port 8090) or paste a GitHub/jsDelivr catalog.json URL.';
+      httpErr = err;
+      httpList = [];
+    }
+
+    const byId = new Map();
+    for (const x of (httpList || [])) {
+      if (x && x.id && (x.scriptUrl || x.code)) byId.set(x.id, x);
+    }
+    for (const c of (cloudList || [])) {
+      if (c && c.id && c.code) byId.set(c.id, c);
+    }
+
+    mktItems = [...byId.values()];
+    mktSourceResolved = usedUrl;
+    mktLoading = false;
+
+    if (mktItems.length || !httpErr) {
+      const srcNote = (cloudList.length && httpList.length)
+        ? ('Cloud (' + cloudList.length + ') + ' + usedUrl)
+        : cloudList.length
+          ? ('Cloud Community (' + cloudList.length + ')')
+          : usedUrl;
+      setStatus('ext-mkt-status', mktItems.length + ' extension(s) available · ' + srcNote, 'ok');
+      renderMarketplace();
+    } else {
+      mktError = 'Cannot load catalog from "' + primaryUrl + '": ' + String(httpErr && httpErr.message || httpErr) + '. Start "node server/serve.js" (port 8090), connect online for Cloud Community, or paste a GitHub/jsDelivr catalog.json URL.';
       setStatus('ext-mkt-status', 'Catalog unavailable', 'err');
       renderMarketplace();
     }
   }
 
   async function fetchMarketplaceScript(item) {
+    if (item && item.code) {
+      return { code: String(item.code), scriptUrl: '' };
+    }
     const scriptUrl = resolveUrl(item.scriptUrl, mktSourceResolved || defaultMarketplaceUrl());
     const res = await fetch(scriptUrl, { cache: 'no-cache' });
     if (!res.ok) throw new Error('Failed to fetch script (' + res.status + ')');
@@ -1357,13 +1430,82 @@
     return { id, name: name || id, label: name || id, version, author, category, description, code };
   }
 
+  function syncCloudPublishStatus() {
+    const infoEl = el('ext-pub-cloud-user');
+    const signInBtn = el('ext-pub-cloud-signin');
+    const sendBtn = el('ext-pub-send-cloud');
+    const st = (window.MiniSketchCloud && window.MiniSketchCloud.getStatus) ? window.MiniSketchCloud.getStatus() : null;
+    if (!st || !st.available) {
+      if (infoEl) infoEl.textContent = 'Offline / file:// mode — switch Target to Local Server or GitHub Repo.';
+      if (signInBtn) signInBtn.hidden = true;
+      if (sendBtn) sendBtn.disabled = true;
+      return;
+    }
+    if (!st.user) {
+      if (infoEl) infoEl.textContent = 'Sign in with Google to publish under your personal author ID (nobody else can overwrite your tools).';
+      if (signInBtn) signInBtn.hidden = false;
+      if (sendBtn) sendBtn.disabled = true;
+    } else {
+      if (infoEl) infoEl.textContent = 'Signed in as ' + (st.user.displayName || st.user.email || 'Google Account') + ' — ready to publish.';
+      if (signInBtn) signInBtn.hidden = true;
+      if (sendBtn) sendBtn.disabled = false;
+      const authorInp = el('ext-pub-author');
+      if (authorInp && (!authorInp.value || authorInp.value === 'Community' || authorInp.value === 'AI / Community' || authorInp.value === 'Local User')) {
+        authorInp.value = st.user.displayName || st.user.email || 'Community';
+      }
+    }
+  }
+
   function syncPublishTargetUI() {
-    const tgt = el('ext-pub-target') ? el('ext-pub-target').value : 'server';
+    const tgt = el('ext-pub-target') ? el('ext-pub-target').value : 'cloud';
+    const cloudBox = el('ext-pub-cloud-box');
     const srvBox = el('ext-pub-server-box');
     const ghBox = el('ext-pub-github-box');
+    if (cloudBox) cloudBox.hidden = tgt !== 'cloud';
     if (srvBox) srvBox.hidden = tgt !== 'server';
     if (ghBox) ghBox.hidden = tgt !== 'github';
+    if (tgt === 'cloud') {
+      syncCloudPublishStatus();
+      setStatus('ext-pub-status', '', '');
+    }
     if (tgt === 'server') checkServerHealth();
+  }
+
+  async function publishToCloud() {
+    const payload = readPublishForm();
+    const val = window.MiniSketchTools.validateExtensionCode(payload.code);
+    if (!val.ok) {
+      setStatus('ext-pub-status', 'Fix code errors first: ' + val.errors[0], 'err');
+      return;
+    }
+    if (!window.MiniSketchCloud || !window.MiniSketchCloud.publishMarketplace) {
+      setStatus('ext-pub-status', 'Cloud Marketplace module is unavailable.', 'err');
+      return;
+    }
+    const overwrite = !!(el('ext-pub-cloud-overwrite') && el('ext-pub-cloud-overwrite').checked);
+    setStatus('ext-pub-status', 'Publishing "' + payload.name + '" to Cloud Community…', '');
+    try {
+      const res = await window.MiniSketchCloud.publishMarketplace({
+        id: payload.id,
+        name: payload.name,
+        label: payload.label,
+        version: payload.version,
+        author: payload.author,
+        category: payload.category,
+        description: payload.description,
+        icon: (val.extracted && val.extracted.icon) || '',
+        code: payload.code
+      }, overwrite);
+      if (!res || !res.ok) {
+        setStatus('ext-pub-status', (res && res.error) || 'Publish failed.', 'err');
+        return;
+      }
+      setStatus('ext-pub-status', 'Published "' + payload.name + '" to Cloud Community Marketplace!', 'ok');
+      if (api && api.toast) api.toast('Published "' + payload.name + '" to Cloud Community');
+      mktItems = [];
+    } catch (err) {
+      setStatus('ext-pub-status', 'Publish failed: ' + String(err && err.message || err), 'err');
+    }
   }
 
   async function checkServerHealth() {
@@ -1639,6 +1781,7 @@
       autoChk.checked = isAutoUpdateEnabled();
       autoChk.addEventListener('change', () => {
         lsSet(AUTO_UPDATE_KEY, autoChk.checked ? '1' : '0');
+        if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) window.MiniSketchCloud.scheduleSync('prefs');
         if (autoChk.checked) NS.checkUpdates({ silent: false, autoApply: true });
       });
     }
@@ -1725,6 +1868,7 @@
       srvUrlEl.value = lsGet(SERVER_URL_KEY, '') || defaultServerUrl();
       srvUrlEl.addEventListener('change', () => {
         lsSet(SERVER_URL_KEY, srvUrlEl.value.trim());
+        if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) window.MiniSketchCloud.scheduleSync('prefs');
         checkServerHealth();
       });
     }
@@ -1742,6 +1886,22 @@
     if (pubTarget) {
       pubTarget.addEventListener('change', syncPublishTargetUI);
       syncPublishTargetUI();
+    }
+    const pubCloudSignIn = el('ext-pub-cloud-signin');
+    if (pubCloudSignIn) pubCloudSignIn.addEventListener('click', async () => {
+      if (window.MiniSketchCloud && window.MiniSketchCloud.signIn) {
+        await window.MiniSketchCloud.signIn();
+        syncCloudPublishStatus();
+      }
+    });
+    const pubCloudBtn = el('ext-pub-send-cloud');
+    if (pubCloudBtn) pubCloudBtn.addEventListener('click', publishToCloud);
+    if (window.MiniSketchCloud && window.MiniSketchCloud.onAuthChange) {
+      window.MiniSketchCloud.onAuthChange(() => {
+        syncCloudPublishStatus();
+        const modal = el('ext-modal');
+        if (modal && !modal.classList.contains('hidden') && activeTab === 'marketplace') renderMarketplace();
+      });
     }
     const pubAuto = el('ext-pub-autofill');
     if (pubAuto) pubAuto.addEventListener('click', () => {

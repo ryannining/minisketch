@@ -24,8 +24,35 @@
   const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (err) { /* private mode */ } };
   const lsDel = (k) => { try { localStorage.removeItem(k); } catch (err) { /* ignore */ } };
 
+  function curLang() {
+    try {
+      if (window.MiniSketchI18n && typeof window.MiniSketchI18n.getLang === 'function') {
+        return window.MiniSketchI18n.getLang() === 'id' ? 'id' : 'en';
+      }
+      const saved = lsGet('minisketch.help.lang');
+      if (saved === 'id' || saved === 'en') return saved;
+    } catch (err) { /* ignore */ }
+    return 'en';
+  }
+  function tr(key, fallback, vars) {
+    let out;
+    try {
+      if (window.MiniSketchI18n && typeof window.MiniSketchI18n.t === 'function') {
+        out = window.MiniSketchI18n.t(key, fallback, vars);
+      } else {
+        out = fallback != null ? fallback : key;
+        if (vars && typeof out === 'string') {
+          out = out.replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m));
+        }
+      }
+    } catch (err) {
+      out = fallback != null ? fallback : key;
+    }
+    return out;
+  }
+
   // Mode default = 'svg' (vector output) or 'ext' (AI Extension Builder).
-  // Disimpan di localStorage agar pilihan mode bertahan saat browser dibuka ulang.
+  // Saved in localStorage so mode persists across browser restarts.
   NS.builderMode = lsGet(BUILDER_MODE_KEY) === 'ext' ? 'ext' : 'svg';
   NS.svgMode = () => NS.builderMode !== 'ext';
 
@@ -37,8 +64,7 @@
     } catch (err) { return false; }
   }
 
-  // Daftar model dari provider AKTIF (Gemini: ListModels; OpenAI-compatible:
-  // GET {base}/models). Dipakai oleh pemilih model di panel chat.
+  // List models from active provider (Gemini: ListModels; OpenAI-compatible: GET {base}/models).
   async function fetchProviderModels() {
     if (!api) return null;
     const ep = bridgeUrl();
@@ -67,7 +93,7 @@
   NS.updateTitle = () => {
     const titleEl = document.querySelector('#chat-panel .panel-title');
     if (!titleEl) return;
-    const label = 'AI Chat';
+    const label = tr('chat.panelLabel', 'AI Chat');
     const model = String((api && api.settings && api.settings.aiModel) || '').trim();
     const google = !!(api && api.settings && api.settings.aiProviderGoogle);
     const full = model
@@ -80,16 +106,25 @@
   };
 
   // App-specific USER-FACING strings live in ai/ui-strings.js (window.MiniSketchAIStrings).
-  // This is the ONE thing that differs between the upstream MiniSketch (served by
-  // the Node bridge server/serve.js) and the KaryaCNC build (served by its own
-  // built-in Go proxy at /api/chat). Keeping the words there — instead of inline —
-  // lets ai/chat.js stay byte-identical across both apps and safe to sync; only
-  // ui-strings.js is app-specific and never synced. Defaults below = upstream.
-  const STR = Object.assign({
-    offlineNoEndpoint: 'Tidak ada bridge: jalankan "node server/serve.js" lalu buka http://127.0.0.1:8090 (atau isi AI bridge URL di Settings). Offline, command sederhana tetap jalan: "kotak 100x60", "lingkaran d50", "pindah 10,0", "hapus".',
-    errorPrefix: 'Bridge error: ',
-    errorHint: '. Cek server/ai-bridge.js + env.'
-  }, window.MiniSketchAIStrings || {});
+  const STR_DEFAULTS = {
+    en: {
+      offlineNoEndpoint: 'No bridge connected: run "node server/serve.js" and open http://127.0.0.1:8090 (or set AI bridge URL in Settings). Offline basic commands still work: "100x60 box", "circle d50", "move 10,0", "delete".',
+      errorPrefix: 'Bridge error: ',
+      errorHint: '. Check server/ai-bridge.js + settings.'
+    },
+    id: {
+      offlineNoEndpoint: 'Tidak ada bridge: jalankan "node server/serve.js" lalu buka http://127.0.0.1:8090 (atau isi AI bridge URL di Pengaturan). Offline, perintah sederhana tetap jalan: "kotak 100x60", "lingkaran d50", "pindah 10,0", "hapus".',
+      errorPrefix: 'Bridge error: ',
+      errorHint: '. Cek server/ai-bridge.js + pengaturan.'
+    }
+  };
+  function strVal(key) {
+    const lang = curLang();
+    const ext = window.MiniSketchAIStrings || {};
+    if (ext[lang] && typeof ext[lang][key] === 'string') return ext[lang][key];
+    if (typeof ext[key] === 'string' && lang === 'en') return ext[key];
+    return (STR_DEFAULTS[lang] && STR_DEFAULTS[lang][key]) || STR_DEFAULTS.en[key] || '';
+  }
 
   // Policy lives on the FRONTEND (ai/prompt.js): system prompt, tool manifest and
   // skills are static files fetched at send-time, so tuning them never needs a
@@ -179,7 +214,7 @@
       try {
         NS.pendingImages.push(await fileToDataURL(f));
       } catch (err) {
-        pushLog('sys', 'Failed to load image: ' + (err && err.message || err));
+        pushLog('sys', tr('chat.loadImgErr', 'Failed to load image: {msg}', { msg: err && err.message || err }));
       }
     }
     renderPending();
@@ -192,20 +227,18 @@
     host.innerHTML = '';
     const imgs = NS.pendingImages || [];
     // Show the tray only when there is something staged, else keep it collapsed.
-    // (CSS hides it via .chat-pending[hidden]; without this toggle a staged
-    // image stayed invisible — the tray filled but never appeared.)
     host.hidden = imgs.length === 0;
     imgs.forEach((src, i) => {
       const wrap = document.createElement('span');
       wrap.className = 'chat-pending-item';
       const img = document.createElement('img');
       img.src = src;
-      img.alt = 'lampiran ' + (i + 1);
+      img.alt = tr('chat.attachAlt', 'attachment {n}', { n: i + 1 });
       const del = document.createElement('button');
       del.type = 'button';
       del.className = 'chat-pending-del';
       del.textContent = '×';
-      del.title = 'Buang gambar ini';
+      del.title = tr('chat.removeImgTitle', 'Remove this image');
       del.addEventListener('click', () => {
         NS.pendingImages.splice(i, 1);
         renderPending();
@@ -367,17 +400,24 @@
     const u = msgs.find(m => m.role === 'user');
     const t = u ? String(u.text || '').replace(/\s+/g, ' ').trim() : '';
     if (t) return t.length > 48 ? t.slice(0, 48) + '…' : t;
-    return (u && u.images && u.images.length) ? '(gambar)' : 'Percakapan baru';
+    return (u && u.images && u.images.length)
+      ? tr('chat.imageWord', '(image)')
+      : tr('chat.newConvTitle', 'New conversation');
   }
   function saveCurrentSession() {
     if (!NS.sessionId) return Promise.resolve();
     const msgs = finishedMessages();
-    return idbPut(SESSIONS, {
+    const sess = {
       id: NS.sessionId,
       title: sessionTitle(msgs),
       at: NS.sessionAt || Date.now(),
       updatedAt: Date.now(),
       messages: msgs
+    };
+    return idbPut(SESSIONS, sess).then(() => {
+      if (msgs.length && window.MiniSketchCloud && window.MiniSketchCloud.onChatSessionSaved) {
+        window.MiniSketchCloud.onChatSessionSaved(Object.assign({}, sess, { archived: false }));
+      }
     }).catch(() => { /* IDB unavailable: chat won't survive refresh */ });
   }
   let _saveTimer = null;
@@ -447,14 +487,25 @@
     if (NS.sessionId && finishedMessages().length) {
       return saveCurrentSession().then(() => {
         const msgs = finishedMessages();
-        return idbPut(META, {
+        const metaRow = {
           id: NS.sessionId,
           title: sessionTitle(msgs),
           at: NS.sessionAt || Date.now(),
           updatedAt: Date.now(),
           count: msgs.length,
           img: msgs.some(m => m.images && m.images.length)
-        }).catch(() => {});
+        };
+        if (window.MiniSketchCloud && window.MiniSketchCloud.onChatSessionSaved) {
+          window.MiniSketchCloud.onChatSessionSaved({
+            id: NS.sessionId,
+            title: metaRow.title,
+            at: metaRow.at,
+            updatedAt: metaRow.updatedAt,
+            archived: true,
+            messages: msgs
+          });
+        }
+        return idbPut(META, metaRow).catch(() => {});
       });
     }
     return Promise.resolve();
@@ -467,11 +518,17 @@
       NS.sessionAt = sess.at;
       NS.log = sanitizeMessages(sess.messages);
       lsSet(CURRENT_ID_KEY, id);
+      if (window.MiniSketchCloud && window.MiniSketchCloud.onChatSessionSaved) {
+        window.MiniSketchCloud.onChatSessionSaved(Object.assign({}, sess, { archived: false }));
+      }
       // it is the running session again: drop it from the History list
       return idbDel(META, id).then(() => true);
     }).catch(() => false);
   }
   function deleteArchivedSession(id) {
+    if (window.MiniSketchCloud && window.MiniSketchCloud.onChatSessionDeleted) {
+      window.MiniSketchCloud.onChatSessionDeleted(id);
+    }
     return idbDel(SESSIONS, id).then(() => idbDel(META, id)).catch(() => {});
   }
   NS.meta = [];
@@ -481,6 +538,58 @@
       if (NS.mode === 'log') renderLog();
     }).catch(() => {});
   }
+
+  NS.exportAllSessions = async () => {
+    try {
+      const [sessions, metas] = await Promise.all([idbAll(SESSIONS), idbAll(META)]);
+      const metaIds = new Set((metas || []).map(m => m && m.id));
+      return (sessions || [])
+        .filter(s => s && s.id && Array.isArray(s.messages))
+        .map(s => Object.assign({}, s, { archived: metaIds.has(s.id) && s.id !== NS.sessionId }));
+    } catch (err) {
+      return [];
+    }
+  };
+
+  NS.importSyncedSessions = async (items) => {
+    if (!Array.isArray(items) || !items.length) return;
+    let activeUpdated = false;
+    for (const remote of items) {
+      if (!remote || !remote.id || !Array.isArray(remote.messages)) continue;
+      try {
+        const local = await idbGet(SESSIONS, remote.id);
+        const rMs = Number(remote.updatedAtMs || remote.updatedAt || 0);
+        const lMs = Number((local && (local.updatedAt || local.updatedAtMs)) || 0);
+        if (!local || rMs > lMs) {
+          const cleanMsgs = sanitizeMessages(remote.messages);
+          const sessObj = {
+            id: remote.id,
+            title: remote.title || sessionTitle(cleanMsgs),
+            at: Number(remote.at) || Date.now(),
+            updatedAt: rMs || Date.now(),
+            messages: cleanMsgs
+          };
+          await idbPut(SESSIONS, sessObj);
+          if (remote.archived && remote.id !== NS.sessionId) {
+            await idbPut(META, {
+              id: remote.id,
+              title: sessObj.title,
+              at: sessObj.at,
+              updatedAt: sessObj.updatedAt,
+              count: cleanMsgs.length,
+              img: !!remote.img
+            });
+          } else if (remote.id === NS.sessionId) {
+            NS.log = cleanMsgs;
+            NS.sessionAt = sessObj.at;
+            activeUpdated = true;
+          }
+        }
+      } catch (err) { /* ignore individual session merge error */ }
+    }
+    if (activeUpdated && NS.mode === 'chat') renderLog();
+    refreshMeta();
+  };
 
   function stateSummary() {
     if (!api) return null;
@@ -1040,10 +1149,12 @@
       const madeSet = new Set(madeIds);
       const removedPreExisting = [...preIds].filter(id => !api.state.entities[+id] && !madeSet.has(+id));
       if (removedPreExisting.length) {
-        const msg = 'AI chat menghapus ' + removedPreExisting.length +
-          ' objek yang sudah ada sebelumnya. Izinkan? (satu Undo membatalkan)';
+        // Konfirmasi sebelum menghapus objek lama
+        const msg = tr('chat.confirmDelMsg',
+          'AI chat wants to delete {n} existing object(s). Allow? (one Undo reverts)',
+          { n: removedPreExisting.length });
         const allowed = (typeof window !== 'undefined' && typeof window.uiConfirm === 'function')
-          ? await window.uiConfirm(msg, { title: 'Konfirmasi Penghapusan', danger: true })
+          ? await window.uiConfirm(msg, { title: tr('chat.confirmDelTitle', 'Confirm Deletion'), danger: true })
           : false;
         if (!allowed) {
           if (typeof api.undo === 'function') api.undo();
@@ -1232,12 +1343,12 @@
       ? NS.pendingImages.slice() : null;
     NS.pendingImages = [];
     renderPending();
-    pushLog('user', input || '(gambar)', null, attached);
+    pushLog('user', input || tr('chat.imageWord', '(image)'), null, attached);
     renderLog();
     const url = bridgeUrl();
     if (!url) {
       if (NS.builderMode === 'ext') {
-        pushLog('ai', 'Mode Extension Builder memerlukan koneksi bridge/AI. Jalankan "node server/serve.js" lalu buka http://127.0.0.1:8090 (atau isi AI bridge URL di Settings).');
+        pushLog('ai', tr('chat.extNeedsBridge', 'Extension Builder mode requires a bridge/AI connection. Run "node server/serve.js" and open http://127.0.0.1:8090 (or set AI bridge URL in Settings).'));
         renderLog();
         return;
       }
@@ -1249,7 +1360,7 @@
       } else if (parsed) {
         pushLog('ai', parsed.reply);
       } else {
-        pushLog('ai', STR.offlineNoEndpoint);
+        pushLog('ai', strVal('offlineNoEndpoint'));
       }
       renderLog();
       return;
@@ -1312,7 +1423,7 @@
       setPhase(label);
       waitTimer = setInterval(() => {
         const s = Math.round((Date.now() - t0) / 1000);
-        liveMsg.text = label + '  (' + s + ' dtk — jangan refresh, permintaan masih berjalan)';
+        liveMsg.text = label + tr('chat.waitElapsed', ' ({s}s — do not refresh, request still running)', { s });
         renderLog();
       }, 1000);
     };
@@ -1362,12 +1473,12 @@
               (fbJson.length > fbLimit ? fbJson.slice(0, fbLimit) + '…[truncated]' : fbJson) +
               (lastExec.errors && lastExec.errors.length
                 ? '\nAn op FAILED (' + lastExec.errors[0] + '). Fix it: emit corrected tool calls.'
-                : '\nAll ops succeeded and the state/queryResults above reflect the current truth. If you only needed query data, now perform the requested CAD action. If the task is complete, reply with one short Indonesian summary and NO tool calls.')
+                : '\nAll ops succeeded and the state/queryResults above reflect the current truth. If you only needed query data, now perform the requested CAD action. If the task is complete, reply with one short summary in the user\'s language (EN/ID) and NO tool calls.')
           });
         }
         startWaitClock(lastExec
-          ? 'checking round ' + (round - 1) + ' results…'
-          : 'thinking…');
+          ? tr('chat.checkingRound', 'checking round {n} results…', { n: round - 1 })
+          : tr('chat.thinking', 'thinking…'));
         const tRound = performance.now();
         const payload = {
           messages,
@@ -1424,7 +1535,7 @@
               liveThink[round] = (liveThink[round] || '') + ev.delta.thinking;
               think[round] = liveThink[round];
               liveMsg.thinking = (liveMsg.thinking || '') + ev.delta.thinking;
-              if (!liveContent && (!liveMsg.text || liveMsg.text === '…')) liveMsg.text = 'thinking…';
+              if (!liveContent && (!liveMsg.text || liveMsg.text === '…')) liveMsg.text = tr('chat.thinking', 'thinking…');
               scheduleThinkFlush();
             } else if (ev.delta && ev.delta.content) {
               stopWaitClock();
@@ -1455,11 +1566,11 @@
         if (!calls.length) {
           liveMsg.rounds = round;
           if (usageTotal.total_tokens > 0) liveMsg.usage = { ...usageTotal };
-          setPhase((data.reply || 'Selesai.').trim());
+          setPhase((data.reply || tr('chat.done', 'Done.')).trim());
           markDone(liveMsg);
           break;
         }
-        setPhase('executing ' + calls.length + ' op' + (calls.length > 1 ? 's' : '') + ' (round ' + round + '/' + MAX_ROUNDS + ')…', calls);
+        setPhase(tr('chat.executingOps', 'executing {n} op(s) (round {r}/{max})…', { n: calls.length, r: round, max: MAX_ROUNDS }), calls);
         const r = await applyOps(calls, { noHistory: historyPushed });
         if (r.pushedHistory) historyPushed = true;
         lastExec = {
@@ -1477,14 +1588,17 @@
           ids: (r.ids || []).slice(0, 20),
           errors: (r.errors || []).slice(0, 3)
         });
-        setPhase('round ' + round + '/' + MAX_ROUNDS + ': ' + r.made + ' op' +
-          (r.errors.length ? ', error: ' + r.errors[0] : ', ok') + ' — verifying…', calls);
+        const statusTxt = r.errors.length
+          ? tr('chat.roundErr', 'error: {err}', { err: r.errors[0] })
+          : tr('chat.roundOk', 'ok');
+        setPhase(tr('chat.verifyingRound', 'round {r}/{max}: {made} op, {status} — verifying…', { r: round, max: MAX_ROUNDS, made: r.made, status: statusTxt }), calls);
         if (round === MAX_ROUNDS) {
           liveMsg.rounds = round;
           if (usageTotal.total_tokens > 0) liveMsg.usage = { ...usageTotal };
-          setPhase('Stopped at the ' + MAX_ROUNDS + '-round limit. Last: ' + r.made + ' op' +
-            (r.errors.length ? ', error: ' + r.errors[0] : '') +
-            '. Type "continue" to proceed, or the Retry button to start over.', calls);
+          const errPart = r.errors.length ? (', ' + tr('chat.roundErr', 'error: {err}', { err: r.errors[0] })) : '';
+          setPhase(tr('chat.stoppedLimit',
+            'Stopped at the {max}-round limit. Last: {made} op{errPart}. Type "continue" to proceed, or press Retry to start over.',
+            { max: MAX_ROUNDS, made: r.made, errPart }), calls);
           liveMsg.retryText = input;   // Retry re-runs the whole request
           markDone(liveMsg);
         }
@@ -1494,14 +1608,14 @@
       if (ac.signal.aborted) {
         // user pressed Stop: keep what the model was thinking, keep it
         // retryable — one click resends the exact same request
-        liveMsg.text = 'Dihentikan.' +
-          (liveMsg.thinking ? ' (pikiran terakhir tersimpan di atas)' : '');
+        liveMsg.text = tr('chat.stopped', 'Stopped.') +
+          (liveMsg.thinking ? tr('chat.stoppedThoughts', ' (last thoughts saved above)') : '');
         liveMsg.retryText = input;
         liveMsg.ops = [];
         markDone(liveMsg);
       } else {
         // keep the failing turn retryable: remember what the user asked
-        liveMsg.text = STR.errorPrefix + (err && err.message || err) + STR.errorHint;
+        liveMsg.text = strVal('errorPrefix') + (err && err.message || err) + strVal('errorHint');
         liveMsg.retryText = input;
         liveMsg.ops = [];
         markDone(liveMsg);
@@ -1536,28 +1650,29 @@
     host.innerHTML = '';
     if (!NS.meta.length) {
       const li = document.createElement('li');
-      li.innerHTML = '<span class="muted">No archived sessions yet — press New Session to move the current conversation to History.</span>';
+      li.innerHTML = '<span class="muted">' + escapeHtml(tr('chat.emptyHistory', 'No archived sessions yet — press New Session to move the current conversation to History.')) + '</span>';
       host.appendChild(li);
       return;
     }
+    const loc = curLang() === 'id' ? 'id-ID' : 'en-US';
     for (const s of NS.meta) {
       const li = document.createElement('li');
       li.className = 'chat-session clickable';
-      li.title = 'Click to resume this session';
+      li.title = tr('chat.resumeSession', 'Click to resume this session');
       const name = document.createElement('span');
       name.className = 'name';
       name.textContent = s.title;
       const meta = document.createElement('span');
       meta.className = 'meta';
       const d = s.at ? new Date(s.at) : null;
-      const dateStr = d ? d.toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
-      meta.textContent = (s.count != null ? s.count + ' pesan' : '') +
+      const dateStr = d ? d.toLocaleString(loc, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+      meta.textContent = (s.count != null ? tr('chat.msgCount', '{n} messages', { n: s.count }) : '') +
         (s.img ? ' · 🖼' : '') +
         (dateStr ? ' · ' + dateStr : '');
       const del = document.createElement('button');
       del.className = 'mini-del';
       del.textContent = '×';
-      del.title = 'Delete from History';
+      del.title = tr('chat.deleteHistory', 'Delete from History');
       del.addEventListener('click', (ev) => {
         ev.stopPropagation();
         deleteArchivedSession(s.id).then(refreshMeta);
@@ -1577,12 +1692,11 @@
       host.appendChild(li);
     }
   }
-  // The model's reasoning is kept in full in memory (and saved), but the DOM
-  // only renders the LAST few paragraphs: laying out a ~1MB text node on every
-  // chunk (stickToBottom -> scrollHeight) was ~80% of the recorded freeze.
   const THINK_PARAS = 2;
   const THINK_MAX_CHARS = 8000;
-  const THINK_CUT_NOTE = '[… earlier thinking was trimmed — only the last 2 paragraphs are shown]\n';
+  function thinkCutNote() {
+    return tr('chat.thinkCutNote', '[… earlier thinking was trimmed — only the last 2 paragraphs are shown]\n');
+  }
   function thinkDisplay(s) {
     s = String(s || '');
     if (!s) return { text: '', cut: false };
@@ -1647,7 +1761,7 @@
       return;
     }
     dock.hidden = false;
-    const sig = latest.code + '::' + (NS.activeAbort ? 1 : 0);
+    const sig = latest.code + '::' + (NS.activeAbort ? 1 : 0) + '::' + curLang();
     if (dock._dockSig === sig && dock.children && dock.children.length) return;
     dock.innerHTML = '';
     appendExtensionBlock(dock, latest.msg);
@@ -1668,8 +1782,8 @@
         : '';
       stripped = stripped.replace(/\n{3,}/g, '\n\n').trim();
       const note = isLatestExt
-        ? '<span class="muted">[Kode ekstensi terbaru ditampilkan di panel testing di bawah]</span>'
-        : '<span class="muted">[Kode ekstensi versi sebelumnya]</span>';
+        ? '<span class="muted">' + escapeHtml(tr('chat.extNoteLatest', '[Latest extension code is shown in the testing panel below]')) + '</span>'
+        : '<span class="muted">' + escapeHtml(tr('chat.extNotePrev', '[Previous extension version]')) + '</span>';
       html = who + (stripped ? (' ' + escapeHtml(stripped).replace(/\n/g, '<br>') + '<br>' + note) : (' ' + note));
     } else {
       html = who + ' ' + escapeHtml(body).replace(/\n/g, '<br>');
@@ -1695,9 +1809,7 @@
     setChatInputVisible(true);
     // the streaming turn is over (or spliced away by a retry): drop the ref
     if (NS.liveMsg && NS.log[NS.log.length - 1] !== NS.liveMsg) NS.liveMsg = null;
-    // LIVE PATH: the streaming message updates its existing nodes instead of a
-    // full rebuild — rebuilding destroyed the thinking box (and its scroll)
-    // on every delta, which fought the user's scrolling and snapped to the top.
+    // LIVE PATH
     if (NS.liveMsg && NS.liveRefs && NS.liveRefs.li.isConnected) {
       const m = NS.liveMsg;
       const who = m.role === 'user' ? '<b>you</b>' : m.role === 'ai' ? '<b>ai</b>' : '<b class="muted">sys</b>';
@@ -1707,7 +1819,7 @@
       if (NS.liveRefs.body) {
         const disp = thinkDisplay(m.thinking);
         if (disp.text !== NS.liveRefs.lastThink) {
-          NS.liveRefs.body.textContent = (disp.cut ? THINK_CUT_NOTE : '') + disp.text;
+          NS.liveRefs.body.textContent = (disp.cut ? thinkCutNote() : '') + disp.text;
           NS.liveRefs.lastThink = disp.text;
         }
         if (NS.liveRefs.det) NS.liveRefs.det.open = !!(NS.thinkOpen && NS.thinkOpen.has(m));
@@ -1721,14 +1833,12 @@
     renderExtDock(items);
     if (!items.length) {
       const li = document.createElement('li');
-      li.innerHTML = '<span class="muted">Ask or describe something… e.g. "100x60 box at 0,0", "4x d5 holes in the corners", "build a 120x80x60 box tool".</span>';
+      li.innerHTML = '<span class="muted">' + escapeHtml(tr('chat.emptyLog', 'Ask or describe something… e.g. "100x60 box at 0,0", "4x d5 holes in the corners", "build a 120x80x60 box tool".')) + '</span>';
       host.appendChild(li);
       return;
     }
     const latestExt = findLatestExtEntry(items);
     const fmtTok = (n) => n >= 1000 ? (Math.round(n / 100) / 10) + 'k' : String(n);
-    // The Fork button (copy the first prompt to a new session) sits right under
-    // the FIRST user turn, per the requested layout — it is about that turn.
     let forkPlaced = false;
     for (const m of items.slice(-60)) {
       const li = document.createElement('li');
@@ -1736,15 +1846,14 @@
       const textSpan = document.createElement('span');
       textSpan.innerHTML = html;
       li.appendChild(textSpan);
-      // Fork under the opening user prompt (only once, and only in Chat tab).
       if (m.role === 'user' && !forkPlaced) {
         li.appendChild(makeForkButton());
         forkPlaced = true;
       }
       if (m.role === 'ai' && m.done) {
         const parts = [];
-        if (m.rounds && m.rounds > 1) parts.push(m.rounds + ' rounds');
-        if (m.usage && m.usage.total_tokens > 0) parts.push(fmtTok(m.usage.total_tokens) + ' token');
+        if (m.rounds && m.rounds > 1) parts.push(tr('chat.roundsMeta', '{n} rounds', { n: m.rounds }));
+        if (m.usage && m.usage.total_tokens > 0) parts.push(tr('chat.tokensMeta', '{n} tokens', { n: fmtTok(m.usage.total_tokens) }));
         if (parts.length) {
           const meta = document.createElement('span');
           meta.className = 'chat-meta';
@@ -1753,7 +1862,6 @@
         }
       }
       appendImageThumbs(li, m);
-      // Render SVG preview + Insert/Copy whenever an AI reply contains <svg>
       if (m.role === 'ai' && !extractExtensionCode(m.text) && (NS.svgMode() || /<svg[\s\S]*?<\/svg>/i.test(m.text))) appendSvgBlock(li, m);
       if (m.thinking) {
         NS.thinkOpen = NS.thinkOpen || new WeakSet();
@@ -1761,14 +1869,14 @@
         det.className = 'chat-think';
         det.open = !!NS.thinkOpen.has(m);
         const sum = document.createElement('summary');
-        sum.textContent = 'model thinking (' + m.thinking.split(/\n-{3,}\n/).length + ' rounds)';
+        sum.textContent = tr('chat.modelThinking', 'model thinking ({n} rounds)', { n: m.thinking.split(/\n-{3,}\n/).length });
         sum.addEventListener('click', () => {
           if (det.open) NS.thinkOpen.add(m); else NS.thinkOpen.delete(m);
         });
         const body = document.createElement('div');
         body.className = 'chat-think-body';
         const disp = thinkDisplay(m.thinking);
-        body.textContent = (disp.cut ? THINK_CUT_NOTE : '') + disp.text;
+        body.textContent = (disp.cut ? thinkCutNote() : '') + disp.text;
         det.appendChild(sum);
         det.appendChild(body);
         li.insertBefore(det, textSpan);
@@ -1783,16 +1891,13 @@
         li.classList.add('chat-error');
         const retry = document.createElement('button');
         retry.className = 'btn small chat-retry';
-        retry.textContent = 'Retry';
-        retry.title = 'Resend the last prompt';
+        retry.textContent = tr('chat.retry', 'Retry');
+        retry.title = tr('chat.retryTitle', 'Resend the last prompt');
         retry.addEventListener('click', () => {
-          // drop the error entry and every turn after it, then resend
           const at = NS.log.indexOf(m);
           if (at >= 0) {
             const userEntry = NS.log[at - 1];
             const from = userEntry && userEntry.role === 'user' ? at - 1 : at;
-            // remember the images the original user turn carried, so the
-            // resend sends the same attachment (not just the text)
             const imgs = userEntry && Array.isArray(userEntry.images) && userEntry.images.length
               ? userEntry.images.slice() : null;
             NS.log.splice(from, NS.log.length - from);
@@ -1808,15 +1913,12 @@
     host.scrollTop = host.scrollHeight;
   }
 
-  // Build the "Fork" button that appears under the FIRST user message: it copies
-  // that first prompt (text + attached image) into a brand-new session. Kept as
-  // a helper so renderLog can place it inline below the opening user turn.
   function makeForkButton() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'btn small chat-fork';
-    btn.textContent = 'Fork';
-    btn.title = 'Fork: mulai session baru HANYA dengan pesan pertama (teks + gambar), muat ulang system prompt terbaru, lalu MUAT teks/gambar ke kotak input untuk diedit — tekan Enter untuk mengirim. Tanpa membawa jawaban AI lama. Session saat ini pindah ke History.';
+    btn.textContent = tr('chat.fork', 'Fork');
+    btn.title = tr('chat.forkTitle', 'Fork: start a new session with ONLY the first prompt (text + image), reload the latest system prompt, and place it into the input box to edit — press Enter to send. Current session moves to History.');
     btn.addEventListener('click', () => {
       if (NS.activeAbort) return;
       const firstUser = NS.log.find(m => m && m.role === 'user');
@@ -1874,7 +1976,7 @@
       const closeBtn = document.createElement('button');
       closeBtn.type = 'button';
       closeBtn.className = 'btn small';
-      closeBtn.textContent = '× Close';
+      closeBtn.textContent = tr('chat.lightboxClose', '× Close');
       closeBtn.addEventListener('click', closeLightbox);
       head.appendChild(cap);
       head.appendChild(closeBtn);
@@ -1892,8 +1994,10 @@
     }
     const imgEl = _lightboxEl.querySelector('.chat-lightbox-img');
     const capEl = _lightboxEl.querySelector('.chat-lightbox-cap');
+    const closeBtnEl = _lightboxEl.querySelector('button');
+    if (closeBtnEl) closeBtnEl.textContent = tr('chat.lightboxClose', '× Close');
     if (imgEl) { imgEl.src = src; imgEl.alt = title || 'preview'; }
-    if (capEl) capEl.textContent = title || 'Preview';
+    if (capEl) capEl.textContent = title || tr('chat.preview', 'Preview');
     _lightboxEl.hidden = false;
   }
 
@@ -1919,8 +2023,7 @@
     }
   }
 
-  // Inline thumbnails for a turn's attached images (the user's reference
-  // picture stays visible next to what they asked, so the turn reads whole).
+  // Inline thumbnails for a turn's attached images.
   function appendImageThumbs(li, m) {
     if (!m || !Array.isArray(m.images) || !m.images.length) return;
     const row = document.createElement('div');
@@ -1929,9 +2032,9 @@
       const img = document.createElement('img');
       img.className = 'chat-thumb';
       img.src = src;
-      img.alt = 'gambar terlampir';
-      img.title = 'Click to enlarge';
-      img.addEventListener('click', () => openLightbox(src, 'Gambar terlampir'));
+      img.alt = tr('chat.attachedImgAlt', 'attached image');
+      img.title = tr('chat.clickEnlarge', 'Click to enlarge');
+      img.addEventListener('click', () => openLightbox(src, tr('chat.attachedImgCap', 'Attached image')));
       row.appendChild(img);
     }
     li.appendChild(row);
@@ -2001,7 +2104,7 @@
     catch (err) { return; }
     img.className = 'chat-svg-preview';
     img.alt = 'SVG preview';
-    img.title = 'SVG preview — click to enlarge';
+    img.title = tr('chat.svgPreviewTitle', 'SVG preview — click to enlarge');
     img.addEventListener('click', () => openLightbox(img.src, 'SVG Preview'));
     const actions = document.createElement('div');
     actions.className = 'chat-svg-actions';
@@ -2010,27 +2113,29 @@
     const paste = document.createElement('button');
     paste.type = 'button';
     paste.className = 'btn small';
-    paste.textContent = 'Insert to workspace';
-    paste.title = 'Import this SVG to the worksheet: top-right of current content + 20mm right gap (one Undo)';
+    paste.textContent = tr('chat.insertWorkspace', 'Insert to workspace');
+    paste.title = tr('chat.insertWorkspaceTitle', 'Import this SVG to the worksheet: top-right of current content + 20mm right gap (one Undo)');
     paste.addEventListener('click', async () => {
       const n = await importUserSvg(svg);
       if (n > 0) {
-        status.textContent = '✓ ' + n + ' objects inserted (top-right + 20mm).';
+        status.textContent = tr('chat.svgInserted', '✓ {n} objects inserted (top-right + 20mm).', { n });
         try { api.render && api.render(); } catch (err) { /* ignore */ }
       } else if (n === 0) {
-        status.textContent = 'No vector shapes were recognized.';
+        status.textContent = tr('chat.svgNone', 'No vector shapes were recognized.');
       } else {
-        status.textContent = 'Import failed (invalid SVG?).';
+        status.textContent = tr('chat.svgFail', 'Import failed (invalid SVG?).');
       }
     });
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
     copyBtn.className = 'btn small';
-    copyBtn.textContent = 'Copy SVG';
-    copyBtn.title = 'Copy the <svg> code to the clipboard';
+    copyBtn.textContent = tr('chat.copySvg', 'Copy SVG');
+    copyBtn.title = tr('chat.copySvgTitle', 'Copy the <svg> code to the clipboard');
     copyBtn.addEventListener('click', async () => {
       const ok = await copyTextToClipboard(svg);
-      status.textContent = ok ? '✓ SVG copied to clipboard.' : 'Failed to copy SVG.';
+      status.textContent = ok
+        ? tr('chat.svgCopied', '✓ SVG copied to clipboard.')
+        : tr('chat.svgCopyFail', 'Failed to copy SVG.');
     });
     actions.appendChild(paste);
     actions.appendChild(copyBtn);
@@ -2123,11 +2228,11 @@
     const status = document.createElement('div');
     status.className = 'chat-ext-status ' + (val.ok ? 'is-ok' : 'is-err');
     if (!val.ok) {
-      status.textContent = 'Invalid: ' + val.errors[0];
+      status.textContent = tr('chat.extInvalid', 'Invalid: {err}', { err: val.errors[0] });
     } else if (val.warnings && val.warnings.length) {
-      status.textContent = 'Ready (' + val.warnings.length + ' warning: ' + val.warnings[0] + ')';
+      status.textContent = tr('chat.extReadyWarn', 'Ready ({n} warning: {warn})', { n: val.warnings.length, warn: val.warnings[0] });
     } else {
-      status.textContent = 'Ready — syntax & contract valid';
+      status.textContent = tr('chat.extReady', 'Ready — syntax & contract valid');
     }
     card.appendChild(status);
 
@@ -2138,17 +2243,18 @@
       const fixBtn = document.createElement('button');
       fixBtn.type = 'button';
       fixBtn.className = 'btn small primary';
-      fixBtn.textContent = 'Minta AI Perbaiki';
+      fixBtn.textContent = tr('chat.extFixAi', 'Minta AI Perbaiki');
       fixBtn.disabled = !!NS.activeAbort;
-      fixBtn.title = 'Send the validation errors to AI Extension Builder so the code gets fixed';
+      fixBtn.title = tr('chat.extFixAiTitle', 'Send the validation errors to AI Extension Builder so the code gets fixed');
       fixBtn.addEventListener('click', () => {
         if (NS.activeAbort) return;
         if (typeof NS.setBuilderMode === 'function') NS.setBuilderMode('ext');
         else NS.builderMode = 'ext';
-        const prompt =
-          'Kode ekstensi sebelumnya gagal validasi:\n- ' +
-          val.errors.join('\n- ') +
-          '\n\nTolong perbaiki error tersebut dan kirim ulang SATU blok kode ```js ... ``` yang lengkap dan valid untuk window.MiniSketchTools.register({...}).';
+        const prompt = curLang() === 'id'
+          ? ('Kode ekstensi sebelumnya gagal validasi:\n- ' + val.errors.join('\n- ') +
+             '\n\nTolong perbaiki error tersebut dan kirim ulang SATU blok kode ```js ... ``` yang lengkap dan valid untuk window.MiniSketchTools.register({...}).')
+          : ('The previous extension code failed validation:\n- ' + val.errors.join('\n- ') +
+             '\n\nPlease fix those errors and resend ONE complete, valid ```js ... ``` code block for window.MiniSketchTools.register({...}).');
         send(prompt);
       });
       actions.appendChild(fixBtn);
@@ -2157,91 +2263,95 @@
     const testBtn = document.createElement('button');
     testBtn.type = 'button';
     testBtn.className = 'btn small';
-    testBtn.textContent = 'Test Run';
+    testBtn.textContent = tr('chat.extTestRun', 'Test Run');
     testBtn.disabled = !val.ok;
     testBtn.title = val.ok
-      ? 'Load temporarily (not saved) and open the tool dialog to test'
-      : ('Tidak bisa dijalankan sebelum validasi lolos: ' + val.errors[0]);
+      ? tr('chat.extTestRunTitle', 'Load temporarily (not saved) and open the tool dialog to test')
+      : tr('chat.extCannotRun', 'Cannot run until validation passes: {err}', { err: val.errors[0] });
     testBtn.addEventListener('click', () => {
       if (!reg || !reg.installExtension) return;
       const res = reg.installExtension(meta, code, { preview: true });
       if (!res.ok) {
         status.className = 'chat-ext-status is-err';
-        status.textContent = res.error || 'Preview failed.';
+        status.textContent = res.error || tr('chat.extPreviewFail', 'Preview failed.');
         return;
       }
       reg.open(res.tool.id);
       status.className = 'chat-ext-status is-ok';
-      status.textContent = 'Preview active — test parameters, then click Install to keep.';
+      status.textContent = tr('chat.extPreviewOk', 'Preview active — test parameters, then click Install to keep.');
     });
 
     const installBtn = document.createElement('button');
     installBtn.type = 'button';
     installBtn.className = 'btn small' + (val.ok ? ' primary' : '');
-    installBtn.textContent = 'Install';
+    installBtn.textContent = tr('chat.extInstall', 'Install');
     installBtn.disabled = !val.ok;
     installBtn.title = val.ok
-      ? 'Save to LocalStorage and add permanently to the Extensions panel'
-      : ('Tidak bisa dipasang sebelum validasi lolos: ' + val.errors[0]);
+      ? tr('chat.extInstallTitle', 'Save locally and add permanently to the Extensions panel')
+      : tr('chat.extCannotInstall', 'Cannot install until validation passes: {err}', { err: val.errors[0] });
     installBtn.addEventListener('click', () => {
       if (!reg || !reg.installExtension) return;
       const res = reg.installExtension(meta, code, { source: 'ai' });
       if (!res.ok) {
         status.className = 'chat-ext-status is-err';
-        status.textContent = res.error || 'Install failed.';
+        status.textContent = res.error || tr('chat.extInstallFail', 'Install failed.');
         return;
       }
       status.className = 'chat-ext-status is-ok';
-      status.textContent = 'Installed to Extensions panel (' + res.tool.id + ').';
-      if (api && api.toast) api.toast('Extension "' + (res.tool.label || res.tool.id) + '" installed');
+      status.textContent = tr('chat.extInstalled', 'Installed to Extensions panel ({id}).', { id: res.tool.id });
+      if (api && api.toast) api.toast(tr('chat.extToastInstalled', 'Extension "{name}" installed', { name: res.tool.label || res.tool.id }));
     });
 
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
     editBtn.className = 'btn small';
-    editBtn.textContent = 'Edit…';
-    editBtn.title = 'Buka kode ekstensi di editor tab Add / Import untuk diperiksa atau diubah manual';
+    editBtn.textContent = tr('chat.extEdit', 'Edit…');
+    editBtn.title = tr('chat.extEditTitle', 'Open the extension code in Add / Import tab to inspect or edit manually');
     editBtn.addEventListener('click', () => {
       if (window.MiniSketchExtensions && window.MiniSketchExtensions.open) {
         window.MiniSketchExtensions.open('import', { code });
       } else if (api && api.toast) {
-        api.toast('Extension Manager is not loaded.');
+        api.toast(tr('chat.extMgrNotLoaded', 'Extension Manager is not loaded.'));
       }
     });
 
     const pubBtn = document.createElement('button');
     pubBtn.type = 'button';
     pubBtn.className = 'btn small';
-    pubBtn.textContent = 'Publish…';
+    pubBtn.textContent = tr('chat.extPublish', 'Publish…');
     pubBtn.disabled = !val.ok;
-    pubBtn.title = 'Publish permanently to MiniSketch Server or GitHub Marketplace';
+    pubBtn.title = tr('chat.extPublishTitle', 'Publish permanently to Cloud Community, MiniSketch Server, or GitHub Marketplace');
     pubBtn.addEventListener('click', () => {
       if (window.MiniSketchExtensions && window.MiniSketchExtensions.openPublish) {
         window.MiniSketchExtensions.openPublish(meta, code);
       } else if (api && api.toast) {
-        api.toast('Extension Manager is not loaded.');
+        api.toast(tr('chat.extMgrNotLoaded', 'Extension Manager is not loaded.'));
       }
     });
 
     const dlBtn = document.createElement('button');
     dlBtn.type = 'button';
     dlBtn.className = 'btn small';
-    dlBtn.textContent = 'Download .js';
+    dlBtn.textContent = tr('chat.extDownloadJs', 'Download .js');
     dlBtn.addEventListener('click', () => {
       const fn = (meta.id || 'extension').replace(/[^a-z0-9-_]/gi, '-') + '.js';
       const ok = downloadExtensionFile(fn, code);
       status.className = 'chat-ext-status ' + (ok ? 'is-ok' : 'is-err');
-      status.textContent = ok ? ('Downloaded ' + fn) : 'Download failed.';
+      status.textContent = ok
+        ? tr('chat.extDownloaded', 'Downloaded {fn}', { fn })
+        : tr('chat.extDownloadFail', 'Download failed.');
     });
 
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
     copyBtn.className = 'btn small';
-    copyBtn.textContent = 'Copy';
+    copyBtn.textContent = tr('chat.extCopy', 'Copy');
     copyBtn.addEventListener('click', async () => {
       const ok = await copyTextToClipboard(code);
       status.className = 'chat-ext-status ' + (ok ? 'is-ok' : 'is-err');
-      status.textContent = ok ? 'Code copied to clipboard.' : 'Copy failed.';
+      status.textContent = ok
+        ? tr('chat.extCopied', 'Code copied to clipboard.')
+        : tr('chat.extCopyFail', 'Copy failed.');
     });
 
     actions.appendChild(testBtn);
@@ -2255,7 +2365,7 @@
     const det = document.createElement('details');
     det.className = 'chat-ext-code';
     const sum = document.createElement('summary');
-    sum.textContent = 'View source (' + code.split('\n').length + ' lines)';
+    sum.textContent = tr('chat.extViewSource', 'View source ({n} lines)', { n: code.split('\n').length });
     const pre = document.createElement('pre');
     const codeEl = document.createElement('code');
     if (window.MiniSketchExtensions && typeof window.MiniSketchExtensions.highlightCode === 'function') {
@@ -2327,8 +2437,11 @@
       const inp = document.getElementById('chat-input');
       if (inp) {
         inp.placeholder = NS.builderMode === 'ext'
-          ? 'Describe a parametric CNC tool to build… (e.g. "coaster generator with inner pattern")'
-          : 'Describe a vector image… (Shift+Enter for a new line)';
+          ? tr('chat.inputPhExt', 'Describe a parametric CNC tool to build… (e.g. "coaster generator with inner pattern")')
+          : tr('chat.inputPhSvg', 'Describe a vector image… (Shift+Enter for a new line)');
+      }
+      if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) {
+        window.MiniSketchCloud.scheduleSync('prefs');
       }
     };
     NS.setBuilderMode = setBuilderMode;
@@ -2336,13 +2449,9 @@
     const savedMode = lsGet(BUILDER_MODE_KEY);
     if (savedMode === 'ext' || savedMode === 'svg') NS.builderMode = savedMode;
     setBuilderMode(NS.builderMode);
-    // Pemilih model di panel chat: 🔄 memuat daftar dari provider aktif,
-    // pilih -> tersimpan ke settings (judul panel ikut terupdate).
     const modelSel = document.getElementById('chat-model-sel');
     const modelRefresh = document.getElementById('chat-model-refresh');
     if (modelSel) {
-      // Heuristik dari nama id (server hanya mengirim string): free = mengandung
-      // kata "free" (OpenRouter: "…:free"); vision = kata kunci vision/multimodal.
       const VISION_RE = /vision|multimodal|\bvl\b|llava|pixtral|internvl|minicpm|qwen.*vl|glm-4v|gpt-4o|claude/i;
       const modelMeta = (mRaw) => {
         const id = typeof mRaw === 'string' ? mRaw : String((mRaw && (mRaw.id || mRaw.model || mRaw.name)) || '');
@@ -2353,10 +2462,9 @@
         modelSel.innerHTML = '';
         const ph = document.createElement('option');
         ph.value = '';
-        ph.textContent = cur || 'pilih model…';
+        ph.textContent = cur || tr('chat.modelSelectPh', 'select model…');
         modelSel.appendChild(ph);
         const list = (Array.isArray(models) ? models : []).map(modelMeta);
-        // Free di atas, sisanya urutan asli (sort stabil)
         list.sort((a, b) => (b.free ? 1 : 0) - (a.free ? 1 : 0));
         for (const m of list) {
           const o = document.createElement('option');
@@ -2373,7 +2481,7 @@
       const loadM = (silent) => {
         return fetchProviderModels().then(models => {
           if (models) fill(models);
-          else if (!silent && modelSel) modelSel.title = 'Failed to load models — check provider/key in Settings';
+          else if (!silent && modelSel) modelSel.title = tr('chat.modelLoadErrTitle', 'Failed to load models — check provider/key in Settings');
         });
       };
       if (modelRefresh) {
@@ -2438,8 +2546,21 @@
     NS.setStopVisible = (on) => {
       if (!btn) return;
       btn.classList.toggle('is-stop', !!on);
-      btn.textContent = on ? '■ Stop' : 'Send';
-      btn.title = on ? 'Stop the running request' : '';
+      btn.textContent = on ? tr('chat.stop', '■ Stop') : tr('chat.send', 'Send');
+      btn.title = on ? tr('chat.stopTitle', 'Stop the running request') : '';
+    };
+    NS.refreshLanguage = () => {
+      NS.updateTitle();
+      if (modelSel && modelSel.options && modelSel.options[0] && modelSel.options[0].value === '') {
+        const cur = String((api && api.settings && api.settings.aiModel) || '').trim();
+        if (!cur) modelSel.options[0].textContent = tr('chat.modelSelectPh', 'select model…');
+      }
+      setBuilderMode(NS.builderMode);
+      NS.setStopVisible(!!NS.activeAbort);
+      renderPending();
+      const dock = getExtDock();
+      if (dock) dock._dockSig = '';
+      renderLog();
     };
     // NOTE: the Fork button is rendered inline under the first user message by
     // renderLog/makeForkButton — there is no toolbar fork button any more.

@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en" data-doc-lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Pintasan Keyboard Lengkap | Bantuan MiniSketch</title>
+<title>Complete Keyboard Shortcuts | MiniSketch Help</title>
 <link rel="stylesheet" href="help.css">
+<script>try{var p=new URLSearchParams(location.search).get("lang"),l=(p==="en"||p==="id")?p:(localStorage.getItem("minisketch.help.lang")||"en");if(l!=="en"&&l!=="id")l="en";document.documentElement.dataset.docLang=l;document.documentElement.lang=l;}catch(e){}</script>
 </head>
 <body>
 <div class="help-shell">
@@ -14,18 +15,18 @@
     <div class="help-brand">
       <div class="help-mark">M</div>
       <div>
-        <div class="help-title">Pintasan Keyboard Lengkap</div>
-        <div class="help-subtitle">Referensi semua tombol pintas berkas, alat, edit, constraint, tampilan, dan mesin</div>
+        <div class="help-title">Complete Keyboard Shortcuts</div>
+        <div class="help-subtitle">Reference for all file, drawing, edit, constraint, view, and machine shortcuts</div>
       </div>
     </div>
     <div class="help-spacer"></div>
     <div class="help-search">
       <span class="search-icon" aria-hidden="true">&#128269;</span>
-      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
-      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+      <input id="help-search-input" type="text" placeholder="Search help topics…" autocomplete="off" spellcheck="false" aria-label="Search help topics">
+      <button class="clear-btn" id="help-search-clear" title="Clear search" aria-hidden="true">&#215;</button>
     </div>
-    <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
-    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+    <div id="help-search-results" style="display:none;"></div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">No matching topics.</div>
   </header>
 
   <div class="help-body">
@@ -72,133 +73,265 @@
 
     <main class="help-content">
       <div class="help-page">
-        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Pintasan Keyboard Lengkap</div>
+        <div data-lang="id">
+          <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Pintasan Keyboard Lengkap</div>
 
-        <h1>Pintasan Keyboard</h1>
-        <p class="help-lead">Referensi cepat semua tombol pintas di MiniSketch. Di aplikasi, tekan <kbd>?</kbd> untuk membuka jendela Help bawaan (bilingual: English / Indonesia) seperti di bawah ini.</p>
+          <h1>Pintasan Keyboard</h1>
+          <p class="help-lead">Referensi cepat semua tombol pintas di MiniSketch. Di aplikasi, tekan <kbd>?</kbd> untuk membuka jendela Help bawaan (bilingual: English / Indonesia) seperti di bawah ini.</p>
 
-        <div class="screenshot">
-          <img src="img/screenshots/jendela-help.png" alt="Jendela Help bawaan aplikasi">
-          <figcaption>Jendela Help bawaan (?): bilingual (English / Bahasa Indonesia), berisi dasar navigasi, menggambar &amp; mengedit, daftar tombol, dimensi, constraint, solving, teks, import, dan lainnya.</figcaption>
+          <div class="screenshot">
+            <img src="img/screenshots/jendela-help.png" alt="Jendela Help bawaan aplikasi">
+            <figcaption>Jendela Help bawaan (?): bilingual (English / Bahasa Indonesia), berisi dasar navigasi, menggambar &amp; mengedit, daftar tombol, dimensi, constraint, solving, teks, import, dan lainnya.</figcaption>
+          </div>
+
+          <h2>Berkas</h2>
+          <table class="kb">
+            <thead><tr><th style="width:26%">Pintasan</th><th>Fungsi</th></tr></thead>
+            <tbody>
+              <tr><td><kbd>Ctrl+O</kbd></td><td>Open — membuka file <code>.sketch</code> / <code>.json</code> (mengganti seluruh sketsa).</td></tr>
+              <tr><td><kbd>Ctrl+I</kbd></td><td>Import — menggabungkan file ke sketsa aktif.</td></tr>
+              <tr><td><kbd>Ctrl+S</kbd></td><td>Simpan / unduh berkas <code>.sketch</code> ke disk (nama terakhir).</td></tr>
+              <tr><td><kbd>Ctrl+Shift+S</kbd></td><td>Save as — selalu menanyakan nama baru, unduh <code>.sketch</code>.</td></tr>
+              <tr><td><kbd>Ctrl+E</kbd></td><td>Ekspor SVG.</td></tr>
+            </tbody>
+          </table>
+
+          <h2>Alat (Draw)</h2>
+          <table class="kb">
+            <thead><tr><th style="width:26%">Pintasan</th><th>Alat</th></tr></thead>
+            <tbody>
+              <tr><td><kbd>Shift+B</kbd></td><td>Garis (Line)</td></tr>
+              <tr><td><kbd>B</kbd></td><td>Kurva Bézier (Curve)</td></tr>
+              <tr><td><kbd>*</kbd></td><td>Poligon / Bintang (Poly)</td></tr>
+              <tr><td><kbd>A</kbd></td><td>Busur (Arc)</td></tr>
+              <tr><td><kbd>E</kbd></td><td>Lingkaran (Circle)</td></tr>
+              <tr><td><kbd>R</kbd></td><td>Kotak (Box)</td></tr>
+              <tr><td><kbd>T</kbd></td><td>Teks (Text)</td></tr>
+              <tr><td><kbd>I</kbd></td><td>Potong (Trim)</td></tr>
+              <tr><td><kbd>Shift+E</kbd></td><td>Pisah (Separate)</td></tr>
+              <tr><td><kbd>Ctrl+M</kbd></td><td>Transformasi (Transform)</td></tr>
+              <tr><td><kbd>W</kbd></td><td>Drag wall (di tab Arrange)</td></tr>
+            </tbody>
+          </table>
+
+          <h2>Edit</h2>
+          <table class="kb">
+            <thead><tr><th style="width:26%">Pintasan</th><th>Fungsi</th></tr></thead>
+            <tbody>
+              <tr><td>Panah kiri/kanan/atas/bawah</td><td>Geser pilihan 1 mm (atur di Settings ▸ Geometry ▸ Arrow key nudge).</td></tr>
+              <tr><td><kbd>;</kbd></td><td>Komentar (note).</td></tr>
+              <tr><td><kbd>Ctrl+A</kbd></td><td>Pilih semua.</td></tr>
+              <tr><td><kbd>Ctrl+C</kbd></td><td>Salin (sketsa + SVG + PNG ke clipboard sistem).</td></tr>
+              <tr><td><kbd>Ctrl+Shift+C</kbd></td><td>Sama dengan Ctrl+C.</td></tr>
+              <tr><td><kbd>Ctrl+D</kbd></td><td>Duplikat di tempat.</td></tr>
+              <tr><td><kbd>Ctrl+L</kbd></td><td>Buat <i>Live clone</i> yang otomatis mengikuti perubahan objek induk.</td></tr>
+              <tr><td><kbd>Ctrl+Shift+L</kbd></td><td><i>Clone as nest parts</i> — buat live clone sekaligus menandai sumber untuk nesting.</td></tr>
+              <tr><td><kbd>Ctrl+K</kbd></td><td>Fit curve melalui polyline (dialog Tolerance + Sharp corner).</td></tr>
+              <tr><td><kbd>Ctrl+V</kbd></td><td>Tempel.</td></tr>
+              <tr><td><kbd>Del</kbd></td><td>Hapus pilihan.</td></tr>
+              <tr><td><kbd>Z</kbd></td><td>Bersihkan seleksi ke loop utuh; tanpa seleksi, pilih titik sisa / constraint rusak / objek ukuran nol.</td></tr>
+              <tr><td><kbd>Shift+L</kbd></td><td>Cleanup loops — rapikan titik duplikat dan segmen bertumpuk.</td></tr>
+              <tr><td><kbd>Alt+W</kbd></td><td>Weld — las titik sudut/berimpit di dalam seleksi.</td></tr>
+              <tr><td><kbd>Ctrl+Z</kbd></td><td>Batalkan (undo).</td></tr>
+              <tr><td><kbd>Ctrl+Shift+Z</kbd></td><td>Ulangi (redo).</td></tr>
+              <tr><td><kbd>Ctrl+N</kbd></td><td>Beri nama seleksi.</td></tr>
+              <tr><td><kbd>Ctrl+G</kbd></td><td>Bungkus pilihan menjadi satu objek (group).</td></tr>
+              <tr><td><kbd>Ctrl+U</kbd></td><td>Bongkar group (ungroup).</td></tr>
+              <tr><td><kbd>Ctrl+J</kbd></td><td>Offset.</td></tr>
+              <tr><td><kbd>Ctrl+M</kbd></td><td>Transformasi.</td></tr>
+              <tr><td><kbd>Ctrl+Shift+M</kbd></td><td>Geser: klik titik referensi, lalu tujuan, konfirmasi dx, dy.</td></tr>
+              <tr><td><kbd>Ctrl++</kbd></td><td>Boolean union loop terpilih.</td></tr>
+              <tr><td><kbd>Ctrl+-</kbd></td><td>Boolean cut (target dulu, lalu alat terakhir). Tahan <kbd>Shift</kbd> pada Union/Cut/Intersect = simpan loop asli.</td></tr>
+              <tr><td><kbd>Ctrl+0</kbd></td><td>Boolean intersect.</td></tr>
+              <tr><td><kbd>J</kbd></td><td>Sambung titik yang bersentuh.</td></tr>
+              <tr><td><kbd>F</kbd></td><td>Fillet pada sudut.</td></tr>
+            </tbody>
+          </table>
+
+          <h2>Constraint &amp; Dimensi</h2>
+          <table class="kb">
+            <thead><tr><th style="width:26%">Pintasan</th><th>Constraint / Dimensi</th></tr></thead>
+            <tbody>
+              <tr><td><kbd>D</kbd></td><td>Dimensi penggerak (driving dimension).</td></tr>
+              <tr><td><kbd>Shift+D</kbd></td><td>Measure / referensi (hanya mengukur, tidak menggerakkan).</td></tr>
+              <tr><td><kbd>G</kbd></td><td>Tangent / menyentuh.</td></tr>
+              <tr><td><kbd>O</kbd></td><td>Coincident / berimpit.</td></tr>
+              <tr><td><kbd>H</kbd> / <kbd>V</kbd></td><td>Horizontal / Vertikal.</td></tr>
+              <tr><td><kbd>P</kbd></td><td>Parallel / sejajar.</td></tr>
+              <tr><td><kbd>[</kbd></td><td>Perpendicular / tegak lurus.</td></tr>
+              <tr><td><kbd>Q</kbd></td><td>Equal / sama panjang.</td></tr>
+              <tr><td><kbd>.</kbd></td><td>Anchor / jangkar.</td></tr>
+              <tr><td><kbd>M</kbd></td><td>Midpoint / titik tengah.</td></tr>
+              <tr><td><kbd>F</kbd></td><td>Fillet.</td></tr>
+              <tr><td><kbd>J</kbd></td><td>Join points / sambung titik.</td></tr>
+              <tr><td><kbd>Alt+T</kbd></td><td>Mate part (perakitan).</td></tr>
+              <tr><td><kbd>Shift+D</kbd></td><td>Measure / referensi (tanpa seleksi: buat dimensi ukur; saat dimensi terpilih: toggle penggerak &#8596; referensi).</td></tr>
+              <tr><td><kbd>Enter</kbd></td><td>Edit dimensi.</td></tr>
+            </tbody>
+          </table>
+
+          <h2>Tampilan &amp; Mesin</h2>
+          <table class="kb">
+            <thead><tr><th style="width:26%">Pintasan</th><th>Fungsi</th></tr></thead>
+            <tbody>
+              <tr><td>Wheel mouse</td><td>Geser tampilan vertikal.</td></tr>
+              <tr><td><kbd>Ctrl+Wheel</kbd></td><td>Zoom.</td></tr>
+              <tr><td><kbd>Shift+Wheel</kbd></td><td>Geser tampilan horizontal.</td></tr>
+              <tr><td>Drag tengah / kanan mouse</td><td>Pan (geser kanvas).</td></tr>
+              <tr><td><kbd>Shift+F</kbd></td><td>Pas kanvas ke layar (fit drawing).</td></tr>
+              <tr><td><kbd>3</kbd></td><td>Pas ke seleksi (fit selection).</td></tr>
+              <tr><td><kbd>#</kbd></td><td>Grid on/off.</td></tr>
+              <tr><td><kbd>Shift+5</kbd> (%)</td><td>Snap on/off.</td></tr>
+              <tr><td><kbd>Alt+1</kbd> / <kbd>Alt+2</kbd> / <kbd>Alt+3</kbd></td><td>Toggle Pick Filter: Points / Lines / Loops.</td></tr>
+              <tr><td><kbd>L</kbd></td><td>Loop fill on/off (sementara).</td></tr>
+              <tr><td><kbd>F1</kbd> / <kbd>F2</kbd> / <kbd>F3</kbd></td><td>Pilih / geser · Edit node · Junction.</td></tr>
+              <tr><td><kbd>Alt+D</kbd></td><td>Auto dimension on/off.</td></tr>
+              <tr><td><kbd>\</kbd> (backslash)</td><td>Titik lancip / halus (sharp / smooth).</td></tr>
+              <tr><td><kbd>N</kbd></td><td>Pilih yang tersambung (select connected).</td></tr>
+              <tr><td><kbd>Esc</kbd></td><td>Batal.</td></tr>
+              <tr><td><kbd>F9</kbd></td><td>Solve sekarang.</td></tr>
+              <tr><td><kbd>Alt+Q</kbd></td><td>Kirim ke KaryaCNC.</td></tr>
+              <tr><td><kbd>Alt+C</kbd></td><td>Buka dialog Estimasi Biaya Cutting.</td></tr>
+              <tr><td><kbd>?</kbd></td><td>Jendela Help bawaan aplikasi.</td></tr>
+            </tbody>
+          </table>
+
+          <div class="callout info"><b>Saat menggambar:</b> tahan <kbd>Shift</kbd> untuk sudut kelipatan 15°, tahan <kbd>Alt</kbd> untuk membalik Snap sementara, <kbd>Shift+5</kbd> untuk nyalakan/matikan snap sepenuhnya.</div>
+
+          <div class="help-footer">
+            <span>Pintasan Keyboard Lengkap</span>
+            <span>Sebelumnya: <a href="solver.html">Solver — Mode Penyelesaian</a> &nbsp;•&nbsp; Selanjutnya: <a href="ai.html">AI Chat (Bawa Kunci Sendiri)</a></span>
+          </div>
         </div>
 
-        <h2>Berkas</h2>
-        <table class="kb">
-          <thead><tr><th style="width:26%">Pintasan</th><th>Fungsi</th></tr></thead>
-          <tbody>
-            <tr><td><kbd>Ctrl+O</kbd></td><td>Open — membuka file <code>.sketch</code> / <code>.json</code> (mengganti seluruh sketsa).</td></tr>
-            <tr><td><kbd>Ctrl+I</kbd></td><td>Import — menggabungkan file ke sketsa aktif.</td></tr>
-            <tr><td><kbd>Ctrl+S</kbd></td><td>Simpan / unduh berkas <code>.sketch</code> ke disk (nama terakhir).</td></tr>
-            <tr><td><kbd>Ctrl+Shift+S</kbd></td><td>Save as — selalu menanyakan nama baru, unduh <code>.sketch</code>.</td></tr>
-            <tr><td><kbd>Ctrl+E</kbd></td><td>Ekspor SVG.</td></tr>
-          </tbody>
-        </table>
+        <div data-lang="en">
+          <div class="breadcrumb"><a href="index.html">Home</a> <span class="sep">&#8250;</span> Complete Keyboard Shortcuts</div>
 
-        <h2>Alat (Draw)</h2>
-        <table class="kb">
-          <thead><tr><th style="width:26%">Pintasan</th><th>Alat</th></tr></thead>
-          <tbody>
-            <tr><td><kbd>Shift+B</kbd></td><td>Garis (Line)</td></tr>
-            <tr><td><kbd>B</kbd></td><td>Kurva Bézier (Curve)</td></tr>
-            <tr><td><kbd>*</kbd></td><td>Poligon / Bintang (Poly)</td></tr>
-            <tr><td><kbd>A</kbd></td><td>Busur (Arc)</td></tr>
-            <tr><td><kbd>E</kbd></td><td>Lingkaran (Circle)</td></tr>
-            <tr><td><kbd>R</kbd></td><td>Kotak (Box)</td></tr>
-            <tr><td><kbd>T</kbd></td><td>Teks (Text)</td></tr>
-            <tr><td><kbd>I</kbd></td><td>Potong (Trim)</td></tr>
-            <tr><td><kbd>Shift+E</kbd></td><td>Pisah (Separate)</td></tr>
-            <tr><td><kbd>Ctrl+M</kbd></td><td>Transformasi (Transform)</td></tr>
-            <tr><td><kbd>W</kbd></td><td>Drag wall (di tab Arrange)</td></tr>
-          </tbody>
-        </table>
+          <h1>Keyboard Shortcuts</h1>
+          <p class="help-lead">Quick reference for every shortcut in MiniSketch. Press <kbd>?</kbd> anytime inside the app to open the built-in quick help card.</p>
 
-        <h2>Edit</h2>
-        <table class="kb">
-          <thead><tr><th style="width:26%">Pintasan</th><th>Fungsi</th></tr></thead>
-          <tbody>
-            <tr><td>Panah kiri/kanan/atas/bawah</td><td>Geser pilihan 1 mm (atur di Settings ▸ Geometry ▸ Arrow key nudge).</td></tr>
-            <tr><td><kbd>;</kbd></td><td>Komentar (note).</td></tr>
-            <tr><td><kbd>Ctrl+A</kbd></td><td>Pilih semua.</td></tr>
-            <tr><td><kbd>Ctrl+C</kbd></td><td>Salin (sketsa + SVG + PNG ke clipboard sistem).</td></tr>
-            <tr><td><kbd>Ctrl+Shift+C</kbd></td><td>Sama dengan Ctrl+C.</td></tr>
-            <tr><td><kbd>Ctrl+D</kbd></td><td>Duplikat di tempat.</td></tr>
-            <tr><td><kbd>Ctrl+L</kbd></td><td>Buat <i>Live clone</i> yang otomatis mengikuti perubahan objek induk.</td></tr>
-            <tr><td><kbd>Ctrl+Shift+L</kbd></td><td><i>Clone as nest parts</i> — buat live clone sekaligus menandai sumber untuk nesting.</td></tr>
-            <tr><td><kbd>Ctrl+K</kbd></td><td>Fit curve melalui polyline (dialog Tolerance + Sharp corner).</td></tr>
-            <tr><td><kbd>Ctrl+V</kbd></td><td>Tempel.</td></tr>
-            <tr><td><kbd>Del</kbd></td><td>Hapus pilihan.</td></tr>
-            <tr><td><kbd>Z</kbd></td><td>Bersihkan seleksi ke loop utuh; tanpa seleksi, pilih titik sisa / constraint rusak / objek ukuran nol.</td></tr>
-            <tr><td><kbd>Shift+L</kbd></td><td>Cleanup loops — rapikan titik duplikat dan segmen bertumpuk.</td></tr>
-            <tr><td><kbd>Alt+W</kbd></td><td>Weld — las titik sudut/berimpit di dalam seleksi.</td></tr>
-            <tr><td><kbd>Ctrl+Z</kbd></td><td>Batalkan (undo).</td></tr>
-            <tr><td><kbd>Ctrl+Shift+Z</kbd></td><td>Ulangi (redo).</td></tr>
-            <tr><td><kbd>Ctrl+N</kbd></td><td>Beri nama seleksi.</td></tr>
-            <tr><td><kbd>Ctrl+G</kbd></td><td>Bungkus pilihan menjadi satu objek (group).</td></tr>
-            <tr><td><kbd>Ctrl+U</kbd></td><td>Bongkar group (ungroup).</td></tr>
-            <tr><td><kbd>Ctrl+J</kbd></td><td>Offset.</td></tr>
-            <tr><td><kbd>Ctrl+M</kbd></td><td>Transformasi.</td></tr>
-            <tr><td><kbd>Ctrl+Shift+M</kbd></td><td>Geser: klik titik referensi, lalu tujuan, konfirmasi dx, dy.</td></tr>
-            <tr><td><kbd>Ctrl++</kbd></td><td>Boolean union loop terpilih.</td></tr>
-            <tr><td><kbd>Ctrl+-</kbd></td><td>Boolean cut (target dulu, lalu alat terakhir). Tahan <kbd>Shift</kbd> pada Union/Cut/Intersect = simpan loop asli.</td></tr>
-            <tr><td><kbd>Ctrl+0</kbd></td><td>Boolean intersect.</td></tr>
-            <tr><td><kbd>J</kbd></td><td>Sambung titik yang bersentuh.</td></tr>
-            <tr><td><kbd>F</kbd></td><td>Fillet pada sudut.</td></tr>
-          </tbody>
-        </table>
+          <div class="screenshot">
+            <img src="img/screenshots/jendela-help.png" alt="Built-in Help window">
+            <figcaption>Built-in Quick Help dialog (?): bilingual (English / Indonesian) reference covering navigation, drawing, editing, dimensions, constraints, solving, text, and imports.</figcaption>
+          </div>
 
-        <h2>Constraint &amp; Dimensi</h2>
-        <table class="kb">
-          <thead><tr><th style="width:26%">Pintasan</th><th>Constraint / Dimensi</th></tr></thead>
-          <tbody>
-            <tr><td><kbd>D</kbd></td><td>Dimensi penggerak (driving dimension).</td></tr>
-            <tr><td><kbd>Shift+D</kbd></td><td>Measure / referensi (hanya mengukur, tidak menggerakkan).</td></tr>
-            <tr><td><kbd>G</kbd></td><td>Tangent / menyentuh.</td></tr>
-            <tr><td><kbd>O</kbd></td><td>Coincident / berimpit.</td></tr>
-            <tr><td><kbd>H</kbd> / <kbd>V</kbd></td><td>Horizontal / Vertikal.</td></tr>
-            <tr><td><kbd>P</kbd></td><td>Parallel / sejajar.</td></tr>
-            <tr><td><kbd>[</kbd></td><td>Perpendicular / tegak lurus.</td></tr>
-            <tr><td><kbd>Q</kbd></td><td>Equal / sama panjang.</td></tr>
-            <tr><td><kbd>.</kbd></td><td>Anchor / jangkar.</td></tr>
-            <tr><td><kbd>M</kbd></td><td>Midpoint / titik tengah.</td></tr>
-            <tr><td><kbd>F</kbd></td><td>Fillet.</td></tr>
-            <tr><td><kbd>J</kbd></td><td>Join points / sambung titik.</td></tr>
-            <tr><td><kbd>Alt+T</kbd></td><td>Mate part (perakitan).</td></tr>
-            <tr><td><kbd>Shift+D</kbd></td><td>Measure / referensi (tanpa seleksi: buat dimensi ukur; saat dimensi terpilih: toggle penggerak &#8596; referensi).</td></tr>
-            <tr><td><kbd>Enter</kbd></td><td>Edit dimensi.</td></tr>
-          </tbody>
-        </table>
+          <h2>Files</h2>
+          <table class="kb">
+            <thead><tr><th style="width:26%">Shortcut</th><th>Action</th></tr></thead>
+            <tbody>
+              <tr><td><kbd>Ctrl+O</kbd></td><td>Open a <code>.sketch</code> / <code>.json</code> file (replaces current sketch).</td></tr>
+              <tr><td><kbd>Ctrl+I</kbd></td><td>Import and merge a vector/sketch file into the active sketch.</td></tr>
+              <tr><td><kbd>Ctrl+S</kbd></td><td>Save / download <code>.sketch</code> file to disk (reusing last filename).</td></tr>
+              <tr><td><kbd>Ctrl+Shift+S</kbd></td><td>Save As — prompt for a new filename and download <code>.sketch</code>.</td></tr>
+              <tr><td><kbd>Ctrl+E</kbd></td><td>Export SVG.</td></tr>
+            </tbody>
+          </table>
 
-        <h2>Tampilan &amp; Mesin</h2>
-        <table class="kb">
-          <thead><tr><th style="width:26%">Pintasan</th><th>Fungsi</th></tr></thead>
-          <tbody>
-            <tr><td>Wheel mouse</td><td>Geser tampilan vertikal.</td></tr>
-            <tr><td><kbd>Ctrl+Wheel</kbd></td><td>Zoom.</td></tr>
-            <tr><td><kbd>Shift+Wheel</kbd></td><td>Geser tampilan horizontal.</td></tr>
-            <tr><td>Drag tengah / kanan mouse</td><td>Pan (geser kanvas).</td></tr>
-            <tr><td><kbd>Shift+F</kbd></td><td>Pas kanvas ke layar (fit drawing).</td></tr>
-            <tr><td><kbd>3</kbd></td><td>Pas ke seleksi (fit selection).</td></tr>
-            <tr><td><kbd>#</kbd></td><td>Grid on/off.</td></tr>
-            <tr><td><kbd>Shift+5</kbd> (%)</td><td>Snap on/off.</td></tr>
-            <tr><td><kbd>Alt+1</kbd> / <kbd>Alt+2</kbd> / <kbd>Alt+3</kbd></td><td>Toggle Pick Filter: Points / Lines / Loops.</td></tr>
-            <tr><td><kbd>L</kbd></td><td>Loop fill on/off (sementara).</td></tr>
-            <tr><td><kbd>F1</kbd> / <kbd>F2</kbd> / <kbd>F3</kbd></td><td>Pilih / geser · Edit node · Junction.</td></tr>
-            <tr><td><kbd>Alt+D</kbd></td><td>Auto dimension on/off.</td></tr>
-            <tr><td><kbd>\</kbd> (backslash)</td><td>Titik lancip / halus (sharp / smooth).</td></tr>
-            <tr><td><kbd>N</kbd></td><td>Pilih yang tersambung (select connected).</td></tr>
-            <tr><td><kbd>Esc</kbd></td><td>Batal.</td></tr>
-            <tr><td><kbd>F9</kbd></td><td>Solve sekarang.</td></tr>
-            <tr><td><kbd>Alt+Q</kbd></td><td>Kirim ke KaryaCNC.</td></tr>
-            <tr><td><kbd>Alt+C</kbd></td><td>Buka dialog Estimasi Biaya Cutting.</td></tr>
-            <tr><td><kbd>?</kbd></td><td>Jendela Help bawaan aplikasi.</td></tr>
-          </tbody>
-        </table>
+          <h2>Drawing Tools</h2>
+          <table class="kb">
+            <thead><tr><th style="width:26%">Shortcut</th><th>Tool</th></tr></thead>
+            <tbody>
+              <tr><td><kbd>Shift+B</kbd></td><td>Line</td></tr>
+              <tr><td><kbd>B</kbd></td><td>Cubic Bézier Curve</td></tr>
+              <tr><td><kbd>*</kbd></td><td>Polygon / Star (Poly)</td></tr>
+              <tr><td><kbd>A</kbd></td><td>Arc</td></tr>
+              <tr><td><kbd>E</kbd></td><td>Circle</td></tr>
+              <tr><td><kbd>R</kbd></td><td>Rectangle (Box)</td></tr>
+              <tr><td><kbd>T</kbd></td><td>Text</td></tr>
+              <tr><td><kbd>I</kbd></td><td>Trim</td></tr>
+              <tr><td><kbd>Shift+E</kbd></td><td>Separate</td></tr>
+              <tr><td><kbd>Ctrl+M</kbd></td><td>Transform</td></tr>
+              <tr><td><kbd>W</kbd></td><td>Drag wall (Arrange tab)</td></tr>
+            </tbody>
+          </table>
 
-        <div class="callout info"><b>Saat menggambar:</b> tahan <kbd>Shift</kbd> untuk sudut kelipatan 15°, tahan <kbd>Alt</kbd> untuk membalik Snap sementara, <kbd>Shift+5</kbd> untuk nyalakan/matikan snap sepenuhnya.</div>
+          <h2>Edit</h2>
+          <table class="kb">
+            <thead><tr><th style="width:26%">Shortcut</th><th>Action</th></tr></thead>
+            <tbody>
+              <tr><td>Arrow keys</td><td>Nudge selection 1 mm (configurable in Settings ▸ Geometry ▸ Arrow key nudge).</td></tr>
+              <tr><td><kbd>;</kbd></td><td>Add comment (note).</td></tr>
+              <tr><td><kbd>Ctrl+A</kbd></td><td>Select all.</td></tr>
+              <tr><td><kbd>Ctrl+C</kbd></td><td>Copy (writes MiniSketch JSON + SVG + PNG screenshot to OS clipboard).</td></tr>
+              <tr><td><kbd>Ctrl+Shift+C</kbd></td><td>Same as Ctrl+C.</td></tr>
+              <tr><td><kbd>Ctrl+D</kbd></td><td>Duplicate in place.</td></tr>
+              <tr><td><kbd>Ctrl+L</kbd></td><td>Create a <i>Live clone</i> linked to the parent geometry.</td></tr>
+              <tr><td><kbd>Ctrl+Shift+L</kbd></td><td><i>Clone as nest parts</i> — create live clones ready for nesting.</td></tr>
+              <tr><td><kbd>Ctrl+K</kbd></td><td>Fit curves through polylines (Tolerance + Sharp corner dialog).</td></tr>
+              <tr><td><kbd>Ctrl+V</kbd></td><td>Paste (sketch payload, SVG vectors, or bitmap trace).</td></tr>
+              <tr><td><kbd>Del</kbd></td><td>Delete selection.</td></tr>
+              <tr><td><kbd>Z</kbd></td><td>Refine selection to closed loops; or select stray points / broken constraints / zero-size entities.</td></tr>
+              <tr><td><kbd>Shift+L</kbd></td><td>Cleanup loops — remove duplicate points and overlapping segments.</td></tr>
+              <tr><td><kbd>Alt+W</kbd></td><td>Weld nearby vertices inside selection.</td></tr>
+              <tr><td><kbd>Ctrl+Z</kbd></td><td>Undo.</td></tr>
+              <tr><td><kbd>Ctrl+Shift+Z</kbd></td><td>Redo.</td></tr>
+              <tr><td><kbd>Ctrl+N</kbd></td><td>Name selection.</td></tr>
+              <tr><td><kbd>Ctrl+G</kbd></td><td>Group selection into one framed object.</td></tr>
+              <tr><td><kbd>Ctrl+U</kbd></td><td>Ungroup selection.</td></tr>
+              <tr><td><kbd>Ctrl+J</kbd></td><td>Offset.</td></tr>
+              <tr><td><kbd>Ctrl+M</kbd></td><td>Transform.</td></tr>
+              <tr><td><kbd>Ctrl+Shift+M</kbd></td><td>Move by reference points (dx, dy).</td></tr>
+              <tr><td><kbd>Ctrl++</kbd></td><td>Boolean union of selected loops.</td></tr>
+              <tr><td><kbd>Ctrl+-</kbd></td><td>Boolean cut (target first, cutter last). Hold <kbd>Shift</kbd> on Union/Cut/Intersect to keep originals.</td></tr>
+              <tr><td><kbd>Ctrl+0</kbd></td><td>Boolean intersect.</td></tr>
+              <tr><td><kbd>J</kbd></td><td>Join touching points.</td></tr>
+              <tr><td><kbd>F</kbd></td><td>Fillet corners.</td></tr>
+            </tbody>
+          </table>
 
-        <div class="help-footer">
-          <span>Pintasan Keyboard Lengkap</span>
-          <span>Sebelumnya: <a href="solver.html">Solver — Mode Penyelesaian</a> &nbsp;•&nbsp; Selanjutnya: <a href="ai.html">AI Chat (Bawa Kunci Sendiri)</a></span>
+          <h2>Constraints &amp; Dimensions</h2>
+          <table class="kb">
+            <thead><tr><th style="width:26%">Shortcut</th><th>Constraint / Dimension</th></tr></thead>
+            <tbody>
+              <tr><td><kbd>D</kbd></td><td>Driving dimension.</td></tr>
+              <tr><td><kbd>Shift+D</kbd></td><td>Reference / measure dimension (non-driving; toggles selected dimension between driving ↔ reference).</td></tr>
+              <tr><td><kbd>G</kbd></td><td>Tangent.</td></tr>
+              <tr><td><kbd>O</kbd></td><td>Coincident.</td></tr>
+              <tr><td><kbd>H</kbd> / <kbd>V</kbd></td><td>Horizontal / Vertical.</td></tr>
+              <tr><td><kbd>P</kbd></td><td>Parallel.</td></tr>
+              <tr><td><kbd>[</kbd></td><td>Perpendicular.</td></tr>
+              <tr><td><kbd>Q</kbd></td><td>Equal length/radius.</td></tr>
+              <tr><td><kbd>.</kbd></td><td>Anchor (fix point).</td></tr>
+              <tr><td><kbd>M</kbd></td><td>Midpoint.</td></tr>
+              <tr><td><kbd>F</kbd></td><td>Fillet.</td></tr>
+              <tr><td><kbd>J</kbd></td><td>Join points.</td></tr>
+              <tr><td><kbd>Alt+T</kbd></td><td>Mate parts (assembly).</td></tr>
+              <tr><td><kbd>Enter</kbd></td><td>Edit selected dimension value.</td></tr>
+            </tbody>
+          </table>
+
+          <h2>View &amp; Machine</h2>
+          <table class="kb">
+            <thead><tr><th style="width:26%">Shortcut</th><th>Action</th></tr></thead>
+            <tbody>
+              <tr><td>Mouse wheel</td><td>Scroll vertically.</td></tr>
+              <tr><td><kbd>Ctrl+Wheel</kbd></td><td>Zoom in / out.</td></tr>
+              <tr><td><kbd>Shift+Wheel</kbd></td><td>Scroll horizontally.</td></tr>
+              <tr><td>Middle / right mouse drag</td><td>Pan canvas.</td></tr>
+              <tr><td><kbd>Shift+F</kbd></td><td>Fit drawing to viewport.</td></tr>
+              <tr><td><kbd>3</kbd></td><td>Zoom to selection.</td></tr>
+              <tr><td><kbd>#</kbd></td><td>Toggle grid.</td></tr>
+              <tr><td><kbd>Shift+5</kbd> (%)</td><td>Toggle snap.</td></tr>
+              <tr><td><kbd>Alt+1</kbd> / <kbd>Alt+2</kbd> / <kbd>Alt+3</kbd></td><td>Toggle Pick Filter: Points / Lines / Loops.</td></tr>
+              <tr><td><kbd>L</kbd></td><td>Toggle temporary loop fill preview.</td></tr>
+              <tr><td><kbd>F1</kbd> / <kbd>F2</kbd> / <kbd>F3</kbd></td><td>Select/drag · Node edit · Junction mode.</td></tr>
+              <tr><td><kbd>Alt+D</kbd></td><td>Toggle auto-dimension on snap.</td></tr>
+              <tr><td><kbd>\</kbd> (backslash)</td><td>Toggle cusp / smooth point on curves.</td></tr>
+              <tr><td><kbd>N</kbd></td><td>Select connected geometry.</td></tr>
+              <tr><td><kbd>Esc</kbd></td><td>Cancel / clear selection.</td></tr>
+              <tr><td><kbd>F9</kbd></td><td>Solve now.</td></tr>
+              <tr><td><kbd>Alt+Q</kbd></td><td>Send to KaryaCNC.</td></tr>
+              <tr><td><kbd>Alt+C</kbd></td><td>Open Cutting Cost Estimator.</td></tr>
+              <tr><td><kbd>?</kbd></td><td>Built-in Quick Help dialog.</td></tr>
+            </tbody>
+          </table>
+
+          <div class="callout info"><b>While drawing:</b> hold <kbd>Shift</kbd> to snap to 15° increments, hold <kbd>Alt</kbd> to invert Snap temporarily, and press <kbd>Shift+5</kbd> to toggle snap globally.</div>
+
+          <div class="help-footer">
+            <span>Complete Keyboard Shortcuts</span>
+            <span>Previous: <a href="solver.html">Solver — Solve Modes</a> &nbsp;•&nbsp; Next: <a href="ai.html">AI Chat (SVG &amp; Extension Builder)</a></span>
+          </div>
         </div>
       </div>
     </main>

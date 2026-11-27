@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en" data-doc-lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>KaryaCNC — Kirim ke Mesin | Bantuan MiniSketch</title>
+<title>KaryaCNC — Send to Machine | MiniSketch Help</title>
 <link rel="stylesheet" href="help.css">
+<script>try{var p=new URLSearchParams(location.search).get("lang"),l=(p==="en"||p==="id")?p:(localStorage.getItem("minisketch.help.lang")||"en");if(l!=="en"&&l!=="id")l="en";document.documentElement.dataset.docLang=l;document.documentElement.lang=l;}catch(e){}</script>
 </head>
 <body>
 <div class="help-shell">
@@ -14,18 +15,18 @@
     <div class="help-brand">
       <div class="help-mark">M</div>
       <div>
-        <div class="help-title">KaryaCNC — Kirim ke Mesin</div>
-        <div class="help-subtitle">Dialog kirim, estimasi biaya, dan warna operasi (hitam potong, merah gores, dll)</div>
+        <div class="help-title">KaryaCNC — Send to Machine</div>
+        <div class="help-subtitle">Send dialog, cutting cost estimator, and operation colors (black cut, red drill/score, etc.)</div>
       </div>
     </div>
     <div class="help-spacer"></div>
     <div class="help-search">
       <span class="search-icon" aria-hidden="true">&#128269;</span>
-      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
-      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+      <input id="help-search-input" type="text" placeholder="Search help topics…" autocomplete="off" spellcheck="false" aria-label="Search help topics">
+      <button class="clear-btn" id="help-search-clear" title="Clear search" aria-hidden="true">&#215;</button>
     </div>
-    <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
-    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+    <div id="help-search-results" style="display:none;"></div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">No matching topics.</div>
   </header>
 
   <div class="help-body">
@@ -72,86 +73,172 @@
 
     <main class="help-content">
       <div class="help-page">
-        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> KaryaCNC — Kirim ke Mesin</div>
+        <div data-lang="id">
+          <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> KaryaCNC — Kirim ke Mesin</div>
 
-        <h1>Tab KaryaCNC — Kirim ke Mesin</h1>
-        <p class="help-lead">Tab KaryaCNC mengirim sketsa ke mesin KaryaCNC melalui dialog <b>Tool ▸ Send to KaryaCNC</b> (<kbd>Alt+Q</kbd>). Warna loop ditafsirkan sebagai proses mesin.</p>
+          <h1>Tab KaryaCNC — Kirim ke Mesin</h1>
+          <p class="help-lead">Tab KaryaCNC mengirim sketsa ke mesin KaryaCNC melalui dialog <b>Tool ▸ Send to KaryaCNC</b> (<kbd>Alt+Q</kbd>). Warna loop ditafsirkan sebagai proses mesin.</p>
 
-        <div class="screenshot">
-          <img src="img/screenshots/karyacnc-ribbon.png" alt="Tab KaryaCNC aktif di ribbon">
-          <figcaption>Tab KaryaCNC aktif: tombol Send CNC dan Biaya (estimasi).</figcaption>
+          <div class="screenshot">
+            <img src="img/screenshots/karyacnc-ribbon.png" alt="Tab KaryaCNC aktif di ribbon">
+            <figcaption>Tab KaryaCNC aktif: tombol Send CNC dan Biaya (estimasi).</figcaption>
+          </div>
+
+          <h2>1. Dialog Send to KaryaCNC</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:24%">Pengaturan</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Server (Host &amp; port)</td><td>Host KaryaCNC dan port WebSocket (default 8887, rentang 8885–8889). Koneksi <code>ws://127.0.0.1:8887</code> membutuhkan halaman dibuka lewat HTTP lokal (mis. <code>http://127.0.0.1:8090</code>), karena browser memblokir <code>ws://</code> dari halaman HTTPS.</td></tr>
+              <tr><td>Send (Scope)</td><td>Objek yang dikirim: terpilih, terlihat, atau hanya layer aktif.</td></tr>
+              <tr><td>Flatten tolerance</td><td>Circles dan arcs di-flatten sehingga tidak menyimpang lebih dari nilai ini (mm). Default 0.05 mm.</td></tr>
+              <tr><td>Chain</td><td>Gabungkan segmen yang bersentuh menjadi satu path (kontur tertutup jadi cut loop).</td></tr>
+              <tr><td>Protocol / Route</td><td>Classic = teks WebSocket (default). Express = JSON job frame (v1 wire contract, skipJoin:true).</td></tr>
+            </tbody>
+          </table>
+
+          <div class="callout info"><b>Sebelum kirim:</b> pastikan semua dimensi penggerak terpenuhi (dimensi belum terpenuhi digambar warna amber). Jendela CNC akan memperingatkan sebelum mengirim.</div>
+
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-karyacnc.png" alt="Dialog pengiriman ke KaryaCNC">
+            <figcaption>Dialog pengiriman ke KaryaCNC: Server (host + port), Send (scope), Flatten + Chain, Protocol, legenda warna operasi, dan status.</figcaption>
+          </div>
+
+          <h2 id="cost">2. Estimasi Biaya Cutting</h2>
+          <p>Buka melalui tombol <b>Biaya</b> di ribbon KaryaCNC atau tekan <kbd>Alt+C</kbd>. Dialog berisi:</p>
+          <ul>
+            <li><b>Preset</b> — bahan &amp; mesin (cost.txt).</li>
+            <li><b>Nama bahan</b> — tersimpan ke preset saat Save.</li>
+            <li><b>Harga bahan</b> per cm².</li>
+            <li><b>Jasa cutting</b> per menit potong.</li>
+            <li><b>Kecepatan potong</b> mesin (mm/s).</li>
+            <li><b>Pengulangan</b> — berapa kali jalur potong dilalui.</li>
+            <li><b>DPI</b> — resolusi engrave (menentukan jumlah baris raster).</li>
+          </ul>
+          <p>Hasil estimasi ditampilkan di bawah parameter. Klik <b>Save ke preset</b> untuk menyimpan nilai.</p>
+
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-cost.png" alt="Dialog Estimasi Biaya Cutting">
+            <figcaption>Dialog Estimasi Biaya Cutting dengan preset "Laser Akrilik 1.5mm": panjang potong, bounding box, luas bahan, waktu potong, rincian biaya bahan + jasa, dan Total.</figcaption>
+          </div>
+
+          <h2>3. Legenda warna operasi KaryaCNC</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:26%">Warna</th><th>Operasi</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Hitam</td><td>Potong (cut)</td></tr>
+              <tr><td>Biru</td><td>Engrave</td></tr>
+              <tr><td>Cyan</td><td>V-carve</td></tr>
+              <tr><td>Ungu</td><td>Pocket</td></tr>
+              <tr><td>Merah</td><td>Drill / Gores (bor atau gores ringan)</td></tr>
+              <tr><td>Hijau</td><td>Mark</td></tr>
+              <tr><td>Maroon</td><td>Cut tab</td></tr>
+              <tr><td>Teal</td><td>Titik awal (start point)</td></tr>
+              <tr><td>Kuning</td><td>Clip (batas engrave)</td></tr>
+            </tbody>
+          </table>
+          <div class="callout info"><b>Warna adalah operasinya</b> — tidak ada pemetaan per layer. Sembilan kode garis di atas mengikuti kode stroke KaryaCNC.</div>
+
+          <h2>4. Loop fill dan Sort weight</h2>
+          <ul>
+            <li><b>Loop fill:</b> klik di dalam loop tertutup, pilih <b>None</b>, <b>Gray</b> (batas material: semua di dalam dibalik), atau <b>Yellow</b> (balik arah offset kontur).</li>
+            <li><b>Sort weight (Wt)</b> di strip L/T/W/H: menentukan urutan pemotongan (−100 sampai 100; semakin tinggi dipotong kemudian di KaryaCNC, dikirim ×100).</li>
+            <li><b>Depth override (Z)</b>: kedalaman mesin dalam mm untuk objek terpilih (harus &gt; 0), dikirim sebagai <code>p.depth</code>. Kosong atau 0 = default mesin. Objek dengan depth ditandai badge <b>Z</b> (mis. <code>Z 2.5</code>).</li>
+          </ul>
+
+          <div class="callout warn"><b>Teks dan objek hasil paste</b> di-trace saat dikirim, atau tekan <b>&rarr; Curve</b> terlebih dahulu. SVG export bisa hanya pilihan, hanya layer terlihat, atau hanya layer aktif, dengan garis hairline untuk Inkscape.</div>
+
+          <div class="help-footer">
+            <span>KaryaCNC — Kirim ke Mesin</span>
+            <span>Sebelumnya: <a href="parts.html">Parts — Part &amp; Assembly</a> &nbsp;•&nbsp; Selanjutnya: <a href="files.html">Berkas — Open / Import / Save / Export</a></span>
+          </div>
         </div>
 
-        <h2>1. Dialog Send to KaryaCNC</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:24%">Pengaturan</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Server (Host &amp; port)</td><td>Host KaryaCNC dan port WebSocket (default 8887, rentang 8885–8889). Koneksi <code>ws://127.0.0.1:8887</code> membutuhkan halaman dibuka lewat HTTP lokal (mis. <code>http://127.0.0.1:8090</code>), karena browser memblokir <code>ws://</code> dari halaman HTTPS.</td></tr>
-            <tr><td>Send (Scope)</td><td>Objek yang dikirim: terpilih, terlihat, atau hanya layer aktif.</td></tr>
-            <tr><td>Flatten tolerance</td><td>Circles dan arcs di-flatten sehingga tidak menyimpang lebih dari nilai ini (mm). Default 0.05 mm.</td></tr>
-            <tr><td>Chain</td><td>Gabungkan segmen yang bersentuh menjadi satu path (kontur tertutup jadi cut loop).</td></tr>
-            <tr><td>Protocol / Route</td><td>Classic = teks WebSocket (default). Express = JSON job frame (v1 wire contract, skipJoin:true).</td></tr>
-          </tbody>
-        </table>
+        <div data-lang="en">
+          <div class="breadcrumb"><a href="index.html">Home</a> <span class="sep">&#8250;</span> KaryaCNC — Send to Machine</div>
 
-        <div class="callout info"><b>Sebelum kirim:</b> pastikan semua dimensi penggerak terpenuhi (dimensi belum terpenuhi digambar warna amber). Jendela CNC akan memperingatkan sebelum mengirim.</div>
+          <h1>KaryaCNC Tab — Send to Machine</h1>
+          <p class="help-lead">The KaryaCNC tab sends your sketch directly to KaryaCNC via <b>Tool ▸ Send to KaryaCNC</b> (<kbd>Alt+Q</kbd>). Stroke colors are interpreted as CNC operations.</p>
 
-        <div class="screenshot">
-          <img src="img/screenshots/dialog-karyacnc.png" alt="Dialog pengiriman ke KaryaCNC">
-          <figcaption>Dialog pengiriman ke KaryaCNC: Server (host + port), Send (scope), Flatten + Chain, Protocol, legenda warna operasi, dan status.</figcaption>
-        </div>
+          <div class="screenshot">
+            <img src="img/screenshots/karyacnc-ribbon.png" alt="Active KaryaCNC tab in ribbon">
+            <figcaption>Active KaryaCNC tab: Send CNC and Cost estimation buttons.</figcaption>
+          </div>
 
-        <h2 id="cost">2. Estimasi Biaya Cutting</h2>
-        <p>Buka melalui tombol <b>Biaya</b> di ribbon KaryaCNC atau tekan <kbd>Alt+C</kbd>. Dialog berisi:</p>
-        <ul>
-          <li><b>Preset</b> — bahan &amp; mesin (cost.txt).</li>
-          <li><b>Nama bahan</b> — tersimpan ke preset saat Save.</li>
-          <li><b>Harga bahan</b> per cm².</li>
-          <li><b>Jasa cutting</b> per menit potong.</li>
-          <li><b>Kecepatan potong</b> mesin (mm/s).</li>
-          <li><b>Pengulangan</b> — berapa kali jalur potong dilalui.</li>
-          <li><b>DPI</b> — resolusi engrave (menentukan jumlah baris raster).</li>
-        </ul>
-        <p>Hasil estimasi ditampilkan di bawah parameter. Klik <b>Save ke preset</b> untuk menyimpan nilai.</p>
+          <h2>1. Send to KaryaCNC dialog</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:24%">Setting</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Server (Host &amp; port)</td><td>KaryaCNC host and WebSocket port (default 8887, range 8885–8889). Connecting to <code>ws://127.0.0.1:8887</code> requires opening MiniSketch over local HTTP (e.g. <code>http://127.0.0.1:8090</code>) because browsers block <code>ws://</code> from HTTPS pages.</td></tr>
+              <tr><td>Send (Scope)</td><td>Which objects are sent: selected only, visible layers, or active layer only.</td></tr>
+              <tr><td>Flatten tolerance</td><td>Circles and arcs are flattened so deviation stays within this tolerance (mm). Default 0.05 mm.</td></tr>
+              <tr><td>Chain</td><td>Join touching segments into single paths (closed contours become cut loops).</td></tr>
+              <tr><td>Protocol / Route</td><td>Classic = WebSocket text (default). Express = JSON job frame (v1 wire contract, skipJoin:true).</td></tr>
+            </tbody>
+          </table>
 
-        <div class="screenshot">
-          <img src="img/screenshots/dialog-cost.png" alt="Dialog Estimasi Biaya Cutting">
-          <figcaption>Dialog Estimasi Biaya Cutting dengan preset "Laser Akrilik 1.5mm": panjang potong, bounding box, luas bahan, waktu potong, rincian biaya bahan + jasa, dan Total.</figcaption>
-        </div>
+          <div class="callout info"><b>Before sending:</b> verify all driving dimensions are satisfied (unsatisfied dimensions appear in amber). The CNC dialog warns before sending if amber dimensions exist.</div>
 
-        <h2>3. Legenda warna operasi KaryaCNC</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:26%">Warna</th><th>Operasi</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Hitam</td><td>Potong (cut)</td></tr>
-            <tr><td>Biru</td><td>Engrave</td></tr>
-            <tr><td>Cyan</td><td>V-carve</td></tr>
-            <tr><td>Ungu</td><td>Pocket</td></tr>
-            <tr><td>Merah</td><td>Drill / Gores (bor atau gores ringan)</td></tr>
-            <tr><td>Hijau</td><td>Mark</td></tr>
-            <tr><td>Maroon</td><td>Cut tab</td></tr>
-            <tr><td>Teal</td><td>Titik awal (start point)</td></tr>
-            <tr><td>Kuning</td><td>Clip (batas engrave)</td></tr>
-          </tbody>
-        </table>
-        <div class="callout info"><b>Warna adalah operasinya</b> — tidak ada pemetaan per layer. Sembilan kode garis di atas mengikuti kode stroke KaryaCNC.</div>
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-karyacnc.png" alt="Send to KaryaCNC dialog">
+            <figcaption>Send to KaryaCNC dialog: Server (host + port), Send (scope), Flatten + Chain, Protocol, operation color legend, and connection status.</figcaption>
+          </div>
 
-        <h2>4. Loop fill dan Sort weight</h2>
-        <ul>
-          <li><b>Loop fill:</b> klik di dalam loop tertutup, pilih <b>None</b>, <b>Gray</b> (batas material: semua di dalam dibalik), atau <b>Yellow</b> (balik arah offset kontur).</li>
-          <li><b>Sort weight (Wt)</b> di strip L/T/W/H: menentukan urutan pemotongan (−100 sampai 100; semakin tinggi dipotong kemudian di KaryaCNC, dikirim ×100).</li>
-          <li><b>Depth override (Z)</b>: kedalaman mesin dalam mm untuk objek terpilih (harus &gt; 0), dikirim sebagai <code>p.depth</code>. Kosong atau 0 = default mesin. Objek dengan depth ditandai badge <b>Z</b> (mis. <code>Z 2.5</code>).</li>
-        </ul>
+          <h2 data-anchor="cost">2. Cutting Cost Estimator</h2>
+          <p>Open from the <b>Cost</b> button on the KaryaCNC ribbon or press <kbd>Alt+C</kbd>. Fields include:</p>
+          <ul>
+            <li><b>Preset</b> — material &amp; machine profile (cost.txt).</li>
+            <li><b>Material name</b> — saved to the preset when clicking Save.</li>
+            <li><b>Material price</b> per cm².</li>
+            <li><b>Cutting fee</b> per cutting minute.</li>
+            <li><b>Cutting speed</b> of the machine (mm/s).</li>
+            <li><b>Passes / Repeat</b> — number of times each cut path is traversed.</li>
+            <li><b>DPI</b> — engraving raster resolution (determines scanline count).</li>
+          </ul>
+          <p>The estimated breakdown appears below the parameters. Click <b>Save preset</b> to store your values.</p>
 
-        <div class="callout warn"><b>Teks dan objek hasil paste</b> di-trace saat dikirim, atau tekan <b>&rarr; Curve</b> terlebih dahulu. SVG export bisa hanya pilihan, hanya layer terlihat, atau hanya layer aktif, dengan garis hairline untuk Inkscape.</div>
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-cost.png" alt="Cutting Cost Estimator dialog">
+            <figcaption>Cutting Cost Estimator dialog with "Laser Akrilik 1.5mm" preset: cut length, bounding box, material area, estimated time, material + service cost, and Total.</figcaption>
+          </div>
 
-        <div class="help-footer">
-          <span>KaryaCNC — Kirim ke Mesin</span>
-          <span>Sebelumnya: <a href="parts.html">Parts — Part &amp; Assembly</a> &nbsp;•&nbsp; Selanjutnya: <a href="files.html">Berkas — Open / Import / Save / Export</a></span>
+          <h2>3. KaryaCNC operation color legend</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:26%">Color</th><th>Operation</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Black</td><td>Cut</td></tr>
+              <tr><td>Blue</td><td>Engrave</td></tr>
+              <tr><td>Cyan</td><td>V-carve</td></tr>
+              <tr><td>Purple</td><td>Pocket</td></tr>
+              <tr><td>Red</td><td>Drill / Score (light drill or score pass)</td></tr>
+              <tr><td>Green</td><td>Mark / Construction guide (travel-only)</td></tr>
+              <tr><td>Maroon</td><td>Cut tab</td></tr>
+              <tr><td>Teal</td><td>Start point</td></tr>
+              <tr><td>Yellow</td><td>Clip (engrave boundary)</td></tr>
+            </tbody>
+          </table>
+          <div class="callout info"><b>Color is the operation</b> — there is no per-layer operation mapping. These nine stroke colors follow KaryaCNC conventions directly.</div>
+
+          <h2>4. Loop fill, Sort weight &amp; Depth override</h2>
+          <ul>
+            <li><b>Loop fill:</b> click inside a closed loop and choose <b>None</b>, <b>Gray</b> (material outer boundary: everything inside is flipped), or <b>Yellow</b> (flip contour offset direction).</li>
+            <li><b>Sort weight (Wt)</b> in the L/T/W/H bar: sets cutting order (−100 to 100; higher numbers cut later in KaryaCNC, sent ×100).</li>
+            <li><b>Depth override (Z)</b>: custom cut depth in mm for selected objects (&gt; 0), sent as <code>p.depth</code>. Blank or 0 uses the machine default. Objects with an override show a <b>Z</b> badge (e.g. <code>Z 2.5</code>).</li>
+          </ul>
+
+          <div class="callout warn"><b>Text and pasted art objects</b> are traced on export/send, or click <b>&rarr; Curve</b> first to inspect editable curves. SVG export can target selection only, visible layers, or active layer with hairline strokes for Inkscape.</div>
+
+          <div class="help-footer">
+            <span>KaryaCNC — Send to Machine</span>
+            <span>Previous: <a href="parts.html">Parts — Rigid Parts &amp; Assembly</a> &nbsp;•&nbsp; Next: <a href="files.html">Files — Open / Import / Save / Export</a></span>
+          </div>
         </div>
       </div>
     </main>

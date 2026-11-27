@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en" data-doc-lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Teks &amp; Font | Bantuan MiniSketch</title>
+<title>Text &amp; Fonts | MiniSketch Help</title>
 <link rel="stylesheet" href="help.css">
+<script>try{var p=new URLSearchParams(location.search).get("lang"),l=(p==="en"||p==="id")?p:(localStorage.getItem("minisketch.help.lang")||"en");if(l!=="en"&&l!=="id")l="en";document.documentElement.dataset.docLang=l;document.documentElement.lang=l;}catch(e){}</script>
 </head>
 <body>
 <div class="help-shell">
@@ -14,18 +15,18 @@
     <div class="help-brand">
       <div class="help-mark">M</div>
       <div>
-        <div class="help-title">Teks &amp; Font</div>
-        <div class="help-subtitle">Objek teks, pilihan font, ukuran, jarak huruf, dan fit ke kurva</div>
+        <div class="help-title">Text &amp; Fonts</div>
+        <div class="help-subtitle">Text objects, font categories, sizing, letter tracking, and curve fitting</div>
       </div>
     </div>
     <div class="help-spacer"></div>
     <div class="help-search">
       <span class="search-icon" aria-hidden="true">&#128269;</span>
-      <input id="help-search-input" type="text" placeholder="Cari topik bantuan…" autocomplete="off" spellcheck="false" aria-label="Cari topik bantuan">
-      <button class="clear-btn" id="help-search-clear" title="Hapus kata kunci" aria-hidden="true">&#215;</button>
+      <input id="help-search-input" type="text" placeholder="Search help topics…" autocomplete="off" spellcheck="false" aria-label="Search help topics">
+      <button class="clear-btn" id="help-search-clear" title="Clear search" aria-hidden="true">&#215;</button>
     </div>
-    <div id="help-search-results" style="position:absolute;left:0;right:0;top:110%;background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);box-shadow:0 8px 24px var(--shadow-modal);max-height:320px;overflow-y:auto;z-index:40;display:none;"></div>
-    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">Tidak ada topik yang cocok.</div>
+    <div id="help-search-results" style="display:none;"></div>
+    <div id="help-search-empty" style="display:none;padding:10px 14px;font-size:12.5px;color:var(--muted);">No matching topics.</div>
   </header>
 
   <div class="help-body">
@@ -72,59 +73,118 @@
 
     <main class="help-content">
       <div class="help-page">
-        <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Teks &amp; Font</div>
+        <div data-lang="id">
+          <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Teks &amp; Font</div>
 
-        <h1>Teks &amp; Font</h1>
-        <p class="help-lead">Tekan <kbd>T</kbd> untuk menempatkan objek teks. Isi konten, pilih font, ketebalan, gaya miring, dan jarak huruf di dialog, lalu double-click teksnya nanti untuk membuka kembali dan mengedit.</p>
+          <h1>Teks &amp; Font</h1>
+          <p class="help-lead">Tekan <kbd>T</kbd> untuk menempatkan objek teks. Isi konten, pilih font, ketebalan, gaya miring, dan jarak huruf di dialog, lalu double-click teksnya nanti untuk membuka kembali dan mengedit.</p>
 
-        <div class="screenshot">
-          <img src="img/screenshots/dialog-text.png" alt="Dialog Teks">
-          <figcaption>Dialog Teks (T): Content, Font dengan pencarian + System fonts / Import font, Weight &amp; Style &amp; Align, Height / Line / Letter, Detail, dan pratinjau langsung.</figcaption>
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-text.png" alt="Dialog Teks">
+            <figcaption>Dialog Teks (T): Content, Font dengan pencarian + System fonts / Import font, Weight &amp; Style &amp; Align, Height / Line / Letter, Detail, dan pratinjau langsung.</figcaption>
+          </div>
+
+          <h2>1. Properti teks</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:26%">Properti</th><th>Keterangan</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Content</td><td>Isi tulisan objek teks.</td></tr>
+              <tr><td>Font</td><td>Pilih keluarga font dari daftar.</td></tr>
+              <tr><td>Weight</td><td>Light / Regular / Semibold / Bold.</td></tr>
+              <tr><td>Style</td><td>Upright / Italic.</td></tr>
+              <tr><td>Align</td><td>Left / Center / Right untuk setiap baris di dalam kotak teks.</td></tr>
+              <tr><td>Height</td><td>Tinggi teks dalam mm.</td></tr>
+              <tr><td>Line (leading)</td><td>Jarak antar baris, persentase dari ukuran font (125 = normal).</td></tr>
+              <tr><td>Letter (tracking)</td><td>Jarak horisontal antar huruf, persentase dari ukuran font (100 = normal; nilai lebih kecil seperti 85 atau nilai negatif merapatkan huruf hingga bertumpuk, cocok untuk <a href="tools.html#text-weld">Text weld</a>).</td></tr>
+              <tr><td>Detail</td><td>Seberapa rapat outline mengikuti glip (mm, default 0,08; lebih besar = lebih sedikit titik).</td></tr>
+            </tbody>
+          </table>
+
+          <div class="callout info"><b>Three points &amp; two green guides:</b> objek teks memiliki tiga titik dan dua garis bantu hijau (awal, lebar, tinggi). Hijau berarti travel-only di KaryaCNC, jadi garis bantu tidak pernah dipotong; selain itu berperilaku seperti garis biasa dan bisa diberi constraint H/V, sudut, tegak lurus, dan dimensi.</div>
+
+          <h2>2. Kelompok font</h2>
+          <p>Daftar font dikelompokkan menurut kegunaan:</p>
+          <ul>
+            <li><b>Single-line (engrave)</b> — font goresan (Hershey Simplex dan Script). Setiap glip adalah polyline terbuka, cocok untuk engraving dan V-carving. Digambar, di-trace, dan dikirim sebagai open path — satu per batang huruf, tanpa loop tertutup.</li>
+            <li><b>Sans, Serif, Monospace, Script, Display</b> — kelompok font outline standar.</li>
+            <li><b>Imported</b> — font yang kamu impor (.ttf / .otf / .woff) dari disk, disimpan di IndexedDB browser ini saja, tidak pernah diunggah.</li>
+            <li><b>System</b> — font terpasang komputer melalui Chromium Local Font Access (Chrome / Edge only; satu dialog izin, nama diingat, byte tidak diunggah).</li>
+          </ul>
+
+          <div class="callout warn"><b>Fit real curves on &#8594; Curve:</b> dengan nyala, dialog membangun glip sebagai beberapa kurva Bézier asli; dengan mati, kamu mendapat satu garis lurus per segmen kontur. Double-click teks untuk mengedit kembali. Dimensikan green handles untuk mengubah ukuran teks. Single-line font mengirim open stroke untuk engraving.</div>
+
+          <h2>3. Frame dan dimensi</h2>
+          <ul>
+            <li>Tanpa dimensi, frame bebas.</li>
+            <li>Satu dimensi menjaga perbandingan huruf (glyph ratio).</li>
+            <li>Dua dimensi melepasnya sehingga teks bisa diregangkan.</li>
+            <li>Drag titik tinggi ke samping dan teks menjadi miring (shear); putar garis lebar dan teks ikut berputar.</li>
+            <li>Teks baru mulai horizontal dan tegak lurus. Tekan <kbd>H</kbd> atau <kbd>[</kbd> pada garis bantuan untuk melepaskan dan gunakan frame yang diputar atau miring.</li>
+          </ul>
+
+          <div class="help-footer">
+            <span>Teks &amp; Font</span>
+            <span>Selanjutnya: <a href="trace.html">Image Trace — Jejak Gambar</a></span>
+          </div>
         </div>
 
-        <h2>1. Properti teks</h2>
-        <table class="kb">
-          <thead>
-            <tr><th style="width:26%">Properti</th><th>Keterangan</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Content</td><td>Isi tulisan objek teks.</td></tr>
-            <tr><td>Font</td><td>Pilih keluarga font dari daftar.</td></tr>
-            <tr><td>Weight</td><td>Light / Regular / Semibold / Bold.</td></tr>
-            <tr><td>Style</td><td>Upright / Italic.</td></tr>
-            <tr><td>Align</td><td>Left / Center / Right untuk setiap baris di dalam kotak teks.</td></tr>
-            <tr><td>Height</td><td>Tinggi teks dalam mm.</td></tr>
-            <tr><td>Line (leading)</td><td>Jarak antar baris, persentase dari ukuran font (125 = normal).</td></tr>
-            <tr><td>Letter (tracking)</td><td>Jarak horisontal antar huruf, persentase dari ukuran font (100 = normal; nilai lebih kecil seperti 85 atau nilai negatif merapatkan huruf hingga bertumpuk, cocok untuk <a href="tools.html#text-weld">Text weld</a>).</td></tr>
-            <tr><td>Detail</td><td>Seberapa rapat outline mengikuti glip (mm, default 0,08; lebih besar = lebih sedikit titik).</td></tr>
-          </tbody>
-        </table>
+        <div data-lang="en">
+          <div class="breadcrumb"><a href="index.html">Home</a> <span class="sep">&#8250;</span> Text &amp; Fonts</div>
 
-        <div class="callout info"><b>Three points &amp; two green guides:</b> objek teks memiliki tiga titik dan dua garis bantu hijau (awal, lebar, tinggi). Hijau berarti travel-only di KaryaCNC, jadi garis bantu tidak pernah dipotong; selain itu berperilaku seperti garis biasa dan bisa diberi constraint H/V, sudut, tegak lurus, dan dimensi.</div>
+          <h1>Text &amp; Fonts</h1>
+          <p class="help-lead">Press <kbd>T</kbd> to place a text object. Enter copy, pick a font, weight, italic style, and letter spacing in the dialog, and double-click the text later to reopen and edit it.</p>
 
-        <h2>2. Kelompok font</h2>
-        <p>Daftar font dikelompokkan menurut kegunaan:</p>
-        <ul>
-          <li><b>Single-line (engrave)</b> — font goresan (Hershey Simplex dan Script). Setiap glip adalah polyline terbuka, cocok untuk engraving dan V-carving. Digambar, di-trace, dan dikirim sebagai open path — satu per batang huruf, tanpa loop tertutup.</li>
-          <li><b>Sans, Serif, Monospace, Script, Display</b> — kelompok font outline standar.</li>
-          <li><b>Imported</b> — font yang kamu impor (.ttf / .otf / .woff) dari disk, disimpan di IndexedDB browser ini saja, tidak pernah diunggah.</li>
-          <li><b>System</b> — font terpasang komputer melalui Chromium Local Font Access (Chrome / Edge only; satu dialog izin, nama diingat, byte tidak diunggah).</li>
-        </ul>
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-text.png" alt="Text dialog">
+            <figcaption>Text dialog (T): Content, searchable Font list + System fonts / Import font, Weight / Style / Align, Height / Line / Letter, Detail, and live preview.</figcaption>
+          </div>
 
-        <div class="callout warn"><b>Fit real curves on &#8594; Curve:</b> dengan nyala, dialog membangun glip sebagai beberapa kurva Bézier asli; dengan mati, kamu mendapat satu garis lurus per segmen kontur. Double-click teks untuk mengedit kembali. Dimensikan green handles untuk mengubah ukuran teks. Single-line font mengirim open stroke untuk engraving.</div>
+          <h2>1. Text properties</h2>
+          <table class="kb">
+            <thead>
+              <tr><th style="width:26%">Property</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Content</td><td>The text string rendered by the object.</td></tr>
+              <tr><td>Font</td><td>Choose a font family from the list.</td></tr>
+              <tr><td>Weight</td><td>Light / Regular / Semibold / Bold.</td></tr>
+              <tr><td>Style</td><td>Upright / Italic.</td></tr>
+              <tr><td>Align</td><td>Left / Center / Right alignment for each line within the text frame.</td></tr>
+              <tr><td>Height</td><td>Cap/line height in mm.</td></tr>
+              <tr><td>Line (leading)</td><td>Line spacing as a percentage of font size (125 = normal).</td></tr>
+              <tr><td>Letter (tracking)</td><td>Horizontal letter spacing as a percentage of font size (100 = normal; smaller values like 85 or negative values overlap letters, ideal for <a href="tools.html#text-weld">Text weld</a>).</td></tr>
+              <tr><td>Detail</td><td>How closely the outline follows glyph curves (mm, default 0.08; larger = fewer vertices).</td></tr>
+            </tbody>
+          </table>
 
-        <h2>3. Frame dan dimensi</h2>
-        <ul>
-          <li>Tanpa dimensi, frame bebas.</li>
-          <li>Satu dimensi menjaga perbandingan huruf (glyph ratio).</li>
-          <li>Dua dimensi melepasnya sehingga teks bisa diregangkan.</li>
-          <li>Drag titik tinggi ke samping dan teks menjadi miring (shear); putar garis lebar dan teks ikut berputar.</li>
-          <li>Teks baru mulai horizontal dan tegak lurus. Tekan <kbd>H</kbd> atau <kbd>[</kbd> pada garis bantuan untuk melepaskan dan gunakan frame yang diputar atau miring.</li>
-        </ul>
+          <div class="callout info"><b>Three points &amp; two green guides:</b> every text object uses an origin point plus width and height green guide lines. Green means travel-only in KaryaCNC so the guides are never cut, while behaving like normal lines you can constrain with H/V, angles, perpendicularity, and dimensions.</div>
 
-        <div class="help-footer">
-          <span>Teks &amp; Font</span>
-          <span>Selanjutnya: <a href="trace.html">Image Trace — Jejak Gambar</a></span>
+          <h2>2. Font categories</h2>
+          <p>The font list is grouped by purpose:</p>
+          <ul>
+            <li><b>Single-line (engrave)</b> — stroke fonts (Hershey Simplex and Script). Each glyph is an open polyline, ideal for engraving and V-carving — drawn and exported as open strokes with no closed outlines.</li>
+            <li><b>Sans, Serif, Monospace, Script, Display</b> — standard closed-outline font families.</li>
+            <li><b>Imported</b> — custom fonts (.ttf / .otf / .woff) imported from disk and stored locally in this browser's IndexedDB (never uploaded).</li>
+            <li><b>System</b> — locally installed OS fonts via Chromium Local Font Access (Chrome / Edge only; one permission prompt, fonts stay local).</li>
+          </ul>
+
+          <div class="callout warn"><b>Fit real curves on &#8594; Curve:</b> when enabled, converting text emits genuine Bézier splines; when off, you get straight segments per contour. Double-click text anytime to edit. Dimension its green handles to scale accurately.</div>
+
+          <h2>3. Frame and dimensions</h2>
+          <ul>
+            <li>With no dimension constraints, the text frame stretches freely.</li>
+            <li>A single dimension preserves the natural glyph aspect ratio.</li>
+            <li>Two dimensions unlock independent width/height stretching.</li>
+            <li>Dragging the height endpoint sideways shears the text; rotating the width guide rotates the text.</li>
+            <li>New text starts horizontal and upright. Remove the <kbd>H</kbd> or <kbd>[</kbd> constraints on its guides to rotate or shear freely.</li>
+          </ul>
+
+          <div class="help-footer">
+            <span>Text &amp; Fonts</span>
+            <span>Next: <a href="trace.html">Image Trace — Bitmap to Vector</a></span>
+          </div>
         </div>
       </div>
     </main>

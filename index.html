@@ -5,6 +5,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
+<meta name="description" content="2D constraint sketcher with parametric CNC generator tools, nesting, image tracing, and optional BYOK AI chat">
+<meta property="og:title" content="MiniSketch - 2D constraint sketcher">
+<meta property="og:description" content="2D constraint sketcher with parametric CNC generator tools, nesting, image tracing, and optional BYOK AI chat">
 <title>MiniSketch - 2D constraint sketcher</title>
 <link rel="stylesheet" href="styles.css">
 <script>
@@ -41,6 +44,7 @@
           <button class="menu-item" id="btn-save" role="menuitem"><span data-i18n="file.save">Save</span><span class="menu-key">Ctrl+S</span></button>
           <button class="menu-item" id="btn-download" role="menuitem"><span data-i18n="file.saveAs">Save as&hellip;</span><span class="menu-key">Ctrl+Shift+S</span></button>
           <button class="menu-item" id="btn-svg" role="menuitem"><span data-i18n="file.exportSvg">Export SVG&hellip;</span><span class="menu-key">Ctrl+E</span></button>
+          <button class="menu-item" id="btn-cloud-sketches" role="menuitem"><span data-i18n="file.cloudSketches">Cloud Sketches&hellip;</span><span class="menu-key">Sync</span></button>
           <div class="menu-sep"></div>
           <label class="menu-item check" id="menu-lang-en" role="menuitemcheckbox" aria-checked="false" title="Switch UI, tools &amp; Help to English"><input type="checkbox" id="tgl-lang-en"><span data-i18n="file.langEn">Lang: English</span><span class="menu-key">EN</span></label>
           <label class="menu-item check" id="menu-lang-id" role="menuitemcheckbox" aria-checked="false" title="Ubah UI, jendela tools &amp; Bantuan ke Bahasa Indonesia"><input type="checkbox" id="tgl-lang-id"><span data-i18n="file.langId">Lang: Indonesia</span><span class="menu-key">ID</span></label>
@@ -96,6 +100,11 @@
     </div>
 
     <div class="doc-actions">
+      <button class="btn ghost small cloud-auth-btn" id="btn-cloud-auth" type="button" title="Google Login &amp; Cloud Sync (optional — local save always works)">
+        <span class="cloud-auth-dot is-guest" aria-hidden="true"></span>
+        <img class="cloud-auth-avatar" hidden alt="" referrerpolicy="no-referrer">
+        <span class="cloud-auth-label">Local</span>
+      </button>
       <button class="btn ghost icon" id="btn-sidebar" data-i18n-title="dlg.sidebarToggle" title="Show / hide panels (AI chat, selection, parts&hellip;)" aria-label="Toggle panels">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3.5h12M2 8h12M2 12.5h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
@@ -414,25 +423,25 @@
         <summary class="panel-title"><span data-i18n="side.aiChat">AI Chat</span> <span class="count" id="chat-count">0</span></summary>
         <div class="panel-body">
           <div class="chat-tabs" role="tablist" aria-label="AI chat views">
-            <button type="button" class="chat-tab is-on" role="tab" aria-selected="true" data-chat-tab="chat">Chat</button>
-            <button type="button" class="chat-tab" role="tab" aria-selected="false" data-chat-tab="log">History</button>
+            <button type="button" class="chat-tab is-on" role="tab" aria-selected="true" data-chat-tab="chat" data-i18n="chat.tabChat">Chat</button>
+            <button type="button" class="chat-tab" role="tab" aria-selected="false" data-chat-tab="log" data-i18n="chat.tabHistory">History</button>
           </div>
           <div class="row chat-model-row" id="chat-model-row">
-            <select id="chat-model-sel" title="Model (🔄 loads the list for the active provider) — daftar disortir: free dulu; filter di kotak di samping" style="flex:1 1 auto;min-width:0;font:inherit;font-size:11px;padding:2px 5px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)"></select>
-            <button class="btn small" id="chat-model-refresh" title="Load the model list from the active provider">🔄</button>
-            <input id="chat-model-filter" type="text" placeholder="filter (free/vision)" title="Filter model: ketik nama, 'free', atau 'vision' — masukan dicocokkan sebagian (case-insensitive)" style="width:84px;font:inherit;font-size:11px;padding:2px 5px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)">
-            <select id="chat-think-sel" title="Reasoning level (Off = faster &amp; cheaper, Normal = most thorough)">
-              <option value="off">Off</option>
-              <option value="low">Low</option>
-              <option value="normal" selected>Normal</option>
+            <select id="chat-model-sel" data-i18n-title="chat.modelSelTitle" title="Model (🔄 loads active provider list) — sorted free first; filter on the right" style="flex:1 1 auto;min-width:0;font:inherit;font-size:11px;padding:2px 5px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)"></select>
+            <button class="btn small" id="chat-model-refresh" data-i18n-title="chat.modelRefreshTitle" title="Load the model list from the active provider">🔄</button>
+            <input id="chat-model-filter" type="text" data-i18n-placeholder="chat.modelFilterPh" data-i18n-title="chat.modelFilterTitle" placeholder="filter (free/vision)" title="Filter models: type name, 'free', or 'vision' (partial match, case-insensitive)" style="width:84px;font:inherit;font-size:11px;padding:2px 5px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)">
+            <select id="chat-think-sel" data-i18n-title="chat.thinkTitle" title="Reasoning level (Off = faster &amp; cheaper, Normal = most thorough)">
+              <option value="off" data-i18n="chat.thinkOff">Off</option>
+              <option value="low" data-i18n="chat.thinkLow">Low</option>
+              <option value="normal" selected data-i18n="chat.thinkNormal">Normal</option>
             </select>
           </div>
           <div class="row chat-builder-bar" id="chat-builder-bar" role="group" aria-label="AI output mode">
-            <select id="chat-builder-mode" title="AI output mode">
-              <option value="svg" selected>Mode: SVG</option>
-              <option value="ext">Mode: Extension</option>
+            <select id="chat-builder-mode" data-i18n-title="chat.modeTitle" title="AI output mode">
+              <option value="svg" selected data-i18n="chat.modeSvg">Mode: SVG</option>
+              <option value="ext" data-i18n="chat.modeExt">Mode: Extension</option>
             </select>
-            <button class="btn small" id="chat-new" title="Start a new session — the current conversation moves to History (the worksheet geometry is untouched)">New Session</button>
+            <button class="btn small" id="chat-new" data-i18n="chat.newSession" data-i18n-title="chat.newSessionTitle" title="Start a new session — moves the current conversation to History (canvas geometry stays untouched)">New Session</button>
           </div>
           <ul class="list" id="chat-log"></ul>
           <div id="chat-ext-dock" class="chat-ext-dock" hidden></div>
@@ -440,9 +449,9 @@
           <div class="row chat-input-row" id="chat-input-row" style="margin-top:6px">
             <textarea id="chat-input" rows="1" placeholder='Describe a vector image… (Shift+Enter for a new line)' autocomplete="off" spellcheck="false"></textarea>
             <div class="chat-side-btns">
-              <button class="btn small" id="chat-attach" title="Attach an image to trace into a sketch (or paste/drag-drop)">🖼</button>
+              <button class="btn small" id="chat-attach" data-i18n-title="chat.attachTitle" title="Attach an image to trace into a sketch (or paste / drag-drop)">🖼</button>
               <input type="file" id="chat-file" accept="image/*" multiple hidden>
-              <button class="btn small primary" id="chat-send">Send</button>
+              <button class="btn small primary" id="chat-send" data-i18n="chat.send">Send</button>
             </div>
           </div>
         </div>
@@ -1096,6 +1105,7 @@
         <label class="ext-field"><span>Category</span><input type="text" id="ext-pub-cat" class="ext-input" value="CNC Utility" spellcheck="false"></label>
         <label class="ext-field"><span>Target Host</span>
           <select id="ext-pub-target" class="ext-select">
+            <option value="cloud">Cloud Community (Google Account)</option>
             <option value="server">MiniSketch Server (Port 8090 / Hosted)</option>
             <option value="github">GitHub Static Repo (Free CDN)</option>
           </select>
@@ -1103,7 +1113,18 @@
         <label class="ext-field ext-field-full"><span>Description</span><input type="text" id="ext-pub-desc" class="ext-input" placeholder="Short description of what this tool creates for CNC/laser cutting…"></label>
       </div>
 
-      <div id="ext-pub-server-box" class="ext-target-box">
+      <div id="ext-pub-cloud-box" class="ext-target-box">
+        <div class="ext-cloud-row">
+          <span id="ext-pub-cloud-user" class="ext-cloud-user">Sign in with Google to publish extensions under your personal author ID.</span>
+          <button type="button" class="btn small primary" id="ext-pub-cloud-signin">Sign in with Google</button>
+        </div>
+        <div class="ext-toolbar-row ext-pub-row-actions">
+          <label class="ext-toggle"><input type="checkbox" id="ext-pub-cloud-overwrite" checked><span>Update if I already published this ID</span></label>
+          <button type="button" class="btn small primary" id="ext-pub-send-cloud">Publish to Cloud Community</button>
+        </div>
+      </div>
+
+      <div id="ext-pub-server-box" class="ext-target-box" hidden>
         <div class="ext-publish-grid">
           <label class="ext-field"><span>Server URL</span><input type="text" id="ext-pub-server-url" class="ext-input" placeholder="http://127.0.0.1:8090" spellcheck="false"></label>
           <label class="ext-field" id="ext-pub-key-row"><span>Publish Key (if required)</span><input type="password" id="ext-pub-key" class="ext-input" placeholder="Optional unless server sets MARKETPLACE_PUBLISH_KEY" autocomplete="off"></label>
@@ -1138,6 +1159,56 @@
         <textarea id="ext-pub-code" class="ext-code ext-code-sm" spellcheck="false" placeholder="// Extension source code to publish…"></textarea>
       </div>
       <div class="ext-status" id="ext-pub-status"></div>
+    </div>
+  </div>
+</div>
+
+<div id="cloud-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="cloud-title">
+  <div class="modal-box cloud-box">
+    <div class="ext-head">
+      <div>
+        <h3 id="cloud-title" data-i18n="cloud.title">Account &amp; Cloud Sync</h3>
+        <span class="ext-head-sub" data-i18n="cloud.sub">Local-first: works 100% offline &amp; on localhost:8090 without sign-in</span>
+      </div>
+      <button type="button" class="btn small" id="cloud-close" data-i18n="dlg.close">Close</button>
+    </div>
+
+    <div id="cloud-offline-note" class="ext-status" hidden></div>
+
+    <div id="cloud-guest-pane" class="cloud-pane">
+      <p class="cloud-desc" data-i18n="cloud.desc">Sign in with Google to synchronize your active canvas, saved cloud sketches, AI Chat history, custom/AI extensions, tool presets, and settings across devices — plus publish extensions under your own identity.</p>
+      <div class="cloud-actions-row">
+        <button type="button" class="btn primary" id="cloud-signin-btn" data-i18n="cloud.signin">Sign in with Google</button>
+      </div>
+    </div>
+
+    <div id="cloud-user-pane" class="cloud-pane" hidden>
+      <div class="cloud-profile-card">
+        <img id="cloud-user-avatar" class="cloud-user-avatar" hidden alt="" referrerpolicy="no-referrer">
+        <div class="cloud-user-info">
+          <div id="cloud-user-name" class="cloud-user-name"></div>
+          <div id="cloud-user-email" class="cloud-user-email"></div>
+          <div id="cloud-sync-state" class="cloud-sync-state"></div>
+        </div>
+        <div class="cloud-profile-btns">
+          <button type="button" class="btn small primary" id="cloud-sync-now-btn" data-i18n="cloud.syncNow" data-i18n-title="cloud.syncNowTitle" title="Upload local workspace, settings, extensions &amp; AI chats to Cloud">Sync Now</button>
+          <button type="button" class="btn small" id="cloud-pull-now-btn" data-i18n="cloud.pullNow" data-i18n-title="cloud.pullNowTitle" title="Download latest workspace, settings, extensions &amp; AI chats from Cloud">Pull Cloud</button>
+          <button type="button" class="btn small danger" id="cloud-signout-btn" data-i18n="cloud.signout">Sign Out</button>
+        </div>
+      </div>
+
+      <label class="cloud-autosync-row" data-i18n-title="cloud.autoSyncTitle" title="When off (recommended), edits stay 100% local until you click Sync Now or Save to Cloud.">
+        <input type="checkbox" id="cloud-autosync-chk">
+        <span><span data-i18n="cloud.autoSyncLabel">Auto-sync while editing</span> <span class="muted" data-i18n="cloud.autoSyncHint">(off = manual sync only, faster workspace editing)</span></span>
+      </label>
+
+      <div class="cloud-save-bar">
+        <input type="text" id="cloud-save-name" class="ext-input" data-i18n-placeholder="cloud.saveNamePh" placeholder="Save a named Cloud Sketch snapshot…" autocomplete="off">
+        <button type="button" class="btn small primary" id="cloud-save-copy-btn" data-i18n="cloud.saveCopy">Save to Cloud</button>
+      </div>
+
+      <div class="cloud-section-label" data-i18n="cloud.savedSketches">Saved Cloud Sketches</div>
+      <div id="cloud-sketch-list" class="cloud-sketch-list"></div>
     </div>
   </div>
 </div>
@@ -1188,6 +1259,7 @@
 <script src="ai/chat.js"></script>
 <script src="ui-i18n.js"></script>
 <script src="core.js"></script>
+<script src="cloud/sync.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
