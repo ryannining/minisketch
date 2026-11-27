@@ -5322,7 +5322,8 @@
         if (cl.base) cl.base[i] = [m[0], m[1], m[2], m[3], m[4] - dx, m[5] - dy];
         return { ...inst, m };
       });
-      delete e.shapes;
+      if (Array.isArray(e.masters) && e.masters.length) delete e.shapes;
+      else if (typeof arrayBBoxCache !== 'undefined') arrayBBoxCache.delete(e);
     }
     d.moved = true;
     invalidateLoops();
@@ -6245,7 +6246,8 @@
         if (!m) continue;
         inst[i] = { ...inst[i], m: [m[0], m[1], m[2], m[3], m[4] + dx, m[5] + dy] };
       }
-      delete e.shapes;   // instances changed: force a re-render of the clones
+      if (Array.isArray(e.masters) && e.masters.length) delete e.shapes;
+      else if (typeof arrayBBoxCache !== 'undefined') arrayBBoxCache.delete(e);   // instances changed: force a re-render/rebound of the clones
     }
   }
 
@@ -6452,7 +6454,8 @@
             if (!m) continue;
             inst[i] = { ...inst[i], m: [m[0], m[1], m[2], m[3], m[4] + dx, m[5] + dy] };
           }
-          delete e.shapes;
+          if (Array.isArray(e.masters) && e.masters.length) delete e.shapes;
+          else if (typeof arrayBBoxCache !== 'undefined') arrayBBoxCache.delete(e);
         }
       }
       if (e.type === 'part' && !e.fixed) {
@@ -6574,7 +6577,8 @@
         const M = [c, s, -s, c, cx - (c * cx - s * cy), cy - (s * cx + c * cy)];
         e.instances = (e.instances || []).map(inst => (
           inst && inst.m ? { ...inst, m: matMul(M, inst.m) } : inst));
-        delete e.shapes;
+        if (Array.isArray(e.masters) && e.masters.length) delete e.shapes;
+        else if (typeof arrayBBoxCache !== 'undefined') arrayBBoxCache.delete(e);
         continue;
       }
       if (e.type !== 'spline' || !e.hs) continue;
@@ -6811,7 +6815,8 @@
       const M = [sx, 0, 0, sy, ox - ox * sx, oy - oy * sy];
       e.instances = (e.instances || []).map(inst => (
         inst && inst.m ? { ...inst, m: matMul(M, inst.m) } : inst));
-      delete e.shapes;
+      if (Array.isArray(e.masters) && e.masters.length) delete e.shapes;
+      else if (typeof arrayBBoxCache !== 'undefined') arrayBBoxCache.delete(e);
     }
     for (const cid in state.constraints) {
       const c = state.constraints[cid];
@@ -6866,7 +6871,8 @@
         const M = [c, s, -s, c, cx - (c * cx - s * cy), cy - (s * cx + c * cy)];
         e.instances = (e.instances || []).map(inst => (
           inst && inst.m ? { ...inst, m: matMul(M, inst.m) } : inst));
-        delete e.shapes;
+        if (Array.isArray(e.masters) && e.masters.length) delete e.shapes;
+        else if (typeof arrayBBoxCache !== 'undefined') arrayBBoxCache.delete(e);
         continue;
       }
       if (e.type !== 'spline' || !e.hs) continue;
@@ -7171,7 +7177,8 @@
         const M = [c, s, -s, c, cx - (c * cx - s * cy), cy - (s * cx + c * cy)];
         e.instances = (e.instances || []).map(inst => (
           inst && inst.m ? { ...inst, m: matMul(M, inst.m) } : inst));
-        delete e.shapes;
+        if (Array.isArray(e.masters) && e.masters.length) delete e.shapes;
+        else if (typeof arrayBBoxCache !== 'undefined') arrayBBoxCache.delete(e);
         continue;
       }
       if (e.type !== 'spline' || !e.hs) continue;
@@ -7681,6 +7688,15 @@
             for (const p of s.pts) { p[0] += offsetX; p[1] += offsetY; }
           }
         }
+        for (const sub of (e.curveSrc || [])) {
+          if (!sub || !Array.isArray(sub.nodes)) continue;
+          for (const nd of sub.nodes) {
+            if (!nd) continue;
+            nd.x += offsetX; nd.y += offsetY;
+            if (nd.o) { nd.o.x += offsetX; nd.o.y += offsetY; }
+            if (nd.i) { nd.i.x += offsetX; nd.i.y += offsetY; }
+          }
+        }
       }
     }
     for (const source of src.constraints) {
@@ -7747,14 +7763,23 @@
       const made = [];
       for (const src of cloneSel) {
         const id = newId();
-        state.entities[id] = {
+        const ent = {
           id, type: 'array', kind: 'clone',
-          params: {}, color: src.color, layer: src.layer,
+          params: src.params ? JSON.parse(JSON.stringify(src.params)) : {},
+          color: src.color, layer: src.layer,
           masters: (src.masters || []).slice(),
           instances: (src.instances || []).map(i => ({
             m: i.m.slice(), ...(i.a ? { a: i.a.slice() } : {})
           }))
         };
+        if (!ent.masters.length && Array.isArray(src.shapes)) {
+          ent.shapes = JSON.parse(JSON.stringify(src.shapes));
+          ent.shapesEpoch = geometryEpoch;
+        }
+        if (Array.isArray(src.curveSrc)) {
+          ent.curveSrc = JSON.parse(JSON.stringify(src.curveSrc));
+        }
+        state.entities[id] = ent;
         made.push(id);
       }
       ui.selection = made.map(id => ({ kind: 'entity', id }));
@@ -7784,14 +7809,23 @@
       const made = [];
       for (const src of cloneSel) {
         const id = newId();
-        state.entities[id] = {
+        const ent = {
           id, type: 'array', kind: 'clone',
-          params: {}, color: src.color, layer: src.layer,
+          params: src.params ? JSON.parse(JSON.stringify(src.params)) : {},
+          color: src.color, layer: src.layer,
           masters: (src.masters || []).slice(),
           instances: (src.instances || []).map(i => ({
             m: i.m.slice(), ...(i.a ? { a: i.a.slice() } : {})
           }))
         };
+        if (!ent.masters.length && Array.isArray(src.shapes)) {
+          ent.shapes = JSON.parse(JSON.stringify(src.shapes));
+          ent.shapesEpoch = geometryEpoch;
+        }
+        if (Array.isArray(src.curveSrc)) {
+          ent.curveSrc = JSON.parse(JSON.stringify(src.curveSrc));
+        }
+        state.entities[id] = ent;
         made.push(id);
       }
       ui.selection = made.map(id => ({ kind: 'entity', id }));
@@ -8277,7 +8311,8 @@
         if (!base) return inst;
         return { ...inst, m: matMul(xfDeltaMatrix(p), base.m) };
       });
-      delete e.shapes;          // rebuild from the (unchanged) masters
+      if (Array.isArray(e.masters) && e.masters.length) delete e.shapes;
+      else if (typeof arrayBBoxCache !== 'undefined') arrayBBoxCache.delete(e);          // rebuild from the (unchanged) masters
     }
     p.moved = true;
     invalidateLoops();
@@ -8311,7 +8346,8 @@
       if (!e || e.type !== 'array') continue;
       e.instances = p.orig.cloneMats[eid].map(i =>
         (i ? { m: i.m.slice(), ...(i.a ? { a: i.a.slice() } : {}) } : null)).filter(Boolean);
-      delete e.shapes;
+      if (Array.isArray(e.masters) && e.masters.length) delete e.shapes;
+      else if (typeof arrayBBoxCache !== 'undefined') arrayBBoxCache.delete(e);
     }
     invalidateLoops();
   }
@@ -12613,7 +12649,8 @@
   const arrayBBoxCache = new WeakMap();
   function arrayBounds(e) {
     const c0 = arrayBBoxCache.get(e);
-    if (c0 && c0.shapes === e.shapes && c0.params === e.params && c0.epoch === geometryEpoch) return c0.b;
+    if (c0 && c0.shapes === e.shapes && c0.params === e.params &&
+        c0.instances === e.instances && c0.epoch === geometryEpoch) return c0.b;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const t of arrayInstanceOffsets(e)) {
       for (const pl of arrayInstancePolylines(e, t)) {
@@ -12626,7 +12663,7 @@
       }
     }
     const b = isFinite(minX) ? { minX, minY, maxX, maxY } : null;
-    arrayBBoxCache.set(e, { shapes: e.shapes, params: e.params, epoch: geometryEpoch, b });
+    arrayBBoxCache.set(e, { shapes: e.shapes, params: e.params, instances: e.instances, epoch: geometryEpoch, b });
     return b;
   }
 
@@ -14602,6 +14639,49 @@
           if (sub.fill) copy.fill = sub.fill;
           curves.push(copy);
         }
+      } else if (e.type === 'array') {
+        const base = [];
+        for (const mid of (e.masters || [])) {
+          const m = state.entities[mid];
+          if (m) for (const sub of arrayMasterCurveSources(m)) base.push(sub);
+        }
+        if (!base.length && Array.isArray(e.curveSrc) && e.curveSrc.length) {
+          for (const sub of e.curveSrc) {
+            if (sub && Array.isArray(sub.nodes) && sub.nodes.length >= 2) base.push(sub);
+          }
+        }
+        if (base.length) {
+          for (const t of arrayInstanceOffsets(e)) {
+            for (const sub of base) {
+              const nodes = sub.nodes.map(n => {
+                const p = arrayXformPoint(t, n.x, n.y);
+                return {
+                  x: p.x, y: p.y,
+                  o: n.o ? arrayXformPoint(t, n.o.x, n.o.y) : null,
+                  i: n.i ? arrayXformPoint(t, n.i.x, n.i.y) : null
+                };
+              });
+              curves.push({
+                closed: !!sub.closed,
+                curved: !!(sub.curved || nodes.some(n => n.o || n.i)),
+                color: sub.color || colorOf(e),
+                fill: (sub.fill === 'gray' || sub.fill === 'yellow') ? sub.fill : null,
+                nodes
+              });
+            }
+          }
+        } else {
+          for (const pl of entityWorldPolylines(e)) {
+            if (pl.pts.length >= 2) {
+              curves.push({
+                closed: !!pl.closed, curved: false,
+                color: pl.color || colorOf(e),
+                fill: (pl.fill === 'gray' || pl.fill === 'yellow') ? pl.fill : null,
+                nodes: pl.pts.map(p => ({ x: p.x, y: p.y, o: null, i: null }))
+              });
+            }
+          }
+        }
       } else {
         for (const pl of entityWorldPolylines(e)) {
           if (pl.pts.length >= 2) {
@@ -14938,59 +15018,562 @@
     toast('Cloned — edit the master to reshape it, R to place it');
   }
 
-  // Clone-split (Ctrl+Shift+L): manual nesting without the wait. It runs the
-  // SAME part decomposition the nest engine is fed at start — nestCollectLoops
-  // (document loops fully covered by the selection; green sheet loops separated
-  // out; a not-yet-ungrouped text stays the one atomic part it is for nesting)
-  // and nestGroupParts (a loop inside another loop is that part's hole) — then
-  // creates ONE live clone per compound part, shifted right of the selection's
-  // bounding box. Each part is its own clone object, so wall drag can move AND
-  // rotate it while packing by hand; edit the original and the part follows.
-  // Ctrl+L stays the whole-selection single clone (cmdClone above).
+  // Clone-split (Ctrl+Shift+L): manual nesting preparation for ANY selection.
+  // Converts whatever is selected (text, art/group, circles, arcs, splines,
+  // lines, arrays, parts) into curve sub-paths, chains open chains into closed
+  // loops where endpoints meet, groups every contour/stroke by its top-level
+  // parent outer loop (so e.g. "OOAA" becomes 4 letter objects, each carrying
+  // its outer contour + inner counter hole), and emits
+  // ONE live clone per compound part (detached Array object holding its own
+  // curveSrc + shapes), shifted right of the selection's bounding box so it is
+  // ready to drag and rotate manually.
   function cmdCloneSplit() {
     if (xfBlock()) return;
-    // the exact input stage of Start nesting:
-    const { sheetLoops, partLoops } = nestCollectLoops();
-    const objects = nestGroupParts(partLoops);
-    if (!objects.length) {
-      toast(sheetLoops.length
+
+    const joinTol = (typeof BAKE_JOIN_TOL === 'number' && isFinite(BAKE_JOIN_TOL) && BAKE_JOIN_TOL > 0)
+      ? BAKE_JOIN_TOL
+      : ((settings && isFinite(+settings.joinTol) && +settings.joinTol > 0) ? +settings.joinTol : 0.1);
+    const sharpAngle = (settings && isFinite(+settings.curveSharpAngle)) ? +settings.curveSharpAngle : 25;
+    const renderTol = Math.min(0.15, Math.max(0.02,
+      ((typeof CIRCLE_CHORD === 'number' && isFinite(CIRCLE_CHORD)) ? CIRCLE_CHORD : 1.5) * 0.08));
+
+    const bboxOf = (pts) => {
+      if (typeof polyBBox === 'function') return polyBBox(pts);
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const p of pts || []) {
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y > maxY) maxY = p.y;
+      }
+      return isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+    };
+
+    const probeOf = (pts) => {
+      if (typeof interiorProbe === 'function') return interiorProbe(pts);
+      if (!pts || !pts.length) return null;
+      let best = 0, bi = 0;
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i], b = pts[(i + 1) % pts.length];
+        const L = Math.hypot(b.x - a.x, b.y - a.y);
+        if (L > best) { best = L; bi = i; }
+      }
+      const a = pts[bi], b = pts[(bi + 1) % pts.length];
+      const len = best || 1;
+      const sgn = signedAreaPts(pts) < 0 ? -1 : 1;
+      const nx = sgn * (b.y - a.y) / len;
+      const ny = sgn * -(b.x - a.x) / len;
+      const eps = Math.max(1e-6, Math.min(best * 1e-3, 0.01));
+      return { x: (a.x + b.x) / 2 - nx * eps, y: (a.y + b.y) / 2 - ny * eps };
+    };
+
+    const cloneNode = (n) => ({
+      x: n.x, y: n.y,
+      o: n.o ? { x: n.o.x, y: n.o.y } : null,
+      i: n.i ? { x: n.i.x, y: n.i.y } : null
+    });
+
+    const cloneSub = (sub) => ({
+      closed: !!sub.closed,
+      curved: !!(sub.curved || (sub.nodes && sub.nodes.some(n => n.o || n.i))),
+      color: sub.color || '#000000',
+      fill: (sub.fill === 'gray' || sub.fill === 'yellow') ? sub.fill : null,
+      nodes: (sub.nodes || []).map(cloneNode)
+    });
+
+    const xformSub = (sub, t) => {
+      const nodes = (sub.nodes || []).map(n => {
+        const p = arrayXformPoint(t, n.x, n.y);
+        return {
+          x: p.x, y: p.y,
+          o: n.o ? arrayXformPoint(t, n.o.x, n.o.y) : null,
+          i: n.i ? arrayXformPoint(t, n.i.x, n.i.y) : null
+        };
+      });
+      return {
+        closed: !!sub.closed,
+        curved: !!(sub.curved || nodes.some(n => n.o || n.i)),
+        color: sub.color || '#000000',
+        fill: (sub.fill === 'gray' || sub.fill === 'yellow') ? sub.fill : null,
+        nodes
+      };
+    };
+
+    // Chain open curve sub-paths whose endpoints meet within tol (same color & fill),
+    // preserving Bezier handles on every junction node.
+    const chainSubs = (subs, tol) => {
+      const out = [];
+      const buckets = new Map();
+      for (const raw of subs || []) {
+        if (!raw || !Array.isArray(raw.nodes) || raw.nodes.length < 2) continue;
+        const sub = cloneSub(raw);
+        if (sub.closed) {
+          out.push(sub);
+          continue;
+        }
+        const key = (sub.color || '#000000') + '|' + (sub.fill || '');
+        let b = buckets.get(key);
+        if (!b) buckets.set(key, b = []);
+        b.push(sub);
+      }
+      const near = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) <= tol;
+      const rev = (s) => ({
+        ...s,
+        nodes: s.nodes.slice().reverse().map(n => ({
+          x: n.x, y: n.y,
+          o: n.i ? { x: n.i.x, y: n.i.y } : null,
+          i: n.o ? { x: n.o.x, y: n.o.y } : null
+        }))
+      });
+      const mergeEnd = (headNode, tailNode) => ({
+        x: tailNode.x, y: tailNode.y,
+        i: tailNode.i ? { x: tailNode.i.x, y: tailNode.i.y } : null,
+        o: headNode.o ? { x: headNode.o.x, y: headNode.o.y } : null
+      });
+      for (const pool of buckets.values()) {
+        while (pool.length) {
+          let cur = pool.shift();
+          let grew = true;
+          while (grew) {
+            grew = false;
+            const head = cur.nodes[0];
+            const tail = cur.nodes[cur.nodes.length - 1];
+            for (let i = 0; i < pool.length; i++) {
+              const o = pool[i];
+              const a = o.nodes[0];
+              const b = o.nodes[o.nodes.length - 1];
+              if (near(tail, a)) {
+                cur.nodes = cur.nodes.slice(0, -1).concat([mergeEnd(a, tail)], o.nodes.slice(1));
+              } else if (near(tail, b)) {
+                const r = rev(o);
+                cur.nodes = cur.nodes.slice(0, -1).concat([mergeEnd(r.nodes[0], tail)], r.nodes.slice(1));
+              } else if (near(head, b)) {
+                cur.nodes = o.nodes.slice(0, -1).concat([mergeEnd(head, b)], cur.nodes.slice(1));
+              } else if (near(head, a)) {
+                const r = rev(o);
+                cur.nodes = r.nodes.slice(0, -1).concat([mergeEnd(head, r.nodes[r.nodes.length - 1])], cur.nodes.slice(1));
+              } else {
+                continue;
+              }
+              cur.curved = !!(cur.curved || o.curved || cur.nodes.some(n => n.o || n.i));
+              pool.splice(i, 1);
+              grew = true;
+              break;
+            }
+          }
+          const first = cur.nodes[0];
+          const last = cur.nodes[cur.nodes.length - 1];
+          const hasHandles = cur.nodes.some(n => n.o || n.i);
+          if (cur.nodes.length >= 2 && near(first, last)) {
+            const nonZeroLoop = hasHandles ||
+              (cur.nodes.length >= 4 && Math.abs(signedAreaPts(cur.nodes.slice(0, -1))) > 1e-9);
+            if (nonZeroLoop && cur.nodes.length >= 3) {
+              first.i = last.i ? { x: last.i.x, y: last.i.y } : null;
+              cur.nodes.pop();
+              cur.closed = true;
+            } else if (hasHandles && cur.nodes.length === 2) {
+              first.i = last.i ? { x: last.i.x, y: last.i.y } : null;
+              cur.nodes.pop();
+              cur.closed = true;
+            }
+          }
+          cur.curved = !!(cur.curved || cur.nodes.some(n => n.o || n.i));
+          out.push(cur);
+        }
+      }
+      return out;
+    };
+
+    // Resolve selection: direct entity picks plus entities fully covered by
+    // selected points (marquee), WITHOUT pulling in unselected array masters.
+    const collectPicked = () => {
+      const direct = selectedEntities();
+      const pts = selectionIndex().point;
+      const seen = new Set(direct.map(e => +e.id));
+      const out = direct.slice();
+      if (pts && pts.size) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, has = false;
+        for (const pid of pts) {
+          const p = state.points[pid];
+          if (!p) continue;
+          has = true;
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+        }
+        const box = has ? { minX, minY, maxX, maxY } : null;
+        const boundsOf = (e) => {
+          if (typeof entityBounds === 'function') return entityBounds(e);
+          if (e.type === 'array') return arrayBounds(e);
+          const pids = entityPointIds(e);
+          if (!pids.length) return null;
+          let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+          for (const pid of pids) {
+            const p = P(pid);
+            if (!p) continue;
+            if (p.x < x0) x0 = p.x; if (p.y < y0) y0 = p.y;
+            if (p.x > x1) x1 = p.x; if (p.y > y1) y1 = p.y;
+          }
+          return isFinite(x0) ? { minX: x0, minY: y0, maxX: x1, maxY: y1 } : null;
+        };
+        for (const key in state.entities) {
+          const e = state.entities[key];
+          if (!e || seen.has(+e.id)) continue;
+          const ids = entityPointIds(e);
+          if (ids.length) {
+            if (!ids.every(pid => pts.has(+pid))) continue;
+            if (box) {
+              const b = boundsOf(e);
+              if (!b) continue;
+              if (!(b.minX >= box.minX - 1e-6 && b.maxX <= box.maxX + 1e-6 &&
+                b.minY >= box.minY - 1e-6 && b.maxY <= box.maxY + 1e-6)) continue;
+            }
+            seen.add(+e.id);
+            out.push(e);
+          } else if (box && (e.type === 'art' || e.type === 'array' || e.type === 'part')) {
+            const b = boundsOf(e);
+            if (!b) continue;
+            if (b.minX >= box.minX - 1e-6 && b.maxX <= box.maxX + 1e-6 &&
+              b.minY >= box.minY - 1e-6 && b.maxY <= box.maxY + 1e-6) {
+              seen.add(+e.id);
+              out.push(e);
+            }
+          }
+        }
+      }
+      const guides = typeof ownedGuideIds === 'function' ? ownedGuideIds() : new Set();
+      return out.filter(e => e && entityEditable(e) && !guides.has(+e.id) &&
+        e.type !== 'note' && e.type !== 'image');
+    };
+
+    const picked = collectPicked();
+    if (!picked.length) {
+      toast('Select the shapes to clone');
+      return;
+    }
+
+    // Separate green construction/sheet primitives (lines, arcs, circles, splines)
+    // so a green sheet selected alongside parts never becomes a part or swallows them.
+    const partEnts = [];
+    let greenSheetCount = 0;
+    for (const e of picked) {
+      if ((e.type === 'line' || e.type === 'arc' || e.type === 'circle' || e.type === 'spline') &&
+          isConstructionColor(colorOf(e))) {
+        greenSheetCount++;
+      } else {
+        partEnts.push(e);
+      }
+    }
+    if (!partEnts.length) {
+      toast(greenSheetCount
         ? 'Only sheet (green) loops in the selection — select the parts to arrange'
         : 'Select the shapes to clone');
       return;
     }
-    // every part lands one selection-width to the right, arranged as the
-    // original (the shift cmdClone uses) — ready to be dragged into place
+
+    // Convert one entity into curve sub-paths (world coords). Returns null if a
+    // bundled font is still loading asynchronously (caller retries once ready).
+    let fontPending = false;
+    const entityToCurves = (e, visiting) => {
+      const col = colorOf(e);
+      const ownFill = (e.fill === 'gray' || e.fill === 'yellow') ? e.fill : null;
+      if (e.type === 'text') {
+        if (isSingleLineFont(e)) {
+          const out = [];
+          for (const st of (textStrokesWorld(e) || [])) {
+            if (st && st.pts && st.pts.length >= 2) {
+              out.push({
+                closed: false, curved: false, color: col, fill: null,
+                nodes: st.pts.map(p => ({ x: p.x, y: p.y, o: null, i: null }))
+              });
+            }
+          }
+          return out;
+        }
+        if (typeof textExactLoopsWorld === 'function') {
+          const exact = textExactLoopsWorld(e);
+          if (typeof textExactWhy !== 'undefined' && textExactWhy === 'loading') {
+            fontPending = true;
+            return [];
+          }
+          if (exact && exact.length) {
+            return exact.map(loop => ({
+              closed: true, curved: true, color: col, fill: ownFill,
+              nodes: (loop.nodes || []).map(cloneNode)
+            }));
+          }
+        }
+        let loops = (typeof framedLoopsWorld === 'function') ? framedLoopsWorld(e) : [];
+        if (!loops || !loops.length) {
+          const ol = textOutlineWorld(e);
+          loops = (ol && ol.loops) ? ol.loops : [];
+        }
+        const out = [];
+        const tol = (typeof framedFitTol === 'function') ? framedFitTol(e) : 0.05;
+        for (const loop of loops) {
+          if (!loop || loop.length < 3) continue;
+          if (e.fitCurve !== false && typeof fitPolylineCurve === 'function') {
+            const fit = fitPolylineCurve(loop, { tol, sharpAngle, closed: true, denoise: true });
+            if (fit && fit.nodes && fit.nodes.length >= 2) {
+              out.push({
+                closed: true,
+                curved: fit.nodes.some(n => n.o || n.i),
+                color: col, fill: ownFill,
+                nodes: fit.nodes
+              });
+              continue;
+            }
+          }
+          out.push({
+            closed: true, curved: false, color: col, fill: ownFill,
+            nodes: loop.map(p => ({ x: p.x, y: p.y, o: null, i: null }))
+          });
+        }
+        return out;
+      }
+      if (e.type === 'art') {
+        const src = (typeof artCurveSource === 'function') ? artCurveSource(e) : null;
+        if (src && src.length) {
+          const subs = [];
+          for (const sub of src) {
+            if (!sub || !Array.isArray(sub.nodes) || sub.nodes.length < 2) continue;
+            subs.push({
+              closed: !!sub.closed,
+              curved: !!(sub.curved || sub.nodes.some(n => n.o || n.i)),
+              color: sub.color || col,
+              fill: (sub.fill === 'gray' || sub.fill === 'yellow') ? sub.fill : ownFill,
+              nodes: sub.nodes.map(cloneNode)
+            });
+          }
+          return chainSubs(subs, joinTol);
+        }
+        const subs = [];
+        const gg = textGeom(e);
+        if (gg && Array.isArray(e.contours) && e.contours.length) {
+          const flags = artClosedFlags(e);
+          const tol = (typeof framedFitTol === 'function') ? framedFitTol(e) : 0.05;
+          e.contours.forEach((loop, li) => {
+            if (!loop || loop.length < 2) return;
+            const pts = loop.map(([u, v]) => ({
+              x: gg.p0.x + u * gg.A.x + v * gg.B.x,
+              y: gg.p0.y + u * gg.A.y + v * gg.B.y
+            }));
+            const cCol = (e.contourColors && e.contourColors[li]) || col;
+            const cFill = (e.contourFills && e.contourFills[li]) || ownFill;
+            const closed = flags[li] !== false;
+            if (e.fitCurve && closed && pts.length >= 3 && typeof fitPolylineCurve === 'function') {
+              const fit = fitPolylineCurve(pts, { tol, sharpAngle, closed: true, denoise: true });
+              if (fit && fit.nodes && fit.nodes.length >= 2) {
+                subs.push({
+                  closed: true, curved: fit.nodes.some(n => n.o || n.i),
+                  color: cCol, fill: cFill, nodes: fit.nodes
+                });
+                return;
+              }
+            }
+            subs.push({
+              closed, curved: false, color: cCol, fill: cFill,
+              nodes: pts.map(p => ({ x: p.x, y: p.y, o: null, i: null }))
+            });
+          });
+        } else {
+          for (const loop of (artContoursWorld(e) || [])) {
+            if (!loop || !loop.pts || loop.pts.length < 2) continue;
+            subs.push({
+              closed: loop.closed !== false, curved: false,
+              color: loop.color || col,
+              fill: (loop.fill === 'gray' || loop.fill === 'yellow') ? loop.fill : ownFill,
+              nodes: loop.pts.map(p => ({ x: p.x, y: p.y, o: null, i: null }))
+            });
+          }
+        }
+        return chainSubs(subs, joinTol);
+      }
+      if (e.type === 'array') {
+        const seenArr = visiting || new Set();
+        if (seenArr.has(+e.id)) return [];
+        seenArr.add(+e.id);
+        let base = [];
+        for (const mid of (e.masters || [])) {
+          const m = state.entities[mid];
+          if (m) base.push(...entityToCurves(m, seenArr));
+        }
+        if (!base.length && Array.isArray(e.curveSrc) && e.curveSrc.length) {
+          base = e.curveSrc.map(cloneSub);
+        }
+        if (!base.length) {
+          arrayEnsureShapes(e);
+          for (const sh of (e.shapes || [])) {
+            if (!sh || !Array.isArray(sh.pts) || sh.pts.length < 2) continue;
+            base.push({
+              closed: !!sh.closed, curved: false,
+              color: sh.color || col,
+              fill: (sh.fill === 'gray' || sh.fill === 'yellow') ? sh.fill : null,
+              nodes: sh.pts.map(p => ({ x: p[0], y: p[1], o: null, i: null }))
+            });
+          }
+        }
+        base = chainSubs(base, joinTol);
+        const out = [];
+        for (const t of arrayInstanceOffsets(e)) {
+          for (const sub of base) out.push(xformSub(sub, t));
+        }
+        return out;
+      }
+      if (typeof collectCurveSources === 'function') {
+        return collectCurveSources([e]).map(cloneSub);
+      }
+      const out = [];
+      for (const pl of (entityWorldPolylines(e) || [])) {
+        if (pl && pl.pts && pl.pts.length >= 2) {
+          out.push({
+            closed: !!pl.closed, curved: false, color: col, fill: ownFill,
+            nodes: pl.pts.map(p => ({ x: p.x, y: p.y, o: null, i: null }))
+          });
+        }
+      }
+      return out;
+    };
+
+    const allRawCurves = [];
+    const openPrimitivePool = [];
+    for (const e of partEnts) {
+      const subs = entityToCurves(e);
+      if (fontPending) {
+        if (typeof textExactLoadPromise !== 'undefined' && textExactLoadPromise) {
+          textExactLoadPromise.then(() => { setTimeout(() => cmdCloneSplit(), 0); });
+          toast('Loading the font\u2026 splitting in a moment');
+          return;
+        }
+      }
+      if (e.type === 'line' || e.type === 'arc' || e.type === 'circle' || e.type === 'spline' || e.type === 'part') {
+        for (const s of subs) {
+          if (s.closed) allRawCurves.push(s);
+          else openPrimitivePool.push(s);
+        }
+      } else {
+        allRawCurves.push(...subs);
+      }
+    }
+    if (openPrimitivePool.length) {
+      allRawCurves.push(...chainSubs(openPrimitivePool, joinTol));
+    }
+
+    // Sample each curve to world points for containment & fast shape rendering.
+    const closedItems = [];
+    const openItems = [];
+    for (const sub of allRawCurves) {
+      if (!sub || !Array.isArray(sub.nodes) || sub.nodes.length < 2) continue;
+      const hasHandles = sub.nodes.some(n => n.o || n.i);
+      let pts;
+      if (hasHandles && typeof flattenSpline === 'function') {
+        const cps = sub.nodes.map(n => ({ x: n.x, y: n.y }));
+        const hs = {
+          o: sub.nodes.map(n => (n.o ? { x: n.o.x, y: n.o.y } : null)),
+          i: sub.nodes.map(n => (n.i ? { x: n.i.x, y: n.i.y } : null))
+        };
+        pts = flattenSpline(cps, hs, !!sub.closed, renderTol);
+      } else {
+        pts = sub.nodes.map(n => ({ x: n.x, y: n.y }));
+      }
+      if (sub.closed && pts.length > 3) {
+        const a = pts[0], b = pts[pts.length - 1];
+        if (Math.hypot(a.x - b.x, a.y - b.y) <= 1e-6) pts.pop();
+      }
+      const box = bboxOf(pts);
+      if (!box) continue;
+      if (sub.closed && pts.length >= 3) {
+        const area = Math.abs(signedAreaPts(pts));
+        if (area < 1e-9) continue;
+        closedItems.push({ sub, pts, box, area, probe: probeOf(pts) });
+      } else if (pts.length >= 2) {
+        openItems.push({ sub, pts, box });
+      }
+    }
+
+    // Group by top-level parent outer loop: largest closed loops first so
+    // any inner hole / nested detail attaches to its enclosing parent object.
+    closedItems.sort((a, b) => b.area - a.area);
+    const parents = [];
+    for (const item of closedItems) {
+      let parent = null;
+      for (const p of parents) {
+        const eps = Math.max(1e-5, (p.box.maxX - p.box.minX + p.box.maxY - p.box.minY) * 1e-5);
+        if (p.box.minX > item.box.minX + eps || p.box.minY > item.box.minY + eps ||
+            p.box.maxX < item.box.maxX - eps || p.box.maxY < item.box.maxY - eps) continue;
+        if (item.probe && pointInPoly(item.probe, p.poly)) {
+          parent = p;
+          break;
+        }
+      }
+      if (parent) parent.children.push(item);
+      else parents.push({ outer: item, poly: item.pts, box: item.box, children: [] });
+    }
+
+    // Open curves (e.g. single-line text or engrave marks) sitting inside a
+    // closed parent join that parent; standalone open curves become their own object.
+    for (const item of openItems) {
+      const midIdx = Math.floor(item.pts.length / 2);
+      const midPt = item.pts.length === 2
+        ? { x: (item.pts[0].x + item.pts[1].x) / 2, y: (item.pts[0].y + item.pts[1].y) / 2 }
+        : item.pts[midIdx];
+      let parent = null;
+      for (const p of parents) {
+        if (!p.poly) continue;
+        const eps = Math.max(1e-5, (p.box.maxX - p.box.minX + p.box.maxY - p.box.minY) * 1e-5);
+        if (p.box.minX > midPt.x + eps || p.box.minY > midPt.y + eps ||
+            p.box.maxX < midPt.x - eps || p.box.maxY < midPt.y - eps) continue;
+        if (pointInPoly(midPt, p.poly)) {
+          parent = p;
+          break;
+        }
+      }
+      if (parent) parent.children.push(item);
+      else parents.push({ outer: item, poly: null, box: item.box, children: [] });
+    }
+
+    if (!parents.length) {
+      toast('Nothing to split — the selection has no nestable parts');
+      return;
+    }
+
+    // Order left-to-right, top-to-bottom so the Object Tree matches reading order.
+    parents.sort((a, b) => {
+      if (Math.abs(a.box.minX - b.box.minX) > 1e-3) return a.box.minX - b.box.minX;
+      return a.box.minY - b.box.minY;
+    });
+
+    // Place every part one selection-width to the right, preserving relative layout
+    // — ready to drag and rotate into place for manual nesting.
     const b = selectionBounds();
     const gap = 10;
     const mat = [1, 0, 0, 1, b ? (b.maxX - b.minX) + gap : 50, 0];
 
     pushHistory();
     const newIds = [];
-    for (const obj of objects) {
-      // the same masters a nest-result part carries: the outer loop's entities
-      // plus every hole's
-      const partMasters = obj.outer.entityIds
-        .concat(...obj.holeRecs.map(h => h.entityIds))
-        .filter(id => state.entities[id]);
-      if (!partMasters.length) continue;
-      const inst = { m: mat.slice() };
-      const anchor = nestAnchorOf(partMasters);
-      if (anchor) inst.a = anchor;
+    for (const parent of parents) {
+      const subs = [parent.outer].concat(parent.children);
+      const shapes = subs.map(it => ({
+        color: it.sub.color || '#000000',
+        fill: (it.sub.fill === 'gray' || it.sub.fill === 'yellow') ? it.sub.fill : null,
+        closed: !!it.sub.closed,
+        pts: it.pts.map(p => [p.x, p.y])
+      }));
+      const curveSrc = subs.map(it => cloneSub(it.sub));
       const id = newId();
       state.entities[id] = {
         id, type: 'array', kind: 'clone',
         params: { origin: 'split' },
-        color: colorOf(state.entities[partMasters[0]]),
+        color: shapes[0].color || '#000000',
         layer: ui.activeLayer,
-        masters: partMasters,
-        instances: [inst]
+        masters: [],
+        shapes,
+        shapesEpoch: geometryEpoch,
+        curveSrc,
+        instances: [{ m: mat.slice() }]
       };
-      delete state.entities[id].shapes;
       newIds.push(id);
-    }
-    if (!newIds.length) {
-      toast('Nothing to split — the selection has no nestable parts');
-      return;
     }
     ui.selection = newIds.map(id => ({ kind: 'entity', id }));
     invalidateLoops();
@@ -15278,6 +15861,23 @@
     for (const mid of (e.masters || [])) {
       const m = state.entities[mid];
       if (m) for (const sub of arrayMasterCurveSources(m)) sources.push(sub);
+    }
+    if (!sources.length && Array.isArray(e.curveSrc) && e.curveSrc.length) {
+      for (const sub of e.curveSrc) {
+        if (sub && Array.isArray(sub.nodes) && sub.nodes.length >= 2) sources.push(sub);
+      }
+    }
+    if (!sources.length && Array.isArray(e.shapes) && e.shapes.length) {
+      for (const sh of e.shapes) {
+        if (!sh || !Array.isArray(sh.pts) || sh.pts.length < 2) continue;
+        sources.push({
+          closed: !!sh.closed,
+          curved: false,
+          color: sh.color || colorOf(e),
+          fill: (sh.fill === 'gray' || sh.fill === 'yellow') ? sh.fill : null,
+          nodes: sh.pts.map(p => ({ x: p[0], y: p[1], o: null, i: null }))
+        });
+      }
     }
     if (!sources.length) return created;
     for (const t of arrayInstanceOffsets(e)) {
@@ -30918,7 +31518,8 @@ function cmdSplitCurve() {
             if (!base) return inst;
             return { ...inst, m: [base[0], base[1], base[2], base[3], base[4] + ddx, base[5] + ddy] };
           });
-          delete e.shapes;
+          if (Array.isArray(e.masters) && e.masters.length) delete e.shapes;
+          else if (typeof arrayBBoxCache !== 'undefined') arrayBBoxCache.delete(e);
           d.moved = true;
           invalidateLoops({ dirtyEntities: [d.eid] });
           scheduleRender();
@@ -31129,7 +31730,8 @@ function cmdSplitCurve() {
               if (!base) return inst;
               return { ...inst, m: [base[0], base[1], base[2], base[3], base[4] + dx, base[5] + dy] };
             });
-            delete e.shapes;
+            if (Array.isArray(e.masters) && e.masters.length) delete e.shapes;
+            else if (typeof arrayBBoxCache !== 'undefined') arrayBBoxCache.delete(e);
           }
         }
         d.moved = !d.wall || !!d.wall.movedAny;
@@ -35264,7 +35866,14 @@ function cmdSplitCurve() {
           if (!m) continue;
           for (const sh of cncShapesOf(m)) baseShapes.push(sh);
         }
-        // Detached snapshot clones (no live masters) fall back to e.shapes
+        // Detached snapshot clones (no live masters): prefer curveSrc at cnc.tol,
+        // falling back to e.shapes when curveSrc is absent.
+        if (!baseShapes.length && Array.isArray(e.curveSrc) && e.curveSrc.length) {
+          for (const sub of e.curveSrc) {
+            const shape = cncFlattenCurveSub(sub, cnc.tol, colorOf(e), 'none');
+            if (shape) baseShapes.push(shape);
+          }
+        }
         if (!baseShapes.length && Array.isArray(e.shapes) && e.shapes.length) {
           for (const sh of e.shapes) {
             if (!sh || !sh.pts || sh.pts.length < 2) continue;
@@ -36950,6 +37559,14 @@ function cmdSplitCurve() {
         for (const arr of [e.hs.o, e.hs.i]) (arr || []).forEach(my);
       } else if (e.type === 'array') {
         for (const sh of e.shapes || []) for (const p of sh.pts || []) if (Array.isArray(p)) p[1] = -+p[1];
+        for (const sub of e.curveSrc || []) {
+          for (const nd of (sub && sub.nodes) || []) {
+            if (!nd) continue;
+            nd.y = -+nd.y;
+            if (nd.o) nd.o.y = -+nd.o.y;
+            if (nd.i) nd.i.y = -+nd.i.y;
+          }
+        }
         for (const inst of e.instances || []) {
           if (Array.isArray(inst.m) && inst.m.length === 6) {
             inst.m = [inst.m[0], -inst.m[1], -inst.m[2], inst.m[3], inst.m[4], -inst.m[5]];
@@ -37133,6 +37750,28 @@ function cmdSplitCurve() {
           params: e.params && typeof e.params === 'object' ? e.params : {},
           color: e.color || '#000000', layer: elayer, masters, shapes
         };
+        if (Array.isArray(e.curveSrc)) {
+          const hp = v => (v && isFinite(+v.x) && isFinite(+v.y)) ? { x: +v.x, y: +v.y } : null;
+          const src = [];
+          for (const sub of e.curveSrc) {
+            if (!sub || !Array.isArray(sub.nodes)) continue;
+            const nodes = [];
+            for (const nd of sub.nodes) {
+              if (!nd || !isFinite(+nd.x) || !isFinite(+nd.y)) continue;
+              nodes.push({ x: +nd.x, y: +nd.y, o: hp(nd.o), i: hp(nd.i) });
+            }
+            if (nodes.length >= 2) {
+              src.push({
+                closed: !!sub.closed,
+                curved: !!(sub.curved || nodes.some(n => n.o || n.i)),
+                color: typeof sub.color === 'string' && sub.color ? sub.color : (e.color || '#000000'),
+                fill: (sub.fill === 'gray' || sub.fill === 'yellow') ? sub.fill : null,
+                nodes
+              });
+            }
+          }
+          if (src.length) entities[id].curveSrc = src;
+        }
         // a clone keeps the matrices that place its instances
         if (e.kind === 'clone' && Array.isArray(e.instances)) {
           entities[id].instances = e.instances
@@ -37549,8 +38188,20 @@ function cmdSplitCurve() {
         if (e.type === 'spline' && e.hs) {
           if (Array.isArray(e.hs.o)) e.hs.o.forEach(sh);
           if (Array.isArray(e.hs.i)) e.hs.i.forEach(sh);
-        } else if (e.type === 'array' && Array.isArray(e.shapes)) {
-          for (const s of e.shapes) if (s && Array.isArray(s.pts)) s.pts.forEach(shXY);
+        } else if (e.type === 'array') {
+          if (Array.isArray(e.shapes)) {
+            for (const s of e.shapes) if (s && Array.isArray(s.pts)) s.pts.forEach(shXY);
+          }
+          if (Array.isArray(e.curveSrc)) {
+            for (const sub of e.curveSrc) {
+              for (const nd of (sub && sub.nodes) || []) {
+                if (!nd) continue;
+                nd.x += dx; nd.y += dy;
+                if (nd.o) { nd.o.x += dx; nd.o.y += dy; }
+                if (nd.i) { nd.i.x += dx; nd.i.y += dy; }
+              }
+            }
+          }
         }
         if (e.type === 'array' && e.kind === 'clone' && Array.isArray(e.instances)) {
           // A clone matrix acts on the master's CURRENT world coords, which

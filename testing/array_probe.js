@@ -122,6 +122,14 @@ function makeWorld() {
     }
     return { kept, skipped };
   };
+  world.circleData = (e) => {
+    if (!e || e.type !== 'circle') return null;
+    const c = world.P(e.c);
+    return c && e.r > 0 ? { c, r: e.r } : null;
+  };
+  world.arcData = () => null;
+  world.artCurveSource = () => null;
+  world.layerOf = (e) => (e && e.layer != null ? e.layer : 1);
   world.openArrayDialog = null;   // filled in by build()
   return world;
 }
@@ -133,8 +141,14 @@ function build(world) {
     slice('arrayReanchorGuide'),
     slice('arrayBuildShapes'),
     slice('arrayInstancePolylines'),
+    slice('cloneAnchorOf'),
+    slice('cloneInstanceOffsets'),
     slice('arrayInstanceOffsets'),
     slice('arrayXformPoint'),
+    slice('collectCurveSources'),
+    slice('arrayMasterCurveSources'),
+    slice('explodeArrayToCurves'),
+    slice('addFittedSpline'),
     // cmdCreateArray resolves the selection through selectedEntitiesForExport,
     // which lives further up app.js and was never carried into this harness
     slice('selectedEntitiesForExport'),
@@ -143,15 +157,8 @@ function build(world) {
     // guide test failed for the wrong reason.
     slice('ownedGuideIds'),
     slice('cmdCreateArray'),
-    // clone-split (Ctrl+Shift+L) reuses the nest input stage directly:
-    // nestCollectLoops -> nestGroupParts -> one live clone per part
     slice('loopEntities'),
     slice('loopShapeSelected'),
-    slice('nestHull'),
-    slice('nestTextRec'),
-    slice('nestCollectLoops'),
-    slice('nestGroupParts'),
-    slice('nestAnchorOf'),
     slice('cmdCloneSplit')
   ].join('\n');
   return new Function(
@@ -159,18 +166,20 @@ function build(world) {
     'pushHistory', 'commit', 'colorOf', 'xfBlock', 'entityPointIds',
     'entityWorldPolylines', 'artContoursWorld', 'textContoursWorld',
     'textOutlineWorld', 'isSingleLineFont', 'textStrokesWorld',
-    'textGeom', 'artClosedFlags',
+    'textGeom', 'artClosedFlags', 'artCurveSource', 'circleData', 'arcData', 'layerOf',
     'selectedEntities', 'groupableEntities', 'openArrayDialog', 'isConstructionColor',
     'selectionIndex', 'containerOf', 'getLayer',
     'getLoops', 'selectionBounds',
-    'pointInPoly', 'signedAreaPts', 'invalidateLoops',
+    'pointInPoly', 'signedAreaPts', 'interiorProbe', 'polyBBox',
+    'flattenSpline', 'fitPolylineCurve', 'arcCubicNodes', 'matMul', 'TAU',
+    'invalidateLoops',
     'selected', 'entityEditable', 'entityFullySelectedByPoints',
     `let geometryEpoch = 0;
      ${body}
      return {
        cmdCreateArray, arrayShapesOf, arrayBuildShapes,
-       arrayInstancePolylines, arrayInstanceOffsets,
-       cmdCloneSplit,
+       arrayInstancePolylines, arrayInstanceOffsets, arrayXformPoint,
+       cmdCloneSplit, explodeArrayToCurves,
        bumpGeometry: () => { geometryEpoch++; },
        getEpoch: () => geometryEpoch
      };`
@@ -180,12 +189,13 @@ function build(world) {
     world.xfBlock, world.entityPointIds, world.entityWorldPolylines,
     world.artContoursWorld, world.textContoursWorld,
     // textOutlineWorld / isSingleLineFont / textStrokesWorld stand-ins: the
-    // probe feeds contours through _geom, so single-line stays off
+    // probe feeds contours through _textLoops, so single-line stays off
     (e) => ({ loops: e._textLoops || [], closed: true }),
     () => false,
     () => [],
     (e) => e._geom || null,
     (e) => (e.closed || []).map(v => v !== false),
+    world.artCurveSource, world.circleData, world.arcData, world.layerOf,
     world.selectedEntities,
     world.groupableEntities,
     (id, masters) => { world.opened = { id, masters }; },
@@ -195,7 +205,8 @@ function build(world) {
     (id) => (id === 1 ? world.state.layers[0] : null),
     world.getLoops,
     world.selectionBounds,
-    C.pointInPoly, C.signedAreaPts,
+    C.pointInPoly, C.signedAreaPts, C.interiorProbe, C.polyBBox,
+    C.flattenSpline, C.fitPolylineCurve, C.arcCubicNodes, C.matMul, C.TAU,
     world.invalidateLoops,
     world.selected, world.entityEditable, world.entityFullySelectedByPoints
   );
@@ -535,14 +546,13 @@ console.log('\n== the guide stays glued to the master top-left ==');
     (world.P(ph).y - world.P(p0).y));
 }
 
-// ---- 10. Ctrl+Shift+L = manual nesting parts (the nest input stage) ----
-console.log('\n== clone-split: one live clone per nest part ==');
+// ---- 10. Ctrl+Shift+L = convert selection to curves grouped by parent ----
+console.log('\n== clone-split: curves grouped per parent object into Array parts ==');
 {
   const world = makeWorld();
   const api = build(world);
 
-  // two ungrouped "letters", each a closed-spline ring with a hole (the state
-  // after the user ungroups a text before arranging parts manually)
+  // two ungrouped "letters", each a closed-spline ring with a hole
   const mkRing = (x0, x1, y0, y1, color) => {
     const pts = [
       world.privatePoint(x0, y0), world.privatePoint((x0 + x1) / 2, y0),
@@ -554,46 +564,34 @@ console.log('\n== clone-split: one live clone per nest part ==');
     world.state.entities[id] = { id, type: 'spline', pts, closed: true, color, layer: 1 };
     return { id, pts };
   };
-  const mkLoop = (spline) => {
-    // the closed-spline loop getLoops() reports for it
-    const poly = spline.pts.map(pid => {
-      const p = world.P(pid);
-      return { x: p.x, y: p.y };
-    });
-    world._docLoops.push({ poly, area: Math.abs(C.signedAreaPts(poly)), steps: [], splineEntity: spline.id });
-  };
   const aOuter = mkRing(0, 30, 0, 20, '#111111');
   const aHole = mkRing(5, 15, 5, 15, '#111111');
   const bOuter = mkRing(100, 130, 0, 20, '#222222');
   const bHole = mkRing(105, 115, 5, 15, '#222222');
-  mkLoop(aOuter); mkLoop(aHole); mkLoop(bOuter); mkLoop(bHole);
   world.ui.selection = [aOuter, aHole, bOuter, bHole]
     .map(s => ({ kind: 'entity', id: s.id }));
   api.cmdCloneSplit();
 
   const created = Object.values(world.state.entities).filter(e => e.type === 'array' && e.kind === 'clone');
-  check('two ungrouped letters yield TWO parts', created.length === 2, created.length);
+  check('two ungrouped letters yield TWO Array parts', created.length === 2, created.length);
   check('the parts keep the selection', world.ui.selection.length === 2);
-  check('each part is a LIVE clone carrying outer + hole as masters',
-    created.every(e => e.masters.length === 2), created.map(e => e.masters.length).join(','));
-  check('a hole never leaks into the other letter\'s masters',
-    created.every(e => new Set(e.masters).size === 2));
+  check('each part is detached (no masters) and holds its own curveSrc + shapes (outer + hole)',
+    created.every(e => Array.isArray(e.masters) && e.masters.length === 0 &&
+      Array.isArray(e.curveSrc) && e.curveSrc.length === 2 &&
+      Array.isArray(e.shapes) && e.shapes.length === 2),
+    created.map(e => `${(e.masters || []).length}:${(e.curveSrc || []).length}:${(e.shapes || []).length}`).join(','));
   // placement: stubbed selection bounds are 100 wide, gap 10 -> tx = 110
   check('the parts land one selection-width to the right (tx 110)',
     created.every(e => e.instances.length === 1 && e.instances[0].m[4] === 110),
     created.map(e => e.instances[0].m[4]).join(','));
-  check('every part carries an anchor (stays put when the master moves)',
-    created.every(e => Array.isArray(e.instances[0].a)));
-  const placed = created.map(e => api.arrayInstancePolylines(e, { dx: 0, dy: 0 }));
-  check('each part draws outer + hole from its masters',
+  const placed = created.map(e => api.arrayInstancePolylines(e, api.arrayInstanceOffsets(e)[0]));
+  check('each part draws outer + hole from its own shapes',
     placed.every(pl => pl.length === 2), placed.map(pl => pl.length).join(','));
 
-  // green sheet loops are the nest input's OTHER half: never parts
+  // green sheet loops are never parts
   world.state.entities = {};
   world.ui.selection = [];
-  world._docLoops = [];
   const sheet = mkRing(0, 200, 0, 100, '#00ff00');
-  mkLoop(sheet);
   world.ui.selection = [{ kind: 'entity', id: sheet.id }];
   api.cmdCloneSplit();
   check('a green sheet loop alone clones nothing (it is the sheet, not a part)',
@@ -603,20 +601,118 @@ console.log('\n== clone-split: one live clone per nest part ==');
     world.toasts.join(' | '));
 }
 
-console.log('\n== clone-split: a not-yet-ungrouped text stays one atomic part ==');
+console.log('\n== clone-split: multi-letter text "OOAA" splits into 4 letter Array objects ==');
 {
   const world = makeWorld();
   const api = build(world);
-  const textId = makeText(world, 'O');
-  world.ui.selection = [{ kind: 'entity', id: textId }];
+  const p0 = world.privatePoint(0, 0);
+  const pw = world.privatePoint(160, 0);
+  const ph = world.privatePoint(0, 30);
+  const tid = world.newId();
+  const rect = (x0, y0, x1, y1) => [
+    { x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }
+  ];
+  world.state.entities[tid] = {
+    id: tid, type: 'text', p0, pw, ph, guide: [], text: 'OOAA', color: '#000000', layer: 1,
+    _textLoops: [
+      // O1 (x: 0..30) + hole
+      rect(0, 0, 30, 30), rect(8, 8, 22, 22),
+      // O2 (x: 40..70) + hole
+      rect(40, 0, 70, 30), rect(48, 8, 62, 22),
+      // A1 (x: 80..110) + triangle/inner counter
+      rect(80, 0, 110, 30), rect(90, 6, 100, 16),
+      // A2 (x: 120..150) + inner counter
+      rect(120, 0, 150, 30), rect(130, 6, 140, 16)
+    ]
+  };
+  world.ui.selection = [{ kind: 'entity', id: tid }];
   api.cmdCloneSplit();
+
   const created = Object.values(world.state.entities).filter(e => e.type === 'array' && e.kind === 'clone');
-  check('the text (not ungrouped) is ONE part, like nesting treats it',
-    created.length === 1, created.length);
-  check('the part\'s master is the text entity itself',
-    created.length === 1 && created[0].masters.length === 1 && created[0].masters[0] === textId);
-  const placed = created.length === 1 ? api.arrayInstancePolylines(created[0], { dx: 0, dy: 0 }) : [];
-  check('the part draws the glyphs from the text master', placed.length === 2, placed.length);
+  check('text "OOAA" splits into 4 separate Array objects', created.length === 4, created.length);
+  check('each letter carries its outer + counter hole (2 curves, 2 shapes)',
+    created.every(e => e.curveSrc.length === 2 && e.shapes.length === 2),
+    created.map(e => e.curveSrc.length).join(','));
+  check('each letter sits in left-to-right order',
+    created.map(e => api.arrayInstancePolylines(e, api.arrayInstanceOffsets(e)[0])[0].pts[0].x)
+      .every((x, i, a) => i === 0 || x > a[i - 1]));
+
+  // rotating/moving one letter and exploding (-> Curve) keeps both contours & handles
+  created[0].instances[0].m = [0, 1, -1, 0, 200, 10];
+  const exploded = api.explodeArrayToCurves(created[0]);
+  check('rotating and exploding a split letter creates 2 independent splines (outer + hole)',
+    exploded.length === 2 && exploded.every(eid => world.state.entities[eid].type === 'spline'),
+    exploded.length);
+}
+
+console.log('\n== clone-split: art group and mixed chained primitives ==');
+{
+  const world = makeWorld();
+  const api = build(world);
+  // 1) An art group with two panels (left panel has a hole, right panel doesn't)
+  const p0 = world.privatePoint(0, 0);
+  const pw = world.privatePoint(100, 0);
+  const ph = world.privatePoint(0, 50);
+  const artId = world.newId();
+  world.state.entities[artId] = {
+    id: artId, type: 'art', p0, pw, ph, guide: [], color: '#000000', layer: 1,
+    _geom: { p0: { x: 0, y: 0 }, A: { x: 100, y: 0 }, B: { x: 0, y: 50 } },
+    contours: [
+      [[0, 0], [0.4, 0], [0.4, 1], [0, 1]],
+      [[0.1, 0.2], [0.3, 0.2], [0.3, 0.8], [0.1, 0.8]],
+      [[0.6, 0], [1, 0], [1, 1], [0.6, 1]]
+    ],
+    contourColors: ['#000000', '#0000ff', '#000000'],
+    contourFills: [null, null, 'yellow'],
+    closed: [true, true, true]
+  };
+  world.ui.selection = [{ kind: 'entity', id: artId }];
+  api.cmdCloneSplit();
+  const artSplit = Object.values(world.state.entities).filter(e => e.type === 'array' && e.kind === 'clone');
+  check('art group with 2 panels yields 2 Array objects', artSplit.length === 2, artSplit.length);
+  check('left panel keeps outer + inner hole (2 shapes) and right panel has 1 yellow fill shape',
+    artSplit[0].shapes.length === 2 && artSplit[1].shapes.length === 1 && artSplit[1].shapes[0].fill === 'yellow',
+    artSplit.map(e => e.shapes.length).join(','));
+
+  // 2) Mixed primitives: 4 open lines forming a box + circle hole + inner engrave mark
+  world.state.entities = {};
+  const pts = [[0, 0], [40, 0], [40, 30], [0, 30]].map(([x, y]) => world.privatePoint(x, y));
+  const ids = [];
+  for (let i = 0; i < 4; i++) {
+    const id = world.newId();
+    world.state.entities[id] = { id, type: 'line', a: pts[i], b: pts[(i + 1) % 4], color: '#000000', layer: 1 };
+    ids.push(id);
+  }
+  const cc = world.privatePoint(12, 15);
+  const circId = world.newId();
+  world.state.entities[circId] = { id: circId, type: 'circle', c: cc, r: 5, color: '#000000', layer: 1 };
+  ids.push(circId);
+  const m0 = world.privatePoint(25, 10), m1 = world.privatePoint(35, 10);
+  const markId = world.newId();
+  world.state.entities[markId] = { id: markId, type: 'line', a: m0, b: m1, color: '#0000ff', layer: 1 };
+  ids.push(markId);
+
+  world.ui.selection = ids.map(id => ({ kind: 'entity', id }));
+  api.cmdCloneSplit();
+  const mixedSplit = Object.values(world.state.entities).filter(e => e.type === 'array' && e.kind === 'clone');
+  check('4 chained lines + circle hole + inner mark group into 1 Array object',
+    mixedSplit.length === 1, mixedSplit.length);
+  check('chained box + Bezier circle + open engrave line = 3 curve sub-paths inside',
+    mixedSplit.length === 1 && mixedSplit[0].curveSrc.length === 3 &&
+    mixedSplit[0].curveSrc[0].closed === true &&
+    mixedSplit[0].curveSrc[1].closed === true && mixedSplit[0].curveSrc[1].curved === true &&
+    mixedSplit[0].curveSrc[2].closed === false,
+    mixedSplit.length === 1 ? JSON.stringify(mixedSplit[0].curveSrc.map(s => [s.closed, s.curved])) : 'none');
+
+  // 3) Splitting an existing grid array turns each virtual instance into an independent Array part
+  const arrGrid = grid1(world, [circId]);
+  world.ui.selection = [{ kind: 'entity', id: arrGrid }];
+  api.cmdCloneSplit();
+  const gridSplit = Object.values(world.state.entities)
+    .filter(e => e.type === 'array' && e.kind === 'clone' && !mixedSplit.includes(e));
+  check('2x2 grid array splits into 3 separate Array parts (virtual instances)',
+    gridSplit.length === 3 && gridSplit.every(e => e.curveSrc.length === 1 && e.curveSrc[0].curved),
+    gridSplit.length);
 }
 
 console.log('\n' + (fail ? fail + ' FAILED, ' : 'all ') + pass + ' checks passed');
