@@ -223,6 +223,8 @@
       // Dynamic hints
       'hint.textTool': 'Text tool: click empty space to start typing on canvas, or click existing text to edit inline. Esc returns to Select.',
       'hint.textInline': 'Typing on canvas — Enter = new line · Esc or Ctrl+Enter = finish · Use the Property Bar above for live font, size, alignment & spacing.',
+      'hint.noteTool': 'Note tool: click canvas to type a note inline, or click an existing note to edit. Esc returns to Select.',
+      'hint.noteInline': 'Typing note on canvas — Enter = save · Esc = cancel · Click elsewhere to save.',
       'hint.select': 'Click to select. Drag points or geometry. Double-click text to edit directly on canvas.',
       'hint.snapOff': '  ⚠ Snap is OFF — hold Alt to snap temporarily, Shift+5 to toggle.',
 
@@ -564,6 +566,8 @@
       // Dynamic hints
       'hint.textTool': 'Alat Teks: klik ruang kosong untuk mengetik langsung di kanvas, atau klik teks yang ada untuk mengedit. Esc kembali ke Pilih.',
       'hint.textInline': 'Mengetik di kanvas — Enter = baris baru · Esc / Ctrl+Enter = selesai · Gunakan Property Bar di atas untuk ubah font, ukuran, rata & spasi langsung.',
+      'hint.noteTool': 'Alat Catatan: klik kanvas untuk menulis note langsung di workspace, atau klik note yang ada untuk mengedit. Esc kembali ke Pilih.',
+      'hint.noteInline': 'Menulis note di kanvas — Enter = simpan · Esc = batal · Klik area lain untuk simpan.',
       'hint.select': 'Klik untuk memilih. Tarik titik atau objek. Klik ganda teks untuk mengedit langsung di kanvas.',
       'hint.snapOff': '  ⚠ Snap MATI — tahan Alt untuk snap sementara, Shift+5 untuk aktifkan.',
 

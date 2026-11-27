@@ -92,12 +92,12 @@
               <tr><td><kbd>B</kbd></td><td>Kurva Bézier (Curve)</td><td>Klik untuk sudut, klik-tahan-geser untuk lengkung halus.</td></tr>
               <tr><td><kbd>*</kbd></td><td>Poligon / Bintang (Poly)</td><td>Titik pusat dulu, lalu radius dan sudut awal. Roda mouse atur persen dalam bintang.</td></tr>
               <tr><td><kbd>A</kbd></td><td>Busur (Arc)</td><td>Busur 3 titik: dua titik ujung lalu titik tempat lengkung.</td></tr>
-              <tr><td><kbd>E</kbd></td><td>Lingkaran (Circle)</td><td>Titik pusat lalu radius.</td></tr>
-              <tr><td><kbd>R</kbd></td><td>Kotak (Box)</td><td>Drag untuk menentukan ukuran.</td></tr>
+              <tr><td><kbd>E</kbd></td><td>Elips / Lingkaran</td><td>Klik dua sudut kotak pembatas (tahan <kbd>Ctrl</kbd> = pusat di klik pertama), lalu atur Width &amp; Height; selalu dibuat sebagai kurva spline.</td></tr>
+              <tr><td><kbd>R</kbd></td><td>Kotak (Box)</td><td>Klik dua sudut berlawanan (tahan <kbd>Ctrl</kbd> = pusat di klik pertama), lalu konfirmasi Width, Height &amp; Round radius.</td></tr>
               <tr><td><kbd>T</kbd></td><td>Teks (Text)</td><td>Isi konten, pilih font, gaya, ukuran, jarak huruf.</td></tr>
               <tr><td><kbd>I</kbd></td><td>Potong (Trim)</td><td>Potong di persimpangan. Ctrl+klik menyusuri seluruh rantai.</td></tr>
               <tr><td><kbd>Shift+E</kbd></td><td>Pisah (Separate)</td><td>Membelah tanpa menghapus (Trim tanpa kehilangan).</td></tr>
-              <tr><td><kbd>;</kbd></td><td>Catatan (Note)</td><td>Menaruh komentar kuning di kanvas sebagai pengingat — tidak pernah dipotong atau dikirim ke KaryaCNC.</td></tr>
+              <tr><td><kbd>;</kbd></td><td>Catatan (Note)</td><td>Tekan <kbd>;</kbd> untuk menulis catatan kuning langsung di posisi kursor, atau klik tombol <b>Note</b> untuk menaruhnya di tengah kotak pembatas objek terpilih (tanpa dialog prompt; tidak pernah dipotong atau dikirim ke KaryaCNC).</td></tr>
               <tr><td><kbd>Ctrl+M</kbd></td><td>Transformasi (tab Edit)</td><td>Pindahkan, putar, atau skala objek terpilih.</td></tr>
             </tbody>
           </table>
@@ -127,8 +127,8 @@
           <p>Jika snap dimatikan lewat menu Tool (<i>Snap leaves constraints</i>), menempel ke garis tidak lagi meninggalkan constraint Midpoint / On line.</p>
 
           <h2>3. Alat khusus</h2>
-          <h3>Kotak (Box, R) — sudut membulat dengan roda mouse</h3>
-          <p>Tarik dua sudut berlawanan seperti biasa. Selama menarik, <b>putar roda mouse</b> untuk mengatur radius fillet (tahan <kbd>Shift</kbd> = langkah halus). Saat kotak diletakkan, muncul konfirmasi radius (0 = sudut tajam). Jika Anda <b>tidak pernah</b> memutar roda, kotak langsung dibuat dengan sudut tajam tanpa ditanya.</p>
+          <h3>Kotak (Box, R) — Lebar, Tinggi &amp; sudut membulat</h3>
+          <p>Tarik dua sudut berlawanan seperti biasa (tahan <kbd>Ctrl</kbd> untuk menggambar dari titik tengah sebagai pusat kotak; putar <b>roda mouse</b> untuk menyetel radius awal). Saat titik kedua diklik, muncul dialog 2 kolom berisi <b>Width</b>, <b>Height</b>, dan <b>Round radius</b> (0 = sudut tajam) sehingga ketiganya bisa langsung disesuaikan sekaligus.</p>
 
           <h3>Kurva Bézier</h3>
           <p>Klik untuk sudut, klik-tahan-geser untuk lengkung halus, klik node pertama untuk menutup. <kbd>Enter</kbd>, klik ganda, atau klik kanan mengakhiri kurva; <kbd>Esc</kbd> membatalkan. Preview mengikuti aturan yang sama, jadi yang terlihat itulah hasilnya.</p>
@@ -185,12 +185,12 @@
               <tr><td><kbd>B</kbd></td><td>Bézier Curve</td><td>Click for sharp corners, click-hold-drag for smooth tangent handles.</td></tr>
               <tr><td><kbd>*</kbd></td><td>Polygon / Star (Poly)</td><td>Click center, then outer radius and start angle. Mouse wheel adjusts inner star ratio.</td></tr>
               <tr><td><kbd>A</kbd></td><td>Arc</td><td>3-point arc: two endpoints, then a third point on the curve.</td></tr>
-              <tr><td><kbd>E</kbd></td><td>Circle</td><td>Click center, then radius.</td></tr>
-              <tr><td><kbd>R</kbd></td><td>Box</td><td>Click two opposite corners to draw a rectangle.</td></tr>
+              <tr><td><kbd>E</kbd></td><td>Ellipse / Circle</td><td>Click two opposite corners of the bounding box (hold <kbd>Ctrl</kbd> for center-base), then confirm Width &amp; Height; always creates an editable spline curve.</td></tr>
+              <tr><td><kbd>R</kbd></td><td>Box</td><td>Click two opposite corners (hold <kbd>Ctrl</kbd> for center-base), then confirm Width, Height &amp; Round radius.</td></tr>
               <tr><td><kbd>T</kbd></td><td>Text</td><td>Enter text, choose font, weight/style, height, and tracking.</td></tr>
               <tr><td><kbd>I</kbd></td><td>Trim</td><td>Trim segments at intersections. Ctrl+click follows an entire chain.</td></tr>
               <tr><td><kbd>Shift+E</kbd></td><td>Separate</td><td>Split at intersections without deleting any segment.</td></tr>
-              <tr><td><kbd>;</kbd></td><td>Note</td><td>Place yellow canvas annotations for reminders — never cut or exported to KaryaCNC.</td></tr>
+              <tr><td><kbd>;</kbd></td><td>Note</td><td>Press <kbd>;</kbd> to type yellow annotations inline at the cursor, or click the <b>Note</b> button to place/edit an inline note at the center of the selected object's bounding box (never cut or exported to KaryaCNC).</td></tr>
               <tr><td><kbd>Ctrl+M</kbd></td><td>Transform (Edit tab)</td><td>Move, rotate, or scale selected geometry precisely.</td></tr>
             </tbody>
           </table>
@@ -220,8 +220,8 @@
           <p>Disabling <i>Snap leaves constraints</i> in the Tool menu allows snapping to geometry without adding Midpoint / On-line constraints.</p>
 
           <h2>3. Tool-Specific Behaviors</h2>
-          <h3>Box (R) — Rounded Corners via Mouse Wheel</h3>
-          <p>Drag two opposite corners as usual. While dragging, <b>scroll the mouse wheel</b> to set corner fillet radius (hold <kbd>Shift</kbd> for fine steps). On placement, confirm the radius (0 = sharp). If you never scroll the wheel, corners remain sharp with zero extra prompt.</p>
+          <h3>Box (R) — Width, Height &amp; Rounded Corners</h3>
+          <p>Drag two opposite corners as usual (hold <kbd>Ctrl</kbd> to draw from the first point as the center; scroll the mouse wheel to set the initial fillet radius). On placement, a 2-column dialog presents <b>Width</b>, <b>Height</b>, and <b>Round radius</b> (0 = sharp) together in one step.</p>
 
           <h3>Bézier Curve (B)</h3>
           <p>Click for corners, click-drag for smooth handles, or click the first node to close. <kbd>Enter</kbd>, double-click, or right-click ends the curve; <kbd>Esc</kbd> cancels.</p>

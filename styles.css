@@ -930,6 +930,7 @@ button {
 
 #app-dialog-modal { z-index: 80; }
 .app-dialog-box { width: min(380px, calc(100vw - 32px)); }
+.app-dialog-box.has-form { width: min(440px, calc(100vw - 32px)); }
 .app-dialog-box h3.hidden { display: none; }
 .app-dialog-message {
   font-size: 12.5px;
@@ -938,6 +939,7 @@ button {
   white-space: pre-line;
   overflow-wrap: anywhere;
 }
+.app-dialog-message.hidden { display: none; }
 .app-dialog-field { margin-top: 10px; }
 .app-dialog-field.hidden { display: none; }
 .app-dialog-field input {
@@ -953,6 +955,46 @@ button {
   color: var(--ink);
 }
 .app-dialog-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--input-focus);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.app-dialog-form {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+}
+.app-dialog-form.hidden { display: none; }
+.app-dialog-form-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.app-dialog-form-item.span-2 {
+  grid-column: 1 / -1;
+}
+.app-dialog-form-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted, #64748b);
+  line-height: 1.25;
+}
+.app-dialog-form-item input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--input);
+  color: var(--ink);
+}
+.app-dialog-form-item input:focus {
   outline: none;
   border-color: var(--accent);
   background: var(--input-focus);
@@ -4780,6 +4822,31 @@ details.chat-ext-code pre {
   resize: none;
   overflow: hidden;
   z-index: -1;
+}
+
+.inline-note-input {
+  position: absolute;
+  left: 0;
+  top: 0;
+  min-width: 110px;
+  box-sizing: content-box;
+  padding: 2px 6px;
+  margin: -3px 0 0 -7px;
+  border: 1.5px dashed #f59e0b;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.82);
+  color: #ffcc00;
+  font-family: sans-serif;
+  line-height: 1.15;
+  outline: none;
+  z-index: 12;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.inline-note-input::placeholder {
+  color: rgba(255, 204, 0, 0.55);
+}
+.inline-note-input.hidden {
+  display: none;
 }
 
 /* Developer frame timing hidden unless enabled in Settings */

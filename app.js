@@ -2846,6 +2846,9 @@
     if (ui.inlineText && tool !== 'text') {
       commitInlineText();
     }
+    if (ui.inlineNote) {
+      commitInlineNote();
+    }
     if (ui.tool === 'transform' && tool !== 'transform') {
       ui.transform.pivot = null;
       ui.transform.frame = 0;
@@ -8984,9 +8987,23 @@
         toast('Measure added');
         return;
       }
-      const input = await uiPrompt('Diameter (enter "rx, ry" radii for an ellipse)', fmt(e.r * 2));
-      if (input == null) return;
-      const pair = parsePairInput(input);
+      const curD = e.r * 2;
+      const res = await uiFormPrompt([
+        { name: 'w', label: 'Width / \u00d8X (mm)', value: fmt(curD) },
+        { name: 'h', label: 'Height / \u00d8Y (mm)', value: fmt(curD) }
+      ], {
+        title: 'Circle / Ellipse',
+        message: 'Equal values = Circle \u00b7 Different values = Ellipse',
+        onMount: (inputs) => {
+          let hDirty = false;
+          inputs.h.addEventListener('input', () => { hDirty = true; });
+          inputs.w.addEventListener('input', () => {
+            if (!hDirty) inputs.h.value = inputs.w.value;
+          });
+        }
+      });
+      if (res == null) return;
+      const pair = parsePairInput(res.w);
       if (pair) {
         const rx = evalFormula(pair[0], e.r);
         const ry = evalFormula(pair[1], e.r);
@@ -9010,12 +9027,31 @@
         toast('Ellipse created as a cubic curve');
         return;
       }
-      const value = evalFormula(input, e.r);
-      if (!isFinite(value) || value <= 0) {
-        toast('Enter a positive number or formula');
+      const wVal = evalFormula(res.w, curD);
+      const hRaw = String(res.h == null ? '' : res.h).trim();
+      const hVal = hRaw ? evalFormula(hRaw, curD) : wVal;
+      if (!isFinite(wVal) || wVal <= 0 || !isFinite(hVal) || hVal <= 0) {
+        toast('Enter positive Width and Height values');
         return;
       }
-      const c = { type: 'radius', entity: e.id, value: value / 2 };
+      if (Math.abs(wVal - hVal) > 1e-6) {
+        pushHistory();
+        const nid = convertCircleToEllipseCurve(e, wVal / 2, hVal / 2);
+        if (nid == null) {
+          history.pop();
+          updateHistoryButtons();
+          toast('Could not convert the circle');
+          return;
+        }
+        cleanupPoints();
+        ui.selection = [{ kind: 'entity', id: nid }];
+        invalidateLoops();
+        requestSolve();
+        commit();
+        toast('Ellipse created as a cubic curve');
+        return;
+      }
+      const c = { type: 'radius', entity: e.id, value: wVal / 2 };
       addConstraint(c, { solve: false });
       selectOnly('constraint', c.id);
       requestSolve();
@@ -22937,6 +22973,157 @@
     ctx.restore();
   }
 
+  // ---- Inline Workspace Note Editor --------------------------------------
+  let inlineNoteClosing = false;
+
+  function syncInlineNoteSize(inp, h) {
+    if (!inp) return;
+    const fh = h || noteFontPx();
+    const txt = inp.value || inp.placeholder || '';
+    ctx.save();
+    ctx.font = fh + 'px sans-serif';
+    const textW = ctx.measureText(txt).width;
+    ctx.restore();
+    inp.style.fontSize = Math.round(fh * 10) / 10 + 'px';
+    inp.style.width = Math.max(110, Math.ceil(textW + 18)) + 'px';
+  }
+
+  function positionInlineNoteInput(e) {
+    const inp = document.getElementById('inline-note-input');
+    if (!inp || !e) return;
+    const p = P(e.p);
+    if (!p) return;
+    const s = w2s(p.x, p.y);
+    const h = noteFontPx();
+    inp.style.left = clamp(Math.round(s.x), 8, Math.max(8, W - 120)) + 'px';
+    inp.style.top = clamp(Math.round(s.y), 8, Math.max(8, H - Math.ceil(h + 14))) + 'px';
+    inp.style.color = NOTE_COLOR;
+    syncInlineNoteSize(inp, h);
+  }
+
+  function stopInlineNoteRaw() {
+    ui.inlineNote = null;
+    const inp = document.getElementById('inline-note-input');
+    if (inp) {
+      inp.classList.add('hidden');
+      if (document.activeElement === inp) inp.blur();
+    }
+  }
+
+  function startInlineNote(id, opts) {
+    const e = state.entities[id];
+    if (!e || e.type !== 'note') return;
+    if (ui.inlineText) commitInlineText();
+    if (ui.inlineNote && +ui.inlineNote.id !== +id) {
+      commitInlineNote();
+    }
+    const isNew = !!(opts && opts.isNew);
+    if (!isNew && (!ui.inlineNote || +ui.inlineNote.id !== +id)) {
+      pushHistory();
+    }
+    const origText = String(e.text == null ? '' : e.text);
+    ui.inlineNote = {
+      id: +id,
+      isNew,
+      origText
+    };
+    ui.selection = [{ kind: 'entity', id: +id }];
+    const inp = document.getElementById('inline-note-input');
+    if (inp) {
+      inp.value = origText;
+      inp.classList.remove('hidden');
+      positionInlineNoteInput(e);
+      try { inp.focus({ preventScroll: true }); } catch (err) { inp.focus(); }
+      const len = inp.value.length;
+      inp.setSelectionRange(len, len);
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => {
+          if (ui.inlineNote && +ui.inlineNote.id === +id && document.activeElement !== inp) {
+            try { inp.focus({ preventScroll: true }); } catch (err) { inp.focus(); }
+            inp.setSelectionRange(inp.value.length, inp.value.length);
+          }
+        });
+      }
+    }
+    updateUI();
+    render();
+  }
+
+  function syncInlineNoteFromInput() {
+    const st = ui.inlineNote;
+    const inp = document.getElementById('inline-note-input');
+    if (!st || !inp) return;
+    const e = state.entities[st.id];
+    if (!e || e.type !== 'note') {
+      stopInlineNoteRaw();
+      return;
+    }
+    if (e.text !== inp.value) {
+      e.text = inp.value;
+      bumpGeometry();
+    }
+    syncInlineNoteSize(inp);
+  }
+
+  function commitInlineNote(opts) {
+    if (inlineNoteClosing) return;
+    const st = ui.inlineNote;
+    if (!st) return;
+    inlineNoteClosing = true;
+    try {
+      const cancel = !!(opts && opts.cancel);
+      const e = state.entities[st.id];
+      const inp = document.getElementById('inline-note-input');
+      if (e && inp && !cancel) e.text = inp.value;
+      stopInlineNoteRaw();
+      if (!e || e.type !== 'note') {
+        updateUI();
+        render();
+        return;
+      }
+      if (cancel) {
+        if (st.isNew) {
+          discardNewText(st.id);
+        } else {
+          const prev = history.pop();
+          if (prev) applySnapshot(prev);
+          updateHistoryButtons();
+          invalidateLoops();
+          scheduleSave();
+          updateUI();
+          render();
+        }
+        return;
+      }
+      const trimmed = String(e.text == null ? '' : e.text).trim();
+      if (!trimmed) {
+        if (st.isNew) {
+          discardNewText(st.id);
+        } else {
+          removeEntity(st.id);
+          cleanupPoints();
+          ui.selection = [];
+          invalidateLoops();
+          commit();
+        }
+        return;
+      }
+      e.text = trimmed;
+      if (!st.isNew && trimmed === st.origText) {
+        history.pop();
+        updateHistoryButtons();
+        updateUI();
+        render();
+        return;
+      }
+      ui.selection = [{ kind: 'entity', id: +st.id }];
+      invalidateLoops();
+      commit();
+    } finally {
+      inlineNoteClosing = false;
+    }
+  }
+
   // ---- Contextual Property Bar Controller ---------------------------------
   let pbBound = false;
   let pbFontKb = -1;
@@ -23450,6 +23637,36 @@
           ev.preventDefault();
           ev.stopPropagation();
           pasteTrace('ignored in inline input: right after a middle click');
+        }
+      });
+    }
+
+    const noteInp = document.getElementById('inline-note-input');
+    if (noteInp) {
+      noteInp.addEventListener('input', syncInlineNoteFromInput);
+      noteInp.addEventListener('keydown', (ev) => {
+        if (!ui.inlineNote) return;
+        if (ev.key === 'Enter' || ev.key === 'Tab') {
+          ev.preventDefault();
+          ev.stopPropagation();
+          commitInlineNote();
+          return;
+        }
+        if (ev.key === 'Escape') {
+          ev.preventDefault();
+          ev.stopPropagation();
+          commitInlineNote({ cancel: true });
+          return;
+        }
+      });
+      noteInp.addEventListener('blur', () => {
+        if (ui.inlineNote) commitInlineNote();
+      });
+      noteInp.addEventListener('paste', (ev) => {
+        if (Date.now() < ignorePasteUntil) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          pasteTrace('ignored in inline note: right after a middle click');
         }
       });
     }
@@ -26078,28 +26295,59 @@
     } else if (d.type === 'circle' && d.c) {
       const c = d.c.id != null ? P(d.c.id) : d.c;
       if (c) {
-        const r = Math.max(1e-6, dist(c, end));
-        const cs = w2s(c.x, c.y);
+        const b = boxDraftBounds(c, end, !!ui.ctrlDown);
+        const s0 = w2s(b.x0, b.y0);
+        const s1 = w2s(b.x1, b.y1);
+        const left = Math.min(s0.x, s1.x);
+        const top = Math.min(s0.y, s1.y);
+        const bw = Math.abs(s1.x - s0.x);
+        const bh = Math.abs(s1.y - s0.y);
+        // Bounding box guide
+        ctx.save();
+        ctx.strokeStyle = 'rgba(37, 99, 235, 0.32)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(left, top, bw, bh);
+        ctx.restore();
+        // Inscribed ellipse curve preview
         ctx.beginPath();
-        ctx.arc(cs.x, cs.y, r * view.zoom, 0, TAU);
+        ctx.ellipse(left + bw / 2, top + bh / 2, Math.max(0.5, bw / 2), Math.max(0.5, bh / 2), 0, 0, TAU);
         ctx.stroke();
-        const rim = w2s(c.x + r, c.y);
         ctx.setLineDash([]);
-        ctx.beginPath();
-        ctx.moveTo(cs.x, cs.y);
-        ctx.lineTo(rim.x, rim.y);
-        ctx.stroke();
+        ctx.fill();
+        if (b.centered) {
+          const cs = w2s(c.x, c.y);
+          ctx.save();
+          ctx.strokeStyle = '#2563eb';
+          ctx.lineWidth = 1.4;
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.moveTo(cs.x - 5, cs.y); ctx.lineTo(cs.x + 5, cs.y);
+          ctx.moveTo(cs.x, cs.y - 5); ctx.lineTo(cs.x, cs.y + 5);
+          ctx.stroke();
+          ctx.restore();
+        }
+        const es = w2s(end.x, end.y);
+        ctx.save();
+        ctx.setLineDash([]);
+        ctx.font = '600 11px ui-sans-serif, system-ui, sans-serif';
+        ctx.fillStyle = '#2563eb';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(fmt(b.w) + ' \u00d7 ' + fmt(b.h) + ' mm' + (b.centered ? ' (Center)' : ''), es.x + 10, es.y - 8);
+        ctx.restore();
         drawSnapMarker(end, snapped && end.snapped !== false);
       }
     } else if (d.type === 'box' && d.a) {
       const a = d.a.id != null ? P(d.a.id) : d.a;
       if (a) {
-        const s = w2s(a.x, a.y);
-        const e = w2s(end.x, end.y);
-        const left = Math.min(s.x, e.x);
-        const top = Math.min(s.y, e.y);
-        const bw = Math.abs(e.x - s.x);
-        const bh = Math.abs(e.y - s.y);
+        const b = boxDraftBounds(a, end, !!ui.ctrlDown);
+        const s0 = w2s(b.x0, b.y0);
+        const s1 = w2s(b.x1, b.y1);
+        const left = Math.min(s0.x, s1.x);
+        const top = Math.min(s0.y, s1.y);
+        const bw = Math.abs(s1.x - s0.x);
+        const bh = Math.abs(s1.y - s0.y);
         const maxR = Math.max(0, (Math.min(bw, bh) / view.zoom) / 2 - 0.001);
         const rr = Math.min(ui.boxFillet || 0, maxR) * view.zoom;
         ctx.beginPath();
@@ -26111,6 +26359,27 @@
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.fill();
+        if (b.centered) {
+          const cs = w2s(a.x, a.y);
+          ctx.save();
+          ctx.strokeStyle = '#2563eb';
+          ctx.lineWidth = 1.4;
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.moveTo(cs.x - 5, cs.y); ctx.lineTo(cs.x + 5, cs.y);
+          ctx.moveTo(cs.x, cs.y - 5); ctx.lineTo(cs.x, cs.y + 5);
+          ctx.stroke();
+          ctx.restore();
+        }
+        const es = w2s(end.x, end.y);
+        ctx.save();
+        ctx.setLineDash([]);
+        ctx.font = '600 11px ui-sans-serif, system-ui, sans-serif';
+        ctx.fillStyle = '#2563eb';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(fmt(b.w) + ' \u00d7 ' + fmt(b.h) + ' mm' + (b.centered ? ' (Center)' : ''), es.x + 10, es.y - 8);
+        ctx.restore();
         drawSnapMarker(end, snapped && end.snapped !== false);
       }
     } else if (d.type === 'arc') {
@@ -26534,6 +26803,7 @@
       const eid = +e.id;
       if (skip && skip.has(eid)) continue;
       if (only && !only.has(eid)) continue;
+      if (ui.inlineNote && +ui.inlineNote.id === eid) continue;
       if (!layerVisible(e)) continue;
       const p = P(e.p);
       if (!p) continue;
@@ -26696,7 +26966,8 @@
       const bKey = staticSceneEpoch + '|' + themeName + '|' + view.zoom + '|' + view.ox + '|' + view.oy + '|' +
         W + 'x' + H + '|' + DPR + '|' + (ui.showGrid ? 1 : 0) + '|' + (ui.dimOthers ? 1 : 0) + '|' +
         ui.activeLayer + '|' + laySig + '|' + fillFlags + '|' + LINE_WIDTH + '|' + SEL_WIDTH + '|' +
-        NOTE_SIZE + '|' + NOTE_MIN_PX + '|' + NOTE_COLOR + '|' + PART_WIDTH + '|' + skipSig;
+        NOTE_SIZE + '|' + NOTE_MIN_PX + '|' + NOTE_COLOR + '|' + PART_WIDTH + '|' + skipSig +
+        '|in:' + (ui.inlineNote ? ui.inlineNote.id : '');
       const selIdx = selectionIndex();
       if (sceneBackdropKey !== bKey || sceneBackdropSelIdx !== selIdx || sceneBackdropSelLen !== ui.selection.length) {
         renderSkipEntities = dragSkipSet;
@@ -26822,6 +27093,11 @@
       if (snapTop && snapTop.id != null) drawSnapMarker(snapTop, true);
     }
     drawInlineTextOverlay();
+    if (ui.inlineNote) {
+      const ne = state.entities[ui.inlineNote.id];
+      if (ne && ne.type === 'note') positionInlineNoteInput(ne);
+      else stopInlineNoteRaw();
+    }
     drawTransformOverlay();
     drawEmptyState();
     ctx.restore();
@@ -26920,6 +27196,7 @@
   }
 
   function statusHintText() {
+    if (ui.inlineNote) return uiT('hint.noteInline', 'Typing note on canvas — Enter = save · Esc = cancel · Click elsewhere to save.');
     if (ui.inlineText) return uiT('hint.textInline', 'Typing on canvas — Enter = new line · Esc or Ctrl+Enter = finish · Use the Property Bar above for live font, size, alignment & spacing.');
     if (ui.offsetJob) return offsetHintText();
     if (mateJob) {
@@ -26949,12 +27226,12 @@
       case 'text': return uiT('hint.textTool', 'Text tool: click empty space to start typing on canvas, or click existing text to edit inline. Esc returns to Select.');
       case 'line': return 'Click start point, then end point. Keep clicking to chain; click the first point again to close the loop and finish. Enter finishes, Esc takes the last line back, Esc again stops. Shift = 15° polar, Alt = inverse of the Snap toggle while held. With exactly two points selected, Shift+B creates the line between them.';
       case 'arc': return 'Click center, then start point, then end point. Shift snaps angles.';
-      case 'circle': return 'Click center, then a point on the radius. The circle is created and the dimension prompt opens: one value = radius, two values (100,200) = ellipse. Drag the circle edge to move it.';
-      case 'box': return 'Click two opposite corners. Scroll to set a fillet radius (Shift = fine) — the radius is confirmed when the box is created; without scrolling the corners stay sharp.';
+      case 'circle': return 'Click two opposite corners to draw an Ellipse/Circle curve (hold Ctrl for center-base), then confirm Width and Height.';
+      case 'box': return 'Click two opposite corners (hold Ctrl for center-base; scroll sets default fillet radius), then confirm Width, Height, and Round radius.';
       case 'trim': return 'Click the part of a line, arc, circle, or curve you want to remove. Ctrl+click clears the whole chain up to the next crossing.';
       case 'separate': return 'Click an edge (line, arc, circle or curve) to split it at every intersection. Nothing is deleted.';
       case 'curve': return 'Cubic curve pen: click for a corner, click-and-drag for a smooth bend. Click the first node to close. Enter / double-click / right-click finishes, Esc takes the last node back (Esc again cancels). Shift = 15° polar from the previous node, Alt = inverse of the Snap toggle while held.';
-      case 'poly': return 'Click center, then move: the mouse sets radius and start angle. Scroll adjusts star inner % (starts 50, steps of 10; Shift = 1); Ctrl+scroll adjusts the side count. Click to finish, then confirm sides, inner %, and start angle (0 = upright).';
+      case 'poly': return 'Click center, then move: the mouse sets radius and start angle. Scroll adjusts star inner %; Ctrl+scroll adjusts sides. Click to confirm Sides, Star inner %, Radius, and Start angle.';
       case 'transform': return 'Drag a square grip to scale, the round grip above to rotate, or the orange pivot to move it (snaps to points). Shift snaps. Type exact values in the Transform panel, then Apply.';
       default: return uiT('hint.select', 'Click to select. Drag points or geometry. Double-click text to edit directly on canvas.');
     }
@@ -29522,6 +29799,10 @@
       commitInlineText();
     }
 
+    if (ui.inlineNote) {
+      commitInlineNote();
+    }
+
     if (ui.tool === 'text') {
       const hitId = hitEntity(pos.x, pos.y);
       const hitEnt = hitId != null ? state.entities[hitId] : null;
@@ -30017,6 +30298,31 @@
     return true;
   }
 
+  function boxDraftBounds(a, end, centered) {
+    if (centered) {
+      const dx = Math.abs(end.x - a.x);
+      const dy = Math.abs(end.y - a.y);
+      return {
+        centered: true,
+        cx: a.x, cy: a.y,
+        x0: a.x - dx, y0: a.y - dy,
+        x1: a.x + dx, y1: a.y + dy,
+        w: dx * 2, h: dy * 2,
+        sx: end.x >= a.x ? 1 : -1,
+        sy: end.y >= a.y ? 1 : -1
+      };
+    }
+    return {
+      centered: false,
+      cx: (a.x + end.x) / 2, cy: (a.y + end.y) / 2,
+      x0: Math.min(a.x, end.x), y0: Math.min(a.y, end.y),
+      x1: Math.max(a.x, end.x), y1: Math.max(a.y, end.y),
+      w: Math.abs(end.x - a.x), h: Math.abs(end.y - a.y),
+      sx: end.x >= a.x ? 1 : -1,
+      sy: end.y >= a.y ? 1 : -1
+    };
+  }
+
   async function handleCreateClick(snap, ev) {
     const shift = ev.shiftKey;
 
@@ -30127,20 +30433,52 @@
       if (!ui.draft || ui.draft.type !== 'circle') {
         ui.draft = { type: 'circle', c: snap };
       } else {
-        const c = ui.draft.c.id != null ? P(ui.draft.c.id) : ui.draft.c;
-        const r = Math.hypot(snap.x - c.x, snap.y - c.y);
-        if (r < 1e-7) return;
+        const a = ui.draft.c.id != null ? P(ui.draft.c.id) : ui.draft.c;
+        if (!a) { cancelDraft(); render(); return; }
+        const centered = !!(ui.ctrlDown || ev.ctrlKey || ev.metaKey || ui.ctrlToggle);
+        const b = boxDraftBounds(a, snap, centered);
+        if (b.w < 1e-7 || b.h < 1e-7) return;
+        try { if (canvas.hasPointerCapture(ev.pointerId)) canvas.releasePointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
+        const res = await uiFormPrompt([
+          { name: 'w', label: 'Width (mm)', value: fmt(b.w) },
+          { name: 'h', label: 'Height (mm)', value: fmt(b.h) }
+        ], {
+          title: centered ? 'Ellipse (Center)' : 'Ellipse',
+          message: centered
+            ? 'Center-based (Ctrl) \u00b7 Creates an editable spline curve'
+            : 'Corner bounding box \u00b7 Creates an editable spline curve'
+        });
+        if (res == null) {
+          cancelDraft();
+          render();
+          return;
+        }
+        const w = evalFormula(res.w, b.w);
+        const h = evalFormula(res.h, b.h);
+        if (!isFinite(w) || w <= 1e-6 || !isFinite(h) || h <= 1e-6) {
+          toast('Enter positive Width and Height values');
+          return;
+        }
+        const cx = centered ? a.x : (a.x + b.sx * w / 2);
+        const cy = centered ? a.y : (a.y + b.sy * h / 2);
         pushHistory();
-        const cId = materializePoint(ui.draft.c);
+        const nodes = ellipseCurveNodes({ x: cx, y: cy }, Math.max(1e-6, w / 2), Math.max(1e-6, h / 2), 0);
+        const pts = [];
+        const o = [];
+        const i = [];
+        for (const n of nodes) {
+          pts.push(privatePoint(n.p.x, n.p.y));
+          o.push({ x: n.o.x, y: n.o.y });
+          i.push({ x: n.i.x, y: n.i.y });
+        }
         const id = newId();
-        state.entities[id] = { id, type: 'circle', c: cId, r, color: ui.color };
+        state.entities[id] = { id, type: 'spline', pts, hs: { o, i }, closed: true, color: ui.color };
         ui.draft = null;
         ui.selection = [{ kind: 'entity', id }];
+        invalidateLoops();
         requestSolve();
-        commit({ dirtyEntities: [id], dirtyPoints: [cId] });
-        // Same as pressing D with the new circle selected: one value sets
-        // the radius, two values (100,200) turn it into an ellipse curve.
-        createDimension();
+        commit();
+        toast(Math.abs(w - h) <= 1e-6 ? 'Circle curve created' : 'Ellipse curve created');
       }
       render();
       return;
@@ -30153,34 +30491,47 @@
         ui.boxFilletTouched = false;
       } else {
         const a = ui.draft.a.id != null ? P(ui.draft.a.id) : ui.draft.a;
-        const x1 = a.x, y1 = a.y;
-        const x2 = snap.x, y2 = snap.y;
-        if (Math.abs(x2 - x1) < 1e-7 || Math.abs(y2 - y1) < 1e-7) return;
-        // No scroll wheel means sharp corners are wanted: skip the radius
-        // prompt entirely and just build the box.
-        const maxR = Math.max(0, Math.min(Math.abs(x2 - x1), Math.abs(y2 - y1)) / 2 - 0.001);
-        let r = Math.min(ui.boxFillet || 0, maxR);
-        if (ui.boxFilletTouched) {
-          try { if (canvas.hasPointerCapture(ev.pointerId)) canvas.releasePointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
-          const input = await uiPrompt('Fillet radius (0 = sharp corners)', fmt(ui.boxFillet || 0));
-          if (input == null) {
-            cancelDraft();
-            render();
-            return;
-          }
-          const wantR = evalFormula(input, ui.boxFillet || 0);
-          if (!isFinite(wantR) || wantR < 0) {
-            toast('Enter 0 or a positive radius');
-            return;
-          }
-          r = Math.min(wantR, maxR);
-          if (wantR > maxR + 1e-9 && maxR > 0) {
-            toast('Radius limited to ' + fmt(r) + ' mm for this box');
-          }
+        if (!a) { cancelDraft(); render(); return; }
+        const centered = !!(ui.ctrlDown || ev.ctrlKey || ev.metaKey || ui.ctrlToggle);
+        const b = boxDraftBounds(a, snap, centered);
+        if (b.w < 1e-7 || b.h < 1e-7) return;
+        try { if (canvas.hasPointerCapture(ev.pointerId)) canvas.releasePointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
+        const res = await uiFormPrompt([
+          { name: 'w', label: 'Width (mm)', value: fmt(b.w) },
+          { name: 'h', label: 'Height (mm)', value: fmt(b.h) },
+          { name: 'r', label: 'Round radius (mm, 0 = sharp)', value: fmt(ui.boxFillet || 0), span: 2 }
+        ], {
+          title: centered ? 'Box (Center)' : 'Box',
+          message: centered ? 'Center-based (Ctrl): anchor stays at center' : ''
+        });
+        if (res == null) {
+          cancelDraft();
+          render();
+          return;
+        }
+        const w = evalFormula(res.w, b.w);
+        const h = evalFormula(res.h, b.h);
+        if (!isFinite(w) || w <= 1e-6 || !isFinite(h) || h <= 1e-6) {
+          toast('Enter positive Width and Height values');
+          return;
+        }
+        const wantR = evalFormula(res.r, ui.boxFillet || 0);
+        if (!isFinite(wantR) || wantR < 0) {
+          toast('Enter 0 or a positive round radius');
+          return;
+        }
+        const x1 = centered ? (a.x - w / 2) : a.x;
+        const y1 = centered ? (a.y - h / 2) : a.y;
+        const x2 = centered ? (a.x + w / 2) : (a.x + b.sx * w);
+        const y2 = centered ? (a.y + h / 2) : (a.y + b.sy * h);
+        const maxR = Math.max(0, Math.min(w, h) / 2 - 0.001);
+        const r = Math.min(wantR, maxR);
+        if (wantR > maxR + 1e-9 && maxR > 0) {
+          toast('Radius limited to ' + fmt(r) + ' mm for this box');
         }
         ui.boxFillet = r;
         pushHistory();
-        const p1 = materializePoint(ui.draft.a);
+        const p1 = centered ? pointAtWorld(x1, y1) : materializePoint(ui.draft.a);
         const p2 = pointAtWorld(x2, y1);
         const p3 = pointAtWorld(x2, y2);
         const p4 = pointAtWorld(x1, y2);
@@ -30206,9 +30557,9 @@
             const incident = incidentLinesAt(cp);
             if (incident.length !== 2) continue;
             const p = P(cp);
-            const res = filletPair(incident[0], incident[1], p ? { x: p.x, y: p.y } : null, r, { quiet: true });
-            if (!res) continue;
-            const arc = state.entities[res.arcId];
+            const fres = filletPair(incident[0], incident[1], p ? { x: p.x, y: p.y } : null, r, { quiet: true });
+            if (!fres) continue;
+            const arc = state.entities[fres.arcId];
             if (!arc) continue;
             const cid = newId();
             state.constraints[cid] = {
@@ -30235,20 +30586,50 @@
       }
       const c = ui.draft.c.id != null ? P(ui.draft.c.id) : ui.draft.c;
       if (!c) { cancelDraft(); return; }
-      const R = Math.hypot(snap.x - c.x, snap.y - c.y);
-      if (R < 1e-6) return;
+      const dragR = Math.hypot(snap.x - c.x, snap.y - c.y);
+      if (dragR < 1e-6) return;
       const mouseA = Math.atan2(snap.y - c.y, snap.x - c.x);
       try { if (canvas.hasPointerCapture(ev.pointerId)) canvas.releasePointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
-      const sidesIn = await uiPrompt('Sides (3-64)', String(ui.polySides || 6));
-      if (sidesIn == null) return;
-      const sides = clamp(Math.round(Number(sidesIn) || 0), 3, 64);
-      const innerIn = await uiPrompt('Star inner % (0-100, 0 = regular polygon)', String(ui.polyInner || 0));
-      if (innerIn == null) return;
-      const inner = clamp(Number(innerIn) || 0, 0, 100);
+      const initSides = clamp(Math.round(ui.polySides || 6), 3, 64);
+      const initInner = clamp(Number(ui.polyInner || 0), 0, 100);
+      const initAngle = normDeg((mouseA - polygonUprightBase(initSides, initInner)) * 180 / Math.PI);
+      const res = await uiFormPrompt([
+        { name: 'sides', label: 'Sides (3\u201364)', value: String(initSides) },
+        { name: 'inner', label: 'Star inner % (0 = polygon)', value: String(initInner) },
+        { name: 'radius', label: 'Radius (mm)', value: fmt(dragR) },
+        { name: 'angle', label: 'Start angle (\u00b0)', value: Math.abs(initAngle) < 1e-9 ? '0' : fmt(initAngle) }
+      ], {
+        title: 'Polygon / Star',
+        onMount: (inputs) => {
+          let angleDirty = false;
+          inputs.angle.addEventListener('input', () => { angleDirty = true; });
+          const syncAngle = () => {
+            if (angleDirty) return;
+            const s = clamp(Math.round(evalFormula(inputs.sides.value, initSides)) || 0, 3, 64);
+            const inn = clamp(evalFormula(inputs.inner.value, initInner) || 0, 0, 100);
+            const a = normDeg((mouseA - polygonUprightBase(s, inn)) * 180 / Math.PI);
+            inputs.angle.value = Math.abs(a) < 1e-9 ? '0' : fmt(a);
+          };
+          inputs.sides.addEventListener('input', syncAngle);
+          inputs.inner.addEventListener('input', syncAngle);
+        }
+      });
+      if (res == null) {
+        cancelDraft();
+        render();
+        return;
+      }
+      const sidesVal = evalFormula(res.sides, initSides);
+      const sides = clamp(Math.round(isFinite(sidesVal) ? sidesVal : 0), 3, 64);
+      const innerVal = evalFormula(res.inner, initInner);
+      const inner = clamp(isFinite(innerVal) ? innerVal : 0, 0, 100);
+      const R = evalFormula(res.radius, dragR);
+      if (!isFinite(R) || R <= 1e-6) {
+        toast('Enter a positive radius');
+        return;
+      }
       const defAngle = normDeg((mouseA - polygonUprightBase(sides, inner)) * 180 / Math.PI);
-      const angleIn = await uiPrompt('Start angle in degrees (0 = upright)', Math.abs(defAngle) < 1e-9 ? '0' : fmt(defAngle));
-      if (angleIn == null) return;
-      const angle = evalFormula(angleIn, defAngle);
+      const angle = evalFormula(res.angle, defAngle);
       if (!isFinite(angle)) {
         toast('Enter an angle or a formula');
         return;
@@ -33434,10 +33815,7 @@ function cmdSplitCurve() {
         return;
       }
       if (ent && ent.type === 'note') {
-        ui.selection = [{ kind: 'entity', id: eh }];
-        updateUI();
-        render();
-        editNote(ent);
+        startInlineNote(eh, { isNew: false });
         return;
       }
       if (ent && ent.type === 'array') {
@@ -33520,20 +33898,25 @@ function cmdSplitCurve() {
     }
     const ce0 = c.entity != null ? state.entities[c.entity] : null;
     const isCir = c.type === 'radius' && ce0 && ce0.type === 'circle';
-    const label = c.type === 'angle' ? 'Angle in degrees' :
-      (isCir ? 'Diameter (or "rx, ry" radii for an ellipse)' :
-        (c.type === 'radius' ? 'Radius (or "rx, ry" for an ellipse)' :
-          (c.kind === 'radius' ? 'Radius' : 'Distance')));
-    const input = await uiPrompt(label, fmt(isCir ? c.value * 2 : c.value));
-    if (input == null) return;
-    if (c.type === 'radius') {
-      const pair = parsePairInput(input);
-      if (pair) {
-        const ce = state.entities[c.entity];
-        if (!ce || ce.type !== 'circle') {
-          toast('Only a circle can become an ellipse');
-          return;
+    if (isCir) {
+      const curD = c.value * 2;
+      const res = await uiFormPrompt([
+        { name: 'w', label: 'Width / \u00d8X (mm)', value: fmt(curD) },
+        { name: 'h', label: 'Height / \u00d8Y (mm)', value: fmt(curD) }
+      ], {
+        title: 'Circle / Ellipse',
+        message: 'Equal values = Circle \u00b7 Different values = Ellipse',
+        onMount: (inputs) => {
+          let hDirty = false;
+          inputs.h.addEventListener('input', () => { hDirty = true; });
+          inputs.w.addEventListener('input', () => {
+            if (!hDirty) inputs.h.value = inputs.w.value;
+          });
         }
+      });
+      if (res == null) return;
+      const pair = parsePairInput(res.w);
+      if (pair) {
         const rx = evalFormula(pair[0], c.value);
         const ry = evalFormula(pair[1], c.value);
         if (!isFinite(rx) || !isFinite(ry) || rx <= 0 || ry <= 0) {
@@ -33541,7 +33924,7 @@ function cmdSplitCurve() {
           return;
         }
         pushHistory();
-        const nid = convertCircleToEllipseCurve(ce, rx, ry);
+        const nid = convertCircleToEllipseCurve(ce0, rx, ry);
         if (nid == null) {
           history.pop();
           updateHistoryButtons();
@@ -33555,7 +33938,41 @@ function cmdSplitCurve() {
         toast('Ellipse created as a cubic curve');
         return;
       }
+      const wVal = evalFormula(res.w, curD);
+      const hRaw = String(res.h == null ? '' : res.h).trim();
+      const hVal = hRaw ? evalFormula(hRaw, curD) : wVal;
+      if (!isFinite(wVal) || wVal <= 0 || !isFinite(hVal) || hVal <= 0) {
+        toast('Enter positive Width and Height values');
+        return;
+      }
+      if (Math.abs(wVal - hVal) > 1e-6) {
+        pushHistory();
+        const nid = convertCircleToEllipseCurve(ce0, wVal / 2, hVal / 2);
+        if (nid == null) {
+          history.pop();
+          updateHistoryButtons();
+          return;
+        }
+        cleanupPoints();
+        ui.selection = [{ kind: 'entity', id: nid }];
+        invalidateLoops();
+        requestSolve();
+        commit();
+        toast('Ellipse created as a cubic curve');
+        return;
+      }
+      const finalValue = wVal / 2;
+      if (!c.reference && constraintBlocked(Object.assign({}, c, { value: finalValue }), c.id)) return;
+      pushHistory();
+      c.value = finalValue;
+      requestSolve();
+      commit();
+      return;
     }
+    const label = c.type === 'angle' ? 'Angle in degrees' :
+      (c.kind === 'radius' || c.type === 'radius' ? 'Radius' : 'Distance');
+    const input = await uiPrompt(label, fmt(c.value));
+    if (input == null) return;
     const value = evalFormula(input, c.value);
     if (!isFinite(value)) {
       toast('Enter a number or a formula');
@@ -33565,11 +33982,9 @@ function cmdSplitCurve() {
       toast('Enter a positive number');
       return;
     }
-    // the new value must not fight the other constraints on the same geometry
-    const finalValue = isCir ? value / 2 : value;
-    if (!c.reference && constraintBlocked(Object.assign({}, c, { value: finalValue }), c.id)) return;
+    if (!c.reference && constraintBlocked(Object.assign({}, c, { value }), c.id)) return;
     pushHistory();
-    c.value = finalValue;
+    c.value = value;
     requestSolve();
     commit();
   }
@@ -33697,38 +34112,41 @@ function cmdSplitCurve() {
     window.addEventListener('blur', closeMenus);
   }
 
-  // ; — drop a comment at the cursor and type its text right away.
-  async function createNote() {
-    const at = ui.lastWorld || ui.raw || s2w(W / 2, H / 2);
-    const text = await uiPrompt('Comment', '');
-    if (text == null) return;
-    const t = text.trim();
-    if (!t) {
-      toast('A comment needs some text');
-      return;
+  // ; — drop a comment at the cursor; Note button (#qb-note) — place/edit at
+  // the center of the selected object(s)' bounding box (or viewport center).
+  function createNote(opts) {
+    if (ui.draft) cancelDraft();
+    const atSelectionCenter = !!(opts && opts.atSelectionCenter);
+    if (atSelectionCenter && ui.selection.length === 1 && ui.selection[0].kind === 'entity') {
+      const selEnt = state.entities[ui.selection[0].id];
+      if (selEnt && selEnt.type === 'note' && entityEditable(selEnt)) {
+        startInlineNote(selEnt.id, { isNew: false });
+        return;
+      }
+    }
+    let at;
+    if (atSelectionCenter) {
+      const sb = ui.selection.length ? selectionBounds() : null;
+      at = sb
+        ? { x: (sb.minX + sb.maxX) / 2, y: (sb.minY + sb.maxY) / 2 }
+        : s2w(W / 2, H / 2);
+    } else {
+      at = ui.lastWorld || ui.raw || s2w(W / 2, H / 2);
     }
     pushHistory();
     const pid = newId();
     state.points[pid] = { id: pid, x: at.x, y: at.y };
     const id = newId();
-    state.entities[id] = { id, type: 'note', p: pid, text: t, layer: ui.activeLayer };
+    state.entities[id] = { id, type: 'note', p: pid, text: '', layer: ui.activeLayer };
     ui.selection = [{ kind: 'entity', id }];
+    bumpGeometry();
     invalidateLoops();
-    commit();
+    startInlineNote(id, { isNew: true });
   }
 
-  async function editNote(e) {
-    const text = await uiPrompt('Comment', e.text || '');
-    if (text == null) return;
-    const t = text.trim();
-    if (!t) {
-      toast('A comment needs some text \u2014 delete it instead');
-      return;
-    }
-    if (t === e.text) return;
-    pushHistory();
-    e.text = t;
-    commit();
+  function editNote(e) {
+    if (!e || e.type !== 'note') return;
+    startInlineNote(e.id, { isNew: false });
   }
 
   // P0-1: single source of truth for every sketch shortcut. KEYMAP drives the
@@ -33745,6 +34163,7 @@ function cmdSplitCurve() {
     { key: 'E', label: 'Circle', match: 'circle', kind: 'tool' },
     { key: 'R', label: 'Box', match: 'box', kind: 'tool' },
     { key: 'T', label: 'Text', match: 'text', kind: 'tool' },
+    { key: ';', label: 'Note', match: 'qb-note', kind: 'cmd' },
     { key: 'I', label: 'Trim', match: 'trim', kind: 'tool' },
     { key: 'Shift+E', chip: 'Sh+E', label: 'Separate', match: 'separate', kind: 'tool' },
     { key: 'W', label: 'Drag wall', match: 'dragwall', kind: 'tool' },
@@ -33840,6 +34259,13 @@ function cmdSplitCurve() {
     const key = ev.key;
     const lower = key.toLowerCase();
     const tag = (ev.target && ev.target.tagName) || '';
+    if ((key === 'Control' || key === 'Meta') && !activeModal()) {
+      const nextCtrl = !!(ev.ctrlKey || ev.metaKey || ui.ctrlToggle);
+      if (ui.ctrlDown !== nextCtrl) {
+        ui.ctrlDown = nextCtrl;
+        if (ui.draft && (ui.draft.type === 'box' || ui.draft.type === 'circle')) render();
+      }
+    }
     if (ev.target && ev.target.id === 'inline-text-input' && ui.inlineText) {
       if (key === 'Escape') {
         ev.preventDefault();
@@ -33875,6 +34301,16 @@ function cmdSplitCurve() {
       }
       return;
     }
+    if (ev.target && ev.target.id === 'inline-note-input' && ui.inlineNote) {
+      if (key === 'Enter' || key === 'Tab') {
+        ev.preventDefault();
+        commitInlineNote();
+      } else if (key === 'Escape') {
+        ev.preventDefault();
+        commitInlineNote({ cancel: true });
+      }
+      return;
+    }
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
       // Panel numeric fields (frame W/H, transform angle/scale, …): the
       // clipboard keys — and Ctrl+K — stay SKETCH commands, because focus
@@ -33883,6 +34319,7 @@ function cmdSplitCurve() {
       // text behaviour.
       const clipCombo = (ev.ctrlKey || ev.metaKey) && ['c', 'v', 'x', 'd', 'k'].includes(lower);
       const editingText = tag === 'TEXTAREA' || (ev.target.isContentEditable === true) ||
+        ev.target.id === 'inline-note-input' ||
         !!(ev.target.closest && ev.target.closest('.modal'));
       if (!(clipCombo && !editingText)) return;
     }
@@ -33895,10 +34332,12 @@ function cmdSplitCurve() {
       focusInlineTextInput({ keepSel: true });
       return;
     }
-    if (ui.tool === 'text' && !ui.inlineText && key === 'Escape' && !activeModal()) {
-      ev.preventDefault();
-      setTool('select');
-      return;
+    if (ui.tool === 'text' && !ui.inlineText) {
+      if (key === 'Escape' && !activeModal()) {
+        ev.preventDefault();
+        setTool('select');
+        return;
+      }
     }
     if (ui.offsetJob && !((ev.ctrlKey || ev.metaKey) && lower === 'j')) {
       if (key === 'Escape') {
@@ -34446,7 +34885,10 @@ function cmdSplitCurve() {
       ui.shiftDown = shift;
       if (ui.draft) render();
     }
-    if (ui.ctrlDown !== ctrl) ui.ctrlDown = ctrl;
+    if (ui.ctrlDown !== ctrl) {
+      ui.ctrlDown = ctrl;
+      if (ui.draft && (ui.draft.type === 'box' || ui.draft.type === 'circle')) render();
+    }
     if (ui.altDown !== alt) {
       ui.altDown = alt;
       if (ui.draft) render();
@@ -36827,13 +37269,13 @@ function cmdSplitCurve() {
     qbClick('qb-copy', () => copySelection());
     qbClick('qb-paste', () => pasteClipboard());
     qbClick('qb-delete', () => deleteSelection());
-    qbClick('qb-note', () => createNote());
     qbClick('qb-move', () => startMoveJob());
     qbClick('qb-clean', () => cmdCleanSelection());
     qbClick('qb-fillet', () => cmdFillet());
     qbClick('qb-join', () => cmdJoinPoints());
     qbClick('qb-refdim', () => createDimension({ reference: true }));
     qbClick('qb-sharp', () => cmdSharpPoint());
+    qbClick('qb-note', () => createNote({ atSelectionCenter: true }));
 
     // Edit-ribbon actions that used to live in the sidebar panels. They keep
     // their own ids so the enable/disable pass in updateUI() can find them.
@@ -39043,30 +39485,67 @@ function cmdSplitCurve() {
   function showAppDialog(opts) {
     const run = () => new Promise((resolve) => {
       const modal = document.getElementById('app-dialog-modal');
+      const boxEl = modal ? modal.querySelector('.app-dialog-box') : null;
       const titleEl = document.getElementById('app-dialog-title');
       const msgEl = document.getElementById('app-dialog-message');
       const fieldEl = document.getElementById('app-dialog-field');
       const inputEl = document.getElementById('app-dialog-input');
+      const formEl = document.getElementById('app-dialog-form');
       const cancelBtn = document.getElementById('app-dialog-cancel');
       const okBtn = document.getElementById('app-dialog-ok');
-      if (!modal || !msgEl || !okBtn || !cancelBtn) {
-        resolve(opts.kind === 'confirm' ? false : (opts.kind === 'prompt' ? null : undefined));
+      const kind = opts.kind || 'alert';
+      const isPrompt = kind === 'prompt';
+      const isForm = kind === 'form';
+      const isConfirm = kind === 'confirm';
+      if (!modal || !msgEl || !okBtn || !cancelBtn || (isForm && !formEl)) {
+        resolve(isConfirm ? false : ((isPrompt || isForm) ? null : undefined));
         return;
       }
-      const kind = opts.kind || 'alert';
       const title = opts.title ? String(opts.title) : '';
       if (titleEl) {
         titleEl.textContent = title;
         titleEl.classList.toggle('hidden', !title);
       }
-      msgEl.textContent = String(opts.message == null ? '' : opts.message);
-      const isPrompt = kind === 'prompt';
-      const isConfirm = kind === 'confirm';
+      const msg = String(opts.message == null ? '' : opts.message);
+      msgEl.textContent = msg;
+      msgEl.classList.toggle('hidden', !msg);
       if (fieldEl) fieldEl.classList.toggle('hidden', !isPrompt);
       if (inputEl && isPrompt) {
         inputEl.value = opts.defaultValue == null ? '' : String(opts.defaultValue);
       }
-      cancelBtn.classList.toggle('hidden', !isPrompt && !isConfirm);
+      if (boxEl) boxEl.classList.toggle('has-form', isForm);
+
+      const formInputs = {};
+      const formFields = isForm && Array.isArray(opts.fields) ? opts.fields : [];
+      if (formEl) {
+        formEl.innerHTML = '';
+        formEl.classList.toggle('hidden', !isForm);
+        if (isForm) {
+          for (const f of formFields) {
+            const item = document.createElement('label');
+            item.className = 'app-dialog-form-item' + (f.span === 2 ? ' span-2' : '');
+            const lbl = document.createElement('span');
+            lbl.className = 'app-dialog-form-label';
+            lbl.textContent = String(f.label || f.name || '');
+            const inp = document.createElement('input');
+            inp.type = 'text';
+            inp.spellcheck = false;
+            inp.autocomplete = 'off';
+            inp.dataset.field = String(f.name || '');
+            inp.value = f.value == null ? '' : String(f.value);
+            if (f.placeholder) inp.placeholder = String(f.placeholder);
+            item.appendChild(lbl);
+            item.appendChild(inp);
+            formEl.appendChild(item);
+            if (f.name) formInputs[f.name] = inp;
+          }
+          if (typeof opts.onMount === 'function') {
+            try { opts.onMount(formInputs); } catch (err) { /* ignore */ }
+          }
+        }
+      }
+
+      cancelBtn.classList.toggle('hidden', !isPrompt && !isForm && !isConfirm);
       cancelBtn.textContent = opts.cancelText || 'Cancel';
       okBtn.textContent = opts.okText || 'OK';
       okBtn.classList.toggle('danger', !!opts.danger);
@@ -39074,12 +39553,27 @@ function cmdSplitCurve() {
 
       let done = false;
       const prevFocused = document.activeElement;
+      const onInputKey = (ev) => {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          ev.stopPropagation();
+          onOk();
+        }
+      };
       const finish = (val) => {
         if (done) return;
         done = true;
         okBtn.removeEventListener('click', onOk);
         cancelBtn.removeEventListener('click', onCancel);
         if (inputEl) inputEl.removeEventListener('keydown', onInputKey);
+        for (const k in formInputs) {
+          formInputs[k].removeEventListener('keydown', onInputKey);
+        }
+        if (formEl) {
+          formEl.innerHTML = '';
+          formEl.classList.add('hidden');
+        }
+        if (boxEl) boxEl.classList.remove('has-form');
         modal.classList.add('hidden');
         delete modal.dataset.focused;
         if (prevFocused && typeof prevFocused.focus === 'function' && document.contains(prevFocused) &&
@@ -39089,32 +39583,36 @@ function cmdSplitCurve() {
         resolve(val);
       };
       const onOk = () => {
-        if (isPrompt) finish(inputEl ? inputEl.value : '');
+        if (isForm) {
+          const out = {};
+          for (const k in formInputs) out[k] = formInputs[k].value;
+          finish(out);
+        } else if (isPrompt) finish(inputEl ? inputEl.value : '');
         else if (isConfirm) finish(true);
         else finish(undefined);
       };
       const onCancel = () => {
-        if (isPrompt) finish(null);
+        if (isPrompt || isForm) finish(null);
         else if (isConfirm) finish(false);
         else finish(undefined);
-      };
-      const onInputKey = (ev) => {
-        if (ev.key === 'Enter') {
-          ev.preventDefault();
-          ev.stopPropagation();
-          onOk();
-        }
       };
 
       okBtn.addEventListener('click', onOk);
       cancelBtn.addEventListener('click', onCancel);
       if (inputEl && isPrompt) inputEl.addEventListener('keydown', onInputKey);
+      if (isForm) {
+        for (const k in formInputs) formInputs[k].addEventListener('keydown', onInputKey);
+      }
 
       modal.dataset.focused = '1';
       modal.classList.remove('hidden');
+      const firstFormInp = isForm && formFields.length ? formInputs[formFields[0].name] : null;
       const focusTarget = () => {
         if (done) return;
-        if (isPrompt && inputEl) {
+        if (isForm && firstFormInp) {
+          firstFormInp.focus();
+          firstFormInp.select();
+        } else if (isPrompt && inputEl) {
           inputEl.focus();
           inputEl.select();
         } else {
@@ -39141,10 +39639,15 @@ function cmdSplitCurve() {
     return showAppDialog(Object.assign({}, opts, { kind: 'prompt', message, defaultValue }));
   }
 
+  function uiFormPrompt(fields, opts = {}) {
+    return showAppDialog(Object.assign({}, opts, { kind: 'form', fields }));
+  }
+
   if (typeof window !== 'undefined') {
     window.uiAlert = uiAlert;
     window.uiConfirm = uiConfirm;
     window.uiPrompt = uiPrompt;
+    window.uiFormPrompt = uiFormPrompt;
   }
 
   function initModalBehavior() {
