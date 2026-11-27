@@ -1768,31 +1768,13 @@ details.settings-group.hidden {
 }
 .tool-btn.active .kbd-chip { color: inherit; border-color: currentColor; opacity: 0.85; }
 .rb-mini { min-width: 38px; padding: 5px 3px 4px; }
-/* Focus button: replaces the zoom preset picker + Fit — one full-width row */
-.rb-focus {
-  grid-column: 1 / -1;
-  width: 100%;
-  min-width: 0;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--stage, #11161d);
-  color: var(--ink, #ddd);
-  cursor: pointer;
-}
-.rb-focus svg { width: 16px; height: 16px; }
-.rb-focus span { font-size: 10px; font-weight: 600; }
-.rb-focus:hover { border-color: var(--accent, #4f8cff); }
-.rb-focus.is-on {
+/* Focus button shares .stage-edit .rb-btn.rb-mini geometry; only highlight when active */
+.rb-btn.rb-focus.is-on,
+.rb-btn.rb-focus.is-on:hover:not(:disabled) {
   border-color: var(--accent, #4f8cff);
   background: var(--accent, #4f8cff);
-  color: #fff;
+  color: var(--on-accent, #fff);
 }
-.rb-focus:focus { outline: none; border-color: var(--accent, #4f8cff); }
 .rb-mini svg { width: 22px; height: 22px; }
 .rb-mini span {
   display: block;

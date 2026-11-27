@@ -173,6 +173,8 @@
   function fromFs(val) {
     if (val === null || val === undefined || typeof val !== 'object') return val;
     if (typeof val.toMillis === 'function') return val.toMillis();
+    if (val instanceof Uint8Array) return val;
+    if (typeof val.toUint8Array === 'function') return val.toUint8Array();
     if (Array.isArray(val)) return val.map(fromFs);
     const keys = Object.keys(val);
     if (keys.length === 1 && keys[0] === NESTED_KEY && Array.isArray(val[NESTED_KEY])) {
@@ -183,13 +185,166 @@
     return out;
   }
 
+  const textEncoder = typeof TextEncoder !== 'undefined' ? new TextEncoder() : null;
+  const textDecoder = typeof TextDecoder !== 'undefined' ? new TextDecoder() : null;
+
+  function utf8Len(str) {
+    if (!str) return 0;
+    return textEncoder ? textEncoder.encode(str).length : String(str).length;
+  }
+
   function utf8Bytes(obj) {
     try {
-      return new TextEncoder().encode(JSON.stringify(obj)).length;
+      const s = JSON.stringify(obj);
+      return utf8Len(s);
     } catch (err) {
       return Infinity;
     }
   }
+
+  function estimateValueBytes(val) {
+    if (val === null || val === undefined) return 1;
+    if (typeof val === 'boolean') return 1;
+    if (typeof val === 'number') return 8;
+    if (typeof val === 'string') return utf8Len(val) + 1;
+    if (val instanceof Uint8Array) return val.byteLength;
+    if (typeof val.toUint8Array === 'function') return val.toUint8Array().byteLength;
+    if (Array.isArray(val)) {
+      let sum = 0;
+      for (let i = 0; i < val.length; i++) sum += estimateValueBytes(val[i]);
+      return sum;
+    }
+    if (typeof val === 'object') {
+      let sum = 32;
+      for (const k of Object.keys(val)) {
+        const v = val[k];
+        if (v === undefined) continue;
+        sum += utf8Len(k) + 1 + estimateValueBytes(v);
+      }
+      return sum;
+    }
+    return 16;
+  }
+
+  function estimateFirestoreBytes(docObj) {
+    if (!docObj || typeof docObj !== 'object') return Infinity;
+    return 256 + estimateValueBytes(docObj);
+  }
+
+  function canStreamGzip() {
+    return typeof CompressionStream === 'function' && typeof DecompressionStream === 'function';
+  }
+
+  async function runByteStream(stream, u8) {
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+    const chunks = [];
+    const readDone = (async () => {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value && value.byteLength) chunks.push(value);
+      }
+    })();
+    await writer.write(u8);
+    await writer.close();
+    await readDone;
+    let total = 0;
+    for (let i = 0; i < chunks.length; i++) total += chunks[i].byteLength;
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      out.set(chunks[i], offset);
+      offset += chunks[i].byteLength;
+    }
+    return out;
+  }
+
+  async function gzipBytes(u8) {
+    return await runByteStream(new CompressionStream('gzip'), u8);
+  }
+
+  async function gunzipBytes(u8) {
+    return await runByteStream(new DecompressionStream('gzip'), u8);
+  }
+
+  function u8ToBase64(u8) {
+    let bin = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < u8.length; i += CHUNK) {
+      bin += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
+    }
+    return btoa(bin);
+  }
+
+  function base64ToU8(b64) {
+    const bin = atob(b64);
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return u8;
+  }
+
+  async function compressSketchState(rawState, fsMod) {
+    const mod = fsMod || fbFsMod;
+    const fallbackState = toFs(rawState, false);
+    if (!canStreamGzip() || !textEncoder) {
+      return { state: fallbackState, compressed: false, rawBytes: 0, gzBytes: 0 };
+    }
+    const rawJson = JSON.stringify(rawState);
+    const rawU8 = textEncoder.encode(rawJson);
+    const gzU8 = await gzipBytes(rawU8);
+    const useBytes = !!(mod && mod.Bytes && typeof mod.Bytes.fromUint8Array === 'function');
+    const compressedState = useBytes
+      ? {
+        _enc: 'gzip-bytes-v1',
+        rawBytes: rawU8.byteLength,
+        gzBytes: gzU8.byteLength,
+        data: mod.Bytes.fromUint8Array(gzU8)
+      }
+      : {
+        _enc: 'gzip-b64-v1',
+        rawBytes: rawU8.byteLength,
+        gzBytes: gzU8.byteLength,
+        data: u8ToBase64(gzU8)
+      };
+    if (estimateValueBytes(compressedState) < estimateValueBytes(fallbackState)) {
+      return {
+        state: compressedState,
+        compressed: true,
+        rawBytes: rawU8.byteLength,
+        gzBytes: gzU8.byteLength
+      };
+    }
+    return { state: fallbackState, compressed: false, rawBytes: rawU8.byteLength, gzBytes: gzU8.byteLength };
+  }
+
+  async function decompressSketchState(state) {
+    if (!state || typeof state !== 'object') return state;
+    const enc = state._enc;
+    if (!enc) return state;
+    if (!canStreamGzip() || !textDecoder) {
+      throw new Error('Browser does not support gzip DecompressionStream');
+    }
+    let gzU8 = null;
+    if (enc === 'gzip-bytes-v1') {
+      const d = state.data;
+      if (d instanceof Uint8Array) gzU8 = d;
+      else if (d && typeof d.toUint8Array === 'function') gzU8 = d.toUint8Array();
+      else if (d && typeof d.bytes === 'string') gzU8 = base64ToU8(d.bytes);
+      else if (typeof d === 'string') gzU8 = base64ToU8(d);
+    } else if (enc === 'gzip-b64-v1') {
+      if (typeof state.data === 'string') gzU8 = base64ToU8(state.data);
+    } else {
+      throw new Error('Unsupported cloud sketch encoding: ' + enc);
+    }
+    if (!gzU8) throw new Error('Missing compressed sketch payload');
+    const rawU8 = await gunzipBytes(gzU8);
+    return JSON.parse(textDecoder.decode(rawU8));
+  }
+
+  NS.compressSketchState = compressSketchState;
+  NS.decompressSketchState = decompressSketchState;
+  NS.estimateDocBytes = estimateFirestoreBytes;
 
   function setSyncState(next, detail) {
     syncState = next;
@@ -519,13 +674,14 @@
   }
 
   // ---- Active & Saved Sketches Sync ----------------------------------------
-  function collectSketchPayload(sketchId, overrideName) {
+  async function collectSketchPayload(sketchId, overrideName) {
     const bridge = window.MiniSketchSyncBridge;
     if (!bridge || !bridge.exportActiveDoc) return null;
     const exp = bridge.exportActiveDoc();
     if (!exp || !exp.doc || !exp.doc.state) return null;
     const rawState = exp.doc.state;
     const entityCount = rawState.entities ? Object.keys(rawState.entities).length : 0;
+    const packed = await compressSketchState(rawState, fbFsMod);
     const payload = {
       id: String(sketchId || ACTIVE_SKETCH_ID),
       name: String(overrideName || exp.name || 'Untitled').slice(0, 200),
@@ -533,25 +689,40 @@
       version: Number(exp.doc.version) || 3,
       isActive: sketchId === ACTIVE_SKETCH_ID,
       entityCount,
-      state: toFs(rawState, false),
+      state: packed.state,
       view: toFs(exp.doc.view || {}, false),
       updatedAtMs: Date.now()
     };
-    return payload;
+    return { payload, packed };
   }
 
   async function pushSketch(sketchId, overrideName) {
     if (!currentUser || !db || !fbFsMod || applyingRemote) return { ok: false, reason: 'unavailable' };
     const id = String(sketchId || ACTIVE_SKETCH_ID);
-    const payload = collectSketchPayload(id, overrideName);
-    if (!payload) return { ok: false, reason: 'empty' };
-    if (utf8Bytes(payload) > MAX_DOC_BYTES) {
-      return { ok: false, reason: 'too-large' };
+    const collected = await collectSketchPayload(id, overrideName);
+    if (!collected) return { ok: false, reason: 'empty' };
+    const { payload, packed } = collected;
+    const docBytes = estimateFirestoreBytes(payload);
+    if (docBytes > MAX_DOC_BYTES) {
+      return {
+        ok: false,
+        reason: 'too-large',
+        bytes: docBytes,
+        compressed: packed.compressed,
+        rawBytes: packed.rawBytes,
+        gzBytes: packed.gzBytes
+      };
     }
     const path = 'users/' + currentUser.uid + '/sketches/' + id;
     const ref = fbFsMod.doc(db, 'users', currentUser.uid, 'sketches', id);
     await upsertDoc(ref, payload, path);
-    return { ok: true };
+    return {
+      ok: true,
+      bytes: docBytes,
+      compressed: packed.compressed,
+      rawBytes: packed.rawBytes,
+      gzBytes: packed.gzBytes
+    };
   }
 
   async function deleteCloudSketch(sketchId) {
@@ -568,18 +739,25 @@
     }
   }
 
-  function applyCloudSketchToCanvas(remoteDoc) {
+  async function applyCloudSketchToCanvas(remoteDoc, predecodedState) {
     const bridge = window.MiniSketchSyncBridge;
     if (!bridge || !bridge.applyRemoteSketch || !remoteDoc || !remoteDoc.state) return;
     applyingRemote = true;
     try {
       const dec = fromFs(remoteDoc);
+      const stateObj = predecodedState || await decompressSketchState(dec.state);
+      if (!stateObj || typeof stateObj !== 'object') return;
       bridge.applyRemoteSketch({
         format: dec.format || 'minisketch',
         version: dec.version || 3,
-        state: dec.state,
+        state: stateObj,
         view: dec.view || null
       }, dec.name || 'Untitled');
+    } catch (err) {
+      console.warn('[minisketch-cloud] Failed to decompress/apply cloud sketch:', err);
+      if (bridge.toast) {
+        bridge.toast('Failed to decompress cloud sketch.', { type: 'error' });
+      }
     } finally {
       applyingRemote = false;
     }
@@ -755,16 +933,16 @@
       const remoteCount = Number(remoteSketch && remoteSketch.entityCount) || 0;
       if (!localDirty || o.forcePromptCanvas) {
         if (!localDirty) {
-          applyCloudSketchToCanvas(remoteSketch);
+          await applyCloudSketchToCanvas(remoteSketch);
         } else if (remoteCount > 0 && bridge && bridge.confirmSyncOverwrite) {
           const useCloud = await bridge.confirmSyncOverwrite(remoteSketch.name || 'Cloud Sketch', remoteCount);
-          if (useCloud) applyCloudSketchToCanvas(remoteSketch);
+          if (useCloud) await applyCloudSketchToCanvas(remoteSketch);
           else if (o.pushIfMissing) await pushSketch(ACTIVE_SKETCH_ID);
         }
       } else if (o.pushIfMissing) {
         if (remoteCount > 0 && bridge && bridge.confirmSyncOverwrite) {
           const useCloud = await bridge.confirmSyncOverwrite(remoteSketch.name || 'Cloud Sketch', remoteCount);
-          if (useCloud) applyCloudSketchToCanvas(remoteSketch);
+          if (useCloud) await applyCloudSketchToCanvas(remoteSketch);
           else await pushSketch(ACTIVE_SKETCH_ID);
         } else {
           await pushSketch(ACTIVE_SKETCH_ID);
@@ -907,7 +1085,7 @@
     const skColPath = 'users/' + user.uid + '/sketches';
     unsubAllSketches = fbFsMod.onSnapshot(
       fbFsMod.collection(db, 'users', user.uid, 'sketches'),
-      (snap) => {
+      async (snap) => {
         const list = [];
         snap.forEach(d => {
           const v = d.data();
@@ -924,9 +1102,14 @@
         if (active && (!window.MiniSketchSyncBridge || !window.MiniSketchSyncBridge.isDragging || !window.MiniSketchSyncBridge.isDragging())) {
           const curBridge = window.MiniSketchSyncBridge;
           const localStr = curBridge && curBridge.exportActiveDoc ? JSON.stringify(curBridge.exportActiveDoc().doc.state) : '';
-          const remoteStr = JSON.stringify(active.state);
-          if (remoteStr && remoteStr !== localStr) {
-            applyCloudSketchToCanvas(active);
+          try {
+            const remoteState = await decompressSketchState(active.state);
+            const remoteStr = remoteState ? JSON.stringify(remoteState) : '';
+            if (remoteStr && remoteStr !== localStr) {
+              await applyCloudSketchToCanvas(active, remoteState);
+            }
+          } catch (err) {
+            console.warn('[minisketch-cloud] Active sketch snapshot decode failed:', err);
           }
         }
       },
@@ -1102,7 +1285,7 @@
         docTimer = null;
         setSyncState('syncing');
         pushSketch(ACTIVE_SKETCH_ID).then((r) => {
-          if (r && r.reason === 'too-large') setSyncState('error', 'Sketch >900KB (local only)');
+          if (r && r.reason === 'too-large') setSyncState('error', 'Sketch >900KB compressed (local only)');
           else setSyncState('synced');
         }).catch(() => setSyncState('error'));
       }, 1500);
@@ -1127,7 +1310,8 @@
       await pushPreferences();
       const r = await pushSketch(ACTIVE_SKETCH_ID);
       if (r && r.reason === 'too-large' && window.MiniSketchSyncBridge && window.MiniSketchSyncBridge.toast) {
-        window.MiniSketchSyncBridge.toast('Sketch exceeds 900KB Firestore document limit — saved locally.', { type: 'warn' });
+        const kb = r.bytes ? (' (' + Math.round(r.bytes / 1024) + ' KB)') : '';
+        window.MiniSketchSyncBridge.toast('Sketch exceeds 900KB limit even after compression' + kb + ' — saved locally.', { type: 'warn' });
       }
       if (window.MiniSketchTools && window.MiniSketchTools.exportExtensions) {
         for (const ext of window.MiniSketchTools.exportExtensions()) {
@@ -1310,7 +1494,12 @@
           const sub = document.createElement('div');
           sub.className = 'cloud-sketch-meta';
           const dt = sk.updatedAtMs ? new Date(sk.updatedAtMs).toLocaleString() : '';
-          sub.textContent = (Number(sk.entityCount) || 0) + ' entities' + (dt ? (' · ' + dt) : '');
+          let gzLabel = '';
+          if (sk.state && sk.state._enc && Number(sk.state.gzBytes) > 0) {
+            const kb = Math.max(1, Math.round(Number(sk.state.gzBytes) / 1024));
+            gzLabel = ' · ' + kb + ' KB (gzip)';
+          }
+          sub.textContent = (Number(sk.entityCount) || 0) + ' entities' + gzLabel + (dt ? (' · ' + dt) : '');
           info.appendChild(ttl);
           info.appendChild(sub);
 
@@ -1325,7 +1514,7 @@
               const ok = await window.MiniSketchSyncBridge.confirmLoadCloudSketch(sk.name);
               if (!ok) return;
             }
-            applyCloudSketchToCanvas(sk);
+            await applyCloudSketchToCanvas(sk);
             NS.closeModal();
             if (window.MiniSketchSyncBridge && window.MiniSketchSyncBridge.toast) {
               window.MiniSketchSyncBridge.toast('Loaded "' + sk.name + '" from Cloud');
@@ -1412,11 +1601,13 @@
         try {
           const r = await pushSketch(sketchId, name);
           if (r && r.reason === 'too-large') {
-            if (bridge && bridge.toast) bridge.toast('Sketch exceeds 900KB cloud doc limit.', { type: 'warn' });
-          } else {
+            const kb = r.bytes ? (' (' + Math.round(r.bytes / 1024) + ' KB)') : '';
+            if (bridge && bridge.toast) bridge.toast('Sketch exceeds 900KB limit even after compression' + kb + '.', { type: 'warn' });
+          } else if (r && r.ok) {
             if (nameInp) nameInp.value = '';
             await refreshCloudSketches(currentUser);
-            if (bridge && bridge.toast) bridge.toast('Saved "' + name + '" to Cloud');
+            const kbNote = r.compressed && r.gzBytes ? (' (' + Math.max(1, Math.round(r.gzBytes / 1024)) + ' KB gzip)') : '';
+            if (bridge && bridge.toast) bridge.toast('Saved "' + name + '" to Cloud' + kbNote);
           }
         } finally {
           saveSnapBtn.disabled = false;

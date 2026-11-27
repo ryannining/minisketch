@@ -33752,7 +33752,7 @@ function cmdSplitCurve() {
     { key: 'D', label: 'Dimension', match: 'qb-dimension', kind: 'cmd' },
     { key: 'Shift+D', chip: 'Sh+D', label: 'Measure', match: 'qb-refdim', kind: 'cmd' },
     { key: 'F', label: 'Fillet', match: 'qb-fillet', kind: 'cmd' },
-    { key: 'Shift+F', chip: 'Sh+F', label: 'Focus', match: 'qb-focus', kind: 'cmd' },
+    { key: 'Shift+F', label: 'Focus', match: '', kind: 'cmd' },
     { key: 'J', label: 'Join', match: 'qb-join', kind: 'cmd' },
     { key: '\\', label: 'Sharp', match: 'qb-sharp', kind: 'cmd' },
     { key: 'O', label: 'Coincident', match: 'coincident', kind: 'cmd' },
@@ -36826,7 +36826,6 @@ function cmdSplitCurve() {
     qbClick('qb-samecolor', () => cmdSelectSameColor());
     qbClick('qb-copy', () => copySelection());
     qbClick('qb-paste', () => pasteClipboard());
-    qbClick('qb-dup', () => cmdDuplicateSelection());
     qbClick('qb-delete', () => deleteSelection());
     qbClick('qb-note', () => createNote());
     qbClick('qb-move', () => startMoveJob());
