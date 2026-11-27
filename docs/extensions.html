@@ -83,12 +83,17 @@
           <ul>
             <li><b>Daftar tombol alat aktif:</b> menampilkan semua generator yang sedang <i>Enabled</i> (bawaan <a href="tools.html">13 generator parametrik</a> + ekstensi tambahan) lengkap dengan ikon vektor, label, dan nomor versi (mis. <code>v1.0.0</code>). Angka di header panel (<code>Extensions N</code>) menunjukkan jumlah ekstensi yang sedang aktif.</li>
             <li><b>Tombol <code>Check Updates</code>:</b> memeriksa apakah ada versi lebih baru untuk ekstensi yang dipasang dari Marketplace atau URL sumber tersimpan. Jika ada pembaruan, label berubah menjadi <code>Updates (N)</code> berwarna biru agar bisa diperbarui satu klik.</li>
-            <li><b>Tombol <code>Marketplace…</code>:</b> membuka jendela <b>Extension Manager &amp; Marketplace</b> (juga bisa dibuka lewat menu <b>File ▸ Extensions &amp; Marketplace…</b>).</li>
+            <li><b>Tombol <code>Marketplace…</code>:</b> membuka jendela <b>Extension Manager &amp; Marketplace</b> (juga bisa dibuka lewat menu <b>Tool ▸ Extensions &amp; Marketplace…</b>).</li>
           </ul>
-          <div class="callout info"><b>Catatan lokasi Array:</b> tombol <b>Array</b> yang dulu berada di panel bawah sidebar kini dipindahkan ke ribbon atas pada tab <b>Edit</b> agar panel Extensions fokus menampung generator parametrik dan ekstensi.</div>
+          <div class="callout info"><b>Catatan lokasi Array:</b> tombol <b>Array</b> yang dulu berada di panel bawah sidebar kini dipindahkan ke ribbon atas pada tab <b>Arrange</b> agar panel Extensions fokus menampung generator parametrik dan ekstensi.</div>
 
           <h2>2. Jendela Extension Manager (4 Tab)</h2>
-          <p>Klik <b>Marketplace…</b> atau <b>File ▸ Extensions &amp; Marketplace…</b> untuk membuka dialog pengelola dengan empat tab:</p>
+          <p>Klik <b>Marketplace…</b> atau <b>Tool ▸ Extensions &amp; Marketplace…</b> untuk membuka dialog pengelola dengan empat tab:</p>
+
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-extensions.png" alt="Dialog Extensions &amp; Marketplace">
+            <figcaption>Dialog <b>Extensions &amp; Marketplace</b> (tab Installed, Marketplace, Add / Import, Publish) dengan pencarian, tombol Check Updates, Auto-update, sakelar Enabled, dan Open.</figcaption>
+          </div>
 
           <table class="kb">
             <thead>
@@ -128,6 +133,7 @@
                 <td>
                   Menerbitkan ekstensi agar bisa dibagikan ke pengguna lain:<br>
                   • Isi metadata (<b>Extension ID</b>, <b>Display Name</b>, <b>Version</b>, <b>Author</b>, <b>Category</b>, <b>Description</b>) atau klik <b>Auto-fill metadata from code</b>.<br>
+                  • Target <b>Cloud Community (Google Account)</b>: masuk dengan akun Google lalu terbitkan langsung ke katalog komunitas Cloud (dengan opsi timpa bila Anda sudah menerbitkan ID yang sama).<br>
                   • Target <b>MiniSketch Server (Port 8090 / Hosted)</b>: unggah langsung ke katalog server lokal/hosted (opsional isi <i>Publish Key</i> bila server mengaktifkannya).<br>
                   • Target <b>GitHub Static Repo (Free CDN)</b>: push langsung ke repositori GitHub dengan Personal Access Token (<code>contents:write</code>, hanya disimpan di browser), atau klik <b>Download .js</b> + <b>Copy catalog.json entry</b> untuk commit manual.
                 </td>
@@ -163,12 +169,17 @@
           <ul>
             <li><b>Active tool grid:</b> displays every currently <i>Enabled</i> generator (the <a href="tools.html">13 built-in parametric tools</a> plus custom extensions) with vector icon, label, and semantic version (e.g. <code>v1.0.0</code>). The badge in the panel header (<code>Extensions N</code>) shows how many tools are active.</li>
             <li><b><code>Check Updates</code> button:</b> checks for newer versions of extensions installed from a Marketplace catalog or saved source URL. When updates exist, the label turns blue (<code>Updates (N)</code>) for one-click upgrading.</li>
-            <li><b><code>Marketplace…</code> button:</b> opens the <b>Extension Manager &amp; Marketplace</b> dialog (also reachable from <b>File ▸ Extensions &amp; Marketplace…</b>).</li>
+            <li><b><code>Marketplace…</code> button:</b> opens the <b>Extension Manager &amp; Marketplace</b> dialog (also reachable from <b>Tool ▸ Extensions &amp; Marketplace…</b>).</li>
           </ul>
-          <div class="callout info"><b>Array button note:</b> the <b>Array</b> tool moved from the bottom sidebar panel to the top <b>Edit</b> ribbon tab so the Extensions panel stays dedicated to parametric generators and extensions.</div>
+          <div class="callout info"><b>Array button note:</b> the <b>Array</b> tool moved from the bottom sidebar panel to the top <b>Arrange</b> ribbon tab so the Extensions panel stays dedicated to parametric generators and extensions.</div>
 
           <h2>2. Extension Manager Window (4 Tabs)</h2>
-          <p>Click <b>Marketplace…</b> or <b>File ▸ Extensions &amp; Marketplace…</b> to open the four-tab manager:</p>
+          <p>Click <b>Marketplace…</b> or <b>Tool ▸ Extensions &amp; Marketplace…</b> to open the four-tab manager:</p>
+
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-extensions.png" alt="Extensions &amp; Marketplace dialog">
+            <figcaption><b>Extensions &amp; Marketplace</b> dialog (Installed, Marketplace, Add / Import, Publish tabs) with search, Check Updates, Auto-update, Enabled toggles, and Open buttons.</figcaption>
+          </div>
 
           <table class="kb">
             <thead>
@@ -208,6 +219,7 @@
                 <td>
                   Share your extension with others:<br>
                   • Fill metadata (<b>Extension ID</b>, <b>Display Name</b>, <b>Version</b>, <b>Author</b>, <b>Category</b>, <b>Description</b>) or click <b>Auto-fill metadata from code</b>.<br>
+                  • Target <b>Cloud Community (Google Account)</b>: sign in with Google and publish straight to the Cloud Community catalog (with option to update your existing ID).<br>
                   • Target <b>MiniSketch Server (Port 8090 / Hosted)</b>: publish straight to your server catalog (optional <i>Publish Key</i> if configured).<br>
                   • Target <b>GitHub Static Repo (Free CDN)</b>: push straight to GitHub using a Personal Access Token (<code>contents:write</code>, stored only locally), or use <b>Download .js</b> + <b>Copy catalog.json entry</b> for manual commits.
                 </td>

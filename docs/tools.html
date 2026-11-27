@@ -80,8 +80,8 @@
           <p class="help-lead">Ke-13 alat generator parametrik bawaan kini tampil di panel <b>Extensions</b> di bagian bawah sidebar kanan bersama ekstensi tambahan Anda. Anda tidak perlu menggambar kotak sambungan atau gigi roda satu per satu dari nol — isi ukurannya, lalu generator membuatkan panel siap potong beserta kerf dan tanda lem otomatis. Lihat <a href="extensions.html">halaman Extensions &amp; Marketplace</a> untuk cara menambah, mengelola, dan menerbitkan ekstensi baru.</p>
 
           <div class="screenshot">
-            <img src="img/screenshots/tools-boxmaker.png" alt="Panel generator di kanan bawah dengan dialog Box maker">
-            <figcaption>Daftar generator parametrik di kanan bawah beserta dialog <b>Box maker · finger joint</b> untuk mengisi panjang, lebar, tinggi, tebal bahan, dan lebar tab (pada versi terbaru panel ini berjudul <b>Extensions</b> dengan tombol <i>Check Updates</i> dan <i>Marketplace…</i>, sementara <i>Array</i> dipindahkan ke tab ribbon <b>Edit</b>).</figcaption>
+            <img src="img/screenshots/tools-boxmaker.png" alt="Panel Extensions di kanan bawah dengan dialog Box maker">
+            <figcaption>Daftar generator parametrik di kanan bawah (panel <b>Extensions</b> dengan tombol <i>Check Updates</i> dan <i>Marketplace…</i>, sementara <i>Array</i> berada di tab ribbon <b>Arrange</b>) beserta dialog <b>Box maker · finger joint</b> untuk mengisi panjang, lebar, tinggi, tebal bahan, dan lebar tab.</figcaption>
           </div>
 
           <div class="callout info"><b>Dobel-klik untuk edit ulang:</b> hampir semua hasil generator disimpan sebagai grup parametrik. <b>Klik ganda</b> hasilnya di kanvas untuk membuka dialog parameter dengan nilai terakhirnya, ubah ukuran, lalu bangun ulang di posisi yang sama.</div>
@@ -114,9 +114,9 @@
               <tr><th style="width:24%">Fitur</th><th>Keterangan</th></tr>
             </thead>
             <tbody>
-              <tr><td><b>Array</b> (ribbon Edit / panel Tools)</td><td>Menggandakan pilihan (termasuk teks, hasil trace, atau grup tool) dalam susunan <b>Grid</b> (baris &times; kolom) atau <b>On Guide Line</b> (mengikuti garis/kurva bantu hijau). Jika master diedit, seluruh clone ikut berubah. Dobel-klik array untuk ubah jumlah/jarak atau klik <code>&rarr; Curve</code> untuk memutus hubungan.</td></tr>
+              <tr><td><b>Array</b> (tab ribbon Arrange)</td><td>Menggandakan pilihan (termasuk teks, hasil trace, atau grup tool) dalam susunan <b>Grid</b> (baris &times; kolom) atau <b>On Guide Line</b> (mengikuti garis/kurva bantu hijau). Jika master diedit, seluruh clone ikut berubah. Dobel-klik array untuk ubah jumlah/jarak atau klik <code>&rarr; Curve</code> untuk memutus hubungan.</td></tr>
               <tr><td><b>Clone</b> (<kbd>Ctrl+L</kbd>)</td><td>Membuat salinan <i>live</i> dari objek terpilih. Mengedit master akan mengubah semua clone, sementara posisi/rotasi/skala tiap clone tetap bebas.</td></tr>
-              <tr><td><b>Clone as nest parts</b> (<kbd>Ctrl+Shift+L</kbd>)</td><td>Memecah objek terpilih menjadi bagian-bagian siap susun (sama seperti dekomposisi Nesting) dan meletakkan satu live clone per bagian di sebelah kanan untuk ditata manual dengan <b>Drag wall (W)</b>.</td></tr>
+              <tr><td><b>Clone as nest parts</b> (<kbd>Ctrl+Shift+L</kbd>)</td><td>Memecah objek terpilih per objek induk menjadi array clone siap nesting (mis. teks multi-huruf dipecah menjadi clone tiap huruf, sementara grup dipecah per loop/bagian) agar bisa ditata manual dengan <b>Drag wall (W)</b>.</td></tr>
             </tbody>
           </table>
 
@@ -135,8 +135,8 @@
           <p class="help-lead">All 13 built-in parametric generators live in the <b>Extensions</b> panel at the bottom of the right sidebar alongside your custom extensions. Instead of drafting finger-joint boxes or involute gear teeth manually, fill in your dimensions and MiniSketch outputs CNC-ready geometry with kerf compensation and score/glue marks. See <a href="extensions.html">Extensions &amp; Marketplace</a> to install or publish new tools.</p>
 
           <div class="screenshot">
-            <img src="img/screenshots/tools-boxmaker.png" alt="Generator panel and Box maker parameter dialog">
-            <figcaption>Parametric generator panel at bottom right with the <b>Box maker · finger joint</b> dialog (length, width, height, material thickness, tab width; titled <b>Extensions</b> in current builds while <i>Array</i> sits on the <b>Edit</b> ribbon).</figcaption>
+            <img src="img/screenshots/tools-boxmaker.png" alt="Extensions panel and Box maker parameter dialog">
+            <figcaption>Parametric generator panel at bottom right (titled <b>Extensions</b> with <i>Check Updates</i> and <i>Marketplace…</i>, while <i>Array</i> sits on the <b>Arrange</b> ribbon) with the <b>Box maker · finger joint</b> dialog.</figcaption>
           </div>
 
           <div class="callout info"><b>Double-click to re-edit:</b> most generator outputs are stored as parametric groups. <b>Double-click</b> any result on the canvas to reopen its parameter dialog with saved values, tweak sizes, and rebuild in place.</div>
@@ -169,9 +169,9 @@
               <tr><th style="width:24%">Feature</th><th>Description</th></tr>
             </thead>
             <tbody>
-              <tr><td><b>Array</b> (Edit ribbon)</td><td>Duplicates selections (text, traced images, or generator groups) in a <b>Grid</b> or along a green guide curve (<b>On Guide Line</b>). Master edits propagate to all clones. Double-click to adjust count/spacing or click <code>&rarr; Curve</code> to unlink.</td></tr>
+              <tr><td><b>Array</b> (Arrange ribbon)</td><td>Duplicates selections (text, traced images, or generator groups) in a <b>Grid</b> or along a green guide curve (<b>On Guide Line</b>). Master edits propagate to all clones. Double-click to adjust count/spacing or click <code>&rarr; Curve</code> to unlink.</td></tr>
               <tr><td><b>Clone</b> (<kbd>Ctrl+L</kbd>)</td><td>Creates a linked <i>live clone</i>. Master edits update every clone while each clone moves, rotates, or scales independently.</td></tr>
-              <tr><td><b>Clone as nest parts</b> (<kbd>Ctrl+Shift+L</kbd>)</td><td>Decomposes the selection into nestable parts and places one live clone per part to the right for manual arrangement with <b>Drag wall (W)</b>.</td></tr>
+              <tr><td><b>Clone as nest parts</b> (<kbd>Ctrl+Shift+L</kbd>)</td><td>Converts any selection into curves grouped per parent object as a nestable clone array (e.g. splitting multi-letter text into separate glyph objects) for manual arrangement with <b>Drag wall (W)</b>.</td></tr>
             </tbody>
           </table>
 

@@ -81,7 +81,7 @@
 
           <div class="screenshot">
             <img src="img/screenshots/menu-tool.png" alt="Menu Tool terbuka">
-            <figcaption>Settings dibuka melalui menu <b>Tool ▸ Settings…</b>; di menu yang sama ada View grid (#), Snap (Shift+5), Points, Show dimension, Auto dimension (Alt+D), Auto solve, Undo moves view, dan Send to KaryaCNC (Alt+Q).</figcaption>
+            <figcaption>Settings dibuka melalui menu <b>Tool ▸ Settings…</b>; di menu yang sama ada toggle cepat <b>View grid (#)</b>, <b>Snap (Shift+5)</b>, <b>Points</b>, <b>Show dimension</b>, <b>Auto dimension (Alt+D)</b>, <b>Auto solve</b>, <b>Undo moves view</b>, serta <b>Solve now (F9)</b>, <b>Solver mode</b>, <b>Extensions &amp; Marketplace…</b>, dan <b>Send to KaryaCNC… (Alt+Q)</b>.</figcaption>
           </div>
 
           <div class="screenshot">
@@ -97,7 +97,7 @@
               <tr><th style="width:28%">Pengaturan</th><th style="width:14%">Default</th><th>Keterangan</th></tr>
             </thead>
             <tbody>
-              <tr><td>Undo moves the view</td><td>Off</td><td>Jika menyala, menekan Undo/Redo juga mengembalikan posisi pan &amp; zoom kamera ke saat langkah tersebut dibuat (bisa juga di-toggle cepat dari menu <b>Tool</b>).</td></tr>
+              <tr><td>Undo moves the view</td><td>Off</td><td>Jika menyala, menekan Undo/Redo juga mengembalikan posisi pan &amp; zoom kamera ke saat langkah tersebut dibuat (diatur lewat menu <b>Tool ▸ Undo moves view</b>).</td></tr>
             </tbody>
           </table>
 
@@ -119,6 +119,7 @@
               <tr><td>Loop fill · plain / selected / yellow / gray</td><td>warna heksadesimal</td><td>Warna dasar fill loop. Loop bersarang lebih dalam otomatis lebih terang.</td></tr>
               <tr><td>Loop fills · current / other layers</td><td>On / On</td><td>Mengaktifkan fill interior di layer aktif dan/atau layer lain.</td></tr>
               <tr><td>Loop fill resolution</td><td>50%</td><td>Resolusi layer fill offscreen relatif kanvas. 50% menampilkan setempat piksel fill dan tidak terlihat bedanya.</td></tr>
+              <tr><td>Show frame timing</td><td>Off</td><td>Menampilkan waktu render per frame (ms) di bilah atas untuk memantau performa pada file besar.</td></tr>
             </tbody>
           </table>
 
@@ -137,8 +138,8 @@
               <tr><td>Curve fit tolerance</td><td>0.2 mm</td><td>Ctrl+K pasang kurva kubik sebanyak mungkin tetap dalam jarak ini dari polyline asli.</td></tr>
               <tr><td>Boolean result</td><td>Exact (PathBool)</td><td>Boolean hitung pada kurva asli: arc tetap arc, sudut tetap eksak.</td></tr>
               <tr><td>Curve sharp corner</td><td>25°</td><td>Ctrl+K menjaga vertex sebagai sudut tajam jika polyline belok setidaknya sejauh ini.</td></tr>
-              <tr><td>Auto dimension</td><td>Off</td><td>Saat menggambar, snap juga meninggalkan constraint Midpoint / On line.</td></tr>
-              <tr><td>Auto solve</td><td>Off</td><td>Drag menjalankan solve penuh secara teratur tanpa menunggu mouse dilepas.</td></tr>
+              <tr><td>Auto dimension</td><td>Off</td><td>Saat menggambar, snap juga meninggalkan constraint Midpoint / On line (toggle cepat di <b>Tool ▸ Auto dimension</b> atau <kbd>Alt+D</kbd>).</td></tr>
+              <tr><td>Auto solve</td><td>Off</td><td>Drag menjalankan solve penuh secara teratur tanpa menunggu mouse dilepas (toggle cepat di <b>Tool ▸ Auto solve</b>).</td></tr>
               <tr><td>Auto solve interval</td><td>100 ms</td><td>Interval antar solve otomatis saat drag.</td></tr>
               <tr><td>Object detail (artTol)</td><td>0.1 mm</td><td>Simplifikasi objek grup, paste, dan offset saat di-flatten ke lines atau dikirim ke KaryaCNC.</td></tr>
               <tr><td>Offset miter limit</td><td>4×</td><td>Sejauh mana sudut miter boleh menjorok sebelum Clipper memotong ujung runcingnya.</td></tr>
@@ -238,7 +239,7 @@
 
           <div class="screenshot">
             <img src="img/screenshots/menu-tool.png" alt="Open Tool menu">
-            <figcaption>Open Settings via <b>Tool ▸ Settings…</b>; the same menu holds quick toggles for View grid (#), Snap (Shift+5), Points, Show dimension, Auto dimension (Alt+D), Auto solve, Undo moves view, and Send to KaryaCNC (Alt+Q).</figcaption>
+            <figcaption>Open Settings via <b>Tool ▸ Settings…</b>; the same menu holds quick toggles for <b>View grid (#)</b>, <b>Snap (Shift+5)</b>, <b>Points</b>, <b>Show dimension</b>, <b>Auto dimension (Alt+D)</b>, <b>Auto solve</b>, <b>Undo moves view</b>, plus <b>Solve now (F9)</b>, <b>Solver mode</b>, <b>Extensions &amp; Marketplace…</b>, and <b>Send to KaryaCNC… (Alt+Q)</b>.</figcaption>
           </div>
 
           <div class="screenshot">
@@ -254,7 +255,7 @@
               <tr><th style="width:28%">Setting</th><th style="width:14%">Default</th><th>Description</th></tr>
             </thead>
             <tbody>
-              <tr><td>Undo moves the view</td><td>Off</td><td>When enabled, Undo/Redo also restores the pan &amp; zoom camera position to when that edit was made (also toggleable from the <b>Tool</b> menu).</td></tr>
+              <tr><td>Undo moves the view</td><td>Off</td><td>When enabled, Undo/Redo also restores the pan &amp; zoom camera position to when that edit was made (toggled from <b>Tool ▸ Undo moves view</b>).</td></tr>
             </tbody>
           </table>
 
@@ -276,6 +277,7 @@
               <tr><td>Loop fill · plain / selected / yellow / gray</td><td>hex colors</td><td>Base fill colors for closed loops; nested holes brighten automatically.</td></tr>
               <tr><td>Loop fills · current / other layers</td><td>On / On</td><td>Show/hide interior loop shading on active and inactive layers.</td></tr>
               <tr><td>Loop fill resolution</td><td>50%</td><td>Offscreen resolution multiplier for loop shading.</td></tr>
+              <tr><td>Show frame timing</td><td>Off</td><td>Displays live frame render timing (ms) in the top bar for performance tuning on heavy sketches.</td></tr>
             </tbody>
           </table>
 
@@ -294,8 +296,8 @@
               <tr><td>Curve fit tolerance</td><td>0.2 mm</td><td>Maximum deviation allowed when fitting cubic curves with Ctrl+K.</td></tr>
               <tr><td>Boolean result</td><td>Exact (PathBool)</td><td>Exact curve-preserving booleans keep arcs and corners intact.</td></tr>
               <tr><td>Curve sharp corner</td><td>25°</td><td>Minimum turn angle kept as a crisp corner during Ctrl+K curve fitting.</td></tr>
-              <tr><td>Auto dimension</td><td>Off</td><td>Snapping while drawing automatically adds Midpoint / On line constraints.</td></tr>
-              <tr><td>Auto solve</td><td>Off</td><td>Periodically solve constraints during drag without waiting for mouse release.</td></tr>
+              <tr><td>Auto dimension</td><td>Off</td><td>Snapping while drawing automatically adds Midpoint / On line constraints (toggled via <b>Tool ▸ Auto dimension</b> or <kbd>Alt+D</kbd>).</td></tr>
+              <tr><td>Auto solve</td><td>Off</td><td>Periodically solve constraints during drag without waiting for mouse release (toggled via <b>Tool ▸ Auto solve</b>).</td></tr>
               <tr><td>Auto solve interval</td><td>100 ms</td><td>Interval between live drag solves when Auto solve is enabled.</td></tr>
               <tr><td>Object detail (artTol)</td><td>0.1 mm</td><td>Flattening precision for grouped, pasted, and offset objects when sent to KaryaCNC.</td></tr>
               <tr><td>Offset miter limit</td><td>4×</td><td>Maximum sharp miter extension before clipping beveled corners.</td></tr>

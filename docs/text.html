@@ -77,11 +77,16 @@
           <div class="breadcrumb"><a href="index.html">Beranda</a> <span class="sep">&#8250;</span> Teks &amp; Font</div>
 
           <h1>Teks &amp; Font</h1>
-          <p class="help-lead">Tekan <kbd>T</kbd> untuk menempatkan objek teks. Isi konten, pilih font, ketebalan, gaya miring, dan jarak huruf di dialog, lalu double-click teksnya nanti untuk membuka kembali dan mengedit.</p>
+          <p class="help-lead">Tekan <kbd>T</kbd> lalu klik di kanvas untuk langsung mengetik teks secara <i>inline</i> sambil mengatur font, ukuran, rata teks, dan jarak huruf dari <b>Property Bar</b> di atas kanvas. Double-click teks kapan saja untuk mengedit ulang langsung di kanvas, atau klik <b>&#9881; Options</b> untuk pengaturan lanjutan.</p>
 
           <div class="screenshot">
-            <img src="img/screenshots/dialog-text.png" alt="Dialog Teks">
-            <figcaption>Dialog Teks (T): Content, Font dengan pencarian + System fonts / Import font, Weight &amp; Style &amp; Align, Height / Line / Letter, Detail, dan pratinjau langsung.</figcaption>
+            <img src="img/screenshots/text-inline.png" alt="Mengetik teks langsung di kanvas dengan Property Bar">
+            <figcaption>Edit teks langsung di kanvas (T): Property Bar teratas menampilkan pemilih font + pencarian langsung, Weight, <b>B</b>/<i>I</i> (<kbd>Ctrl+B</kbd>/<kbd>Ctrl+I</kbd>), tinggi <b>H</b> (mm), perataan Kiri/Tengah/Kanan, jarak huruf <b>AV</b> (%), jarak baris <b>&#8597;</b> (%), <b>&rarr; Curve</b>, <b>&#9881; Options</b>, <b>Transform</b>, dan <b>Done</b> (<kbd>Esc</kbd> atau <kbd>Ctrl+Enter</kbd>).</figcaption>
+          </div>
+
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-text.png" alt="Dialog Text Options">
+            <figcaption>Dialog <b>Text Options</b> (klik <b>&#9881; Options</b> di Property Bar): kotak Content multi-baris, checkbox <b>System</b> + tombol <b>System fonts…</b> / <b>Import font…</b>, Weight / Style / Align, Height / Line / Letter, <b>Detail</b> (mm), <b>Fit real curves on &rarr; Curve</b>, dan pratinjau langsung.</figcaption>
           </div>
 
           <h2>1. Properti teks</h2>
@@ -90,15 +95,15 @@
               <tr><th style="width:26%">Properti</th><th>Keterangan</th></tr>
             </thead>
             <tbody>
-              <tr><td>Content</td><td>Isi tulisan objek teks.</td></tr>
-              <tr><td>Font</td><td>Pilih keluarga font dari daftar.</td></tr>
-              <tr><td>Weight</td><td>Light / Regular / Semibold / Bold.</td></tr>
-              <tr><td>Style</td><td>Upright / Italic.</td></tr>
+              <tr><td>Content</td><td>Isi tulisan objek teks (mendukung multi-baris via <kbd>Enter</kbd> saat mengetik di kanvas).</td></tr>
+              <tr><td>Font</td><td>Pilih keluarga font dari daftar (arahkan kursor / tombol panah untuk pratinjau langsung di kanvas).</td></tr>
+              <tr><td>Weight &amp; B / I</td><td>Light / Regular / Semibold / Bold serta tombol cepat Bold (<kbd>Ctrl+B</kbd>) / Italic (<kbd>Ctrl+I</kbd>).</td></tr>
               <tr><td>Align</td><td>Left / Center / Right untuk setiap baris di dalam kotak teks.</td></tr>
-              <tr><td>Height</td><td>Tinggi teks dalam mm.</td></tr>
-              <tr><td>Line (leading)</td><td>Jarak antar baris, persentase dari ukuran font (125 = normal).</td></tr>
-              <tr><td>Letter (tracking)</td><td>Jarak horisontal antar huruf, persentase dari ukuran font (100 = normal; nilai lebih kecil seperti 85 atau nilai negatif merapatkan huruf hingga bertumpuk, cocok untuk <a href="tools.html#text-weld">Text weld</a>).</td></tr>
-              <tr><td>Detail</td><td>Seberapa rapat outline mengikuti glip (mm, default 0,08; lebih besar = lebih sedikit titik).</td></tr>
+              <tr><td>H (Height)</td><td>Tinggi teks dalam mm.</td></tr>
+              <tr><td>&#8597; / Line (leading)</td><td>Jarak antar baris, persentase dari ukuran font (125 = normal).</td></tr>
+              <tr><td>AV / Letter (tracking)</td><td>Jarak horisontal antar huruf, persentase dari ukuran font (100 = normal; nilai lebih kecil seperti 85 atau nilai negatif merapatkan huruf hingga bertumpuk, cocok untuk <a href="tools.html#text-weld">Text weld</a>).</td></tr>
+              <tr><td>Detail (&#9881; Options)</td><td>Seberapa rapat outline mengikuti glip (mm, default 0,08; lebih besar = lebih sedikit titik).</td></tr>
+              <tr><td>Fit real curves on &rarr; Curve</td><td>Di <b>&#9881; Options</b>: ubah glip menjadi kurva Bézier asli alih-alih segmen garis lurus.</td></tr>
             </tbody>
           </table>
 
@@ -134,11 +139,16 @@
           <div class="breadcrumb"><a href="index.html">Home</a> <span class="sep">&#8250;</span> Text &amp; Fonts</div>
 
           <h1>Text &amp; Fonts</h1>
-          <p class="help-lead">Press <kbd>T</kbd> to place a text object. Enter copy, pick a font, weight, italic style, and letter spacing in the dialog, and double-click the text later to reopen and edit it.</p>
+          <p class="help-lead">Press <kbd>T</kbd> and click on the canvas to type directly inline while adjusting font, size, alignment, and spacing from the top <b>Property Bar</b>. Double-click any text object later to edit inline again, or click <b>&#9881; Options</b> for advanced settings.</p>
 
           <div class="screenshot">
-            <img src="img/screenshots/dialog-text.png" alt="Text dialog">
-            <figcaption>Text dialog (T): Content, searchable Font list + System fonts / Import font, Weight / Style / Align, Height / Line / Letter, Detail, and live preview.</figcaption>
+            <img src="img/screenshots/text-inline.png" alt="Inline text editing on canvas with Property Bar">
+            <figcaption>Inline canvas text editing (T): top Property Bar provides live-searchable Font list, Weight, <b>B</b>/<i>I</i> (<kbd>Ctrl+B</kbd>/<kbd>Ctrl+I</kbd>), Height <b>H</b> (mm), L/C/R alignment, tracking <b>AV</b> (%), leading <b>&#8597;</b> (%), <b>&rarr; Curve</b>, <b>&#9881; Options</b>, <b>Transform</b>, and <b>Done</b> (<kbd>Esc</kbd> or <kbd>Ctrl+Enter</kbd>).</figcaption>
+          </div>
+
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-text.png" alt="Text Options dialog">
+            <figcaption><b>Text Options</b> dialog (via <b>&#9881; Options</b> on the Property Bar): multi-line Content box, <b>System</b> toggle + <b>System fonts…</b> / <b>Import font…</b>, Style/Align, Height / Line / Letter, <b>Detail</b> (mm), <b>Fit real curves on &rarr; Curve</b>, and live preview.</figcaption>
           </div>
 
           <h2>1. Text properties</h2>
@@ -147,15 +157,15 @@
               <tr><th style="width:26%">Property</th><th>Description</th></tr>
             </thead>
             <tbody>
-              <tr><td>Content</td><td>The text string rendered by the object.</td></tr>
-              <tr><td>Font</td><td>Choose a font family from the list.</td></tr>
-              <tr><td>Weight</td><td>Light / Regular / Semibold / Bold.</td></tr>
-              <tr><td>Style</td><td>Upright / Italic.</td></tr>
+              <tr><td>Content</td><td>Text string rendered by the object (press <kbd>Enter</kbd> for new lines while typing inline).</td></tr>
+              <tr><td>Font</td><td>Choose a font family from the list (hover or arrow-key through options to preview live on canvas).</td></tr>
+              <tr><td>Weight &amp; B / I</td><td>Light / Regular / Semibold / Bold plus quick Bold (<kbd>Ctrl+B</kbd>) and Italic (<kbd>Ctrl+I</kbd>) toggles.</td></tr>
               <tr><td>Align</td><td>Left / Center / Right alignment for each line within the text frame.</td></tr>
-              <tr><td>Height</td><td>Cap/line height in mm.</td></tr>
-              <tr><td>Line (leading)</td><td>Line spacing as a percentage of font size (125 = normal).</td></tr>
-              <tr><td>Letter (tracking)</td><td>Horizontal letter spacing as a percentage of font size (100 = normal; smaller values like 85 or negative values overlap letters, ideal for <a href="tools.html#text-weld">Text weld</a>).</td></tr>
-              <tr><td>Detail</td><td>How closely the outline follows glyph curves (mm, default 0.08; larger = fewer vertices).</td></tr>
+              <tr><td>H (Height)</td><td>Cap/line height in mm.</td></tr>
+              <tr><td>&#8597; / Line (leading)</td><td>Line spacing as a percentage of font size (125 = normal).</td></tr>
+              <tr><td>AV / Letter (tracking)</td><td>Horizontal letter spacing as a percentage of font size (100 = normal; smaller values like 85 or negative values overlap letters, ideal for <a href="tools.html#text-weld">Text weld</a>).</td></tr>
+              <tr><td>Detail (&#9881; Options)</td><td>How closely the outline follows glyph curves (mm, default 0.08; larger = fewer vertices).</td></tr>
+              <tr><td>Fit real curves on &rarr; Curve</td><td>Under <b>&#9881; Options</b>: converts glyphs to genuine Bézier curves instead of straight contour segments.</td></tr>
             </tbody>
           </table>
 

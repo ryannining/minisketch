@@ -81,7 +81,7 @@
 
           <div class="screenshot">
             <img src="img/screenshots/menu-file.png" alt="Menu Berkas terbuka">
-            <figcaption>Menu Berkas: New, Open… (replace), Import… (merge), Save (Ctrl+S), Save as… (Ctrl+Shift+S), Export SVG… (Ctrl+E), Lang: English/Indonesia, dan Help (?).</figcaption>
+            <figcaption>Menu Berkas: New, Open… (replace), Import… (merge), Save (Ctrl+S), Save as… (Ctrl+Shift+S), Export SVG… (Ctrl+E), Cloud Sketches… (Sync), Lang: English/Indonesia, Help (?), dan Full documentation… (<code>docs/</code>).</figcaption>
           </div>
 
           <h2>1. Operasi berkas</h2>
@@ -114,9 +114,16 @@
 
           <h2 id="cloud-sync">4. Akun Google &amp; Cloud Sync (Opsional)</h2>
           <p>MiniSketch selalu berjalan <b>local-first &amp; offline</b> — tanpa login sekalipun, seluruh sketsa, ekstensi, pengaturan, dan riwayat AI tetap tersimpan aman di browser lokal Anda.</p>
+
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-cloud.png" alt="Dialog Account &amp; Cloud Sync">
+            <figcaption>Dialog <b>Account &amp; Cloud Sync</b>: dapat diakses dari tombol akun di pojok kanan atas atau <b>File ▸ Cloud Sketches…</b>.</figcaption>
+          </div>
+
           <ul>
-            <li>Jika ingin menyinkronkan sketsa aktif, pengaturan, ekstensi, dan sesi AI Chat antar-perangkat, klik tombol akun di pojok kanan atas ribbon untuk membuka <b>Account &amp; Cloud Sync</b> dan masuk dengan Google.</li>
-            <li>Secara bawaan, sinkronisasi berjalan <b>manual (on-demand)</b> agar proses menggambar di kanvas selalu instan tanpa jeda upload otomatis setiap kali Anda menggeser objek. Tekan <b>Sync</b> di header akun atau gunakan menu modal akun (<b>Upload Local Data Now</b> / <b>Pull Cloud Data</b>) saat Anda siap menyinkronkan. Opsi <i>Auto-sync changes</i> tetap bisa diaktifkan kapan saja di jendela akun.</li>
+            <li>Jika ingin menyinkronkan sketsa aktif, <b>Saved Cloud Sketches</b>, pengaturan, ekstensi, dan sesi AI Chat antar-perangkat, klik chip akun di pojok kanan atas atau <b>File ▸ Cloud Sketches…</b> untuk masuk dengan Google.</li>
+            <li>Secara bawaan, sinkronisasi berjalan <b>manual (on-demand)</b> agar pengeditan di kanvas tetap cepat tanpa upload berulang. Klik <b>Sync</b> di header atau gunakan <b>Sync Now</b> / <b>Pull Cloud</b> serta <b>Save to Cloud</b> untuk menyimpan snapshot bernama kapan saja. Opsi <i>Auto-sync while editing</i> dapat dicentang bila menginginkan sinkronisasi otomatis.</li>
+            <li>Sebelum diunggah ke Cloud, payload sketsa <b>dikompresi otomatis dengan gzip</b> agar geometri besar muat jauh lebih lega di bawah batas penyimpanan <b>900 KB per dokumen</b>.</li>
           </ul>
 
           <div class="help-footer">
@@ -133,7 +140,7 @@
 
           <div class="screenshot">
             <img src="img/screenshots/menu-file.png" alt="Open File menu">
-            <figcaption>File Menu: New, Open… (replace), Import… (merge), Save (Ctrl+S), Save as… (Ctrl+Shift+S), Export SVG… (Ctrl+E), Lang: English/Indonesia, and Help (?).</figcaption>
+            <figcaption>File Menu: New, Open… (replace), Import… (merge), Save (Ctrl+S), Save as… (Ctrl+Shift+S), Export SVG… (Ctrl+E), Cloud Sketches… (Sync), Lang: English/Indonesia, Help (?), and Full documentation… (<code>docs/</code>).</figcaption>
           </div>
 
           <h2>1. File Operations</h2>
@@ -166,9 +173,16 @@
 
           <h2 data-anchor="cloud-sync">4. Google Account &amp; Cloud Sync (Optional)</h2>
           <p>MiniSketch is strictly <b>local-first &amp; works offline</b> — even without signing in, your sketches, extensions, settings, and AI chat history remain saved safely in local browser storage.</p>
+
+          <div class="screenshot">
+            <img src="img/screenshots/dialog-cloud.png" alt="Account &amp; Cloud Sync dialog">
+            <figcaption><b>Account &amp; Cloud Sync</b> dialog: accessible from the top-right account chip or <b>File ▸ Cloud Sketches…</b>.</figcaption>
+          </div>
+
           <ul>
-            <li>To sync your active workspace, preferences, extensions, and AI sessions across devices, click the account chip in the top-right ribbon to open <b>Account &amp; Cloud Sync</b> and sign in with Google.</li>
-            <li>By default, cloud sync is <b>manual (on-demand)</b> so editing stays lag-free without background uploads on every drag. Click <b>Sync</b> in the header or use <b>Upload Local Data Now</b> / <b>Pull Cloud Data</b> inside the account dialog whenever you want to sync. You can optionally enable <i>Auto-sync changes</i> inside the dialog.</li>
+            <li>To sync your active workspace, <b>Saved Cloud Sketches</b>, preferences, extensions, and AI sessions across devices, click the top-right account chip or open <b>File ▸ Cloud Sketches…</b> to sign in with Google.</li>
+            <li>By default, cloud sync is <b>manual (on-demand)</b> so editing stays instant without background uploads on every drag. Click <b>Sync</b> in the header or use <b>Sync Now</b> / <b>Pull Cloud</b> and <b>Save to Cloud</b> for named snapshots whenever ready. You can optionally check <i>Auto-sync while editing</i> inside the dialog.</li>
+            <li>Sketch payloads are <b>automatically gzip-compressed</b> before uploading so larger drawings fit comfortably within the <b>900 KB per-document</b> cloud limit.</li>
           </ul>
 
           <div class="help-footer">

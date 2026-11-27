@@ -81,17 +81,18 @@
 
           <div class="screenshot">
             <img src="img/screenshots/dialog-trace.png" alt="Dialog Paste image (trace)">
-            <figcaption>Dialog Paste image: pratinjau kontur langsung (2 contours · 50 points), radio Trace to geometry / Keep as image, slider Detail line/curve, Speckle, Threshold, Blur, Simplify, checkbox sudut, DPI, dan Width (mm).</figcaption>
+            <figcaption>Dialog Paste image: pratinjau kontur interaktif (<code>4 contours · 50 points · 240×160 px · 100%</code> — gulir untuk zoom, seret untuk geser, dobel-klik untuk tambah/hapus titik snap + tombol <b>Clear snap points</b>), opsi Trace to geometry / Keep as image, pemilih <b>Algorithm</b>, slider Detail/Speckle/Threshold/Blur/Simplify, DPI, dan Width (mm).</figcaption>
           </div>
 
           <h2>1. Dialog trace</h2>
-          <p>Dialog trace menampilkan <b>pratinjau langsung</b> dari kontur di sebelah pengaturan, jadi kamu bisa menyesuaikan sambil melihat hasilnya, bukan menekan OK buta. Setiap pengaturan yang mengubah pratinjau punya slider untuk pengaturan kasar dan kotak angka untuk nilai persis (ketik di kotak untuk nilai yang tidak tercapai slider).</p>
+          <p>Dialog trace menampilkan <b>pratinjau interaktif</b> kontur di sebelah pengaturan (bisa di-zoom, digeser, dan didobel-klik untuk menandai titik snap referensi), jadi kamu bisa menyesuaikan sambil melihat hasilnya secara langsung. Setiap slider juga dilengkapi kotak angka untuk nilai presisi.</p>
 
           <table class="kb">
             <thead>
               <tr><th style="width:24%">Pengaturan</th><th>Keterangan</th></tr>
             </thead>
             <tbody>
+              <tr><td>Algorithm</td><td><b>Standard (ImageTracer)</b> (serbaguna untuk foto/ilustrasi) atau <b>Crisp B&amp;W (Sub-Pixel AA)</b> (tepi jauh lebih tajam untuk teks, logo, dan gambar hitam-putih kontras tinggi).</td></tr>
               <tr><td>Detail line</td><td>Seberapa rapat tepi lurus mengikuti gambar. Semakin rendah = lebih banyak titik; semakin tinggi = lebih sederhana.</td></tr>
               <tr><td>Detail curve</td><td>Seberapa rapat lengkungan mengikuti gambar. Semakin rendah = lebih banyak titik; semakin tinggi = lebih sederhana.</td></tr>
               <tr><td>Speckle</td><td>Gumpalan yang lebih kecil dari nilai ini (dalam piksel sumber) diabaikan sebagai noise.</td></tr>
@@ -135,17 +136,18 @@
 
           <div class="screenshot">
             <img src="img/screenshots/dialog-trace.png" alt="Paste image trace dialog">
-            <figcaption>Paste image dialog: live contour preview (2 contours · 50 points), Trace to geometry / Keep as image toggle, Detail line/curve, Speckle, Threshold, Blur, Simplify sliders, corner checkboxes, DPI, and Width (mm).</figcaption>
+            <figcaption>Paste image dialog: interactive contour preview (<code>4 contours · 50 points · 240×160 px · 100%</code> — scroll to zoom, drag to pan, double-click to add/remove snap points + <b>Clear snap points</b>), Trace to geometry / Keep as image toggle, <b>Algorithm</b> picker, Detail/Speckle/Threshold/Blur/Simplify sliders, DPI, and Width (mm).</figcaption>
           </div>
 
           <h2>1. Trace dialog</h2>
-          <p>The trace dialog shows a <b>live contour preview</b> beside the controls so you can dial in settings visually before clicking OK. Every parameter has a coarse slider and an exact numeric box for fine control.</p>
+          <p>The trace dialog displays an <b>interactive contour preview</b> beside the controls (pan, zoom, and double-click to place snap points) so you can tune every setting visually before clicking OK. Every parameter pairs a slider with an exact numeric box.</p>
 
           <table class="kb">
             <thead>
               <tr><th style="width:24%">Setting</th><th>Description</th></tr>
             </thead>
             <tbody>
+              <tr><td>Algorithm</td><td><b>Standard (ImageTracer)</b> for general artwork, or <b>Crisp B&amp;W (Sub-Pixel AA)</b> for ultra-sharp edges on logos, typography, and high-contrast monochrome artwork.</td></tr>
               <tr><td>Detail line</td><td>How closely straight edges hug the bitmap. Lower = more points; higher = simpler.</td></tr>
               <tr><td>Detail curve</td><td>How closely curved edges follow the bitmap. Lower = more points; higher = simpler.</td></tr>
               <tr><td>Speckle</td><td>Blobs smaller than this area (in source pixels) are discarded as noise.</td></tr>

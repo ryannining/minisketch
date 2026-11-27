@@ -118,17 +118,17 @@
           <table class="kb">
             <thead><tr><th style="width:26%">Pintasan</th><th>Fungsi</th></tr></thead>
             <tbody>
-              <tr><td>Panah kiri/kanan/atas/bawah</td><td>Geser pilihan 1 mm (atur di Settings ▸ Geometry ▸ Arrow key nudge).</td></tr>
+              <tr><td>Panah kiri/kanan/atas/bawah</td><td>Geser pilihan 1 mm (atur di Settings ▸ Geometry ▸ Arrow key nudge). Saat drag clone: putar ±5°.</td></tr>
               <tr><td><kbd>;</kbd></td><td>Komentar (note).</td></tr>
               <tr><td><kbd>Ctrl+A</kbd></td><td>Pilih semua.</td></tr>
               <tr><td><kbd>Ctrl+C</kbd></td><td>Salin (sketsa + SVG + PNG ke clipboard sistem).</td></tr>
               <tr><td><kbd>Ctrl+Shift+C</kbd></td><td>Sama dengan Ctrl+C.</td></tr>
               <tr><td><kbd>Ctrl+D</kbd></td><td>Duplikat di tempat.</td></tr>
               <tr><td><kbd>Ctrl+L</kbd></td><td>Buat <i>Live clone</i> yang otomatis mengikuti perubahan objek induk.</td></tr>
-              <tr><td><kbd>Ctrl+Shift+L</kbd></td><td><i>Clone as nest parts</i> — buat live clone sekaligus menandai sumber untuk nesting.</td></tr>
+              <tr><td><kbd>Ctrl+Shift+L</kbd></td><td><i>Clone as nest parts</i> — pecah seleksi ke kurva per objek induk (mis. teks per huruf) menjadi objek Array siap nesting.</td></tr>
               <tr><td><kbd>Ctrl+K</kbd></td><td>Fit curve melalui polyline (dialog Tolerance + Sharp corner).</td></tr>
               <tr><td><kbd>Ctrl+V</kbd></td><td>Tempel.</td></tr>
-              <tr><td><kbd>Del</kbd></td><td>Hapus pilihan.</td></tr>
+              <tr><td><kbd>Del</kbd></td><td>Hapus pilihan (atau hapus 1 segmen kurva jika 2 titik bersebelahan dipilih).</td></tr>
               <tr><td><kbd>Z</kbd></td><td>Bersihkan seleksi ke loop utuh; tanpa seleksi, pilih titik sisa / constraint rusak / objek ukuran nol.</td></tr>
               <tr><td><kbd>Shift+L</kbd></td><td>Cleanup loops — rapikan titik duplikat dan segmen bertumpuk.</td></tr>
               <tr><td><kbd>Alt+W</kbd></td><td>Weld — las titik sudut/berimpit di dalam seleksi.</td></tr>
@@ -140,11 +140,21 @@
               <tr><td><kbd>Ctrl+J</kbd></td><td>Offset.</td></tr>
               <tr><td><kbd>Ctrl+M</kbd></td><td>Transformasi.</td></tr>
               <tr><td><kbd>Ctrl+Shift+M</kbd></td><td>Geser: klik titik referensi, lalu tujuan, konfirmasi dx, dy.</td></tr>
+              <tr><td><kbd>Ctrl+[</kbd> / <kbd>Ctrl+]</kbd></td><td>Putar pilihan 90° berlawanan / searah jarum jam.</td></tr>
               <tr><td><kbd>Ctrl++</kbd></td><td>Boolean union loop terpilih.</td></tr>
               <tr><td><kbd>Ctrl+-</kbd></td><td>Boolean cut (target dulu, lalu alat terakhir). Tahan <kbd>Shift</kbd> pada Union/Cut/Intersect = simpan loop asli.</td></tr>
               <tr><td><kbd>Ctrl+0</kbd></td><td>Boolean intersect.</td></tr>
               <tr><td><kbd>J</kbd></td><td>Sambung titik yang bersentuh.</td></tr>
               <tr><td><kbd>F</kbd></td><td>Fillet pada sudut.</td></tr>
+            </tbody>
+          </table>
+
+          <h2>Edit Teks Inline</h2>
+          <table class="kb">
+            <thead><tr><th style="width:26%">Pintasan</th><th>Fungsi (saat mengetik langsung di kanvas)</th></tr></thead>
+            <tbody>
+              <tr><td><kbd>Ctrl+B</kbd> / <kbd>Ctrl+I</kbd></td><td>Aktif/nonaktifkan Bold / Italic pada objek teks aktif.</td></tr>
+              <tr><td><kbd>Ctrl+Enter</kbd> / <kbd>Esc</kbd></td><td>Selesai mengedit teks inline dan kembali ke mode pilih.</td></tr>
             </tbody>
           </table>
 
@@ -178,11 +188,15 @@
               <tr><td><kbd>Ctrl+Wheel</kbd></td><td>Zoom.</td></tr>
               <tr><td><kbd>Shift+Wheel</kbd></td><td>Geser tampilan horizontal.</td></tr>
               <tr><td>Drag tengah / kanan mouse</td><td>Pan (geser kanvas).</td></tr>
-              <tr><td><kbd>Shift+F</kbd></td><td>Pas kanvas ke layar (fit drawing).</td></tr>
+              <tr><td><kbd>Shift+F</kbd></td><td>Fokus — sembunyikan semua geometri yang tidak terpilih (tekan lagi untuk tampilkan kembali).</td></tr>
+              <tr><td><kbd>F</kbd> (kapital)</td><td>Pas seluruh gambar ke layar (fit drawing).</td></tr>
               <tr><td><kbd>3</kbd></td><td>Pas ke seleksi (fit selection).</td></tr>
               <tr><td><kbd>#</kbd></td><td>Grid on/off.</td></tr>
               <tr><td><kbd>Shift+5</kbd> (%)</td><td>Snap on/off.</td></tr>
               <tr><td><kbd>Alt+1</kbd> / <kbd>Alt+2</kbd> / <kbd>Alt+3</kbd></td><td>Toggle Pick Filter: Points / Lines / Loops.</td></tr>
+              <tr><td><kbd>Alt+R</kbd></td><td>Fokus ke strip L / T / W / H di Property Bar.</td></tr>
+              <tr><td><kbd>Tab</kbd></td><td>Buka / tutup panel dock kiri (Edit &amp; Layers).</td></tr>
+              <tr><td><kbd>+</kbd> / <kbd>-</kbd> (saat Drag wall)</td><td>Ubah ketebalan Drag wall (±0,5 mm; dengan <kbd>Shift</kbd> ±0,1 mm; dengan <kbd>Alt</kbd> ±1 mm).</td></tr>
               <tr><td><kbd>L</kbd></td><td>Loop fill on/off (sementara).</td></tr>
               <tr><td><kbd>F1</kbd> / <kbd>F2</kbd> / <kbd>F3</kbd></td><td>Pilih / geser · Edit node · Junction.</td></tr>
               <tr><td><kbd>Alt+D</kbd></td><td>Auto dimension on/off.</td></tr>
@@ -192,7 +206,7 @@
               <tr><td><kbd>F9</kbd></td><td>Solve sekarang.</td></tr>
               <tr><td><kbd>Alt+Q</kbd></td><td>Kirim ke KaryaCNC.</td></tr>
               <tr><td><kbd>Alt+C</kbd></td><td>Buka dialog Estimasi Biaya Cutting.</td></tr>
-              <tr><td><kbd>?</kbd></td><td>Jendela Help bawaan aplikasi.</td></tr>
+              <tr><td><kbd>?</kbd> / <kbd>Shift+Z</kbd></td><td>Jendela Help bawaan aplikasi.</td></tr>
             </tbody>
           </table>
 
@@ -249,17 +263,17 @@
           <table class="kb">
             <thead><tr><th style="width:26%">Shortcut</th><th>Action</th></tr></thead>
             <tbody>
-              <tr><td>Arrow keys</td><td>Nudge selection 1 mm (configurable in Settings ▸ Geometry ▸ Arrow key nudge).</td></tr>
+              <tr><td>Arrow keys</td><td>Nudge selection 1 mm (configurable in Settings ▸ Geometry ▸ Arrow key nudge). While dragging clones: rotate ±5°.</td></tr>
               <tr><td><kbd>;</kbd></td><td>Add comment (note).</td></tr>
               <tr><td><kbd>Ctrl+A</kbd></td><td>Select all.</td></tr>
               <tr><td><kbd>Ctrl+C</kbd></td><td>Copy (writes MiniSketch JSON + SVG + PNG screenshot to OS clipboard).</td></tr>
               <tr><td><kbd>Ctrl+Shift+C</kbd></td><td>Same as Ctrl+C.</td></tr>
               <tr><td><kbd>Ctrl+D</kbd></td><td>Duplicate in place.</td></tr>
               <tr><td><kbd>Ctrl+L</kbd></td><td>Create a <i>Live clone</i> linked to the parent geometry.</td></tr>
-              <tr><td><kbd>Ctrl+Shift+L</kbd></td><td><i>Clone as nest parts</i> — create live clones ready for nesting.</td></tr>
+              <tr><td><kbd>Ctrl+Shift+L</kbd></td><td><i>Clone as nest parts</i> — splits any selection into curves grouped per parent object (e.g., per glyph) as a nestable clone Array.</td></tr>
               <tr><td><kbd>Ctrl+K</kbd></td><td>Fit curves through polylines (Tolerance + Sharp corner dialog).</td></tr>
               <tr><td><kbd>Ctrl+V</kbd></td><td>Paste (sketch payload, SVG vectors, or bitmap trace).</td></tr>
-              <tr><td><kbd>Del</kbd></td><td>Delete selection.</td></tr>
+              <tr><td><kbd>Del</kbd></td><td>Delete selection (or delete a curve segment when 2 adjacent nodes are selected).</td></tr>
               <tr><td><kbd>Z</kbd></td><td>Refine selection to closed loops; or select stray points / broken constraints / zero-size entities.</td></tr>
               <tr><td><kbd>Shift+L</kbd></td><td>Cleanup loops — remove duplicate points and overlapping segments.</td></tr>
               <tr><td><kbd>Alt+W</kbd></td><td>Weld nearby vertices inside selection.</td></tr>
@@ -271,11 +285,21 @@
               <tr><td><kbd>Ctrl+J</kbd></td><td>Offset.</td></tr>
               <tr><td><kbd>Ctrl+M</kbd></td><td>Transform.</td></tr>
               <tr><td><kbd>Ctrl+Shift+M</kbd></td><td>Move by reference points (dx, dy).</td></tr>
+              <tr><td><kbd>Ctrl+[</kbd> / <kbd>Ctrl+]</kbd></td><td>Rotate selection 90° counter-clockwise / clockwise.</td></tr>
               <tr><td><kbd>Ctrl++</kbd></td><td>Boolean union of selected loops.</td></tr>
               <tr><td><kbd>Ctrl+-</kbd></td><td>Boolean cut (target first, cutter last). Hold <kbd>Shift</kbd> on Union/Cut/Intersect to keep originals.</td></tr>
               <tr><td><kbd>Ctrl+0</kbd></td><td>Boolean intersect.</td></tr>
               <tr><td><kbd>J</kbd></td><td>Join touching points.</td></tr>
               <tr><td><kbd>F</kbd></td><td>Fillet corners.</td></tr>
+            </tbody>
+          </table>
+
+          <h2>Inline Text Editing</h2>
+          <table class="kb">
+            <thead><tr><th style="width:26%">Shortcut</th><th>Action (while typing directly on canvas)</th></tr></thead>
+            <tbody>
+              <tr><td><kbd>Ctrl+B</kbd> / <kbd>Ctrl+I</kbd></td><td>Toggle Bold / Italic on the active text object.</td></tr>
+              <tr><td><kbd>Ctrl+Enter</kbd> / <kbd>Esc</kbd></td><td>Finish inline text editing and return to Select mode.</td></tr>
             </tbody>
           </table>
 
@@ -308,11 +332,15 @@
               <tr><td><kbd>Ctrl+Wheel</kbd></td><td>Zoom in / out.</td></tr>
               <tr><td><kbd>Shift+Wheel</kbd></td><td>Scroll horizontally.</td></tr>
               <tr><td>Middle / right mouse drag</td><td>Pan canvas.</td></tr>
-              <tr><td><kbd>Shift+F</kbd></td><td>Fit drawing to viewport.</td></tr>
+              <tr><td><kbd>Shift+F</kbd></td><td>Focus — hide everything except the current selection (press again to restore).</td></tr>
+              <tr><td><kbd>F</kbd> (uppercase)</td><td>Fit drawing to viewport.</td></tr>
               <tr><td><kbd>3</kbd></td><td>Zoom to selection.</td></tr>
               <tr><td><kbd>#</kbd></td><td>Toggle grid.</td></tr>
               <tr><td><kbd>Shift+5</kbd> (%)</td><td>Toggle snap.</td></tr>
               <tr><td><kbd>Alt+1</kbd> / <kbd>Alt+2</kbd> / <kbd>Alt+3</kbd></td><td>Toggle Pick Filter: Points / Lines / Loops.</td></tr>
+              <tr><td><kbd>Alt+R</kbd></td><td>Focus the L / T / W / H bounds strip in the Property Bar.</td></tr>
+              <tr><td><kbd>Tab</kbd></td><td>Toggle the left dock (Quick Edit &amp; Layers).</td></tr>
+              <tr><td><kbd>+</kbd> / <kbd>-</kbd> (in Drag wall)</td><td>Adjust Drag wall thickness (±0.5 mm; with <kbd>Shift</kbd> ±0.1 mm; with <kbd>Alt</kbd> ±1 mm).</td></tr>
               <tr><td><kbd>L</kbd></td><td>Toggle temporary loop fill preview.</td></tr>
               <tr><td><kbd>F1</kbd> / <kbd>F2</kbd> / <kbd>F3</kbd></td><td>Select/drag · Node edit · Junction mode.</td></tr>
               <tr><td><kbd>Alt+D</kbd></td><td>Toggle auto-dimension on snap.</td></tr>
@@ -322,7 +350,7 @@
               <tr><td><kbd>F9</kbd></td><td>Solve now.</td></tr>
               <tr><td><kbd>Alt+Q</kbd></td><td>Send to KaryaCNC.</td></tr>
               <tr><td><kbd>Alt+C</kbd></td><td>Open Cutting Cost Estimator.</td></tr>
-              <tr><td><kbd>?</kbd></td><td>Built-in Quick Help dialog.</td></tr>
+              <tr><td><kbd>?</kbd> / <kbd>Shift+Z</kbd></td><td>Built-in Quick Help dialog.</td></tr>
             </tbody>
           </table>
 
