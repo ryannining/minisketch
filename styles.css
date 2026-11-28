@@ -4177,6 +4177,52 @@ details.chat-ext-code pre {
 .chat-ext-dock details.chat-ext-code pre {
   max-height: 150px;
 }
+.chat-ext-sourceedit {
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.chat-ext-sourceedit summary {
+  cursor: pointer;
+  padding: 3px 6px;
+  color: var(--muted);
+  user-select: none;
+}
+.chat-ext-sourceedit-wrap {
+  position: relative;
+  border-top: 1px solid var(--line);
+}
+.chat-ext-sourceedit-hl {
+  margin: 0;
+  padding: 4px 6px;
+  min-height: 120px;
+  max-height: 260px;
+  overflow: hidden;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink);
+}
+.chat-ext-sourceedit-ta {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  padding: 4px 6px;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--ink);
+  -webkit-text-fill-color: transparent;
+  overflow: auto;
+  z-index: 2;
+}
+.chat-ext-sourceedit .btn {
+  margin: 4px 6px 6px;
+}
 .chat-ext-vers {
   display: flex;
   align-items: center;
@@ -4515,16 +4561,16 @@ details.chat-ext-code pre {
   color: transparent;
   -webkit-text-fill-color: transparent;
 }
-.ext-code-hl .hl-kw, details.chat-ext-code .hl-kw { color: var(--hl-kw); }
-.ext-code-hl .hl-str, details.chat-ext-code .hl-str { color: var(--hl-str); }
-.ext-code-hl .hl-num, details.chat-ext-code .hl-num { color: var(--hl-num); }
-.ext-code-hl .hl-com, details.chat-ext-code .hl-com { color: var(--hl-com); }
-.ext-code-hl .hl-fn, details.chat-ext-code .hl-fn { color: var(--hl-fn); }
-.ext-code-hl .hl-api, details.chat-ext-code .hl-api { color: var(--hl-api); }
-.ext-code-hl .hl-tag, details.chat-ext-code .hl-tag { color: var(--hl-tag); }
-.ext-code-hl .hl-attr, details.chat-ext-code .hl-attr { color: var(--hl-attr); }
-.ext-code-hl .hl-hex, details.chat-ext-code .hl-hex { color: var(--hl-hex); }
-.ext-code-hl .hl-punct, details.chat-ext-code .hl-punct { color: var(--hl-punct); }
+.ext-code-hl .hl-kw, details.chat-ext-code .hl-kw, .chat-ext-sourceedit-hl .hl-kw { color: var(--hl-kw); }
+.ext-code-hl .hl-str, details.chat-ext-code .hl-str, .chat-ext-sourceedit-hl .hl-str { color: var(--hl-str); }
+.ext-code-hl .hl-num, details.chat-ext-code .hl-num, .chat-ext-sourceedit-hl .hl-num { color: var(--hl-num); }
+.ext-code-hl .hl-com, details.chat-ext-code .hl-com, .chat-ext-sourceedit-hl .hl-com { color: var(--hl-com); }
+.ext-code-hl .hl-fn, details.chat-ext-code .hl-fn, .chat-ext-sourceedit-hl .hl-fn { color: var(--hl-fn); }
+.ext-code-hl .hl-api, details.chat-ext-code .hl-api, .chat-ext-sourceedit-hl .hl-api { color: var(--hl-api); }
+.ext-code-hl .hl-tag, details.chat-ext-code .hl-tag, .chat-ext-sourceedit-hl .hl-tag { color: var(--hl-tag); }
+.ext-code-hl .hl-attr, details.chat-ext-code .hl-attr, .chat-ext-sourceedit-hl .hl-attr { color: var(--hl-attr); }
+.ext-code-hl .hl-hex, details.chat-ext-code .hl-hex, .chat-ext-sourceedit-hl .hl-hex { color: var(--hl-hex); }
+.ext-code-hl .hl-punct, details.chat-ext-code .hl-punct, .chat-ext-sourceedit-hl .hl-punct { color: var(--hl-punct); }
 .ext-code-head {
   display: flex;
   align-items: center;

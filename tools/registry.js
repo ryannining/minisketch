@@ -30,6 +30,16 @@ window.MiniSketchTools = (() => {
   const DISABLED_KEY = 'minisketch.v1.ext.disabled';
   const INSTALLED_KEY = 'minisketch.v1.ext.installed';
 
+  // Best-effort line-number extraction from a JS error stack for readable toasts.
+  function errLineOf(err) {
+    try {
+      const st = String(err && err.stack || '');
+      const m = st.match(/\(.*?:(\d+):\d+\)|:(\d+):\d+/);
+      const line = +(m[1] || m[2]);
+      return isFinite(line) ? line : null;
+    } catch (e) { return null; }
+  }
+
   // When a non-built-in extension throws at runtime (only surfaces with a real
   // selection), add a "Fix with AI" button to its modal. Clicking it switches
   // the AI Chat to Extension Builder mode and sends the error + the extension's
@@ -57,9 +67,10 @@ window.MiniSketchTools = (() => {
       else chat.builderMode = 'ext';
       // send the error + extension code so the AI can revise in the chat.
       const code = tool.code || '';
+      const line = errLineOf(err);
       const prompt =
         'Ekstensi "' + (tool.label || tool.id) + '" melempar error saat dijalankan:\n' +
-        String(err && err.message || err) + '\n\n' +
+        String(err && err.message || err) + (line ? ' (line ' + line + ')' : '') + '\n\n' +
         (code ? 'Kode ekstensinya:\n```js\n' + code + '\n```\n\n' : '') +
         'Perbaiki error tersebut dan kirim ulang SATU blok kode ```js ... ``` yang lengkap dan valid untuk window.MiniSketchTools.register({...}).';
       if (chat.setTab) chat.setTab('chat');
@@ -273,7 +284,9 @@ window.MiniSketchTools = (() => {
           } catch (err) {
             console.warn('[minisketch] Extension apply error (' + tool.id + '):', err);
             if (NS.api && NS.api.toast) {
-              NS.api.toast((tool.label || tool.id) + ' error: ' + String(err && err.message || err));
+              const line = errLineOf(err);
+              NS.api.toast((tool.label || tool.id) + ' error: ' + String(err && err.message || err) +
+                (line ? ' — line ' + line : ''));
             }
             // Runtime errors (only appear with a real selection) get a path
             // back to the AI, same as validation errors have "Minta AI

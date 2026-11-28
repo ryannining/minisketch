@@ -823,12 +823,19 @@
         const editBtn = document.createElement('button');
         editBtn.type = 'button';
         editBtn.className = 'btn small';
-        editBtn.textContent = 'Edit';
+        editBtn.textContent = 'Edit with AI';
+        editBtn.title = 'Send this extension straight to the AI chat (new session, code embedded) — no tab juggling';
         editBtn.addEventListener('click', () => {
-          setEditorCode('ext-imp-code', item.code);
-          if (el('ext-imp-url') && item.sourceUrl) el('ext-imp-url').value = item.sourceUrl;
-          setStatus('ext-imp-status', 'Loaded "' + item.id + '" into editor. Click Install after editing.', '');
-          setTab('import');
+          const chat = window.MiniSketchAI;
+          if (chat && typeof chat.editExtension === 'function') {
+            chat.editExtension(item.code, {
+              id: item.id,
+              label: item.label || item.name || item.id
+            });
+          } else {
+            setEditorCode('ext-imp-code', item.code);
+            setTab('import');
+          }
         });
         actions.appendChild(editBtn);
 

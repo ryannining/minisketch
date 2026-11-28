@@ -1822,17 +1822,33 @@
     return null;
   }
 
+  const DOCK_DRAFT_KEY = 'minisketch.chat.dockDraft';
+  function saveDockDraft(code) {
+    try {
+      localStorage.setItem(DOCK_DRAFT_KEY, JSON.stringify({ code: String(code || ''), at: Date.now() }));
+    } catch (e) { /* ignore */ }
+  }
+  function loadDockDraft() {
+    try {
+      const raw = localStorage.getItem(DOCK_DRAFT_KEY);
+      if (raw) {
+        const d = JSON.parse(raw);
+        if (d && typeof d.code === 'string') return d.code;
+      }
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
   function extVersions(items) {
     const out = [];
     for (const m of items || []) {
-      if (m && m.role === 'ai') {
+      // Include the embedded code from "Edit with AI" user messages too, so the
+      // testing dock appears immediately — even before anything is sent to AI.
+      if (m && (m.role === 'ai' || m.role === 'user')) {
         const code = extractExtensionCode(m.text);
         if (code) out.push({ msg: m, code });
       }
     }
-    // The virtual source file version (only when virtual-file mode is ENABLED,
-    // the file was actively edited, and it belongs to the current session)
-    // becomes the newest candidate.
     return out;
   }
 
@@ -1852,44 +1868,29 @@
     const versions = extVersions(items || []);
     if (!versions.length) {
       NS._lastExtTotal = 0;
+      dock.hidden = false;
+      const sig = 'empty::' + curLang();
+      if (dock._dockSig === sig && dock.children && dock.children.length) return;
+      dock.innerHTML = '';
+      // Optional warning when the last AI turn finished without any code.
       let lastAi = null;
       for (let i = (items || []).length - 1; i >= 0; i--) {
         if (items[i] && items[i].role === 'ai') { lastAi = items[i]; break; }
       }
-      if (!lastAi || NS.builderMode !== 'ext' || !lastAi.done) {
-        dock.innerHTML = '';
-        dock.hidden = true;
-        dock._dockSig = '';
-        return;
-      }
-      // AI finished but produced no extractable extension code: warn and offer
-      // a one-click Continue instead of silently showing nothing.
-      dock.hidden = false;
-      const sig = 'nocode::' + (lastAi.text || '').length + '::' + curLang();
-      if (dock._dockSig === sig && dock.children && dock.children.length) return;
-      dock.innerHTML = '';
-      const bar = document.createElement('div');
-      bar.className = 'chat-ext-vers is-warn';
-      const info = document.createElement('span');
-      info.className = 'chat-ext-vers-info';
-      info.textContent = lastAi.foreignToolCalls
-        ? tr('chat.extForeignTool', 'AI finished WITHOUT extension code — its reply contained foreign tool calls (read/grep/bash). It has no file access; a correction was requested.')
-        : (lastAi.truncated
+      if (lastAi && lastAi.done && !extractExtensionCode(lastAi.text || '')) {
+        const bar = document.createElement('div');
+        bar.className = 'chat-ext-vers is-warn';
+        const info = document.createElement('span');
+        info.className = 'chat-ext-vers-info';
+        info.textContent = lastAi.truncated
           ? tr('chat.extNoCodeTrunc', 'AI finished WITHOUT extension code — reply looks truncated (fence unclosed). The code may be incomplete.')
-          : tr('chat.extNoCode', 'AI finished WITHOUT extension code. It may have answered in prose — ask again or use Continue.'));
-      const cont = document.createElement('button');
-      cont.type = 'button';
-      cont.className = 'btn small primary';
-      cont.textContent = tr('chat.continue', 'Continue');
-      cont.title = tr('chat.extContinueTitle', 'Ask the AI to continue where it stopped (resends "continue")');
-      cont.disabled = !!NS.activeAbort;
-      cont.addEventListener('click', () => {
-        if (NS.activeAbort) return;
-        send(curLang() === 'id' ? 'lanjutkan' : 'continue');
-      });
-      bar.appendChild(info);
-      bar.appendChild(cont);
-      dock.appendChild(bar);
+          : tr('chat.extNoCode', 'AI finished WITHOUT extension code. It may have answered in prose — ask again or use Continue.');
+        bar.appendChild(info);
+        dock.appendChild(bar);
+      }
+      // Always show an editable source card — paste code even when empty.
+      // Restore the last draft after a refresh so edits are not lost.
+      appendExtensionBlock(dock, null, loadDockDraft() || '', true);
       dock._dockSig = sig;
       return;
     }
@@ -1951,7 +1952,7 @@
     bar.appendChild(next);
     bar.appendChild(latestBtn);
     dock.appendChild(bar);
-    appendExtensionBlock(dock, ver.msg);
+    appendExtensionBlock(dock, ver.msg, ver.code);
     dock._dockSig = sig;
   }
 
@@ -2463,14 +2464,14 @@
     }
   }
 
-  function appendExtensionBlock(li, m) {
-    const code = extractExtensionCode(m && m.text);
-    if (!code) return;
+  function appendExtensionBlock(li, m, baseCode, force) {
+    let liveCode = String(baseCode || extractExtensionCode(m && m.text) || '');
+    if (!liveCode && !force) return;
     const reg = window.MiniSketchTools;
-    const val = (reg && reg.validateExtensionCode)
-      ? reg.validateExtensionCode(code)
+    let val = (reg && reg.validateExtensionCode)
+      ? reg.validateExtensionCode(liveCode)
       : { ok: true, errors: [], warnings: [], extracted: { id: 'custom-tool', label: 'Custom Tool' } };
-    const meta = {
+    let meta = {
       id: (val.extracted && val.extracted.id) || 'custom-tool',
       name: (val.extracted && (val.extracted.label || val.extracted.id)) || 'Custom Tool',
       label: (val.extracted && (val.extracted.label || val.extracted.id)) || 'Custom Tool',
@@ -2519,26 +2520,25 @@
     const actions = document.createElement('div');
     actions.className = 'chat-ext-actions';
 
-    if (!val.ok) {
-      const fixBtn = document.createElement('button');
-      fixBtn.type = 'button';
-      fixBtn.className = 'btn small primary';
-      fixBtn.textContent = tr('chat.extFixAi', 'Minta AI Perbaiki');
-      fixBtn.disabled = !!NS.activeAbort;
-      fixBtn.title = tr('chat.extFixAiTitle', 'Send the validation errors to AI Extension Builder so the code gets fixed');
-      fixBtn.addEventListener('click', () => {
-        if (NS.activeAbort) return;
-        if (typeof NS.setBuilderMode === 'function') NS.setBuilderMode('ext');
-        else NS.builderMode = 'ext';
-        const prompt = curLang() === 'id'
-          ? ('Kode ekstensi sebelumnya gagal validasi:\n- ' + val.errors.join('\n- ') +
-             '\n\nPerbaiki error tersebut dan kirim ulang SATU blok kode ```js ... ``` yang lengkap dan valid untuk window.MiniSketchTools.register({...}).')
-          : ('The previous extension code failed validation:\n- ' + val.errors.join('\n- ') +
-             '\n\nPlease fix those errors and resend ONE complete, valid ```js ... ``` code block for window.MiniSketchTools.register({...}).');
-        send(prompt);
-      });
-      actions.appendChild(fixBtn);
-    }
+    const fixBtn = document.createElement('button');
+    fixBtn.type = 'button';
+    fixBtn.className = 'btn small primary';
+    fixBtn.textContent = tr('chat.extFixAi', 'Minta AI Perbaiki');
+    fixBtn.disabled = !!NS.activeAbort;
+    fixBtn.style.display = val.ok ? 'none' : '';
+    fixBtn.title = tr('chat.extFixAiTitle', 'Send the validation errors to AI Extension Builder so the code gets fixed');
+    fixBtn.addEventListener('click', () => {
+      if (NS.activeAbort) return;
+      if (typeof NS.setBuilderMode === 'function') NS.setBuilderMode('ext');
+      else NS.builderMode = 'ext';
+      const prompt = curLang() === 'id'
+        ? ('Kode ekstensi sebelumnya gagal validasi:\n- ' + val.errors.join('\n- ') +
+           '\n\nPerbaiki error tersebut dan kirim ulang SATU blok kode ```js ... ``` yang lengkap dan valid untuk window.MiniSketchTools.register({...}).')
+        : ('The previous extension code failed validation:\n- ' + val.errors.join('\n- ') +
+           '\n\nPlease fix those errors and resend ONE complete, valid ```js ... ``` code block for window.MiniSketchTools.register({...}).');
+      send(prompt);
+    });
+    actions.appendChild(fixBtn);
 
     const testBtn = document.createElement('button');
     testBtn.type = 'button';
@@ -2550,7 +2550,7 @@
       : tr('chat.extCannotRun', 'Cannot run until validation passes: {err}', { err: val.errors[0] });
     testBtn.addEventListener('click', () => {
       if (!reg || !reg.installExtension) return;
-      const res = reg.installExtension(meta, code, { preview: true });
+      const res = reg.installExtension(meta, liveCode, { preview: true });
       if (!res.ok) {
         status.className = 'chat-ext-status is-err';
         status.textContent = res.error || tr('chat.extPreviewFail', 'Preview failed.');
@@ -2571,7 +2571,7 @@
       : tr('chat.extCannotInstall', 'Cannot install until validation passes: {err}', { err: val.errors[0] });
     installBtn.addEventListener('click', () => {
       if (!reg || !reg.installExtension) return;
-      const res = reg.installExtension(meta, code, { source: 'ai' });
+      const res = reg.installExtension(meta, liveCode, { source: 'ai' });
       if (!res.ok) {
         status.className = 'chat-ext-status is-err';
         status.textContent = res.error || tr('chat.extInstallFail', 'Install failed.');
@@ -2585,13 +2585,13 @@
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
     editBtn.className = 'btn small';
-    editBtn.textContent = tr('chat.extEdit', 'Edit…');
-    editBtn.title = tr('chat.extEditTitle', 'Open the extension code in Add / Import tab to inspect or edit manually');
+    editBtn.textContent = tr('chat.extEditAi', 'Edit with AI');
+    editBtn.title = tr('chat.extEditAiTitle', 'Send this extension to the AI chat (new session, code embedded)');
     editBtn.addEventListener('click', () => {
-      if (window.MiniSketchExtensions && window.MiniSketchExtensions.open) {
-        window.MiniSketchExtensions.open('import', { code });
-      } else if (api && api.toast) {
-        api.toast(tr('chat.extMgrNotLoaded', 'Extension Manager is not loaded.'));
+      if (NS.editExtension) {
+        try { NS.editExtension(liveCode, meta); } catch (e) { /* ignore */ }
+      } else if (window.MiniSketchExtensions && window.MiniSketchExtensions.open) {
+        window.MiniSketchExtensions.open('import', { code: liveCode });
       }
     });
 
@@ -2603,7 +2603,7 @@
     pubBtn.title = tr('chat.extPublishTitle', 'Publish permanently to Cloud Community, MiniSketch Server, or GitHub Marketplace');
     pubBtn.addEventListener('click', () => {
       if (window.MiniSketchExtensions && window.MiniSketchExtensions.openPublish) {
-        window.MiniSketchExtensions.openPublish(meta, code);
+        window.MiniSketchExtensions.openPublish(meta, liveCode);
       } else if (api && api.toast) {
         api.toast(tr('chat.extMgrNotLoaded', 'Extension Manager is not loaded.'));
       }
@@ -2615,7 +2615,7 @@
     dlBtn.textContent = tr('chat.extDownloadJs', 'Download .js');
     dlBtn.addEventListener('click', () => {
       const fn = (meta.id || 'extension').replace(/[^a-z0-9-_]/gi, '-') + '.js';
-      const ok = downloadExtensionFile(fn, code);
+      const ok = downloadExtensionFile(fn, liveCode);
       status.className = 'chat-ext-status ' + (ok ? 'is-ok' : 'is-err');
       status.textContent = ok
         ? tr('chat.extDownloaded', 'Downloaded {fn}', { fn })
@@ -2627,7 +2627,7 @@
     copyBtn.className = 'btn small';
     copyBtn.textContent = tr('chat.extCopy', 'Copy');
     copyBtn.addEventListener('click', async () => {
-      const ok = await copyTextToClipboard(code);
+      const ok = await copyTextToClipboard(liveCode);
       status.className = 'chat-ext-status ' + (ok ? 'is-ok' : 'is-err');
       status.textContent = ok
         ? tr('chat.extCopied', 'Code copied to clipboard.')
@@ -2642,21 +2642,93 @@
     actions.appendChild(copyBtn);
     card.appendChild(actions);
 
-    const det = document.createElement('details');
-    det.className = 'chat-ext-code';
-    const sum = document.createElement('summary');
-    sum.textContent = tr('chat.extViewSource', 'View source ({n} lines)', { n: code.split('\n').length });
-    const pre = document.createElement('pre');
-    const codeEl = document.createElement('code');
-    if (window.MiniSketchExtensions && typeof window.MiniSketchExtensions.highlightCode === 'function') {
-      codeEl.innerHTML = window.MiniSketchExtensions.highlightCode(code);
-    } else {
-      codeEl.textContent = code;
-    }
-    pre.appendChild(codeEl);
-    det.appendChild(sum);
-    det.appendChild(pre);
-    card.appendChild(det);
+    // Live state refresh after local edits
+    const refreshState = () => {
+      val = (reg && reg.validateExtensionCode)
+        ? reg.validateExtensionCode(liveCode)
+        : { ok: true, errors: [], warnings: [], extracted: { id: 'custom-tool', label: 'Custom Tool' } };
+      meta = {
+        id: (val.extracted && val.extracted.id) || 'custom-tool',
+        name: (val.extracted && (val.extracted.label || val.extracted.id)) || 'Custom Tool',
+        label: (val.extracted && (val.extracted.label || val.extracted.id)) || 'Custom Tool',
+        title: (val.extracted && val.extracted.title) || '',
+        version: (val.extracted && val.extracted.version) || '1.0.0',
+        author: (val.extracted && val.extracted.author) || 'AI Builder',
+        category: (val.extracted && val.extracted.category) || 'AI Generated',
+        description: (val.extracted && val.extracted.description) || '',
+        icon: (val.extracted && val.extracted.icon) || ''
+      };
+      status.className = 'chat-ext-status ' + (val.ok ? 'is-ok' : 'is-err');
+      if (!val.ok) {
+        status.textContent = tr('chat.extInvalid', 'Invalid: {err}', { err: val.errors[0] });
+      } else if (val.warnings && val.warnings.length) {
+        status.textContent = tr('chat.extReadyWarn', 'Ready ({n} warning: {warn})', { n: val.warnings.length, warn: val.warnings[0] });
+      } else {
+        status.textContent = tr('chat.extReady', 'Ready — syntax & contract valid');
+      }
+      fixBtn.style.display = val.ok ? 'none' : '';
+      testBtn.disabled = !val.ok;
+      testBtn.title = val.ok
+        ? tr('chat.extTestRunTitle', 'Load temporarily (not saved) and open the tool dialog to test')
+        : tr('chat.extCannotRun', 'Cannot run until validation passes: {err}', { err: val.errors[0] });
+      installBtn.disabled = !val.ok;
+      installBtn.className = 'btn small' + (val.ok ? ' primary' : '');
+      installBtn.title = val.ok
+        ? tr('chat.extInstallTitle', 'Save locally and add permanently to the Extensions panel')
+        : tr('chat.extCannotInstall', 'Cannot install until validation passes: {err}', { err: val.errors[0] });
+      pubBtn.disabled = !val.ok;
+    };
+
+    // Inline editable source — the ONLY source viewer: edit right here.
+    const srcDet = document.createElement('details');
+    srcDet.className = 'chat-ext-sourceedit';
+    const srcSum = document.createElement('summary');
+    srcSum.textContent = tr('chat.extSourceEdit', 'Source code ({n} lines) — edit & Apply', { n: liveCode.split('\n').length });
+    const srcWrap = document.createElement('div');
+    srcWrap.className = 'chat-ext-sourceedit-wrap';
+    const srcHl = document.createElement('pre');
+    srcHl.className = 'chat-ext-sourceedit-hl';
+    const srcHlCode = document.createElement('code');
+    srcHl.appendChild(srcHlCode);
+    const srcTa = document.createElement('textarea');
+    srcTa.className = 'chat-ext-sourceedit-ta';
+    srcTa.spellcheck = false;
+    srcTa.value = liveCode;
+    const paintHl = () => {
+      const v = srcTa.value;
+      if (window.MiniSketchExtensions && typeof window.MiniSketchExtensions.highlightCode === 'function') {
+        srcHlCode.innerHTML = window.MiniSketchExtensions.highlightCode(v);
+      } else {
+        srcHlCode.textContent = v;
+      }
+    };
+    paintHl();
+    let draftTimer = null;
+    srcTa.addEventListener('input', () => {
+      paintHl();
+      clearTimeout(draftTimer);
+      draftTimer = setTimeout(() => saveDockDraft(srcTa.value), 400);
+    });
+    srcTa.addEventListener('scroll', () => {
+      srcHl.scrollTop = srcTa.scrollTop;
+      srcHl.scrollLeft = srcTa.scrollLeft;
+    });
+    srcWrap.appendChild(srcHl);
+    srcWrap.appendChild(srcTa);
+    const applyBtn = document.createElement('button');
+    applyBtn.type = 'button';
+    applyBtn.className = 'btn small primary';
+    applyBtn.textContent = tr('chat.extApplyEdit', 'Apply');
+    applyBtn.addEventListener('click', () => {
+      liveCode = srcTa.value;
+      saveDockDraft(liveCode);
+      srcSum.textContent = tr('chat.extSourceEdit', 'Source code ({n} lines) — edit & Apply', { n: liveCode.split('\n').length });
+      refreshState();
+    });
+    srcDet.appendChild(srcSum);
+    srcDet.appendChild(srcWrap);
+    srcDet.appendChild(applyBtn);
+    card.appendChild(srcDet);
 
     li.appendChild(card);
   }

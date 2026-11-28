@@ -17767,6 +17767,210 @@
       // SVG in too: the same round-trip, so the AI can place a whole drawing
       // (dozens of paths in one op) instead of one add_line call per stroke.
       exportSVG,
+      // Trace a canvas to CONTOUR DATA without touching the document. Returns
+      // { ok, contours:[{pts, closed, curved, hs?}], width, height } in
+      // document millimetres (Y-down). The extension then inserts the contours
+      // itself with addPanelEntity/addPolylineEntity/addSpline inside its own
+      // pushHistory()/commit() — one undo step total.
+      traceToContours: async (canvas, opts) => {
+        try {
+          if (!canvas) return { ok: false, error: 'canvas required' };
+          const blob = await new Promise((res) => {
+            try {
+              if (typeof canvas.toBlob === 'function') canvas.toBlob((b) => res(b), 'image/png');
+              else res(null);
+            } catch (e) { res(null); }
+          });
+          if (!blob) return { ok: false, error: 'canvas.toBlob unsupported' };
+          const Tr = window.MiniSketchTrace;
+          if (!Tr || typeof Tr.traceBlobInWorker !== 'function') {
+            return { ok: false, error: 'trace engine unavailable' };
+          }
+          // subpixel gives cleaner contours; imagetracer stays available via opts.
+          const tOpts = Object.assign({ algorithm: 'subpixel' }, opts || {});
+          const tr = await Tr.traceBlobInWorker(blob, tOpts);
+          if (!tr || !tr.svg) {
+            console.warn('[traceToContours] tracer returned no svg');
+            return { ok: false, error: 'trace returned no svg' };
+          }
+          let parsed = null;
+          try {
+            parsed = svgImportParse(tr.svg);
+          } catch (err) {
+            console.warn('[traceToContours] svgImportParse failed:', err && err.message);
+            return { ok: false, error: 'svg parse failed: ' + String(err && err.message || err) };
+          }
+          const contours = [];
+          for (const item of ((parsed && parsed.items) || [])) {
+            for (const sub of (item.subpaths || [])) {
+              if (!sub.nodes || sub.nodes.length < 2) continue;
+              const curved = !!(sub.curved && sub.nodes.some(n => n.o || n.i));
+              const c = {
+                pts: sub.nodes.map(n => ({ x: n.x, y: n.y })),
+                closed: !!sub.closed,
+                curved
+              };
+              if (curved) {
+                c.hs = {
+                  o: sub.nodes.map(n => n.o ? { x: n.o.x, y: n.o.y } : null),
+                  i: sub.nodes.map(n => n.i ? { x: n.i.x, y: n.i.y } : null)
+                };
+              }
+              contours.push(c);
+            }
+          }
+          if (!contours.length) {
+            console.warn('[traceToContours] no contours found');
+            return { ok: false, error: 'trace produced no contours' };
+          }
+          return { ok: true, contours, width: tr.width || 0, height: tr.height || 0 };
+        } catch (err) {
+          console.warn('[traceToContours] unexpected:', err && err.message);
+          return { ok: false, error: String(err && err.message || err) };
+        }
+      },
+      // Render a pattern/bitmap to vector contours using the built-in image
+      // tracer. canvas = HTMLCanvasElement (or {data,width,height} ImageData).
+      // opts pass through to traceBlobInWorker (threshold, scale, simplify...).
+      // Returns { ok, ids, width, height } — the traced entities are inserted
+      // into the document as one import (own undo step); do NOT wrap this call
+      // in api.pushHistory(). Draw black on white, 2-4 px per mm for accuracy.
+      traceCanvas: async (canvas, opts) => {
+        // Fallback: if svgImportInsert rejects the traced path (returns 0),
+        // build contours directly from parsed subpaths — always yields entities.
+        const insertTraceContoursManually = (parsed) => {
+          const made = [];
+          let target = null;
+          try { target = s2w(W / 2, H / 2); } catch (e) { target = { x: 0, y: 0 }; }
+          const bb = parsed.bounds || null;
+          const off = { x: 0, y: 0 };
+          if (bb) {
+            off.x = target.x - (bb.minX + bb.maxX) / 2;
+            off.y = target.y - (bb.minY + bb.maxY) / 2;
+          }
+          for (const item of (parsed.items || [])) {
+            const col = '#000000';
+            for (const sub of (item.subpaths || [])) {
+              if (!sub.nodes || sub.nodes.length < 2) continue;
+              const nodes = sub.nodes.map(n => ({ x: n.x + off.x, y: n.y + off.y }));
+              if (sub.curved && sub.nodes.some(n => n.o || n.i)) {
+                const id = api.addSpline({
+                  pts: nodes,
+                  hs: {
+                    o: sub.nodes.map(n => n.o ? { x: n.o.x + off.x, y: n.o.y + off.y } : null),
+                    i: sub.nodes.map(n => n.i ? { x: n.i.x + off.x, y: n.i.y + off.y } : null)
+                  },
+                  closed: !!sub.closed,
+                  color: col
+                });
+                if (id) made.push(id);
+              } else {
+                const id = (sub.closed || nodes.length >= 3)
+                  ? api.addPanelEntity(nodes, col)
+                  : api.addPolylineEntity(nodes, col);
+                if (id) made.push(id);
+              }
+            }
+          }
+          return made;
+        };
+
+        try {
+          if (!canvas) return { ok: false, error: 'canvas required' };
+          const blob = await new Promise((res) => {
+            try {
+              if (typeof canvas.toBlob === 'function') canvas.toBlob((b) => res(b), 'image/png');
+              else res(null);
+            } catch (e) { res(null); }
+          });
+          if (!blob) return { ok: false, error: 'canvas.toBlob unsupported' };
+          const Tr = window.MiniSketchTrace;
+          if (!Tr || typeof Tr.traceBlobInWorker !== 'function') {
+            return { ok: false, error: 'trace engine unavailable' };
+          }
+          // subpixel gives cleaner contours; imagetracer stays available via opts.
+          const tOpts = Object.assign({ algorithm: 'subpixel' }, opts || {});
+          const tr = await Tr.traceBlobInWorker(blob, tOpts);
+          if (!tr || !tr.svg) {
+            console.warn('[traceCanvas] tracer returned no svg');
+            return { ok: false, error: 'trace returned no svg' };
+          }
+          let parsed = null;
+          try {
+            parsed = svgImportParse(tr.svg);
+          } catch (err) {
+            console.warn('[traceCanvas] svgImportParse failed:', err && err.message);
+            return { ok: false, error: 'svg parse failed: ' + String(err && err.message || err) };
+          }
+          if (!parsed || !parsed.items || !parsed.items.length) {
+            console.warn('[traceCanvas] svg produced no items');
+            return { ok: false, error: 'svg parse produced no items' };
+          }
+          console.warn('[traceCanvas] parsed items:',
+            parsed.items.map(it => it.kind + (Array.isArray(it.subpaths) ? '(' + it.subpaths.length + ')' : '')).join(', '),
+            '· skipped=', parsed.skipped, '· bounds=', parsed.bounds || null);
+          let ins = null;
+          try {
+            ins = svgImportInsert(parsed, {
+              keepGroups: false,
+              fillMode: 'none',
+              textMode: 'note',
+              avoidExisting: true
+            });
+          } catch (err) {
+            console.warn('[traceCanvas] svgImportInsert failed:', err && err.message);
+            return { ok: false, error: 'svg insert failed: ' + String(err && err.message || err) };
+          }
+          const ids = (ins && Array.isArray(ins.entities)) ? ins.entities : [];
+          if (!ids.length) {
+            console.warn('[traceCanvas] svg import inserted 0 entities — trying manual contour fallback');
+            const manual = insertTraceContoursManually(parsed);
+            if (manual.length) {
+              try { api.commit(); } catch (e) { /* ignore */ }
+              console.warn('[traceCanvas] manual fallback produced', manual.length, 'entities');
+              return { ok: true, ids: manual, width: tr.width || 0, height: tr.height || 0, fallback: true };
+            }
+            let preview = null;
+            try {
+              if (canvas && typeof canvas.toDataURL === 'function') {
+                preview = canvas.toDataURL('image/png');
+              }
+            } catch (e) { /* ignore */ }
+            if (preview) {
+              try {
+                // Render the traced bitmap inline in DevTools console.
+                console.log('%cGirih canvas preview (traced bitmap)', 'font-size:12px;font-weight:bold;');
+                console.log('%c ', 'font-size:240px;line-height:240px;background:url("' + preview + '") center / contain no-repeat;');
+              } catch (e) { /* ignore */ }
+            }
+            const firstItem = parsed.items[0] || {};
+            const firstSub = (firstItem.subpaths && firstItem.subpaths[0]) || {};
+            return {
+              ok: false,
+              error: 'svg import inserted 0 entities (manual fallback also empty)',
+              debug: {
+                kinds: parsed.items.map(it => it.kind),
+                skipped: parsed.skipped || {},
+                svgHead: String(tr.svg || '').slice(0, 1200),
+                bounds: parsed.bounds || null,
+                firstItem: {
+                  kind: firstItem.kind,
+                  subpaths: firstItem.subpaths ? firstItem.subpaths.length : 0,
+                  nodes: firstSub.nodes ? firstSub.nodes.length : 0,
+                  closed: !!firstSub.closed,
+                  curved: !!firstSub.curved,
+                  sample: firstSub.nodes ? firstSub.nodes.slice(0, 3) : null
+                },
+                preview: preview || null
+              }
+            };
+          }
+          return { ok: true, ids, width: tr.width || 0, height: tr.height || 0 };
+        } catch (err) {
+          console.warn('[traceCanvas] unexpected:', err && err.message);
+          return { ok: false, error: String(err && err.message || err) };
+        }
+      },
       svgImportParse,
       svgImportInsert,
       // Font family names available for text (from the font catalogue). Lets a
