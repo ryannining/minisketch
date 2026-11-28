@@ -197,7 +197,7 @@ window.MiniSketchTools = (() => {
     modal.querySelectorAll('input, select, textarea').forEach(el => {
       if (!el.id) return;
       const type = (el.getAttribute('type') || '').toLowerCase();
-      if (type === 'radio') return;               // radio groups are not portable
+      if (type === 'radio' || type === 'file') return;   // radio/file not portable
       if (type === 'checkbox') {
         out[el.id] = { k: 'b', v: !!el.checked };
       } else {
@@ -229,6 +229,7 @@ window.MiniSketchTools = (() => {
       if (rec.k === 'b') {
         el.checked = !!rec.v;
       } else {
+        if (el.tagName === 'INPUT' && (el.getAttribute('type') || '').toLowerCase() === 'file') return;
         const val = String(rec.v == null ? '' : rec.v);
         if (el.tagName === 'SELECT') {
           if (Array.from(el.options).some(o => o.value === val)) el.value = val;
