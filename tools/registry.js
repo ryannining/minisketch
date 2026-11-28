@@ -160,9 +160,18 @@ window.MiniSketchTools = (() => {
   }
 
   function saveInstalled() {
-    const next = JSON.stringify(installedRecords);
-    try { localStorage.setItem(INSTALLED_KEY, next); } catch (err) {
-      // quota hit: the cache is dropped; the IDB canonical copy still holds it
+    // localStorage holds only lightweight MANIFEST (no code) so quota stays tiny;
+    // the full records (incl. code) live in IndexedDB.
+    const slim = installedRecords.map(r => ({
+      id: r.id,
+      label: r.label,
+      version: r.version,
+      source: r.source,
+      sourceUrl: r.sourceUrl,
+      catalogUrl: r.catalogUrl
+    }));
+    try { localStorage.setItem(INSTALLED_KEY, JSON.stringify(slim)); } catch (err) {
+      // quota hit: the manifest cache is dropped; the IDB canonical copy still holds it
       try { localStorage.removeItem(INSTALLED_KEY); } catch (e2) {}
     }
     extIdbReplaceAll(installedRecords);
@@ -790,23 +799,21 @@ window.MiniSketchTools = (() => {
     return false;
   }
 
-  // When localStorage holds no extension cache (quota kept it from being
-  // written, or storage was cleared), restore the canonical copies from
-  // IndexedDB as soon as it resolves and re-populate the tool row.
   function refreshFromIdb() {
-    let haveLs = false;
-    try { haveLs = !!(localStorage.getItem(INSTALLED_KEY)); } catch (err) { haveLs = false; }
-    if (haveLs) return Promise.resolve();
     return extIdbGetAll().then((records) => {
       const fresh = records.filter(r => r && r.id && r.code);
-      if (!fresh.length || fresh.length === installedRecords.length) return;
-      installedRecords = fresh;
-      let mounted = 0;
-      for (const rec of fresh) if (mountRecord(rec)) mounted++;
+      const existing = new Set(installedRecords.map(r => r.id));
+      const add = fresh.filter(r => !existing.has(r.id));
+      if (!add.length) return;
+      for (const rec of add) {
+        installedRecords.push(rec);
+        mountRecord(rec);
+      }
       for (const tool of NS.list) {
         if (!tool._mounted) mountToolModalAndWire(tool);
       }
-      if (mounted) { syncToolsRow(); notifyChange(); }
+      syncToolsRow();
+      notifyChange();
     }).catch(() => {});
   }
 
