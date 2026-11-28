@@ -829,14 +829,16 @@ window.MiniSketchTools = (() => {
     if (!isLoopbackHost()) return [];
     let list = [];
     try {
-      const mr = await fetch('extensions/saved/manifest.json', { cache: 'no-cache' })
-        .then(r => r.json()).catch(() => null);
-      if (mr && Array.isArray(mr.saved) && mr.saved.length) {
-        list = mr.saved;
-      } else {
-        const res = await fetch('api/extensions/saved', { cache: 'no-cache' });
-        const j = await res.json().catch(() => ({}));
-        list = (j && Array.isArray(j.saved)) ? j.saved : [];
+      // Dynamic API first (always reflects the live folder).
+      const res = await fetch('api/extensions/saved', { cache: 'no-cache' });
+      const j = await res.json().catch(() => ({}));
+      list = (j && Array.isArray(j.saved)) ? j.saved : [];
+      if (!list.length) {
+        const mr = await fetch('extensions/saved/manifest.json', { cache: 'no-cache' })
+          .then(r => r.json()).catch(() => null);
+        if (mr && Array.isArray(mr.saved) && mr.saved.length) {
+          list = mr.saved;
+        }
       }
       if (!list.length) {
         const PROBE = ['bake-nomor', 'halftone-panel', 'mashrabiya', 'penrose-panel', 'perturbed-honeycomb', 'voronoi-panel'];

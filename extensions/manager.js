@@ -989,18 +989,19 @@
       let savedList = [];
       const dbg = { manifest: 0, api: 0, probe: 0 };
       try {
-        // Static asset manifest first (works even before the Go bridge is
-        // rebuilt with the /api/extensions endpoints).
-        const mr = await fetch('extensions/saved/manifest.json', { cache: 'no-cache' })
-          .then(r => r.json()).catch(() => null);
-        if (mr && Array.isArray(mr.saved) && mr.saved.length) {
-          savedList = mr.saved;
-          dbg.manifest = mr.saved.length;
-        } else {
-          const resp = await fetch('api/extensions/saved', { cache: 'no-cache' });
-          const j = await resp.json().catch(() => ({}));
-          savedList = (j && Array.isArray(j.saved)) ? j.saved : [];
-          dbg.api = savedList.length;
+        // Dynamic API first (always reflects the live folder). Static manifest is
+        // only a fallback when the API is unavailable (e.g. old Go build).
+        const resp = await fetch('api/extensions/saved', { cache: 'no-cache' });
+        const j = await resp.json().catch(() => ({}));
+        savedList = (j && Array.isArray(j.saved)) ? j.saved : [];
+        dbg.api = savedList.length;
+        if (!savedList.length) {
+          const mr = await fetch('extensions/saved/manifest.json', { cache: 'no-cache' })
+            .then(r => r.json()).catch(() => null);
+          if (mr && Array.isArray(mr.saved) && mr.saved.length) {
+            savedList = mr.saved;
+            dbg.manifest = mr.saved.length;
+          }
         }
         // Last-resort safety net: probe the known saved files straight from the
         // static asset folder (these always ride along with web updates).
