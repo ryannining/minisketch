@@ -17765,6 +17765,112 @@
   }
 
   function toolApi() {
+    // Local loaders used by imageToPixels / imageToContours (must be declared
+    // before the returned object; `this` is unreliable inside object methods).
+    const imageToCanvas = async (src, opts) => {
+      try {
+        if (!src) return { ok: false, error: 'image source required' };
+        let blob = null;
+        if (typeof src === 'string') {
+          const dataUrl = /^data:/.test(src) ? src : null;
+          if (dataUrl) {
+            try {
+              const res = await fetch(dataUrl);
+              blob = await res.blob();
+            } catch (e) { return { ok: false, error: 'dataURL decode failed' }; }
+          } else {
+            try {
+              const res = await fetch(src);
+              if (!res.ok) return { ok: false, error: 'fetch failed: HTTP ' + res.status };
+              blob = await res.blob();
+            } catch (e) { return { ok: false, error: 'fetch failed' }; }
+          }
+        } else if (typeof src.arrayBuffer === 'function' || src instanceof Blob) {
+          blob = src;
+        } else {
+          return { ok: false, error: 'unsupported image source' };
+        }
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        await new Promise((res, rej) => {
+          img.onload = res;
+          img.onerror = () => rej(new Error('image decode failed'));
+          img.src = url;
+        });
+        const o = opts || {};
+        const max = o.maxDim || 2048;
+        const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+        const width = Math.max(1, Math.round(img.naturalWidth * scale));
+        const height = Math.max(1, Math.round(img.naturalHeight * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+        try { URL.revokeObjectURL(url); } catch (e) { /* ignore */ }
+        return { ok: true, canvas, width, height, image: img };
+      } catch (err) {
+        return { ok: false, error: String(err && err.message || err) };
+      }
+    };
+    const traceToContours = async (canvas, opts) => {
+      try {
+        if (!canvas) return { ok: false, error: 'canvas required' };
+        const blob = await new Promise((res) => {
+          try {
+            if (typeof canvas.toBlob === 'function') canvas.toBlob((b) => res(b), 'image/png');
+            else res(null);
+          } catch (e) { res(null); }
+        });
+        if (!blob) return { ok: false, error: 'canvas.toBlob unsupported' };
+        const Tr = window.MiniSketchTrace;
+        if (!Tr || typeof Tr.traceBlobInWorker !== 'function') {
+          return { ok: false, error: 'trace engine unavailable' };
+        }
+        const tOpts = Object.assign({ algorithm: 'subpixel' }, opts || {});
+        const tr = await Tr.traceBlobInWorker(blob, tOpts);
+        if (!tr || !tr.svg) {
+          console.warn('[traceToContours] tracer returned no svg');
+          return { ok: false, error: 'trace returned no svg' };
+        }
+        let parsed = null;
+        try {
+          parsed = svgImportParse(tr.svg);
+        } catch (err) {
+          console.warn('[traceToContours] svgImportParse failed:', err && err.message);
+          return { ok: false, error: 'svg parse failed: ' + String(err && err.message || err) };
+        }
+        const contours = [];
+        for (const item of ((parsed && parsed.items) || [])) {
+          for (const sub of (item.subpaths || [])) {
+            if (!sub.nodes || sub.nodes.length < 2) continue;
+            const curved = !!(sub.curved && sub.nodes.some(n => n.o || n.i));
+            const c = {
+              pts: sub.nodes.map(n => ({ x: n.x, y: n.y })),
+              closed: !!sub.closed,
+              curved
+            };
+            if (curved) {
+              c.hs = {
+                o: sub.nodes.map(n => n.o ? { x: n.o.x, y: n.o.y } : null),
+                i: sub.nodes.map(n => n.i ? { x: n.i.x, y: n.i.y } : null)
+              };
+            }
+            contours.push(c);
+          }
+        }
+        if (!contours.length) {
+          console.warn('[traceToContours] no contours found');
+          return { ok: false, error: 'trace produced no contours' };
+        }
+        return { ok: true, contours, width: tr.width || 0, height: tr.height || 0 };
+      } catch (err) {
+        console.warn('[traceToContours] unexpected:', err && err.message);
+        return { ok: false, error: String(err && err.message || err) };
+      }
+    };
     return {
       // `state` is let and REPLACED (undo, new, load, demo), so it must be read
       // through a getter: a copied reference goes stale the moment a document
@@ -17814,66 +17920,19 @@
       // Load an image (File/Blob, dataURL, or URL) into an offscreen canvas.
       // Returns { ok, canvas, width, height, image } — the canvas is ready for
       // traceToContours/traceCanvas or for direct 2D drawing in the extension.
-      imageToCanvas: async (src, opts) => {
-        try {
-          if (!src) return { ok: false, error: 'image source required' };
-          let blob = null;
-          if (typeof src === 'string') {
-            const dataUrl = /^data:/.test(src) ? src : null;
-            if (dataUrl) {
-              try {
-                const res = await fetch(dataUrl);
-                blob = await res.blob();
-              } catch (e) { return { ok: false, error: 'dataURL decode failed' }; }
-            } else {
-              try {
-                const res = await fetch(src);
-                if (!res.ok) return { ok: false, error: 'fetch failed: HTTP ' + res.status };
-                blob = await res.blob();
-              } catch (e) { return { ok: false, error: 'fetch failed' }; }
-            }
-          } else if (typeof src.arrayBuffer === 'function' || src instanceof Blob) {
-            blob = src;
-          } else {
-            return { ok: false, error: 'unsupported image source' };
-          }
-          const url = URL.createObjectURL(blob);
-          const img = new Image();
-          await new Promise((res, rej) => {
-            img.onload = res;
-            img.onerror = () => rej(new Error('image decode failed'));
-            img.src = url;
-          });
-          const o = opts || {};
-          const max = o.maxDim || 2048;
-          const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
-          const width = Math.max(1, Math.round(img.naturalWidth * scale));
-          const height = Math.max(1, Math.round(img.naturalHeight * scale));
-          const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, width, height);
-          ctx.drawImage(img, 0, 0, width, height);
-          try { URL.revokeObjectURL(url); } catch (e) { /* ignore */ }
-          return { ok: true, canvas, width, height, image: img };
-        } catch (err) {
-          return { ok: false, error: String(err && err.message || err) };
-        }
-      },
+      imageToCanvas,
       // Convenience: load an image and trace it straight to contour data.
       imageToContours: async (src, opts) => {
-        const img = await this.imageToCanvas(src, opts);
+        const img = await imageToCanvas(src, opts);   // local fn, not this.*
         if (!img.ok) return img;
-        return this.traceToContours(img.canvas, opts);
+        return traceToContours(img.canvas, opts);
       },
       // Load an image and return RAW pixel data + geometry so an extension can
       // process the raster itself (e.g. halftone sizing from brightness) without
       // going through the tracer. Returns { ok, width, height, data, data32,
       // get(x,y), luminance(x,y) }.
       imageToPixels: async (src, opts) => {
-        const img = await this.imageToCanvas(src, opts);
+        const img = await imageToCanvas(src, opts);   // local fn, not this.*
         if (!img.ok) return img;
         try {
           const ctx = img.canvas.getContext('2d');
@@ -17899,63 +17958,7 @@
       // document millimetres (Y-down). The extension then inserts the contours
       // itself with addPanelEntity/addPolylineEntity/addSpline inside its own
       // pushHistory()/commit() — one undo step total.
-      traceToContours: async (canvas, opts) => {
-        try {
-          if (!canvas) return { ok: false, error: 'canvas required' };
-          const blob = await new Promise((res) => {
-            try {
-              if (typeof canvas.toBlob === 'function') canvas.toBlob((b) => res(b), 'image/png');
-              else res(null);
-            } catch (e) { res(null); }
-          });
-          if (!blob) return { ok: false, error: 'canvas.toBlob unsupported' };
-          const Tr = window.MiniSketchTrace;
-          if (!Tr || typeof Tr.traceBlobInWorker !== 'function') {
-            return { ok: false, error: 'trace engine unavailable' };
-          }
-          // subpixel gives cleaner contours; imagetracer stays available via opts.
-          const tOpts = Object.assign({ algorithm: 'subpixel' }, opts || {});
-          const tr = await Tr.traceBlobInWorker(blob, tOpts);
-          if (!tr || !tr.svg) {
-            console.warn('[traceToContours] tracer returned no svg');
-            return { ok: false, error: 'trace returned no svg' };
-          }
-          let parsed = null;
-          try {
-            parsed = svgImportParse(tr.svg);
-          } catch (err) {
-            console.warn('[traceToContours] svgImportParse failed:', err && err.message);
-            return { ok: false, error: 'svg parse failed: ' + String(err && err.message || err) };
-          }
-          const contours = [];
-          for (const item of ((parsed && parsed.items) || [])) {
-            for (const sub of (item.subpaths || [])) {
-              if (!sub.nodes || sub.nodes.length < 2) continue;
-              const curved = !!(sub.curved && sub.nodes.some(n => n.o || n.i));
-              const c = {
-                pts: sub.nodes.map(n => ({ x: n.x, y: n.y })),
-                closed: !!sub.closed,
-                curved
-              };
-              if (curved) {
-                c.hs = {
-                  o: sub.nodes.map(n => n.o ? { x: n.o.x, y: n.o.y } : null),
-                  i: sub.nodes.map(n => n.i ? { x: n.i.x, y: n.i.y } : null)
-                };
-              }
-              contours.push(c);
-            }
-          }
-          if (!contours.length) {
-            console.warn('[traceToContours] no contours found');
-            return { ok: false, error: 'trace produced no contours' };
-          }
-          return { ok: true, contours, width: tr.width || 0, height: tr.height || 0 };
-        } catch (err) {
-          console.warn('[traceToContours] unexpected:', err && err.message);
-          return { ok: false, error: String(err && err.message || err) };
-        }
-      },
+      traceToContours,
       // Render a pattern/bitmap to vector contours using the built-in image
       // tracer. canvas = HTMLCanvasElement (or {data,width,height} ImageData).
       // opts pass through to traceBlobInWorker (threshold, scale, simplify...).
