@@ -809,6 +809,39 @@ window.MiniSketchTools = (() => {
     }).catch(() => {});
   }
 
+  // Load extensions saved on the server disk (extensions/saved/*.js) — loopback
+  // only. This makes the disk copy a real safety net: after browser storage is
+  // cleared, tools come back from disk automatically.
+  function isLoopbackHost() {
+    const h = String(typeof location !== 'undefined' && location.hostname || '');
+    return h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1';
+  }
+  NS.loadSavedFromDisk = async () => {
+    if (!isLoopbackHost()) return [];
+    let list = [];
+    try {
+      const res = await fetch('api/extensions/saved', { cache: 'no-cache' });
+      const j = await res.json().catch(() => ({}));
+      list = (j && Array.isArray(j.saved)) ? j.saved : [];
+    } catch (e) { return []; }
+    let mounted = 0;
+    const seen = new Set(installedRecords.map(r => r.id));
+    for (const rec of list) {
+      if (!rec || !rec.id || !rec.code || seen.has(rec.id)) continue;
+      if (NS.list.some(t => t.id === rec.id)) continue;
+      installedRecords.push({ id: rec.id, code: rec.code, label: rec.label || '', source: 'saved', sourceUrl: '' });
+      seen.add(rec.id);
+      if (mountRecord(installedRecords[installedRecords.length - 1])) mounted++;
+    }
+    if (mounted) {
+      saveInstalled();
+      for (const tool of NS.list) if (!tool._mounted) mountToolModalAndWire(tool);
+      syncToolsRow();
+      notifyChange();
+    }
+    return list;
+  };
+
   // Called once by app.js init(): loads saved extensions, injects modals, and
   // populates enabled tool buttons into #tools-row.
   NS.mount = (api, host) => {
@@ -826,6 +859,8 @@ window.MiniSketchTools = (() => {
     notifyChange();
     // Async fallback when the localStorage cache is missing (quota was hit)
     refreshFromIdb();
+    // Also pull tools saved on the server disk (loopback) — safety net.
+    NS.loadSavedFromDisk();
   };
 
   NS.open = (id, params) => {

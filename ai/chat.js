@@ -2282,6 +2282,32 @@
     _lightboxEl.hidden = false;
   }
 
+  function isLoopbackHost() {
+    const h = String(location && location.hostname || '');
+    return h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1';
+  }
+
+  // Persist the extension source to the server's disk (loopback only). Returns
+  // {ok} — used so AI-built tools survive browser storage being cleared.
+  async function saveExtensionToDisk(code, meta) {
+    try {
+      if (!isLoopbackHost()) return { ok: false, error: 'loopback only' };
+      const res = await fetch('api/extensions/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: (meta && meta.id) || 'custom-tool',
+          label: (meta && (meta.label || meta.name)) || 'Custom Tool',
+          code: String(code || '')
+        })
+      });
+      const j = await res.json().catch(() => ({}));
+      return j || { ok: false, error: 'bad response' };
+    } catch (err) {
+      return { ok: false, error: String(err && err.message || err) };
+    }
+  }
+
   async function copyTextToClipboard(text) {
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -2440,11 +2466,16 @@
       if (hasReg(m[1])) blocks.push(m[1].trim());
     }
     if (blocks.length) return blocks[blocks.length - 1];
-    // Fallback: raw un-fenced code if the model omitted markdown fences
-    if (/^\s*(?:\(\(\)\s*=>|\(function\s*\(|\/\/|\/\*|(?:window\.)?MiniSketchTools\.register\s*\()/m.test(raw)) {
-      return raw.trim();
-    }
-    return null;
+    // Fallback: raw un-fenced code if the model omitted markdown fences.
+    // Start at the actual code (IIFE or register(...)) and cut after the final
+    // `})();` so stray narrative before/after is never included.
+    const startRe = /(?:^|\n)\s*(?:\(\s*\(\)\s*=>|\(function\s*\(|\/\/|\/\*|(?:window\.)?MiniSketchTools\.register\s*\()/;
+    const st = raw.search(startRe);
+    if (st < 0) return null;
+    let code = raw.slice(st);
+    const endIdx = code.lastIndexOf('})();');
+    if (endIdx >= 0) code = code.slice(0, endIdx + 5);
+    return hasReg(code) ? code.trim() : null;
   }
 
   function downloadExtensionFile(filename, content) {
@@ -2580,6 +2611,13 @@
       status.className = 'chat-ext-status is-ok';
       status.textContent = tr('chat.extInstalled', 'Installed to Extensions panel ({id}).', { id: res.tool.id });
       if (api && api.toast) api.toast(tr('chat.extToastInstalled', 'Extension "{name}" installed', { name: res.tool.label || res.tool.id }));
+      // Also persist to disk when running from 127.0.0.1/localhost (no Google
+      // login available there) so the tool survives browser storage clearing.
+      saveExtensionToDisk(liveCode, meta).then((r) => {
+        if (r && r.ok) {
+          if (api && api.toast) api.toast(tr('chat.extSavedDisk', 'Also saved to server disk ({file})', { file: r.file }));
+        }
+      });
     });
 
     const editBtn = document.createElement('button');
@@ -2622,6 +2660,20 @@
         : tr('chat.extDownloadFail', 'Download failed.');
     });
 
+    const saveDiskBtn = document.createElement('button');
+    saveDiskBtn.type = 'button';
+    saveDiskBtn.className = 'btn small';
+    saveDiskBtn.textContent = tr('chat.extSaveDisk', 'Save to disk');
+    saveDiskBtn.title = tr('chat.extSaveDiskTitle', 'Write this extension to the server disk (works on 127.0.0.1/localhost)');
+    saveDiskBtn.addEventListener('click', () => {
+      saveExtensionToDisk(liveCode, meta).then((r) => {
+        status.className = 'chat-ext-status ' + ((r && r.ok) ? 'is-ok' : 'is-err');
+        status.textContent = (r && r.ok)
+          ? tr('chat.extSavedDisk', 'Saved to server disk ({file})', { file: (r && r.file) || '' })
+          : tr('chat.extSaveDiskFail', 'Save failed: {err}', { err: (r && r.error) || 'loopback only' });
+      });
+    });
+
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
     copyBtn.className = 'btn small';
@@ -2637,6 +2689,7 @@
     actions.appendChild(testBtn);
     actions.appendChild(installBtn);
     actions.appendChild(editBtn);
+    actions.appendChild(saveDiskBtn);
     actions.appendChild(pubBtn);
     actions.appendChild(dlBtn);
     actions.appendChild(copyBtn);
@@ -2987,4 +3040,5 @@
   NS.renderLog = renderLog;
   NS.bridgeUrl = bridgeUrl;
   NS.extractExtensionCode = extractExtensionCode;
+  NS.saveExtensionToDisk = saveExtensionToDisk;
 })();

@@ -807,18 +807,6 @@
       toggleLabel.appendChild(chkTxt);
       actions.appendChild(toggleLabel);
 
-      if (item.enabled) {
-        const openBtn = document.createElement('button');
-        openBtn.type = 'button';
-        openBtn.className = 'btn small';
-        openBtn.textContent = 'Open';
-        openBtn.addEventListener('click', () => {
-          NS.close();
-          window.MiniSketchTools.open(item.id);
-        });
-        actions.appendChild(openBtn);
-      }
-
       if (!item.builtIn && item.code) {
         const editBtn = document.createElement('button');
         editBtn.type = 'button';
@@ -839,6 +827,38 @@
         });
         actions.appendChild(editBtn);
 
+        const saveBtn = document.createElement('button');
+        saveBtn.type = 'button';
+        saveBtn.className = 'btn small';
+        saveBtn.textContent = 'Save to disk';
+        saveBtn.title = 'Write this extension to the server disk (works on 127.0.0.1/localhost)';
+        saveBtn.addEventListener('click', async () => {
+          const chat = window.MiniSketchAI;
+          const fn = (chat && chat.saveExtensionToDisk) || null;
+          if (!fn) {
+            saveBtn.textContent = '✗ no AI';
+            setTimeout(() => { saveBtn.textContent = 'Save to disk'; }, 1800);
+            return;
+          }
+          saveBtn.disabled = true;
+          saveBtn.textContent = 'Saving…';
+          const r = await fn(item.code, {
+            id: item.id,
+            label: item.label || item.name || item.id
+          });
+          saveBtn.disabled = false;
+          if (r && r.ok) {
+            saveBtn.textContent = '✓ Saved';
+            saveBtn.title = 'Saved to server disk: ' + (r.file || '');
+            setTimeout(() => { saveBtn.textContent = 'Save to disk'; }, 2200);
+          } else {
+            saveBtn.textContent = '✗ failed';
+            saveBtn.title = 'Save failed: ' + ((r && r.error) || 'loopback only');
+            setTimeout(() => { saveBtn.textContent = 'Save to disk'; }, 2200);
+          }
+        });
+        actions.appendChild(saveBtn);
+
         const pubBtn = document.createElement('button');
         pubBtn.type = 'button';
         pubBtn.className = 'btn small';
@@ -847,15 +867,6 @@
           NS.openPublish(item, item.code);
         });
         actions.appendChild(pubBtn);
-
-        const expBtn = document.createElement('button');
-        expBtn.type = 'button';
-        expBtn.className = 'btn small';
-        expBtn.textContent = 'Export .js';
-        expBtn.addEventListener('click', () => {
-          downloadJsFile(item.id + '.js', item.code);
-        });
-        actions.appendChild(expBtn);
 
         const delBtn = document.createElement('button');
         delBtn.type = 'button';
@@ -870,6 +881,26 @@
           const res = window.MiniSketchTools.uninstallExtension(item.id);
           if (!res.ok && api && api.toast) api.toast(res.error);
           syncUpdateControls();
+          // If a disk copy exists (loopback), offer to remove it too.
+          const h = String(location && location.hostname || '');
+          const loopback = h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1';
+          if (!loopback) return;
+          let diskExists = false;
+          try {
+            const rj = await fetch('api/extensions/saved', { cache: 'no-cache' }).then(r => r.json()).catch(() => ({}));
+            diskExists = !!(rj && Array.isArray(rj.saved) && rj.saved.some(s => s.id === item.id));
+          } catch (e) { diskExists = false; }
+          if (!diskExists) return;
+          const delDisk = window.uiConfirm
+            ? await window.uiConfirm('Hapus juga salinan disk (' + item.id + '.js)?', { danger: true })
+            : false;
+          if (!delDisk) return;
+          try {
+            const dr = await fetch('api/extensions/saved?id=' + encodeURIComponent(item.id), { method: 'DELETE' }).then(r => r.json()).catch(() => ({}));
+            if (dr && dr.ok) {
+              if (api && api.toast) api.toast('Salinan disk dihapus: ' + (dr.file || ''));
+            }
+          } catch (e) { /* ignore */ }
         });
         actions.appendChild(delBtn);
       }
@@ -881,7 +912,7 @@
   }
 
   // ---- Tab 2: Marketplace ------------------------------------------------
-  function renderMarketplace() {
+  async function renderMarketplace() {
     const listEl = el('ext-mkt-list');
     const catSel = el('ext-mkt-cat');
     if (!listEl) return;
@@ -924,6 +955,105 @@
       return (it.name + ' ' + it.id + ' ' + it.description + ' ' + it.author + ' ' + (it.category || '')).toLowerCase().includes(q);
     });
 
+    const installed = (window.MiniSketchTools && window.MiniSketchTools.getCatalogState)
+      ? window.MiniSketchTools.getCatalogState()
+      : [];
+    const instMap = new Map(installed.map(x => [x.id, x]));
+
+    // Loopback only: list extensions saved on the server disk as a "Saved
+    // locally (disk)" group, so they stay visible even when they are not (yet)
+    // installed — and even when the catalog itself is empty.
+    {
+      const h = String(location && location.hostname || '');
+      const loopback = h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1';
+      let savedList = [];
+      try {
+        const resp = await fetch('api/extensions/saved', { cache: 'no-cache' });
+        const j = await resp.json().catch(() => ({}));
+        savedList = (j && Array.isArray(j.saved)) ? j.saved : [];
+      } catch (e) {
+        console.warn('[mkt saved] fetch failed:', e && e.message);
+        savedList = [];
+      }
+      console.warn('[mkt saved] loopback=', loopback, 'saved=', savedList.length);
+      const installed2 = (window.MiniSketchTools && window.MiniSketchTools.getCatalogState)
+        ? window.MiniSketchTools.getCatalogState()
+        : [];
+      const instMap2 = new Map(installed2.map(x => [x.id, x]));
+      if (savedList.length) {
+          const hdr = document.createElement('div');
+          hdr.className = 'ext-mkt-saved-hdr';
+          hdr.textContent = 'Saved locally (disk) — ' + savedList.length;
+          listEl.appendChild(hdr);
+          for (const rec of savedList) {
+            const row = document.createElement('div');
+            row.className = 'ext-row';
+            const main = document.createElement('div');
+            main.className = 'ext-row-main';
+            const titleLine = document.createElement('div');
+            titleLine.className = 'ext-row-title';
+            const iconSpan = document.createElement('span');
+            iconSpan.className = 'ext-row-ic';
+            iconSpan.innerHTML = sanitizeIcon('');
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'ext-name';
+            nameSpan.textContent = rec.label || rec.id;
+            const metaSpan = document.createElement('span');
+            metaSpan.className = 'ext-meta';
+            metaSpan.textContent = '· local disk · ' + (rec.file || '');
+            titleLine.appendChild(iconSpan);
+            titleLine.appendChild(nameSpan);
+            titleLine.appendChild(metaSpan);
+            main.appendChild(titleLine);
+            row.appendChild(main);
+
+            const actions = document.createElement('div');
+            actions.className = 'ext-row-actions';
+            const instRec = instMap2.get(rec.id);
+            if (instRec && !instRec.builtIn) {
+              const installedTag = document.createElement('span');
+              installedTag.className = 'ext-meta';
+              installedTag.textContent = 'Installed';
+              actions.appendChild(installedTag);
+            } else {
+              const goBtn = document.createElement('button');
+              goBtn.type = 'button';
+              goBtn.className = 'btn small primary';
+              goBtn.textContent = 'Install';
+              goBtn.addEventListener('click', () => {
+                const reg = window.MiniSketchTools;
+                if (!reg || !reg.installExtension) return;
+                const res = reg.installExtension({
+                  id: rec.id,
+                  label: rec.label || rec.id,
+                  name: rec.label || rec.id
+                }, rec.code, { source: 'saved' });
+                if (res && res.ok && api && api.toast) api.toast('Installed from disk: ' + rec.id);
+                renderMarketplace();
+              });
+              actions.appendChild(goBtn);
+            }
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'btn small danger';
+            delBtn.textContent = 'Delete';
+            delBtn.addEventListener('click', async () => {
+              const ok = window.uiConfirm
+                ? await window.uiConfirm('Hapus salinan disk (' + (rec.file || rec.id) + ')?', { danger: true })
+                : true;
+              if (!ok) return;
+              try {
+                await fetch('api/extensions/saved?id=' + encodeURIComponent(rec.id), { method: 'DELETE' });
+              } catch (e) { /* ignore */ }
+              renderMarketplace();
+            });
+            actions.appendChild(delBtn);
+            row.appendChild(actions);
+            listEl.appendChild(row);
+          }
+        }
+    }
+
     if (!filtered.length) {
       const emp = document.createElement('div');
       emp.className = 'ext-empty';
@@ -931,11 +1061,6 @@
       listEl.appendChild(emp);
       return;
     }
-
-    const installed = (window.MiniSketchTools && window.MiniSketchTools.getCatalogState)
-      ? window.MiniSketchTools.getCatalogState()
-      : [];
-    const instMap = new Map(installed.map(x => [x.id, x]));
 
     for (const item of filtered) {
       const row = document.createElement('div');

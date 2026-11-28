@@ -4446,11 +4446,24 @@ details.chat-ext-code pre {
   line-height: 1.35;
 }
 .ext-row-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   flex: 0 0 auto;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 5px;
+  gap: 4px;
+  min-width: 230px;
+  max-width: 330px;
+}
+.ext-mkt-saved-hdr {
+  grid-column: 1 / -1;
+  padding: 6px 8px;
+  margin: 4px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent, #2563eb);
+  border-bottom: 1px solid var(--line);
+}
+.ext-mkt-saved-hdr + .ext-row {
+  border-left: 2px solid var(--accent, #2563eb);
 }
 .ext-toggle {
   display: inline-flex;

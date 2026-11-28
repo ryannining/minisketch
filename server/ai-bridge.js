@@ -784,6 +784,116 @@ function bridgeHandler(req, res) {
     return;
   }
 
+  function savedExtensionsDir() {
+    return path.resolve(__dirname, '..', 'extensions', 'saved');
+  }
+  function isLoopbackReq(req) {
+    const addr = (req.socket && req.socket.remoteAddress) || '';
+    const host = String(req.headers.host || '');
+    return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1' ||
+      /^(127\.|localhost|\[::1\])/i.test(host);
+  }
+
+  if (reqPath === '/api/extensions/saved' && req.method === 'GET') {
+    if (!isLoopbackReq(req)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'loopback-only' }));
+      return;
+    }
+    const dir = savedExtensionsDir();
+    const out = [];
+    try {
+      const files = fs.readdirSync(dir).filter(f => f.endsWith('.js'));
+      for (const f of files) {
+        const p = path.join(dir, f);
+        try {
+          const code = fs.readFileSync(p, 'utf8');
+          const idm = code.match(/id:\s*([A-Za-z0-9_-]+)/);
+          const lm = code.match(/label:\s*(.*)/);
+          out.push({ file: f, id: (idm && idm[1]) || f.replace(/\.js$/, ''), label: (lm && lm[1].trim()) || '', code });
+        } catch (e) { /* skip unreadable */ }
+      }
+    } catch (e) { /* dir may not exist */ }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, saved: out }));
+    return;
+  }
+
+  if (reqPath === '/api/extensions/saved' && req.method === 'DELETE') {
+    if (!isLoopbackReq(req)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'loopback-only' }));
+      return;
+    }
+    const id = String((req.url || '').split('?')[1] || '').replace(/^id=/, '');
+    const file = String(id || '').replace(/[^a-z0-9_-]/gi, '-') + '.js';
+    const p = path.join(savedExtensionsDir(), file);
+    try {
+      if (!fs.existsSync(p)) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'not found' }));
+        return;
+      }
+      fs.unlinkSync(p);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, file }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: String(err && err.message || err) }));
+    }
+    return;
+  }
+
+  if (reqPath === '/api/extensions/save' && req.method === 'POST') {
+    // Persist an extension source file to the server's disk (loopback only).
+    // Allows AI-built tools to survive browser storage being cleared — essential
+    // for 127.0.0.1/localhost usage where Google login publishing is unavailable.
+    const addr = (req.socket && req.socket.remoteAddress) || '';
+    const host = String(req.headers.host || '');
+    const loopback = addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1' ||
+      /^(127\.|localhost|\[::1\])/i.test(host);
+    if (!loopback) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'save-to-disk is loopback-only' }));
+      return;
+    }
+    let raw = '';
+    let tooBig = false;
+    req.on('data', c => { raw += c; if (raw.length > 512 * 1024) { tooBig = true; req.destroy(); } });
+    req.on('end', () => {
+      if (tooBig) {
+        if (!res.writableEnded) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Payload too large (max 512 KB).' }));
+        }
+        return;
+      }
+      let input = {};
+      try { input = JSON.parse(raw || '{}'); } catch (e) { input = {}; }
+      const id = String(input.id || '').trim();
+      const code = String(input.code || '').trim();
+      if (!id || !code) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'id and code are required' }));
+        return;
+      }
+      const fileName = id.replace(/[^a-z0-9_-]/gi, '-') + '.js';
+      const dir = path.resolve(__dirname, '..', 'extensions', 'saved');
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        const header = '// saved by MiniSketch (server disk) — id: ' + id + '\n' +
+          '// label: ' + String(input.label || '').replace(/\n/g, ' ') + '\n';
+        fs.writeFileSync(path.join(dir, fileName), header + code, 'utf8');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, file: fileName, dir }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: String(err && err.message || err) }));
+      }
+    });
+    return;
+  }
+
   if (reqPath === '/api/marketplace/catalog' && req.method === 'GET') {
     const cat = readMarketplaceCatalog();
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
