@@ -17917,6 +17917,56 @@
       // SVG in too: the same round-trip, so the AI can place a whole drawing
       // (dozens of paths in one op) instead of one add_line call per stroke.
       exportSVG,
+      // Image storage for tools (IndexedDB) — keeps large bitmaps OUT of the
+      // document (which persists to localStorage). Use these instead of embedding
+      // dataURLs into wrap.gen.params. Returns {ok} / {ok, dataUrl}.
+      storeToolImage: async (key, src) => {
+        try {
+          const dataUrl = (typeof src === 'string' && /^data:/.test(src)) ? src : null;
+          if (!dataUrl) return { ok: false, error: 'expected a dataURL' };
+          const db = await new Promise((res, rej) => {
+            const rq = indexedDB.open('minisketch-toolimages', 1);
+            rq.onupgradeneeded = () => {
+              const d = rq.result;
+              if (!d.objectStoreNames.contains('img')) d.createObjectStore('img', { keyPath: 'key' });
+            };
+            rq.onsuccess = () => res(rq.result);
+            rq.onerror = () => rej(rq.error);
+          });
+          await new Promise((res, rej) => {
+            const tx = db.transaction('img', 'readwrite');
+            tx.objectStore('img').put({ key: String(key), dataUrl });
+            tx.oncomplete = res;
+            tx.onerror = () => rej(tx.error);
+          });
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, error: String(err && err.message || err) };
+        }
+      },
+      loadToolImage: async (key) => {
+        try {
+          if (!key) return { ok: false, error: 'key required' };
+          const db = await new Promise((res, rej) => {
+            const rq = indexedDB.open('minisketch-toolimages', 1);
+            rq.onupgradeneeded = () => {
+              const d = rq.result;
+              if (!d.objectStoreNames.contains('img')) d.createObjectStore('img', { keyPath: 'key' });
+            };
+            rq.onsuccess = () => res(rq.result);
+            rq.onerror = () => rej(rq.error);
+          });
+          const rec = await new Promise((res, rej) => {
+            const rq = db.transaction('img', 'readonly').objectStore('img').get(String(key));
+            rq.onsuccess = () => res(rq.result);
+            rq.onerror = () => rej(rq.error);
+          });
+          if (!rec || !rec.dataUrl) return { ok: false, error: 'not found' };
+          return { ok: true, dataUrl: rec.dataUrl };
+        } catch (err) {
+          return { ok: false, error: String(err && err.message || err) };
+        }
+      },
       // Load an image (File/Blob, dataURL, or URL) into an offscreen canvas.
       // Returns { ok, canvas, width, height, image } — the canvas is ready for
       // traceToContours/traceCanvas or for direct 2D drawing in the extension.
