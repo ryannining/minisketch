@@ -787,11 +787,42 @@ function bridgeHandler(req, res) {
   function savedExtensionsDir() {
     return path.resolve(__dirname, '..', 'extensions', 'saved');
   }
+  // Regenerate extensions/saved/manifest.json from the live folder (called
+  // after every save/delete so the static manifest never goes stale).
+  function writeSavedManifest() {
+    const dir = savedExtensionsDir();
+    const out = [];
+    try {
+      const files = fs.readdirSync(dir).filter(f => f.endsWith('.js'));
+      for (const f of files) {
+        const p = path.join(dir, f);
+        try {
+          const code = fs.readFileSync(p, 'utf8');
+          const idm = code.match(/id:\s*([A-Za-z0-9_-]+)/);
+          const lm = code.match(/label:\s*(.*)/);
+          out.push({ file: f, id: (idm && idm[1]) || f.replace(/\.js$/, ''), label: (lm && lm[1].trim()) || '' });
+        } catch (e) { /* skip unreadable */ }
+      }
+      fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(out, null, 0) + '\n', 'utf8');
+    } catch (e) { /* best-effort */ }
+    return out;
+  }
+  // Private-network guard: permit loopback + LAN (10/8, 172.16/12, 192.168/16).
+  // Public internet requests are refused for disk read/write endpoints.
   function isLoopbackReq(req) {
     const addr = (req.socket && req.socket.remoteAddress) || '';
-    const host = String(req.headers.host || '');
-    return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1' ||
-      /^(127\.|localhost|\[::1\])/i.test(host);
+    const host = String(req.headers.host || '').toLowerCase();
+    if (addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1') return true;
+    if (/^(localhost|127\.|\[::1\])/.test(host)) return true;
+    const ip = addr.replace(/^::ffff:/, '');
+    const m = ip.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (m) {
+      const a = +m[1], b = +m[2];
+      if (a === 10) return true;
+      if (a === 172 && b >= 16 && b <= 31) return true;
+      if (a === 192 && b === 168) return true;
+    }
+    return false;
   }
 
   if (reqPath === '/api/extensions/saved' && req.method === 'GET') {
@@ -835,6 +866,7 @@ function bridgeHandler(req, res) {
         return;
       }
       fs.unlinkSync(p);
+      writeSavedManifest();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, file }));
     } catch (err) {
@@ -884,6 +916,7 @@ function bridgeHandler(req, res) {
         const header = '// saved by MiniSketch (server disk) — id: ' + id + '\n' +
           '// label: ' + String(input.label || '').replace(/\n/g, ' ') + '\n';
         fs.writeFileSync(path.join(dir, fileName), header + code, 'utf8');
+        writeSavedManifest();
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, file: fileName, dir }));
       } catch (err) {
