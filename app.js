@@ -17811,6 +17811,63 @@
       // SVG in too: the same round-trip, so the AI can place a whole drawing
       // (dozens of paths in one op) instead of one add_line call per stroke.
       exportSVG,
+      // Load an image (File/Blob, dataURL, or URL) into an offscreen canvas.
+      // Returns { ok, canvas, width, height, image } — the canvas is ready for
+      // traceToContours/traceCanvas or for direct 2D drawing in the extension.
+      imageToCanvas: async (src, opts) => {
+        try {
+          if (!src) return { ok: false, error: 'image source required' };
+          let blob = null;
+          if (typeof src === 'string') {
+            const dataUrl = /^data:/.test(src) ? src : null;
+            if (dataUrl) {
+              try {
+                const res = await fetch(dataUrl);
+                blob = await res.blob();
+              } catch (e) { return { ok: false, error: 'dataURL decode failed' }; }
+            } else {
+              try {
+                const res = await fetch(src);
+                if (!res.ok) return { ok: false, error: 'fetch failed: HTTP ' + res.status };
+                blob = await res.blob();
+              } catch (e) { return { ok: false, error: 'fetch failed' }; }
+            }
+          } else if (typeof src.arrayBuffer === 'function' || src instanceof Blob) {
+            blob = src;
+          } else {
+            return { ok: false, error: 'unsupported image source' };
+          }
+          const url = URL.createObjectURL(blob);
+          const img = new Image();
+          await new Promise((res, rej) => {
+            img.onload = res;
+            img.onerror = () => rej(new Error('image decode failed'));
+            img.src = url;
+          });
+          const o = opts || {};
+          const max = o.maxDim || 2048;
+          const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+          const width = Math.max(1, Math.round(img.naturalWidth * scale));
+          const height = Math.max(1, Math.round(img.naturalHeight * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          try { URL.revokeObjectURL(url); } catch (e) { /* ignore */ }
+          return { ok: true, canvas, width, height, image: img };
+        } catch (err) {
+          return { ok: false, error: String(err && err.message || err) };
+        }
+      },
+      // Convenience: load an image and trace it straight to contour data.
+      imageToContours: async (src, opts) => {
+        const img = await this.imageToCanvas(src, opts);
+        if (!img.ok) return img;
+        return this.traceToContours(img.canvas, opts);
+      },
       // Trace a canvas to CONTOUR DATA without touching the document. Returns
       // { ok, contours:[{pts, closed, curved, hs?}], width, height } in
       // document millimetres (Y-down). The extension then inserts the contours
