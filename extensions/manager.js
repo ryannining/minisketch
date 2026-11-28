@@ -881,9 +881,10 @@
           const res = window.MiniSketchTools.uninstallExtension(item.id);
           if (!res.ok && api && api.toast) api.toast(res.error);
           syncUpdateControls();
-          // If a disk copy exists (loopback), offer to remove it too.
-          const h = String(location && location.hostname || '');
-          const loopback = h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1';
+          // If a disk copy exists (private network), offer to remove it too.
+          const h = String(location && location.hostname || '').toLowerCase();
+          const loopback = h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1' ||
+            /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h);
           if (!loopback) return;
           let diskExists = false;
           try {
@@ -964,13 +965,22 @@
     // locally (disk)" group, so they stay visible even when they are not (yet)
     // installed — and even when the catalog itself is empty.
     {
-      const h = String(location && location.hostname || '');
-      const loopback = h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1';
+      const h = String(location && location.hostname || '').toLowerCase();
+      const loopback = h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1' ||
+        /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h);
       let savedList = [];
       try {
-        const resp = await fetch('api/extensions/saved', { cache: 'no-cache' });
-        const j = await resp.json().catch(() => ({}));
-        savedList = (j && Array.isArray(j.saved)) ? j.saved : [];
+        // Static asset manifest first (works even before the Go bridge is
+        // rebuilt with the /api/extensions endpoints).
+        const mr = await fetch('extensions/saved/manifest.json', { cache: 'no-cache' })
+          .then(r => r.json()).catch(() => null);
+        if (mr && Array.isArray(mr.saved) && mr.saved.length) {
+          savedList = mr.saved;
+        } else {
+          const resp = await fetch('api/extensions/saved', { cache: 'no-cache' });
+          const j = await resp.json().catch(() => ({}));
+          savedList = (j && Array.isArray(j.saved)) ? j.saved : [];
+        }
       } catch (e) {
         console.warn('[mkt saved] fetch failed:', e && e.message);
         savedList = [];
@@ -1020,14 +1030,17 @@
               goBtn.type = 'button';
               goBtn.className = 'btn small primary';
               goBtn.textContent = 'Install';
-              goBtn.addEventListener('click', () => {
+              goBtn.addEventListener('click', async () => {
                 const reg = window.MiniSketchTools;
                 if (!reg || !reg.installExtension) return;
+                const src = rec.code || (await fetch('extensions/saved/' + encodeURIComponent(rec.file || rec.id + '.js'))
+                  .then(r => r.text()).catch(() => null));
+                if (!src) return;
                 const res = reg.installExtension({
                   id: rec.id,
                   label: rec.label || rec.id,
                   name: rec.label || rec.id
-                }, rec.code, { source: 'saved' });
+                }, src, { source: 'saved' });
                 if (res && res.ok && api && api.toast) api.toast('Installed from disk: ' + rec.id);
                 renderMarketplace();
               });

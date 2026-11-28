@@ -1,0 +1,8 @@
+[
+{"file":"bake-nomor.js","id":"bake-nomor","label":"Bake Nomor"},
+{"file":"halftone-panel.js","id":"halftone-panel","label":"Halftone"},
+{"file":"mashrabiya.js","id":"mashrabiya","label":"Mashrabiya"},
+{"file":"penrose-panel.js","id":"penrose-panel","label":"Penrose"},
+{"file":"perturbed-honeycomb.js","id":"perturbed-honeycomb","label":"Honeycomb"},
+{"file":"voronoi-panel.js","id":"voronoi-panel","label":"Voronoi"}
+]
