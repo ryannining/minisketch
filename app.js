@@ -17868,6 +17868,32 @@
         if (!img.ok) return img;
         return this.traceToContours(img.canvas, opts);
       },
+      // Load an image and return RAW pixel data + geometry so an extension can
+      // process the raster itself (e.g. halftone sizing from brightness) without
+      // going through the tracer. Returns { ok, width, height, data, data32,
+      // get(x,y), luminance(x,y) }.
+      imageToPixels: async (src, opts) => {
+        const img = await this.imageToCanvas(src, opts);
+        if (!img.ok) return img;
+        try {
+          const ctx = img.canvas.getContext('2d');
+          const id = ctx.getImageData(0, 0, img.width, img.height);
+          const w = img.width, h = img.height;
+          const get = (x, y) => {
+            x = Math.max(0, Math.min(w - 1, x | 0));
+            y = Math.max(0, Math.min(h - 1, y | 0));
+            const i = (y * w + x) * 4;
+            return { r: id.data[i], g: id.data[i + 1], b: id.data[i + 2], a: id.data[i + 3] };
+          };
+          const luminance = (x, y) => {
+            const p = get(x, y);
+            return (0.299 * p.r + 0.587 * p.g + 0.114 * p.b) / 255;
+          };
+          return { ok: true, width: w, height: h, data: id.data, data32: new Uint32Array(id.data.buffer), get, luminance };
+        } catch (err) {
+          return { ok: false, error: String(err && err.message || err) };
+        }
+      },
       // Trace a canvas to CONTOUR DATA without touching the document. Returns
       // { ok, contours:[{pts, closed, curved, hs?}], width, height } in
       // document millimetres (Y-down). The extension then inserts the contours
