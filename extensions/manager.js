@@ -712,6 +712,25 @@
   }
 
   // ---- Tab 1: Installed --------------------------------------------------
+  // Collapsible "⋯" menu for secondary actions — keeps rows uncluttered.
+  function makeMoreMenu(buttons) {
+    const wrap = document.createElement('div');
+    wrap.className = 'ext-more';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn small';
+    btn.textContent = '⋯';
+    btn.title = 'More actions';
+    btn.addEventListener('click', (ev) => { ev.stopPropagation(); wrap.classList.toggle('open'); });
+    const pop = document.createElement('div');
+    pop.className = 'ext-more-pop';
+    for (const b of buttons) pop.appendChild(b);
+    wrap.appendChild(btn);
+    wrap.appendChild(pop);
+    document.addEventListener('click', (e) => { if (!wrap.contains(e.target)) wrap.classList.remove('open'); });
+    return wrap;
+  }
+
   function renderInstalled() {
     const listEl = el('ext-inst-list');
     const countEl = el('ext-inst-count');
@@ -857,7 +876,6 @@
             setTimeout(() => { saveBtn.textContent = 'Save to disk'; }, 2200);
           }
         });
-        actions.appendChild(saveBtn);
 
         const pubBtn = document.createElement('button');
         pubBtn.type = 'button';
@@ -866,7 +884,6 @@
         pubBtn.addEventListener('click', () => {
           NS.openPublish(item, item.code);
         });
-        actions.appendChild(pubBtn);
 
         const delBtn = document.createElement('button');
         delBtn.type = 'button';
@@ -903,7 +920,8 @@
             }
           } catch (e) { /* ignore */ }
         });
-        actions.appendChild(delBtn);
+        const more = makeMoreMenu([saveBtn, pubBtn, delBtn]);
+        actions.appendChild(more);
       }
 
       row.appendChild(main);

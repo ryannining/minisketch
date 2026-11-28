@@ -4453,6 +4453,32 @@ details.chat-ext-code pre {
   min-width: 230px;
   max-width: 330px;
 }
+.ext-more {
+  position: relative;
+  display: inline-block;
+}
+.ext-more-pop {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 40;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--surface-2, #fff);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .18);
+}
+.ext-more .ext-more-pop .btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin: 2px 0;
+}
+.ext-more.open .ext-more-pop {
+  display: block;
+}
 .ext-mkt-saved-hdr {
   grid-column: 1 / -1;
   padding: 6px 8px;

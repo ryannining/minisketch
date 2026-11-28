@@ -2283,8 +2283,16 @@
   }
 
   function isLoopbackHost() {
-    const h = String(location && location.hostname || '');
-    return h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1';
+    const h = String(location && location.hostname || '').toLowerCase();
+    if (h === 'localhost' || h === '[::1]' || h === '::1' || h === '127.0.0.1') return true;
+    const m = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (m) {
+      const a = +m[1], b = +m[2];
+      if (a === 10) return true;
+      if (a === 172 && b >= 16 && b <= 31) return true;
+      if (a === 192 && b === 168) return true;
+    }
+    return false;
   }
 
   // Persist the extension source to the server's disk (loopback only). Returns
@@ -2689,10 +2697,27 @@
     actions.appendChild(testBtn);
     actions.appendChild(installBtn);
     actions.appendChild(editBtn);
-    actions.appendChild(saveDiskBtn);
-    actions.appendChild(pubBtn);
-    actions.appendChild(dlBtn);
-    actions.appendChild(copyBtn);
+    // Secondary actions live in a "⋯" popover to keep the card clean.
+    {
+      const moreHost = document.createElement('div');
+      moreHost.className = 'ext-more';
+      const moreBtn = document.createElement('button');
+      moreBtn.type = 'button';
+      moreBtn.className = 'btn small';
+      moreBtn.textContent = '⋯';
+      moreBtn.title = 'More actions';
+      moreBtn.addEventListener('click', (ev) => { ev.stopPropagation(); moreHost.classList.toggle('open'); });
+      const pop = document.createElement('div');
+      pop.className = 'ext-more-pop';
+      pop.appendChild(saveDiskBtn);
+      pop.appendChild(pubBtn);
+      pop.appendChild(dlBtn);
+      pop.appendChild(copyBtn);
+      moreHost.appendChild(moreBtn);
+      moreHost.appendChild(pop);
+      document.addEventListener('click', (e) => { if (!moreHost.contains(e.target)) moreHost.classList.remove('open'); });
+      actions.appendChild(moreHost);
+    }
     card.appendChild(actions);
 
     // Live state refresh after local edits
