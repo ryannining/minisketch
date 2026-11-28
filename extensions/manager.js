@@ -969,6 +969,7 @@
       const loopback = h === '127.0.0.1' || h === 'localhost' || h === '[::1]' || h === '::1' ||
         /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h);
       let savedList = [];
+      const dbg = { manifest: 0, api: 0, probe: 0 };
       try {
         // Static asset manifest first (works even before the Go bridge is
         // rebuilt with the /api/extensions endpoints).
@@ -976,10 +977,12 @@
           .then(r => r.json()).catch(() => null);
         if (mr && Array.isArray(mr.saved) && mr.saved.length) {
           savedList = mr.saved;
+          dbg.manifest = mr.saved.length;
         } else {
           const resp = await fetch('api/extensions/saved', { cache: 'no-cache' });
           const j = await resp.json().catch(() => ({}));
           savedList = (j && Array.isArray(j.saved)) ? j.saved : [];
+          dbg.api = savedList.length;
         }
         // Last-resort safety net: probe the known saved files straight from the
         // static asset folder (these always ride along with web updates).
@@ -988,18 +991,26 @@
           for (const id of PROBE) {
             const ok = await fetch('extensions/saved/' + id + '.js', { method: 'HEAD' })
               .then(r => r.ok).catch(() => false);
-            if (ok) savedList.push({ id, file: id + '.js', label: id });
+            if (ok) { dbg.probe++; savedList.push({ id, file: id + '.js', label: id }); }
           }
         }
       } catch (e) {
         console.warn('[mkt saved] fetch failed:', e && e.message);
         savedList = [];
       }
-      console.warn('[mkt saved] loopback=', loopback, 'saved=', savedList.length);
+      try { window.__mktSavedDebug = dbg; } catch (e) { /* ignore */ }
+      console.warn('[mkt saved] loopback=', loopback, 'saved=', savedList.length, 'dbg=', JSON.stringify(dbg));
       const installed2 = (window.MiniSketchTools && window.MiniSketchTools.getCatalogState)
         ? window.MiniSketchTools.getCatalogState()
         : [];
       const instMap2 = new Map(installed2.map(x => [x.id, x]));
+      if (!savedList.length) {
+        const info = document.createElement('div');
+        info.className = 'ext-mkt-saved-hdr';
+        info.textContent = 'Saved locally (disk): 0 — manifest=' + dbg.manifest +
+          ' api=' + dbg.api + ' probe=' + dbg.probe;
+        listEl.appendChild(info);
+      }
       if (savedList.length) {
           const hdr = document.createElement('div');
           hdr.className = 'ext-mkt-saved-hdr';
