@@ -837,6 +837,14 @@ window.MiniSketchTools = (() => {
         const j = await res.json().catch(() => ({}));
         list = (j && Array.isArray(j.saved)) ? j.saved : [];
       }
+      if (!list.length) {
+        const PROBE = ['bake-nomor', 'halftone-panel', 'mashrabiya', 'penrose-panel', 'perturbed-honeycomb', 'voronoi-panel'];
+        for (const id of PROBE) {
+          const ok = await fetch('extensions/saved/' + id + '.js', { method: 'HEAD' })
+            .then(r => r.ok).catch(() => false);
+          if (ok) list.push({ id, file: id + '.js', label: id });
+        }
+      }
     } catch (e) { return []; }
     let mounted = 0;
     const seen = new Set(installedRecords.map(r => r.id));

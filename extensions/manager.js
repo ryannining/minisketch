@@ -981,6 +981,16 @@
           const j = await resp.json().catch(() => ({}));
           savedList = (j && Array.isArray(j.saved)) ? j.saved : [];
         }
+        // Last-resort safety net: probe the known saved files straight from the
+        // static asset folder (these always ride along with web updates).
+        if (!savedList.length) {
+          const PROBE = ['bake-nomor', 'halftone-panel', 'mashrabiya', 'penrose-panel', 'perturbed-honeycomb', 'voronoi-panel'];
+          for (const id of PROBE) {
+            const ok = await fetch('extensions/saved/' + id + '.js', { method: 'HEAD' })
+              .then(r => r.ok).catch(() => false);
+            if (ok) savedList.push({ id, file: id + '.js', label: id });
+          }
+        }
       } catch (e) {
         console.warn('[mkt saved] fetch failed:', e && e.message);
         savedList = [];
