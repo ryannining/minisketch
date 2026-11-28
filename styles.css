@@ -5058,4 +5058,436 @@ details.chat-ext-code pre {
   flex: 1 1 200px;
 }
 
+/* ==========================================================================
+   Touch Mode & Laptop-Style Virtual Mouse Touchpad (body.touch-mode)
+   ========================================================================== */
+#btn-touch-mode svg { width: 17px; height: 17px; }
+#btn-touch-mode { color: var(--text-2); }
+#btn-touch-mode.is-on {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent-ink);
+}
+
+/* 1. Slim icon-only ribbon: strip shortcut badges (.kbd-chip) and labels */
+body.touch-mode .ribbon .kbd-chip,
+body.touch-mode .stage-edit .kbd-chip {
+  display: none !important;
+}
+body.touch-mode .ribbon-tabs {
+  min-height: 36px;
+  padding: 2px 6px;
+  gap: 4px;
+}
+body.touch-mode .menu-btn {
+  min-height: 32px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+body.touch-mode .ribbon-tab {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+body.touch-mode .ribbon-body {
+  padding: 3px 6px;
+  min-height: 46px;
+  align-items: center;
+}
+body.touch-mode .ribbon-body .rb-panel {
+  gap: 3px;
+  padding: 0 6px 0 0;
+  margin-right: 4px;
+}
+body.touch-mode .ribbon-body .rb-btn {
+  min-width: 40px;
+  width: 40px;
+  min-height: 40px;
+  height: 40px;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+  border-radius: 8px;
+}
+body.touch-mode .ribbon-body .rb-btn svg {
+  width: 22px;
+  height: 22px;
+}
+body.touch-mode .ribbon-body .rb-btn > span:not(.kbd-chip) {
+  display: none;
+}
+
+/* 2. Left collapsible stack: Edit + Layers + Relocated Swatch Colors */
+body.touch-mode .stage-left {
+  left: 6px;
+  max-height: calc(100% - 14px);
+}
+body.touch-mode .stage-left-panels {
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  gap: 6px;
+  scrollbar-width: thin;
+}
+/* Shift/Ctrl/Alt live on the virtual touchpad dock in touch mode */
+body.touch-mode .stage-edit .tf-toggle-wrapper {
+  display: none;
+}
+body.touch-mode .stage-edit {
+  width: 126px;
+  grid-template-columns: repeat(3, 1fr);
+  justify-items: stretch;
+  padding: 5px;
+  gap: 3px;
+}
+body.touch-mode .stage-edit .rb-btn {
+  width: auto;
+  min-width: 0;
+  min-height: 34px;
+  height: 34px;
+  padding: 2px 0;
+  justify-content: center;
+}
+body.touch-mode .stage-edit .rb-btn svg { width: 19px; height: 19px; }
+body.touch-mode .stage-edit .rb-btn > span { display: none; }
+body.touch-mode .stage-layers {
+  width: 126px;
+  padding: 6px 7px;
+}
+
+/* Swatch panel relocated inside #stage-left-panels right under #stage-layers */
+body.touch-mode .stage-left-panels .stage-colors {
+  position: static;
+  left: auto;
+  bottom: auto;
+  transform: none;
+  z-index: auto;
+  width: 126px;
+  max-width: none;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 6px 7px;
+  border-radius: 9px;
+}
+body.touch-mode .stage-left-panels .stage-colors .swatches {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  justify-items: center;
+  width: 100%;
+}
+body.touch-mode .stage-left-panels .stage-colors .swatches .swatch-wrap {
+  width: 26px;
+  height: 26px;
+}
+body.touch-mode .stage-left-panels .stage-colors .swatches .swatch {
+  width: 21px;
+  height: 15px;
+}
+body.touch-mode .stage-left-panels .stage-colors-sep {
+  width: 100%;
+  height: 1px;
+}
+body.touch-mode .stage-left-panels .stage-fills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px 4px;
+  width: 100%;
+}
+body.touch-mode .stage-left-panels .stage-fills .swatch.fill-sq {
+  width: 28px;
+  height: 24px;
+  flex: 1 1 28%;
+}
+body.touch-mode .stage-left-panels .stage-fills .stage-undo {
+  order: 2;
+  flex: 1 1 44%;
+  width: auto;
+  height: 30px;
+  font-size: 15px;
+}
+
+/* Keep file caption & contextual bar clear of the touchpad & reopen tab */
+body.touch-mode .stage-file {
+  left: 10px;
+  transform: none;
+  bottom: 4px;
+}
+body.touch-mode .ctx-bar {
+  bottom: 10px;
+}
+
+/* 3. Virtual Mouse Cursor Overlay */
+.vcursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  z-index: 25;
+  pointer-events: none;
+  will-change: transform;
+}
+.vcursor.hidden { display: none; }
+.vcursor-arrow {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  width: 22px;
+  height: 22px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+}
+.vcursor-cross {
+  display: none;
+  position: absolute;
+  top: -12px;
+  left: -12px;
+  width: 24px;
+  height: 24px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+}
+.vcursor[data-cursor="crosshair"] .vcursor-arrow { display: none; }
+.vcursor[data-cursor="crosshair"] .vcursor-cross { display: block; }
+.vcursor-ring {
+  position: absolute;
+  top: -11px;
+  left: -11px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.vcursor.is-pressed .vcursor-ring,
+.vcursor.is-locked .vcursor-ring {
+  opacity: 1;
+  transform: scale(1);
+}
+.vcursor.is-locked .vcursor-ring {
+  border-style: dashed;
+}
+
+/* 4. Collapsible Laptop-Style Virtual Touchpad Dock */
+.vpad-dock {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  height: calc(clamp(124px, 21dvh, 168px) + env(safe-area-inset-bottom, 0px));
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+  background: var(--panel);
+  border-top: 1px solid var(--line-strong);
+  z-index: 20;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+.vpad-dock.hidden { display: none; }
+
+.vpad-controls {
+  flex: 0 0 auto;
+  width: clamp(154px, 40vw, 224px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.vpad-mods {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  flex: 0 0 auto;
+}
+.vpad-clicks {
+  display: grid;
+  grid-template-columns: 1.25fr 0.95fr 1fr;
+  gap: 5px;
+  flex: 1 1 0;
+  min-height: 44px;
+}
+
+.vpad-btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 40px;
+  padding: 4px 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.1s ease, border-color 0.1s ease, color 0.1s ease, transform 0.08s ease;
+}
+.vpad-btn:active { transform: scale(0.97); }
+.vpad-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.vpad-mod.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border-strong);
+  color: var(--accent-ink);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.vpad-click.is-pressed {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  transform: scale(0.97);
+}
+.vpad-lock-ico { width: 15px; height: 15px; flex: 0 0 auto; }
+.vpad-lock .lock-shackle-shut { display: none; }
+.vpad-lock.is-locked {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.vpad-lock.is-locked .lock-shackle-open { display: none; }
+.vpad-lock.is-locked .lock-shackle-shut { display: block; }
+.vpad-lock-label { font-size: 10px; }
+
+.vpad-pad-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+}
+.vpad-surface {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  border-radius: 10px;
+  background-color: var(--surface-2);
+  background-image: radial-gradient(circle, var(--line-strong) 1px, transparent 1px);
+  background-size: 18px 18px;
+  border: 1px solid var(--line-strong);
+  touch-action: none;
+  overflow: hidden;
+  cursor: grab;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+.vpad-surface.is-active {
+  border-color: var(--accent-border-strong);
+  background-color: var(--surface-3);
+  cursor: grabbing;
+}
+
+.vpad-ripple {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  margin-top: -14px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  border: 1.5px solid var(--accent);
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.4);
+}
+.vpad-ripple.pop {
+  animation: vpad-tap-pop 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes vpad-tap-pop {
+  0% { opacity: 0.9; transform: scale(0.45); }
+  100% { opacity: 0; transform: scale(1.45); }
+}
+
+.vpad-collapse-btn {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 3;
+  min-width: 36px;
+  min-height: 28px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--text-2);
+  opacity: 0.92;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.vpad-collapse-btn:hover { opacity: 1; color: var(--ink); border-color: var(--accent-border); }
+.vpad-collapse-btn svg { width: 14px; height: 14px; pointer-events: none; }
+
+/* Compact reopen tab at bottom-right of canvas when touchpad is collapsed */
+.vpad-reopen {
+  position: absolute;
+  right: 10px;
+  bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  z-index: 18;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.1s ease;
+}
+.vpad-reopen:hover { background: var(--surface-2); border-color: var(--accent); }
+.vpad-reopen:active { transform: scale(0.97); }
+.vpad-reopen svg { width: 16px; height: 16px; color: var(--accent-ink); flex: 0 0 auto; }
+.vpad-reopen.hidden { display: none; }
+
+@media (max-width: 480px) {
+  .vpad-dock {
+    height: calc(clamp(120px, 22dvh, 152px) + env(safe-area-inset-bottom, 0px));
+    padding: 5px 6px calc(5px + env(safe-area-inset-bottom, 0px));
+    gap: 6px;
+  }
+  .vpad-controls {
+    width: clamp(142px, 44vw, 178px);
+    gap: 5px;
+  }
+  .vpad-btn { font-size: 11px; min-height: 38px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vcursor-ring,
+  .vpad-btn,
+  .vpad-surface,
+  .vpad-ripple,
+  .vpad-collapse-btn,
+  .vpad-reopen {
+    animation: none;
+    transition: none;
+  }
+}
+
+
 

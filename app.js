@@ -2957,33 +2957,25 @@
   }
 
   function updateCanvasCursor() {
+    let cur = 'default';
     if (ui.pan) {
-      canvas.style.cursor = 'grabbing';
-      return;
-    }
-    if (ui.tool === 'transform') {
-      canvas.style.cursor = ui.drag && ui.drag.kind && ui.drag.kind.indexOf('xf') === 0 ? 'grabbing' : 'default';
-      return;
-    }
-    if (ui.inlineText) {
+      cur = 'grabbing';
+    } else if (ui.tool === 'transform') {
+      cur = ui.drag && ui.drag.kind && ui.drag.kind.indexOf('xf') === 0 ? 'grabbing' : 'default';
+    } else if (ui.inlineText) {
       const ie = state.entities[ui.inlineText.id];
       const gg = ie && ie.type === 'text' ? textGeom(ie) : null;
-      if (gg && ui.raw && textInBox(ui.raw, gg)) {
-        canvas.style.cursor = 'text';
-        return;
-      }
-    }
-    if (ui.tool === 'text') {
-      canvas.style.cursor = 'text';
-      return;
-    }
-    if (ui.tool === 'select' || ui.tool === 'dragwall') {
-      canvas.style.cursor = ui.hover && ui.hover.kind === 'partMarker' ? 'grab' : 'default';
-    } else if (ui.tool === 'trim') {
-      canvas.style.cursor = 'crosshair';
+      if (gg && ui.raw && textInBox(ui.raw, gg)) cur = 'text';
+    } else if (ui.tool === 'text') {
+      cur = 'text';
+    } else if (ui.tool === 'select' || ui.tool === 'dragwall') {
+      cur = ui.hover && ui.hover.kind === 'partMarker' ? 'grab' : 'default';
     } else {
-      canvas.style.cursor = 'crosshair';
+      cur = 'crosshair';
     }
+    canvas.style.cursor = cur;
+    const vc = document.getElementById('vcursor');
+    if (vc) vc.dataset.cursor = cur === 'crosshair' ? 'crosshair' : 'default';
   }
 
   function cancelDraft() {
@@ -3064,6 +3056,7 @@
       ui.fitted = true;
       fitView();
     }
+    if (typeof vpadClampCursor === 'function') vpadClampCursor();
     render();
   }
 
@@ -29705,6 +29698,11 @@
     render();
   }
 
+  function safeSetPointerCapture(el, ev) {
+    if (!el || !ev || ev._virtual || ev.pointerId == null) return;
+    try { el.setPointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
+  }
+
   async function onPointerDown(ev) {
     if (ui.offsetJob) return;                 // drafting: wheel and Enter only
     // The finger that lifts last after a pinch must not also draw a line.
@@ -29717,7 +29715,7 @@
       // below, so the old middle-click role is covered.
       ev.preventDefault();
       startPan(pointerPos(ev));
-      canvas.setPointerCapture(ev.pointerId);
+      safeSetPointerCapture(canvas, ev);
       return;
     }
     if (ev.button === 2) {
@@ -29728,7 +29726,7 @@
         // decision is made on pointerup, which can tell a click from a drag.
         ev.preventDefault();
         startPan(pointerPos(ev));
-        canvas.setPointerCapture(ev.pointerId);
+        safeSetPointerCapture(canvas, ev);
         ui.panCancelXf = true;
         return;
       }
@@ -29747,7 +29745,7 @@
       // Right-click (no drag) in select mode cycles through the stacked
       // objects at the spot — see onPointerUp. Right-DRAG stays pan.
       ui.pan.cycleOnClick = true;
-      canvas.setPointerCapture(ev.pointerId);
+      safeSetPointerCapture(canvas, ev);
       return;
     }
     if (ev.button !== 0) return;
@@ -29783,7 +29781,7 @@
     const addMod = ev.ctrlKey || ev.metaKey || ui.ctrlToggle;
     const subMod = ev.shiftKey || ui.shiftToggle;
     updateCoords(pos.x, pos.y);
-    canvas.setPointerCapture(ev.pointerId);
+    safeSetPointerCapture(canvas, ev);
     // The modifier flags are also the drafting overrides (Shift = polar,
     // Alt = snap off): refresh them from the event so a stale flag from an
     // earlier move can never silently switch snapping off for this click.
@@ -30264,7 +30262,7 @@
         }
         lastTap = { t: now, x: pos.x, y: pos.y };
         startPan(pos);
-        canvas.setPointerCapture(ev.pointerId);
+        safeSetPointerCapture(canvas, ev);
         render();
         return;
       }
@@ -35007,21 +35005,30 @@ function cmdSplitCurve() {
     };
   }
 
+  // Dedicated single-finger workspace camera pan used while Touch Mode is
+  // active (direct touch on canvas is strictly Pan & Pinch-Zoom — never draws
+  // or selects — so drafting or virtual drags stay intact while panning).
+  let touchPan = null;
+
   function beginPinch() {
-    // Abandon whatever the first finger started. A drag that already pushed a
-    // history entry would otherwise leave a phantom undo step behind.
-    if (ui.drag) {
-      const pushed = ui.drag.pushedHistory || ui.drag.kind === 'partMarker';
-      ui.drag = null;
-      dragSolveSuppressed = false;
-      cancelDragAutoSolve();
-      if (pushed) {
-        history.pop();
-        updateHistoryButtons();
+    touchPan = null;
+    // Abandon whatever the first finger started (only outside Touch Mode: in
+    // Touch Mode direct touch never starts a draw/drag, and preserving any
+    // virtual-mouse draft lets users pan/zoom mid-draft seamlessly).
+    if (!ui.touchMode) {
+      if (ui.drag) {
+        const pushed = ui.drag.pushedHistory || ui.drag.kind === 'partMarker';
+        ui.drag = null;
+        dragSolveSuppressed = false;
+        cancelDragAutoSolve();
+        if (pushed) {
+          history.pop();
+          updateHistoryButtons();
+        }
       }
+      if (ui.pan) ui.pan = null;
+      if (ui.draft && ui.draft.drag) ui.draft.drag = null;
     }
-    if (ui.pan) ui.pan = null;
-    if (ui.draft && ui.draft.drag) ui.draft.drag = null;
     lastTap = null;             // a two-finger gesture is never a double tap
     const p = touchPair();
     pinch = { d0: p.d, mx: p.mx, my: p.my, zoom: view.zoom, ox: view.ox, oy: view.oy };
@@ -35063,27 +35070,52 @@ function cmdSplitCurve() {
     canvas.addEventListener('pointerup', onPointerUp);
     canvas.addEventListener('pointercancel', onPointerUp);
 
-    // Two fingers own the camera. These listeners run BEFORE the tool handlers
-    // (capture phase) so a pinch never leaks into a line / drag / selection.
+    // Two fingers own the camera. In Touch Mode, even ONE finger on the canvas
+    // owns the camera (Pan & Zoom only; all drawing/clicking flows through the
+    // Virtual Mouse Touchpad, even when the touchpad is collapsed).
     const trackTouch = (ev) => {
-      if (ev.pointerType === 'mouse') return;
+      if (ev.pointerType === 'mouse' || ev._virtual) return;
       const pos = pointerPos(ev);
       touchPts.set(ev.pointerId, pos);
       if (touchPts.size === 2) beginPinch();
       else if (touchPts.size > 2) updatePinch();
     };
     const dropTouch = (ev) => {
-      if (ev.pointerType === 'mouse') return;
+      if (ev.pointerType === 'mouse' || ev._virtual) return;
       if (!touchPts.has(ev.pointerId)) return;
       touchPts.delete(ev.pointerId);
-      if (touchPts.size < 2) endPinch();
-      else if (pinch) {
+      if (touchPts.size < 2) {
+        endPinch();
+        if (ui.touchMode && touchPts.size === 1) {
+          // One finger remains after a pinch: rebase smooth 1-finger pan
+          const [remId, remPos] = touchPts.entries().next().value;
+          touchPan = { id: remId, startX: remPos.x, startY: remPos.y, ox: view.ox, oy: view.oy };
+        } else {
+          touchPan = null;
+        }
+      } else if (pinch) {
         // A finger left: rebase so the remaining pair does not jump.
         const p = touchPair();
         pinch = { d0: p.d, mx: p.mx, my: p.my, zoom: view.zoom, ox: view.ox, oy: view.oy };
       }
     };
     canvas.addEventListener('pointerdown', (ev) => {
+      if (ev._virtual) return;
+      if (ui.touchMode && ev.pointerType !== 'mouse') {
+        const pos = pointerPos(ev);
+        touchPts.set(ev.pointerId, pos);
+        if (touchPts.size === 1) {
+          touchPan = { id: ev.pointerId, startX: pos.x, startY: pos.y, ox: view.ox, oy: view.oy };
+        } else if (touchPts.size === 2) {
+          beginPinch();
+        } else {
+          updatePinch();
+        }
+        safeSetPointerCapture(canvas, ev);
+        ev.stopPropagation();
+        ev.preventDefault();
+        return;
+      }
       trackTouch(ev);
       if (pinch) {
         ev.stopPropagation();
@@ -35091,6 +35123,23 @@ function cmdSplitCurve() {
       }
     }, true);
     canvas.addEventListener('pointermove', (ev) => {
+      if (ev._virtual) return;
+      if (ui.touchMode && ev.pointerType !== 'mouse') {
+        const pos = pointerPos(ev);
+        if (touchPts.has(ev.pointerId)) touchPts.set(ev.pointerId, pos);
+        if (pinch) {
+          updatePinch();
+        } else if (touchPan && touchPan.id === ev.pointerId) {
+          view.ox = touchPan.ox + (pos.x - touchPan.startX);
+          view.oy = touchPan.oy + (pos.y - touchPan.startY);
+          ui.lastWorld = s2w(pos.x, pos.y);
+          scheduleRender();
+          scheduleViewSave();
+        }
+        ev.stopPropagation();
+        ev.preventDefault();
+        return;
+      }
       if (!touchPts.has(ev.pointerId)) { trackTouch(ev); if (pinch) return; }
       else touchPts.set(ev.pointerId, pointerPos(ev));
       if (pinch) {
@@ -35099,7 +35148,24 @@ function cmdSplitCurve() {
         ev.preventDefault();
       }
     }, true);
+    const finishTouchModePointer = (ev) => {
+      dropTouch(ev);
+      if (touchPts.size === 0) {
+        touchPan = null;
+        pinchSwallowed = false;
+        scheduleZoomSettle();
+        scheduleViewSave();
+        render();
+      }
+      ev.stopPropagation();
+      ev.preventDefault();
+    };
     canvas.addEventListener('pointerup', (ev) => {
+      if (ev._virtual) return;
+      if (ui.touchMode && ev.pointerType !== 'mouse') {
+        finishTouchModePointer(ev);
+        return;
+      }
       if (pinch) {
         dropTouch(ev);
         ev.stopPropagation();
@@ -35109,6 +35175,11 @@ function cmdSplitCurve() {
       dropTouch(ev);
     }, true);
     canvas.addEventListener('pointercancel', (ev) => {
+      if (ev._virtual) return;
+      if (ui.touchMode && ev.pointerType !== 'mouse') {
+        finishTouchModePointer(ev);
+        return;
+      }
       if (pinch) { dropTouch(ev); ev.stopPropagation(); ev.preventDefault(); return; }
       dropTouch(ev);
     }, true);
@@ -35119,7 +35190,7 @@ function cmdSplitCurve() {
       if (ui.drag || ui.pan) return;
       // touch pointers are tracked by id; leaving the element (finger lifted
       // outside) must not leave a stale pair behind and wedge the camera
-      if (!pinch) touchPts.clear();
+      if (!pinch && !touchPan) touchPts.clear();
       ui.hover = null;
       ui.hoverProbe = null;
       ui.raw = null;
@@ -37380,8 +37451,28 @@ function cmdSplitCurve() {
     const syncModToggles = () => {
       document.querySelectorAll('.rb-btn.toggle[data-toggle]').forEach(b => {
         const k = b.dataset.toggle;
-        if (toggleField[k]) b.classList.toggle('active', !!ui[toggleField[k]]);
+        if (toggleField[k]) {
+          const on = !!ui[toggleField[k]];
+          b.classList.toggle('active', on);
+          b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
       });
+      document.querySelectorAll('.vpad-mod[data-vmod]').forEach(b => {
+        const k = b.dataset.vmod;
+        if (toggleField[k]) {
+          const on = !!ui[toggleField[k]];
+          b.classList.toggle('active', on);
+          b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+      });
+    };
+    const flipModToggle = (k) => {
+      if (!toggleField[k]) return;
+      ui[toggleField[k]] = !ui[toggleField[k]];
+      ui[toggleFlag[k]] = !!ui[toggleField[k]];
+      syncModToggles();
+      if (ui.touchMode && typeof vpadNotifyMove === 'function') vpadNotifyMove();
+      else if (ui.draft) render();
     };
     document.querySelectorAll('.rb-btn.toggle[data-toggle]').forEach(btn => {
       const k = btn.dataset.toggle;
@@ -37391,6 +37482,15 @@ function cmdSplitCurve() {
         ui[toggleFlag[k]] = !!ui[toggleField[k]];
         syncModToggles();
         if (ui.draft) render();
+      });
+    });
+    document.querySelectorAll('.vpad-mod[data-vmod]').forEach(btn => {
+      const k = btn.dataset.vmod;
+      if (!toggleField[k]) return;
+      btn.addEventListener('pointerdown', ev => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        flipModToggle(k);
       });
     });
     syncModToggles();
@@ -39987,6 +40087,468 @@ function cmdSplitCurve() {
     app.style.height = Math.round(h) + 'px';
   }
 
+  // ---- Touch Mode & Laptop-Style Virtual Mouse Touchpad -------------------
+  // Auto-activates on coarse-pointer (tablet/phone) devices and can be toggled
+  // manually from the header button or Tool menu. In Touch Mode:
+  //   1. Ribbon becomes slim icon-only (no shortcut badges or labels).
+  //   2. Swatch color strip relocates into #stage-left-panels below Layers so
+  //      the left collapse tab hides Edit + Layers + Swatches together.
+  //   3. Direct touch on #canvas is strictly camera Pan & Pinch-Zoom.
+  //   4. Bottom collapsible touchpad drives a high-contrast virtual mouse
+  //      cursor using synthetic pointerType:'mouse' events for 100% CAD parity.
+  const TOUCH_MODE_KEY = 'minisketch.touchMode';
+  const VPAD_COLLAPSED_KEY = 'minisketch.vpadCollapsed';
+  const vpad = {
+    x: 0,
+    y: 0,
+    initialized: false,
+    collapsed: false,
+    leftHeld: false,
+    rightHeld: false,
+    dragLock: false,
+    lastClickAt: 0,
+    lastClickX: 0,
+    lastClickY: 0,
+    lmbPointerId: null,
+    rmbPointerId: null
+  };
+
+  function vpadRenderCursor() {
+    const vc = document.getElementById('vcursor');
+    if (!vc) return;
+    vc.style.transform = 'translate3d(' + vpad.x.toFixed(1) + 'px, ' + vpad.y.toFixed(1) + 'px, 0)';
+    vc.classList.toggle('is-pressed', !!(vpad.leftHeld || vpad.rightHeld));
+    vc.classList.toggle('is-locked', !!vpad.dragLock);
+  }
+
+  function vpadClampCursor() {
+    if (!ui.touchMode) return;
+    if (!vpad.initialized) {
+      vpad.x = Math.max(16, W / 2);
+      vpad.y = Math.max(16, H / 2);
+      vpad.initialized = true;
+    } else {
+      vpad.x = clamp(vpad.x, 0, Math.max(0, W));
+      vpad.y = clamp(vpad.y, 0, Math.max(0, H));
+    }
+    vpadRenderCursor();
+  }
+
+  function makeVirtualEvent(type, opts) {
+    const r = canvas.getBoundingClientRect();
+    const o = opts || {};
+    const buttons = o.buttons != null
+      ? o.buttons
+      : (((vpad.leftHeld || vpad.dragLock) ? 1 : 0) | (vpad.rightHeld ? 2 : 0));
+    return {
+      type,
+      _virtual: true,
+      pointerType: 'mouse',
+      pointerId: 9001,
+      isPrimary: true,
+      button: o.button != null ? o.button : 0,
+      buttons,
+      clientX: r.left + vpad.x,
+      clientY: r.top + vpad.y,
+      shiftKey: o.shiftKey != null ? !!o.shiftKey : !!ui.shiftToggle,
+      ctrlKey: o.ctrlKey != null ? !!o.ctrlKey : !!ui.ctrlToggle,
+      metaKey: false,
+      altKey: o.altKey != null ? !!o.altKey : !!ui.altToggle,
+      deltaX: o.deltaX || 0,
+      deltaY: o.deltaY || 0,
+      preventDefault() {},
+      stopPropagation() {}
+    };
+  }
+
+  function vpadNotifyMove() {
+    if (!ui.touchMode) return;
+    vpadRenderCursor();
+    onPointerMove(makeVirtualEvent('pointermove'));
+  }
+
+  function initTouchMode() {
+    const btnTouch = document.getElementById('btn-touch-mode');
+    const menuTouch = document.getElementById('menu-touch-mode');
+    const tglTouch = document.getElementById('tgl-touch-mode');
+    const dock = document.getElementById('vpad-dock');
+    const reopenBtn = document.getElementById('vpad-reopen');
+    const collapseBtn = document.getElementById('vpad-collapse');
+    const surface = document.getElementById('vpad-surface');
+    const ripple = document.getElementById('vpad-ripple');
+    const lmbBtn = document.getElementById('vpad-lmb');
+    const lockBtn = document.getElementById('vpad-drag-lock');
+    const lockLabel = document.getElementById('vpad-lock-label');
+    const rmbBtn = document.getElementById('vpad-rmb');
+    const vcursor = document.getElementById('vcursor');
+    const stageEl = document.getElementById('stage');
+    const colorsEl = document.getElementById('stage-colors');
+    const leftPanelsEl = document.getElementById('stage-left-panels');
+    const stageFileEl = document.getElementById('stage-file');
+
+    const coarseMQ = window.matchMedia ? window.matchMedia('(pointer: coarse)') : { matches: false };
+    let modePref = 'auto';
+    try {
+      const saved = localStorage.getItem(TOUCH_MODE_KEY);
+      if (saved === 'on' || saved === 'off' || saved === 'auto') modePref = saved;
+      vpad.collapsed = localStorage.getItem(VPAD_COLLAPSED_KEY) === '1';
+    } catch (err) { /* ignore storage errors */ }
+
+    const tLabel = (key, fallback) =>
+      (window.MiniSketchI18n && window.MiniSketchI18n.t) ? window.MiniSketchI18n.t(key) : fallback;
+
+    const syncButtonsUI = () => {
+      if (lmbBtn) {
+        const down = !!(vpad.leftHeld || vpad.dragLock);
+        lmbBtn.classList.toggle('is-pressed', down);
+        lmbBtn.setAttribute('aria-pressed', down ? 'true' : 'false');
+      }
+      if (rmbBtn) {
+        rmbBtn.classList.toggle('is-pressed', !!vpad.rightHeld);
+        rmbBtn.setAttribute('aria-pressed', vpad.rightHeld ? 'true' : 'false');
+      }
+      if (lockBtn) {
+        lockBtn.classList.toggle('is-locked', !!vpad.dragLock);
+        lockBtn.setAttribute('aria-pressed', vpad.dragLock ? 'true' : 'false');
+      }
+      if (lockLabel) {
+        lockLabel.textContent = vpad.dragLock
+          ? tLabel('vpad.locked', 'Locked')
+          : tLabel('vpad.lock', 'Lock');
+      }
+      vpadRenderCursor();
+    };
+
+    const setDragLock = (on, firePointer) => {
+      const next = !!on;
+      if (vpad.dragLock === next) return;
+      vpad.dragLock = next;
+      syncButtonsUI();
+      if (firePointer !== false) {
+        if (next) {
+          onPointerDown(makeVirtualEvent('pointerdown', { button: 0, buttons: 1 }));
+        } else {
+          onPointerUp(makeVirtualEvent('pointerup', { button: 0, buttons: 0 }));
+        }
+      }
+    };
+
+    const releaseAllVirtualButtons = () => {
+      if (vpad.dragLock) setDragLock(false, true);
+      if (vpad.leftHeld) {
+        vpad.leftHeld = false;
+        vpad.lmbPointerId = null;
+        onPointerUp(makeVirtualEvent('pointerup', { button: 0, buttons: 0 }));
+      }
+      if (vpad.rightHeld) {
+        vpad.rightHeld = false;
+        vpad.rmbPointerId = null;
+        onPointerUp(makeVirtualEvent('pointerup', { button: 2, buttons: 0 }));
+      }
+      syncButtonsUI();
+    };
+
+    const relocateSwatches = (toLeftPanel) => {
+      if (!colorsEl) return;
+      if (toLeftPanel && leftPanelsEl) {
+        if (colorsEl.parentElement !== leftPanelsEl) {
+          leftPanelsEl.appendChild(colorsEl);
+        }
+      } else if (stageEl && colorsEl.parentElement !== stageEl) {
+        if (stageFileEl && stageFileEl.parentElement === stageEl) {
+          stageEl.insertBefore(colorsEl, stageFileEl);
+        } else {
+          stageEl.appendChild(colorsEl);
+        }
+      }
+    };
+
+    const syncDockVisibility = () => {
+      const on = !!ui.touchMode;
+      const showDock = on && !vpad.collapsed;
+      const showReopen = on && vpad.collapsed;
+      document.body.classList.toggle('vpad-collapsed', on && vpad.collapsed);
+      if (dock) dock.classList.toggle('hidden', !showDock);
+      if (reopenBtn) {
+        reopenBtn.classList.toggle('hidden', !showReopen);
+        reopenBtn.setAttribute('aria-expanded', showDock ? 'true' : 'false');
+      }
+      if (collapseBtn) collapseBtn.setAttribute('aria-expanded', showDock ? 'true' : 'false');
+      if (vcursor) vcursor.classList.toggle('hidden', !on);
+      if (!showDock && vpad.dragLock) setDragLock(false, true);
+      requestAnimationFrame(() => {
+        resize();
+        if (on) vpadClampCursor();
+      });
+    };
+
+    const applyTouchMode = (active, persist) => {
+      const next = !!active;
+      if (!next && ui.touchMode) releaseAllVirtualButtons();
+      ui.touchMode = next;
+      document.body.classList.toggle('touch-mode', next);
+      if (btnTouch) {
+        btnTouch.classList.toggle('is-on', next);
+        btnTouch.setAttribute('aria-pressed', next ? 'true' : 'false');
+      }
+      if (tglTouch) tglTouch.checked = next;
+      if (menuTouch) {
+        menuTouch.classList.toggle('is-on', next);
+        menuTouch.setAttribute('aria-checked', next ? 'true' : 'false');
+      }
+      relocateSwatches(next);
+      if (persist) {
+        modePref = next ? 'on' : 'off';
+        try { localStorage.setItem(TOUCH_MODE_KEY, modePref); } catch (err) { /* ignore */ }
+      }
+      syncDockVisibility();
+      updateCanvasCursor();
+    };
+
+    const toggleTouchMode = () => applyTouchMode(!ui.touchMode, true);
+    if (btnTouch) btnTouch.addEventListener('click', toggleTouchMode);
+    if (tglTouch) tglTouch.addEventListener('change', () => applyTouchMode(!!tglTouch.checked, true));
+
+    const setCollapsed = (next) => {
+      vpad.collapsed = !!next;
+      try { localStorage.setItem(VPAD_COLLAPSED_KEY, vpad.collapsed ? '1' : '0'); } catch (err) { /* ignore */ }
+      syncDockVisibility();
+    };
+    if (collapseBtn) {
+      collapseBtn.addEventListener('pointerdown', ev => ev.stopPropagation());
+      collapseBtn.addEventListener('click', () => setCollapsed(true));
+    }
+    if (reopenBtn) {
+      reopenBtn.addEventListener('click', () => setCollapsed(false));
+    }
+
+    const triggerTapRipple = (clientX, clientY) => {
+      if (!ripple || !surface) return;
+      const r = surface.getBoundingClientRect();
+      ripple.style.left = (clientX - r.left) + 'px';
+      ripple.style.top = (clientY - r.top) + 'px';
+      ripple.classList.remove('pop');
+      void ripple.offsetWidth;
+      ripple.classList.add('pop');
+    };
+
+    const fireVirtualLeftTap = () => {
+      const now = performance.now();
+      const isDouble = (now - vpad.lastClickAt) < DOUBLE_TAP_MS &&
+        Math.hypot(vpad.x - vpad.lastClickX, vpad.y - vpad.lastClickY) < 10;
+      vpad.lastClickAt = now;
+      vpad.lastClickX = vpad.x;
+      vpad.lastClickY = vpad.y;
+      onPointerDown(makeVirtualEvent('pointerdown', { button: 0, buttons: 1 }));
+      onPointerUp(makeVirtualEvent('pointerup', { button: 0, buttons: 0 }));
+      if (isDouble) {
+        vpad.lastClickAt = 0;
+        onDoubleClick(makeVirtualEvent('dblclick', { button: 0, buttons: 0 }));
+      }
+    };
+
+    // Left Click button (supports tap, hold-while-sliding, double-tap, or releasing Drag Lock)
+    if (lmbBtn) {
+      let lmbConsumedLock = false;
+      lmbBtn.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (vpad.dragLock) {
+          lmbConsumedLock = true;
+          setDragLock(false, true);
+          return;
+        }
+        lmbConsumedLock = false;
+        vpad.lmbPointerId = ev.pointerId;
+        vpad.leftHeld = true;
+        try { lmbBtn.setPointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
+        syncButtonsUI();
+        onPointerDown(makeVirtualEvent('pointerdown', { button: 0, buttons: 1 }));
+      });
+      const releaseLmb = (ev) => {
+        if (lmbConsumedLock) { lmbConsumedLock = false; return; }
+        if (vpad.lmbPointerId != null && ev.pointerId !== vpad.lmbPointerId) return;
+        if (!vpad.leftHeld) return;
+        ev.preventDefault();
+        vpad.leftHeld = false;
+        vpad.lmbPointerId = null;
+        syncButtonsUI();
+        const now = performance.now();
+        const isDouble = !ui.drag && (now - vpad.lastClickAt) < DOUBLE_TAP_MS &&
+          Math.hypot(vpad.x - vpad.lastClickX, vpad.y - vpad.lastClickY) < 10;
+        vpad.lastClickAt = now;
+        vpad.lastClickX = vpad.x;
+        vpad.lastClickY = vpad.y;
+        onPointerUp(makeVirtualEvent('pointerup', { button: 0, buttons: 0 }));
+        if (isDouble) {
+          vpad.lastClickAt = 0;
+          onDoubleClick(makeVirtualEvent('dblclick', { button: 0, buttons: 0 }));
+        }
+      };
+      lmbBtn.addEventListener('pointerup', releaseLmb);
+      lmbBtn.addEventListener('pointercancel', releaseLmb);
+    }
+
+    // Drag Lock toggle button (latches LMB down for effortless one-hand drag / marquee / draw)
+    if (lockBtn) {
+      lockBtn.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        setDragLock(!vpad.dragLock, true);
+      });
+    }
+
+    // Right Click button (cancel draft, return to Select, cycle stacked objects, or right-drag pan)
+    if (rmbBtn) {
+      rmbBtn.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (vpad.dragLock) setDragLock(false, true);
+        vpad.rmbPointerId = ev.pointerId;
+        vpad.rightHeld = true;
+        try { rmbBtn.setPointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
+        syncButtonsUI();
+        onPointerDown(makeVirtualEvent('pointerdown', { button: 2, buttons: 2 }));
+      });
+      const releaseRmb = (ev) => {
+        if (vpad.rmbPointerId != null && ev.pointerId !== vpad.rmbPointerId) return;
+        if (!vpad.rightHeld) return;
+        ev.preventDefault();
+        vpad.rightHeld = false;
+        vpad.rmbPointerId = null;
+        syncButtonsUI();
+        onPointerUp(makeVirtualEvent('pointerup', { button: 2, buttons: 0 }));
+      };
+      rmbBtn.addEventListener('pointerup', releaseRmb);
+      rmbBtn.addEventListener('pointercancel', releaseRmb);
+    }
+
+    // Touchpad surface: 1-finger relative cursor + acceleration + tap/double-tap,
+    // 2-finger vertical scroll -> virtual wheel zoom / parameter scroll at cursor
+    if (surface) {
+      const padPts = new Map();
+      let primaryId = null;
+      let startX = 0, startY = 0, startT = 0;
+      let lastX = 0, lastY = 0, lastT = 0;
+      let moved = false;
+      let twoFinger = false;
+      let prevMidY = 0;
+
+      surface.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const now = performance.now();
+        padPts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+        try { surface.setPointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
+        surface.classList.add('is-active');
+        if (padPts.size === 1) {
+          primaryId = ev.pointerId;
+          startX = lastX = ev.clientX;
+          startY = lastY = ev.clientY;
+          startT = lastT = now;
+          moved = false;
+          twoFinger = false;
+        } else if (padPts.size >= 2) {
+          twoFinger = true;
+          moved = true;
+          const pts = Array.from(padPts.values());
+          prevMidY = (pts[0].y + pts[1].y) / 2;
+        }
+      });
+
+      surface.addEventListener('pointermove', (ev) => {
+        if (!padPts.has(ev.pointerId)) return;
+        ev.preventDefault();
+        const now = performance.now();
+        padPts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+        if (twoFinger && padPts.size >= 2) {
+          const pts = Array.from(padPts.values());
+          const midY = (pts[0].y + pts[1].y) / 2;
+          const dy = midY - prevMidY;
+          prevMidY = midY;
+          if (Math.abs(dy) >= 0.5) {
+            const paramWheel = !!(ui.offsetJob ||
+              (ui.tool === 'box' && ui.draft && ui.draft.type === 'box') ||
+              (ui.tool === 'poly' && ui.draft && ui.draft.type === 'poly'));
+            onWheel(makeVirtualEvent('wheel', {
+              deltaY: -dy * 2.4,
+              ctrlKey: paramWheel ? !!ui.ctrlToggle : true
+            }));
+          }
+          return;
+        }
+        if (ev.pointerId !== primaryId) return;
+        const dx = ev.clientX - lastX;
+        const dy = ev.clientY - lastY;
+        const dt = Math.max(4, now - lastT);
+        lastX = ev.clientX;
+        lastY = ev.clientY;
+        lastT = now;
+        if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) > 6) {
+          moved = true;
+        }
+        if (dx === 0 && dy === 0) return;
+        // Laptop-like pointer ballistics: 0.9x at slow speed for node precision,
+        // smoothly accelerating up to 2.35x for brisk sweeps across the canvas.
+        const speed = Math.hypot(dx, dy) / dt;
+        const gain = clamp(0.9 + speed * 0.85, 0.9, 2.35);
+        vpad.x = clamp(vpad.x + dx * gain, 0, Math.max(0, W));
+        vpad.y = clamp(vpad.y + dy * gain, 0, Math.max(0, H));
+        vpadNotifyMove();
+      });
+
+      const endPadPointer = (ev, cancelled) => {
+        if (!padPts.has(ev.pointerId)) return;
+        ev.preventDefault();
+        const now = performance.now();
+        const wasPrimary = ev.pointerId === primaryId;
+        const wasTap = !cancelled && wasPrimary && !moved && !twoFinger && (now - startT) < 260;
+        padPts.delete(ev.pointerId);
+        if (padPts.size === 0) {
+          surface.classList.remove('is-active');
+          primaryId = null;
+          twoFinger = false;
+        } else if (wasPrimary) {
+          const [nextId, nextPt] = padPts.entries().next().value;
+          primaryId = nextId;
+          lastX = nextPt.x;
+          lastY = nextPt.y;
+          lastT = now;
+          moved = true;
+        }
+        if (wasTap) {
+          triggerTapRipple(ev.clientX, ev.clientY);
+          if (vpad.dragLock) {
+            setDragLock(false, true);
+          } else {
+            fireVirtualLeftTap();
+          }
+        }
+      };
+
+      surface.addEventListener('pointerup', (ev) => endPadPointer(ev, false));
+      surface.addEventListener('pointercancel', (ev) => endPadPointer(ev, true));
+    }
+
+    // Pressing Esc cleanly disarms Drag Lock if active
+    window.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && vpad.dragLock) {
+        setDragLock(false, true);
+      }
+    });
+
+    // Follow pointer:coarse changes when preference is 'auto'
+    if (coarseMQ && typeof coarseMQ.addEventListener === 'function') {
+      coarseMQ.addEventListener('change', (ev) => {
+        if (modePref === 'auto') applyTouchMode(!!ev.matches, false);
+      });
+    }
+
+    // Initial state: explicit saved preference wins, else auto-detect coarse pointer
+    const startOn = modePref === 'on' ? true : (modePref === 'off' ? false : !!coarseMQ.matches);
+    applyTouchMode(startOn, false);
+  }
+
   function init() {
     initTheme();
     loadSettings();
@@ -40114,6 +40676,7 @@ function cmdSplitCurve() {
     initModalBehavior();
     bindCanvas();
     bindUI();
+    initTouchMode();
     initPropertyBar();
     bindSidebarSplitter();
     costBind();
