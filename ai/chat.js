@@ -1865,6 +1865,13 @@
   function renderExtDock(items) {
     const dock = getExtDock();
     if (!dock) return;
+    // Testing dock is Extension-mode only — hide entirely in SVG mode.
+    if (NS.builderMode !== 'ext') {
+      dock.innerHTML = '';
+      dock.hidden = true;
+      dock._dockSig = '';
+      return;
+    }
     const versions = extVersions(items || []);
     if (!versions.length) {
       NS._lastExtTotal = 0;
