@@ -6420,6 +6420,32 @@
     loops.sort((a, b2) => b2.b.maxX - b2.b.minX - (a.b.maxX - a.b.minX) ||
                           (b2.b.maxY - b2.b.minY) - (a.b.maxY - a.b.minY));
     loopTree();
+    // A loop that is the reference (key object) — or a fully-selected loop
+    // nested under it — stays its OWN arrange unit instead of being absorbed
+    // into a parent compound. Otherwise selecting a small box inside a bigger
+    // selected box folds both into one compound and the arrange buttons go
+    // disabled; keeping them separate lets you align them (e.g. center the
+    // small box in the big one) no matter which box you clicked last.
+    // Only explicit clicks set a reference: a marquee (bulk) selection has no
+    // key object, so there the classic compound rule keeps its old behaviour.
+    let refLoop = null;
+    if (lastPickEntityId != null &&
+        ui.selection.some(s => s.kind === 'entity' && +s.id === lastPickEntityId)) {
+      const keyEnt = lastPickEntityId;
+      // Smallest (innermost) matching loop first: the last candidate that owns
+      // the key entity is its own loop, not an enclosing container.
+      for (let i = loops.length - 1; i >= 0; i--) {
+        const cand = loops[i];
+        const owns = loopEntities(cand.loop).some(id => +id === keyEnt) ||
+                     entitiesInsideLoop(cand.loop).includes(keyEnt);
+        if (owns) { refLoop = cand; break; }
+      }
+    }
+    const isRef = l => !!refLoop && l === refLoop.loop;
+    const hasRefAncestor = l => {
+      for (let p = l.parent; p; p = p.parent) if (isRef(p)) return true;
+      return false;
+    };
     const outer = [];
     const outerSet = new Set();
     for (const cand of loops) {
@@ -6427,10 +6453,28 @@
       for (let p = cand.loop.parent; p; p = p.parent) {
         if (outerSet.has(p)) { inside = true; break; }
       }
-      if (!inside) { outer.push(cand); outerSet.add(cand.loop); }
+      if (inside && !isRef(cand.loop) && !hasRefAncestor(cand.loop)) continue;
+      outer.push(cand);
+      outerSet.add(cand.loop);
     }
+    // What each compound claims as its own content; nested loops kept separate
+    // are subtracted from their enclosing compound so they are not double-moved.
+    const rawContent = new Map();
+    for (const o of outer) rawContent.set(o.loop, new Set(arrangeLoopContents(o.loop, selEnts)));
+    const strictDescendantOf = (anc, n) => {
+      for (let q = n.parent; q; q = q.parent) if (q === anc) return true;
+      return false;
+    };
     for (const o of outer) {
-      const ids = arrangeLoopContents(o.loop, selEnts);
+      let exclude = null;
+      for (const [T, tIds] of rawContent) {
+        if (T !== o.loop && strictDescendantOf(o.loop, T)) {
+          if (!exclude) exclude = new Set();
+          for (const id of tIds) exclude.add(id);
+        }
+      }
+      let ids = Array.from(rawContent.get(o.loop));
+      if (exclude) ids = ids.filter(id => !exclude.has(id));
       if (!ids.length) continue;
       let b = o.b;
       for (const id of ids) {
@@ -20050,6 +20094,37 @@
     const shared = new Map();
     const madeIds = [];
     const avoidSet = avoid && avoid.size ? avoid : null;
+    // PathBool.get() returns regions: [[contour, contour, …], …] — flatten to a
+    // plain contour list so each face (outer AND holes) becomes its own entity.
+    // A "contour" may be either command segments (["L", a, b], …) or a raw
+    // point list ([[x,y], …]); detect regions only when the inner arrays hold
+    // nested content (segments/points), never plain numeric pairs.
+    const flatPaths = [];
+    for (const p of resultPaths || []) {
+      if (Array.isArray(p) && p.length && Array.isArray(p[0]) &&
+          (typeof p[0][0] === 'string' || (Array.isArray(p[0][0]) && p[0][0].length && typeof p[0][0][0] !== 'number'))) {
+        for (const pp of p) flatPaths.push(pp);
+      } else if (Array.isArray(p)) {
+        flatPaths.push(p);
+      }
+    }
+    // Normalize a contour to command segments, accepting both the command-tuple
+    // form and the raw point-list form.
+    const toSegs = (path) => {
+      const out = [];
+      let prev = null;
+      for (const item of path) {
+        if (item && typeof item === 'object' && typeof item[0] === 'string') {
+          out.push(item);
+        } else if (Array.isArray(item) && item.length >= 2 &&
+                   typeof item[0] === 'number' && typeof item[1] === 'number') {
+          const p = [item[0], item[1]];
+          if (prev) out.push(['L', prev, p]);
+          prev = p;
+        }
+      }
+      return out;
+    };
     const pidAt = (x, y) => {
       const key = Math.round(x / BOOL_EPS) + ',' + Math.round(y / BOOL_EPS);
       if (shared.has(key)) return shared.get(key);
@@ -20187,9 +20262,6 @@
           if (!ok) break;
         }
         if (!ok) {
-          // something the exact builders refuse (rx != ry, degenerate arc,
-          // full-circle arc): fall back to a dense polyline entity for this
-          // subpath only — it stays exact to sampling tolerance
           const pts = [];
           for (const seg of sub.segs) {
             const st = seg[1];
@@ -20216,6 +20288,31 @@
   function boolPathsToCurveLoops(resultPaths) {
     const loops = [];
     const endOf = (seg) => seg[0] === 'L' ? seg[2] : seg[0] === 'C' ? seg[4] : seg[0] === 'Q' ? seg[3] : seg[7];
+    // flatten PathBool regions -> contours (same detection as boolPathsToEntities)
+    const flatPaths = [];
+    for (const p of resultPaths || []) {
+      if (Array.isArray(p) && p.length && Array.isArray(p[0]) &&
+          (typeof p[0][0] === 'string' || (Array.isArray(p[0][0]) && p[0][0].length && typeof p[0][0][0] !== 'number'))) {
+        for (const pp of p) flatPaths.push(pp);
+      } else if (Array.isArray(p)) {
+        flatPaths.push(p);
+      }
+    }
+    const toSegs = (path) => {
+      const out = [];
+      let prev = null;
+      for (const item of path) {
+        if (item && typeof item === 'object' && typeof item[0] === 'string') {
+          out.push(item);
+        } else if (Array.isArray(item) && item.length >= 2 &&
+                   typeof item[0] === 'number' && typeof item[1] === 'number') {
+          const p = [item[0], item[1]];
+          if (prev) out.push(['L', prev, p]);
+          prev = p;
+        }
+      }
+      return out;
+    };
     for (const path of resultPaths) {
       const subs = [];
       let cur = null;
@@ -20329,6 +20426,26 @@
   // the toast instead of vanishing silently.
   function cmdBooleanExact(PB, mode, picked, removedLoops, keepTool, keptLoops) {
     const isUnion = mode === 'union';
+    // Hierarchical selections (loop inside another loop → hole) are handled by
+    // the Clipper+PolyTree fallback — the flat PathBool cannot express a hole.
+    // Union must NOT treat contained loops as holes (they are solids to merge).
+    if (!isUnion) {
+      const hasNested = (() => {
+        for (let i = 0; i < picked.length; i++) {
+          const A = picked[i];
+          if (!A || !A.poly || A.poly.length < 3) continue;
+          const probe = (typeof interiorProbe === 'function') ? interiorProbe(A.poly) : null;
+          if (!probe) continue;
+          for (let j = 0; j < picked.length; j++) {
+            if (i === j) continue;
+            const B = picked[j];
+            if (B && B.poly && B.poly.length >= 3 && pointInPoly(probe, B.poly)) return true;
+          }
+        }
+        return false;
+      })();
+      if (hasNested) return false;
+    }
     // PolyBool's operations are N-ary LEFT-FOLDS: Difference(A,B,C) means
     // A−B−C. So cut with several targets must union the targets first
     // (Union IS the multi-target operation we want), then subtract the tool
@@ -20430,8 +20547,9 @@
     const madeIds = boolPathsToEntities(PB, resultPaths, color, keepPointIds);
     if (!madeIds.length) {
       commit();
-      toast('That operation leaves nothing');
-      return true;
+      // Exact engine produced nothing (face-fragment flattening can yield zero);
+      // hand off to the Clipper+PolyTree fallback instead of declaring "nothing".
+      return false;
     }
     removeEntities([...eatIds]);
     // re-attach what survives meaningfully
@@ -20877,35 +20995,52 @@
       X: Math.round(p.x * OFFSET_SCALE), Y: Math.round(p.y * OFFSET_SCALE)
     }));
     const cl = new Lib.Clipper();
-    // For intersect the targets must be UNIONED into one region first (they
-    // may be disjoint — two separate circles), then intersected with the tool.
-    // Passing them all as the intersection subject would intersect them with
-    // each other and return nothing. Cut/union keep their existing inputs.
-    const stageCl = new Lib.Clipper();
-    if (!isUnion && effMode === 'intersect' && targets.length > 1) {
-      stageCl.AddPaths(targets.map(l => toPath(fix(l))), Lib.PolyType.ptSubject, true);
-      const fused = new Lib.Paths();
-      stageCl.Execute(Lib.ClipType.ctUnion, fused, Lib.PolyFillType.pftNonZero, Lib.PolyFillType.pftNonZero);
-      const merged = [];
-      for (const path of fused) {
-        if (path && path.length >= 3) merged.push(path);
+    // Hierarchy-aware subject assembly: loops contained inside another selected
+    // loop are HOLES (opposite winding), not solids to union. This keeps e.g.
+    // an outer+inner rectangle pair as a real ring when a crossing tool cuts it.
+    const levels = new Array(picked.length).fill(0);
+    for (let i = 0; i < picked.length; i++) {
+      const A = picked[i];
+      if (!A || !A.poly || A.poly.length < 3) continue;
+      const probe = (typeof interiorProbe === 'function') ? interiorProbe(A.poly) : null;
+      if (!probe) continue;
+      for (let j = 0; j < picked.length; j++) {
+        if (i === j) continue;
+        const B = picked[j];
+        if (B && B.poly && B.poly.length >= 3 && pointInPoly(probe, B.poly)) {
+          levels[i] = Math.max(levels[i], levels[j] + 1);
+        }
       }
-      cl.AddPaths(merged, Lib.PolyType.ptSubject, true);
-      cl.AddPaths([toPath(fix(toolLoop))], Lib.PolyType.ptClip, true);
-    } else if (isUnion) {
-      cl.AddPaths(picked.map(l => toPath(fix(l))), Lib.PolyType.ptSubject, true);
-    } else {
-      // subject = all targets fused (multi-target cut already worked
-      // in the exact engine; this keeps the Clipper fallback equivalent)
-      cl.AddPaths(targets.map(l => toPath(fix(l))), Lib.PolyType.ptSubject, true);
+    }
+    const subjectSolids = [];
+    const subjectHoles = [];
+    const subjectLoops = isUnion ? picked : targets;
+    subjectLoops.forEach((L) => {
+      if (!isUnion) {
+        const idx = picked.indexOf(L);
+        if (idx >= 0 && (levels[idx] % 2 === 1)) { subjectHoles.push(L); return; }
+      }
+      subjectSolids.push(L);
+    });
+    const addSubjectLoop = (L) => cl.AddPaths([toPath(fix(L))], Lib.PolyType.ptSubject, true);
+    for (const L of subjectSolids) addSubjectLoop(L);
+    for (const L of subjectHoles) {
+      const pts = fix(L).slice().reverse();   // holes wind opposite to solids
+      cl.AddPaths([toPath(pts)], Lib.PolyType.ptSubject, true);
+    }
+    if (!isUnion) {
       cl.AddPaths([toPath(fix(toolLoop))], Lib.PolyType.ptClip, true);
     }
-    const raw = new Lib.Paths();
     const clipOp = effMode === 'cut' ? Lib.ClipType.ctDifference
       : effMode === 'intersect' ? Lib.ClipType.ctIntersection : Lib.ClipType.ctUnion;
-    cl.Execute(clipOp, raw, Lib.PolyFillType.pftNonZero, Lib.PolyFillType.pftNonZero);
+    // PolyTree keeps nested holes — read every contour node (outer AND holes).
+    const tree = new Lib.PolyTree();
+    cl.Execute(clipOp, tree, Lib.PolyFillType.pftNonZero, Lib.PolyFillType.pftNonZero);
     const result = [];
-    for (const path of raw) {
+    const nodePolys = (Array.isArray(tree.m_AllPolys) ? tree.m_AllPolys : [])
+      .concat((Array.isArray(tree.Childs) ? tree.Childs : []) || []);
+    for (const node of nodePolys) {
+      const path = (node && (node.m_polygon || node.Contour)) || null;
       if (!path || path.length < 3) continue;
       const pts = [];
       for (const pt of path) {
