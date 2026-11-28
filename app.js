@@ -3591,25 +3591,60 @@
   }
 
   let lastSavedDocStr;
+  let fullWarned = false;
+  // localStorage is capped (~5MB/origin) and we store TWO copies (main + bak),
+  // so for large documents the backup copy is skipped to keep the main save
+  // under the quota. Main-only saves lose crash protection, but a save that
+  // throws is worse than one without a backup.
+  const LS_DOC_BAK_MAX = 700000;   // ~0.7MB serialized doc keeps a backup
+  function storageFull(err) {
+    return err && (err.name === 'QuotaExceededError' || err.code === 22 ||
+      /quota/i.test(String(err && err.message || err)));
+  }
+  function finishPersist(quiet) {
+    fullWarned = false;
+    docDirty = false;
+    paintFileDirty(false);
+    if (!quiet) setSavedLabel('saved');
+    if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) window.MiniSketchCloud.scheduleSync('doc');
+  }
+  function failPersist(quiet) {
+    // keep dirty so the UI still shows the work is not safely stored
+    docDirty = true;
+    paintFileDirty(true);
+    setSavedLabel('saving failed');
+    if (!quiet && !fullWarned) {
+      fullWarned = true;
+      toast('Local storage is full — this drawing is too large for browser storage. Export it (Ctrl+E SVG / Ctrl+Shift+S .sketch) or sign in to Cloud so it syncs.', { type: 'error', sticky: true });
+    }
+  }
   function persistNow(quiet) {
     if (ui.transform.pending) return;
     try {
       // P0-6: keep the last-good document aside before overwriting it. A crash
       // or a quota error mid-write used to leave localStorage corrupt with no
       // fallback; load tries main → .bak → blank, in that order.
-      const prev = lastSavedDocStr !== undefined ? lastSavedDocStr : localStorage.getItem(STORAGE_KEY);
-      if (prev) {
-        try { localStorage.setItem(BAK_KEY, prev); } catch (err) { /* bak best-effort */ }
-      }
       const next = serializeDoc();
-      localStorage.setItem(STORAGE_KEY, next);
+      const prev = lastSavedDocStr !== undefined ? lastSavedDocStr : localStorage.getItem(STORAGE_KEY);
+      if (prev && prev.length <= LS_DOC_BAK_MAX && next.length <= LS_DOC_BAK_MAX) {
+        try { localStorage.setItem(BAK_KEY, prev); } catch (err) { /* bak best-effort */ }
+      } else {
+        // large document: drop the double copy so the main save fits
+        try { if (localStorage.getItem(BAK_KEY) != null) localStorage.removeItem(BAK_KEY); } catch (err) { /* ignore */ }
+      }
+      try {
+        localStorage.setItem(STORAGE_KEY, next);
+      } catch (err) {
+        if (!storageFull(err)) throw err;
+        // quota hit: free the backup (if any) and retry once
+        try { localStorage.removeItem(BAK_KEY); } catch (e2) {}
+        localStorage.setItem(STORAGE_KEY, next);
+      }
       lastSavedDocStr = next;
-      docDirty = false;
-      paintFileDirty(false);
-      if (!quiet) setSavedLabel('saved');
-      if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) window.MiniSketchCloud.scheduleSync('doc');
+      finishPersist(quiet);
     } catch (err) {
-      if (!quiet) toast('Browser storage is unavailable', { type: 'error' });
+      if (!storageFull(err)) console.warn('[minisketch] persist failed', err);
+      failPersist(quiet);
     }
   }
 
@@ -6231,6 +6266,9 @@
         }
       }
     }
+    // The duplicate-in-place copy has been moved away from its original: it no
+    // longer overlaps, so its points are weld-eligible again.
+    if (noWeldPoints.size) noWeldPoints.clear();
     // Clone arrays move by instance matrix, not by points (they own none), so
     // a nudge shifts every instance's translation like a drag does.
     for (const e of selectedEntities()) {
@@ -7234,6 +7272,13 @@
 
   // The payload for a copy: points, entities (plus a text object's owned guide
   // lines) and the constraints that live entirely inside that set. Shared by
+  // Points created by a duplicate-in-place (Ctrl+D at the same coordinates)
+  // must never be welded into the loop graph: the copy is byte-identical to
+  // the original, so welding merges the two loops into one tangled graph and
+  // even mutates the ORIGINAL loop. These ids are excluded from welding in
+  // getLoops() until a move (moveSelection) separates them.
+  const noWeldPoints = new Set();
+
   // Ctrl+C and Ctrl+D — duplicating must not touch the user's clipboard, so the
   // payload is built separately from the act of copying.
   function clipboardPayload() {
@@ -7565,6 +7610,10 @@
       const id = newId();
       pMap[p.id] = id;
       state.points[id] = { x: p.x + offsetX, y: p.y + offsetY, pr: !!p.pr };
+    }
+    // duplicate-in-place: mark every new point as weld-excluded
+    if (o.at === 'same') {
+      for (const id of Object.values(pMap)) noWeldPoints.add(+id);
     }
     const eMap = {};
     const newEntityIds = [];
@@ -11614,6 +11663,26 @@
       sameEnds.add(Math.min(a, b) + ':' + Math.max(a, b));
     }
     const ids = Array.from(usedPoints);
+    // Initial degree per point (pre-weld): how many curve ENDS touch it.
+    // Used to keep duplicate overlap (two identical closed loops on top of each
+    // other, e.g. after Ctrl+D duplicate-in-place) from being welded together:
+    // interior points (degree >= 2) that sit at EXACTLY the same coordinates
+    // are left separate, so each copy stays its own loop. Open ends (degree 1)
+    // and junctions still weld as before.
+    const initDeg = new Map();
+    const incDeg = (n) => {
+      if (n == null) return;
+      initDeg.set(+n, (initDeg.get(+n) || 0) + 1);
+    };
+    for (const id in state.entities) {
+      const e = state.entities[id];
+      if (e.type === 'line') { incDeg(e.a); incDeg(e.b); }
+      else if (e.type === 'arc') { incDeg(e.s); incDeg(e.e); }
+      else if (e.type === 'spline' && !e.closed) {
+        const sids = entityPointIds(e).filter(pid => P(pid));
+        if (sids.length >= 2) { incDeg(sids[0]); incDeg(sids[sids.length - 1]); }
+      }
+    }
     // Loop closure gets its own, wider tolerance: CAD exports leave rounding
     // cracks (0.1-0.2 mm) at junctions that the CNC join tolerance refuses to
     // bridge, and the shape then never reads as a loop. Topology only — no
@@ -11643,6 +11712,15 @@
             if (Math.hypot(p.x - pq.x, p.y - pq.y) >= closeTol) continue;
             if (!sameLayer(pid, q)) continue;
             if (sameEnds.has(Math.min(+pid, +q) + ':' + Math.max(+pid, +q))) continue;
+            // points of a duplicate-in-place copy are never welded (the copy is
+            // identical data; welding would merge the two loops and mutate the
+            // original loop too)
+            if (noWeldPoints.has(+pid) || noWeldPoints.has(+q)) continue;
+            // identical coordinates on two interior points = overlapping copies
+            // (duplicate-in-place); keep them as separate loops instead of
+            // welding them into one tangled graph.
+            if (Math.hypot(p.x - pq.x, p.y - pq.y) < 1e-9 &&
+                (initDeg.get(+pid) || 0) >= 2 && (initDeg.get(+q) || 0) >= 2) continue;
             union(pid, q);
           }
         }
@@ -20079,9 +20157,19 @@
     const toolLoops = isUnion ? [] : [picked[0]];
     const targetInputs = inputsOf(targets);
     if (!targetInputs) return false;
+    // Stage 1 fuses the targets into ONE region the tool then acts on. For
+    // CUT the targets fuse by Union (subtract one tool from all of them); for
+    // INTERSECT they must ALSO fuse by Union, not Intersection: intersecting
+    // the targets first would need them to overlap each other, which disjoint
+    // targets (two separate circles) never do — that returned nothing even
+    // when both clearly overlapped the tool. Union grows the target region to
+    // everything selected, so the final intersection with the tool keeps
+    // exactly the tool area covered by the targets (2-circle + box case).
+    // A single target fuses to itself either way, so keep Intersection there.
     const stageOp = isUnion ? PB.PathBooleanOperation.Union
       : mode === 'cut' ? PB.PathBooleanOperation.Union       // targets fuse first
-      : PB.PathBooleanOperation.Intersection;                 // targets fuse first
+      : targets.length > 1 ? PB.PathBooleanOperation.Union    // disjoint targets union first
+      : PB.PathBooleanOperation.Intersection;                 // single target as before
     let resultPaths;
     try {
       resultPaths = new PB.PathBoolean(targetInputs).get(stageOp);
@@ -20369,6 +20457,127 @@
     return fromRings(rings);
   }
 
+  // Container-aware boolean: used when the selection contains array/group/art,
+  // text or image entities. It flattens every selected entity to world curve
+  // contours (entityWorldPolylines), treats the LAST picked entity as the tool
+  // and unions ALL of its contours into ONE region (so a multi-contour text or
+  // group cuts as a single unit), then runs Clipper (union / cut / intersect).
+  // Every consumed entity is replaced by the result, exactly like the loop path.
+  function runContainerBoolean(mode, ents, keep, keepTool) {
+    const Lib = clipperLib();
+    if (!Lib) {
+      toast('Boolean operations need tools/clipper.js');
+      return;
+    }
+    if (ents.length < 2) {
+      toast(mode === 'union'
+        ? 'Select two or more objects, then press Ctrl++'
+        : 'Select the target object first, then the tool object last');
+      return;
+    }
+    const toolEnt = ents[ents.length - 1];
+    const targets = ents.slice(0, -1);
+    const toPath = (pts) => pts.map(p => ({
+      X: Math.round(p.x * OFFSET_SCALE), Y: Math.round(p.y * OFFSET_SCALE)
+    }));
+    const fixPts = (pts) => {
+      const c = (pts || []).slice();
+      if (c.length >= 3 && signedAreaPts(c) < 0) c.reverse();
+      return c;
+    };
+    const polysOf = (e) => {
+      const out = [];
+      for (const pl of entityWorldPolylines(e)) {
+        if (pl && Array.isArray(pl.pts) && pl.pts.length >= 3) out.push(pl.pts);
+      }
+      return out;
+    };
+
+    const cl = new Lib.Clipper();
+    // subject = every target contour, each as its own loop (targets are NOT
+    // unioned with each other, matching the loop-based pipeline)
+    for (const t of targets) {
+      for (const pts of polysOf(t)) {
+        cl.AddPaths([toPath(fixPts(pts))], Lib.PolyType.ptSubject, true);
+      }
+    }
+    if (mode !== 'union') {
+      // tool = ONE unit: union all of its contours into a single region first
+      const tpaths = [];
+      for (const pts of polysOf(toolEnt)) tpaths.push(toPath(fixPts(pts)));
+      if (!tpaths.length) {
+        toast('Tool has no usable geometry');
+        return;
+      }
+      let clipPaths;
+      if (tpaths.length === 1) {
+        clipPaths = tpaths;
+      } else {
+        const tc = new Lib.Clipper();
+        tc.AddPaths(tpaths, Lib.PolyType.ptSubject, true);
+        const fused = new Lib.Paths();
+        tc.Execute(Lib.ClipType.ctUnion, fused, Lib.PolyFillType.pftNonZero, Lib.PolyFillType.pftNonZero);
+        clipPaths = [];
+        for (const path of fused) if (path && path.length >= 3) clipPaths.push(path);
+      }
+      cl.AddPaths(clipPaths, Lib.PolyType.ptClip, true);
+    }
+
+    const raw = new Lib.Paths();
+    const op = mode === 'union' ? Lib.ClipType.ctUnion
+      : mode === 'intersect' ? Lib.ClipType.ctIntersection
+      : Lib.ClipType.ctDifference;
+    cl.Execute(op, raw, Lib.PolyFillType.pftNonZero, Lib.PolyFillType.pftNonZero);
+
+    const result = [];
+    for (const path of raw) {
+      if (!path || path.length < 3) continue;
+      const pts = [];
+      for (const pt of path) {
+        const x = pt.X / OFFSET_SCALE, y = pt.Y / OFFSET_SCALE;
+        const last = pts[pts.length - 1];
+        if (last && Math.hypot(x - last.x, y - last.y) < OFFSET_PRECISION * 0.5) continue;
+        pts.push({ x, y });
+      }
+      if (pts.length >= 3 && Math.abs(signedAreaPts(pts)) > 1e-6) result.push(pts);
+    }
+    if (!result.length) {
+      toast('That operation leaves nothing');
+      return;
+    }
+    const refEnt = targets[0];
+    const color = (refEnt && colorOf(refEnt)) || ui.color;
+
+    pushHistory();
+    const removed = new Set();
+    if (!keep) {
+      for (const t of targets) removed.add(+t.id);
+      if (!keepTool) removed.add(+toolEnt.id);
+    } else if (mode === 'cut') {
+      // cut-keep: only the tool stays; targets are consumed
+      for (const t of targets) removed.add(+t.id);
+    }
+    removeEntities([...removed]);
+
+    const fitResult = settings.booleanFit !== 'poly';
+    const fitTol = isFinite(+settings.curveFitTol) && +settings.curveFitTol > 0 ? +settings.curveFitTol : 0.2;
+    const fitSharp = isFinite(+settings.curveSharpAngle) ? +settings.curveSharpAngle : 25;
+    const madeIds = [];
+    for (const pts of result) {
+      let id = null;
+      if (fitResult) {
+        id = addFittedSpline(pts, color, { tol: fitTol, sharpAngle: fitSharp, closed: true });
+      }
+      if (!id) id = addPanelEntity(pts, color);
+      if (id) madeIds.push(id);
+    }
+    ui.selection = madeIds.map(id => ({ kind: 'entity', id }));
+    invalidateLoops();
+    commit();
+    const what = mode === 'union' ? 'Union' : mode === 'cut' ? 'Cut' : 'Intersection';
+    toast(what + ' (container) · ' + madeIds.length + ' result loop' + (madeIds.length === 1 ? '' : 's'));
+  }
+
   function cmdBoolean(mode) {
     // "keep" modes (Shift+click, or Ctrl+Shift+- for cut) run the operation
     // but leave every ORIGINAL loop in the drawing; the result is added on
@@ -20380,6 +20589,27 @@
       : mode === 'intersect-keep' ? 'intersect' : mode;
     const keepTool = keep;
     const isUnion = effMode === 'union';
+
+    // If the selection contains container entities (array/group/art, text,
+    // image) the boolean must flatten them to curves and treat the LAST picked
+    // entity as ONE unit (its contours are unioned internally) — see
+    // runContainerBoolean below. Plain non-container selections keep the
+    // existing loop-based exact/Clipper pipeline.
+    const selEnts = [];
+    {
+      const guides = (typeof ownedGuideIds === 'function') ? ownedGuideIds() : new Set();
+      for (const s of ui.selection) {
+        if (!s || s.kind !== 'entity') continue;
+        const e = state.entities[s.id];
+        if (!e || !entityEditable(e) || guides.has(+e.id) || e.type === 'note') continue;
+        selEnts.push(e);
+      }
+      const hasContainer = selEnts.some(e => e.type === 'art' || e.type === 'array' || e.type === 'text' || e.type === 'image');
+      if (hasContainer) {
+        runContainerBoolean(effMode, selEnts, keep, keepTool);
+        return;
+      }
+    }
     // Cut / intersect take their tool from the LAST selected loop; reorder so
     // that loop becomes the first (tool) unit. Union has no tool.
     const allPicked = orderLoopsBySelection(pickedLoops(), !isUnion);
@@ -20443,10 +20673,25 @@
       X: Math.round(p.x * OFFSET_SCALE), Y: Math.round(p.y * OFFSET_SCALE)
     }));
     const cl = new Lib.Clipper();
-    if (isUnion) {
+    // For intersect the targets must be UNIONED into one region first (they
+    // may be disjoint — two separate circles), then intersected with the tool.
+    // Passing them all as the intersection subject would intersect them with
+    // each other and return nothing. Cut/union keep their existing inputs.
+    const stageCl = new Lib.Clipper();
+    if (!isUnion && effMode === 'intersect' && targets.length > 1) {
+      stageCl.AddPaths(targets.map(l => toPath(fix(l))), Lib.PolyType.ptSubject, true);
+      const fused = new Lib.Paths();
+      stageCl.Execute(Lib.ClipType.ctUnion, fused, Lib.PolyFillType.pftNonZero, Lib.PolyFillType.pftNonZero);
+      const merged = [];
+      for (const path of fused) {
+        if (path && path.length >= 3) merged.push(path);
+      }
+      cl.AddPaths(merged, Lib.PolyType.ptSubject, true);
+      cl.AddPaths([toPath(fix(toolLoop))], Lib.PolyType.ptClip, true);
+    } else if (isUnion) {
       cl.AddPaths(picked.map(l => toPath(fix(l))), Lib.PolyType.ptSubject, true);
     } else {
-      // subject = all targets fused (multi-target cut/intersect already worked
+      // subject = all targets fused (multi-target cut already worked
       // in the exact engine; this keeps the Clipper fallback equivalent)
       cl.AddPaths(targets.map(l => toPath(fix(l))), Lib.PolyType.ptSubject, true);
       cl.AddPaths([toPath(fix(toolLoop))], Lib.PolyType.ptClip, true);

@@ -1078,6 +1078,7 @@
     'set_selection', 'clear_selection'
   ]);
 
+
   // One batch of ops. `opts.noHistory` continues an agent turn that already
   // pushed history (round 2+ of the verify loop), so the whole agent run
   // stays ONE undo step. Pure read-only batches skip pushing an empty snapshot.
@@ -1332,6 +1333,17 @@
     return '';
   }
 
+  let _bridgeBuild = null;
+  function ensureBridgeBuild() {
+    if (_bridgeBuild !== null) return Promise.resolve(_bridgeBuild);
+    const b = bridgeUrl();
+    if (!b) { _bridgeBuild = '-'; return Promise.resolve('-'); }
+    return fetch(b + '/health', { cache: 'no-cache' })
+      .then(r => r.json())
+      .then(j => { _bridgeBuild = (j && j.build) || '-'; return _bridgeBuild; })
+      .catch(() => { _bridgeBuild = '-'; return _bridgeBuild; });
+  }
+
   async function send(text) {
     const input = String(text == null ? '' : text).trim();
     // a stop press (Kirim becomes Stop while running) aborts the request
@@ -1430,11 +1442,16 @@
     const stopWaitClock = () => { if (waitTimer) { clearInterval(waitTimer); waitTimer = null; } };
     try {
       await ensurePolicy();
+      Promise.resolve(ensureBridgeBuild()).catch(() => {});
       const extMode = NS.builderMode === 'ext';
       if (extMode && P && P.ensureExtPrompt) await P.ensureExtPrompt();
       const svgMode = !extMode && NS.svgMode();
-      // SVG & Extension Builder modes send no CAD tool manifest — the model returns <svg> or tool JS directly.
-      const toolManifest = (!svgMode && !extMode && P && P.toolManifest) ? P.toolManifest() : [];
+      // SVG & Extension Builder modes send no CAD tool manifest — the model
+      // returns <svg> or tool JS directly (full code block in Extension mode).
+      let toolManifest = [];
+      if (!svgMode && P && P.toolManifest) {
+        toolManifest = P.toolManifest();
+      }
       for (let round = 1; round <= MAX_ROUNDS; round++) {
         // Rebuild systemMessage EVERY round so `use_skill` and fresh document
         // state take effect immediately on round 2+.
@@ -1457,13 +1474,21 @@
           const fbPayload = {
             executed: {
               round: lastExec.round,
+              ops: lastExec.ops || [],
               made: lastExec.made,
               ids: lastExec.ids,
               errors: lastExec.errors,
               results: lastExec.results
             },
             ...(lastExec.queryResults && lastExec.queryResults.length ? { queryResults: lastExec.queryResults } : {}),
-            ...(roundLog.length > 1 ? { priorRounds: roundLog.slice(0, -1) } : {}),
+            ...(roundLog.length > 1
+              ? { priorRounds: roundLog.slice(0, -1).map(r => ({
+                  round: r.round,
+                  ops: r.ops,
+                  made: r.made,
+                  errors: r.errors
+                })) }
+              : {}),
             state: curState
           };
           const fbJson = JSON.stringify(fbPayload);
@@ -1497,7 +1522,10 @@
         };
         const bodyStr = JSON.stringify(payload);
         console.log('[AI req] putaran ' + round + '/' + MAX_ROUNDS +
-          ' · payload=' + Math.round(bodyStr.length / 1024) + 'KB · msgs=' + messages.length);
+          ' · payload=' + Math.round(bodyStr.length / 1024) + 'KB · msgs=' + messages.length +
+          ' · tools=' + (toolManifest || []).length +
+          ' · gemini=' + ((api.settings && api.settings.aiProviderGoogle) ? 1 : 0) +
+          ' · bridge=' + String(_bridgeBuild || '-'));
         const res = await fetch(url + '/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1555,6 +1583,11 @@
           usageTotal.total_tokens += +data.usage.total_tokens || 0;
         }
         const calls = (data.tool_calls || []).map(tc => ({ name: tc.name, arguments: tc.arguments || {} }));
+        console.log('[AI done] replyLen=' + String((data.reply || '')).length +
+          ' · replyHead=' + JSON.stringify(String(data.reply || '').slice(0, 80)) +
+          ' · tool_calls=' + calls.length +
+          ' · finishReason=' + String(data.finishReason || '-') +
+          ' · usage=' + (usageTotal.total_tokens || 0));
         console.log('[AI stream] putaran ' + round + '/' + MAX_ROUNDS + ' selesai dalam ' +
           Math.round(performance.now() - tRound) + 'ms · tool_calls=' + calls.length +
           ' · thinking=' + Math.round((liveMsg.thinking || '').length / 1024) + 'KB');
@@ -1566,15 +1599,51 @@
         if (!calls.length) {
           liveMsg.rounds = round;
           if (usageTotal.total_tokens > 0) liveMsg.usage = { ...usageTotal };
-          setPhase((data.reply || tr('chat.done', 'Done.')).trim());
+          const replyTxt = String((data.reply || tr('chat.done', 'Done.')).trim());
+          setPhase(replyTxt);
+          // Extension mode: an AI "Done" without extractable code usually means
+          // the reply was truncated (max output / content filter) — detect the
+          // most common signal: an unclosed code fence.
+          if (NS.builderMode === 'ext') {
+            if (!extractExtensionCode(replyTxt)) {
+              liveMsg.noExtCode = true;
+              const fences = (replyTxt.match(/```/g) || []).length;
+              const foreignToolCalls = /<tool_call>|<\/tool_call>|<arg_key>|(?:^|\s)(?:read|grep|bash|ls|cat|find|pwd|curl|cd)\s*[<(]/.test(replyTxt);
+              liveMsg.truncated = (fences % 2 === 1);
+              liveMsg.foreignToolCalls = foreignToolCalls;
+              console.log('[AI] no ext code in reply · finishReason=' + String(data.finishReason || '-') +
+                ' · fences=' + fences + ' · foreignToolCalls=' + foreignToolCalls +
+                ' · replyLen=' + replyTxt.length);
+              if (liveMsg.truncated && api && api.toast) {
+                api.toast(tr('chat.extTruncWarn', 'Warning: the AI reply looks truncated (code fence unclosed) — auto-continuing…'));
+              }
+              if (foreignToolCalls && api && api.toast) {
+                api.toast(tr('chat.extForeignToolWarn', 'Warning: the AI reply contains foreign tool calls (read/grep/bash). It has no file access — auto-correction sent.'));
+              }
+              // Auto-continue ONCE per continue-prompt: ask the model to resend
+              // the COMPLETE code so a mid-reply cut / foreign-tool drift is
+              // repaired automatically.
+              const needsAutoCont = (liveMsg.truncated || foreignToolCalls) && input !== NS._lastAutoContSig;
+              if (needsAutoCont) {
+                NS._lastAutoContSig = input;
+                const reason = foreignToolCalls ? 'foreign-tool-call drift' : 'truncation';
+                const contPrompt = curLang() === 'id'
+                  ? ('Balasanmu tampak ' + reason + ' dan kamu TIDAK punya akses file/tool luar. Kirim ulang SATU blok kode ekstensi LENGKAP ```js ... ``` (tertutup) tanpa `tool_call` apa pun.')
+                  : ('Your reply appears to contain ' + reason + ' — you have NO file access or foreign tools. Resend ONE complete, closed ```js ... ``` extension code block, with no tool_call tags.');
+                setTimeout(() => send(contPrompt), 60);
+              }
+            }
+          }
+
+          liveMsg.toolCalls = roundLog.flatMap(r => r.calls || []);
           markDone(liveMsg);
           break;
         }
-        setPhase(tr('chat.executingOps', 'executing {n} op(s) (round {r}/{max})…', { n: calls.length, r: round, max: MAX_ROUNDS }), calls);
-        const r = await applyOps(calls, { noHistory: historyPushed });
+        setPhase(tr('chat.executingOps', 'executing {n} op(s) (round {r}/{max})…', { n: calls.length, r: round, max: MAX_ROUNDS }), calls);        const r = await applyOps(calls, { noHistory: historyPushed });
         if (r.pushedHistory) historyPushed = true;
         lastExec = {
           round,
+          ops: calls.map(c => c.name),
           made: r.made,
           ids: r.ids || [],
           queryResults: r.queryResults || [],
@@ -1584,6 +1653,19 @@
         roundLog.push({
           round,
           ops: calls.map(c => c.name),
+          calls: calls.map((c, ci) => {
+            const rr = (r.results && r.results[ci]) || {};
+            const qr = (r.queryResults && r.queryResults[ci]) || {};
+            let snippet = '';
+            try { snippet = String(qr.result == null ? '' : qr.result).slice(0, 160); } catch (e) {}
+            return {
+              name: c.name,
+              args: c.arguments || {},
+              ok: !!rr.ok,
+              error: rr.error || '',
+              snippet
+            };
+          }),
           made: r.made,
           ids: (r.ids || []).slice(0, 20),
           errors: (r.errors || []).slice(0, 3)
@@ -1600,6 +1682,7 @@
             'Stopped at the {max}-round limit. Last: {made} op{errPart}. Type "continue" to proceed, or press Retry to start over.',
             { max: MAX_ROUNDS, made: r.made, errPart }), calls);
           liveMsg.retryText = input;   // Retry re-runs the whole request
+          liveMsg.toolCalls = roundLog.flatMap(r => r.calls || []);
           markDone(liveMsg);
         }
       }
@@ -1739,32 +1822,136 @@
     return null;
   }
 
-  function findLatestExtEntry(items) {
-    for (let i = items.length - 1; i >= 0; i--) {
-      const m = items[i];
+  function extVersions(items) {
+    const out = [];
+    for (const m of items || []) {
       if (m && m.role === 'ai') {
         const code = extractExtensionCode(m.text);
-        if (code) return { msg: m, code };
+        if (code) out.push({ msg: m, code });
       }
     }
-    return null;
+    // The virtual source file version (only when virtual-file mode is ENABLED,
+    // the file was actively edited, and it belongs to the current session)
+    // becomes the newest candidate.
+    return out;
+  }
+
+  // The extension version currently shown in the testing dock: newest by
+  // default, or the user-selected rollback target (NS.extSelIdx).
+  function currentExtEntry(items) {
+    const versions = extVersions(items || []);
+    if (!versions.length) return null;
+    let idx = (NS.extSelIdx == null) ? versions.length - 1 : NS.extSelIdx;
+    if (idx < 0 || idx >= versions.length) idx = versions.length - 1;
+    return versions[idx];
   }
 
   function renderExtDock(items) {
     const dock = getExtDock();
     if (!dock) return;
-    const latest = findLatestExtEntry(items || []);
-    if (!latest) {
+    const versions = extVersions(items || []);
+    if (!versions.length) {
+      NS._lastExtTotal = 0;
+      let lastAi = null;
+      for (let i = (items || []).length - 1; i >= 0; i--) {
+        if (items[i] && items[i].role === 'ai') { lastAi = items[i]; break; }
+      }
+      if (!lastAi || NS.builderMode !== 'ext' || !lastAi.done) {
+        dock.innerHTML = '';
+        dock.hidden = true;
+        dock._dockSig = '';
+        return;
+      }
+      // AI finished but produced no extractable extension code: warn and offer
+      // a one-click Continue instead of silently showing nothing.
+      dock.hidden = false;
+      const sig = 'nocode::' + (lastAi.text || '').length + '::' + curLang();
+      if (dock._dockSig === sig && dock.children && dock.children.length) return;
       dock.innerHTML = '';
-      dock.hidden = true;
-      dock._dockSig = '';
+      const bar = document.createElement('div');
+      bar.className = 'chat-ext-vers is-warn';
+      const info = document.createElement('span');
+      info.className = 'chat-ext-vers-info';
+      info.textContent = lastAi.foreignToolCalls
+        ? tr('chat.extForeignTool', 'AI finished WITHOUT extension code — its reply contained foreign tool calls (read/grep/bash). It has no file access; a correction was requested.')
+        : (lastAi.truncated
+          ? tr('chat.extNoCodeTrunc', 'AI finished WITHOUT extension code — reply looks truncated (fence unclosed). The code may be incomplete.')
+          : tr('chat.extNoCode', 'AI finished WITHOUT extension code. It may have answered in prose — ask again or use Continue.'));
+      const cont = document.createElement('button');
+      cont.type = 'button';
+      cont.className = 'btn small primary';
+      cont.textContent = tr('chat.continue', 'Continue');
+      cont.title = tr('chat.extContinueTitle', 'Ask the AI to continue where it stopped (resends "continue")');
+      cont.disabled = !!NS.activeAbort;
+      cont.addEventListener('click', () => {
+        if (NS.activeAbort) return;
+        send(curLang() === 'id' ? 'lanjutkan' : 'continue');
+      });
+      bar.appendChild(info);
+      bar.appendChild(cont);
+      dock.appendChild(bar);
+      dock._dockSig = sig;
       return;
     }
+    // A new version was generated (or the history changed): always show the
+    // LATEST result by default — only an explicit prev/next pin overrides it,
+    // and that pin is dropped again when the next version arrives.
+    if (NS._lastExtTotal !== versions.length) {
+      NS._lastExtTotal = versions.length;
+      NS.extSelIdx = null;
+    }
+    let idx = (NS.extSelIdx == null) ? versions.length - 1 : NS.extSelIdx;
+    if (idx < 0 || idx >= versions.length) idx = versions.length - 1;
+    const ver = versions[idx];
+    const pinned = idx < versions.length - 1;
     dock.hidden = false;
-    const sig = latest.code + '::' + (NS.activeAbort ? 1 : 0) + '::' + curLang();
+    const sig = ver.code + '::' + idx + '::' + (pinned ? 1 : 0) + '::' +
+      (NS.activeAbort ? 1 : 0) + '::' + curLang();
     if (dock._dockSig === sig && dock.children && dock.children.length) return;
     dock.innerHTML = '';
-    appendExtensionBlock(dock, latest.msg);
+    const bar = document.createElement('div');
+    bar.className = 'chat-ext-vers' + (pinned ? ' is-pinned' : '');
+    const info = document.createElement('span');
+    info.className = 'chat-ext-vers-info';
+    info.textContent = (pinned
+      ? tr('chat.extVersionOld', 'Extension code v{cur}/{total} — OLD (rollback)', { cur: idx + 1, total: versions.length })
+      : tr('chat.extVersionNew', 'Extension code v{cur}/{total} — latest', { cur: idx + 1, total: versions.length }));
+    const prev = document.createElement('button');
+    prev.type = 'button';
+    prev.className = 'btn small';
+    prev.textContent = '‹ ' + tr('chat.extPrev', 'prev');
+    prev.disabled = idx === 0;
+    prev.title = tr('chat.extPrevTitle', 'Roll back to the previous AI-generated version');
+    prev.addEventListener('click', () => {
+      NS.extSelIdx = Math.max(0, idx - 1);
+      renderLog();
+    });
+    const next = document.createElement('button');
+    next.type = 'button';
+    next.className = 'btn small';
+    next.textContent = tr('chat.extNext', 'next') + ' ›';
+    next.disabled = idx === versions.length - 1;
+    next.title = tr('chat.extNextTitle', 'Move forward to a newer AI-generated version');
+    next.addEventListener('click', () => {
+      NS.extSelIdx = Math.min(versions.length - 1, idx + 1);
+      renderLog();
+    });
+    const latestBtn = document.createElement('button');
+    latestBtn.type = 'button';
+    latestBtn.className = 'btn small';
+    latestBtn.textContent = tr('chat.extLatest', 'latest');
+    latestBtn.disabled = !pinned;
+    latestBtn.title = tr('chat.extLatestTitle', 'Jump to the newest AI-generated version');
+    latestBtn.addEventListener('click', () => {
+      NS.extSelIdx = null;
+      renderLog();
+    });
+    bar.appendChild(info);
+    bar.appendChild(prev);
+    bar.appendChild(next);
+    bar.appendChild(latestBtn);
+    dock.appendChild(bar);
+    appendExtensionBlock(dock, ver.msg);
     dock._dockSig = sig;
   }
 
@@ -1782,8 +1969,8 @@
         : '';
       stripped = stripped.replace(/\n{3,}/g, '\n\n').trim();
       const note = isLatestExt
-        ? '<span class="muted">' + escapeHtml(tr('chat.extNoteLatest', '[Latest extension code is shown in the testing panel below]')) + '</span>'
-        : '<span class="muted">' + escapeHtml(tr('chat.extNotePrev', '[Previous extension version]')) + '</span>';
+        ? '<span class="muted">' + escapeHtml(tr('chat.extNoteLatest', '[This version is shown in the testing panel below]')) + '</span>'
+        : '<span class="muted">' + escapeHtml(tr('chat.extNotePrev', '[Previous version — roll back with prev/next below]')) + '</span>';
       html = who + (stripped ? (' ' + escapeHtml(stripped).replace(/\n/g, '<br>') + '<br>' + note) : (' ' + note));
     } else {
       html = who + ' ' + escapeHtml(body).replace(/\n/g, '<br>');
@@ -1837,11 +2024,13 @@
       host.appendChild(li);
       return;
     }
-    const latestExt = findLatestExtEntry(items);
+    const latestExt = currentExtEntry(items);
     const fmtTok = (n) => n >= 1000 ? (Math.round(n / 100) / 10) + 'k' : String(n);
     let forkPlaced = false;
     for (const m of items.slice(-60)) {
       const li = document.createElement('li');
+      if (m.role === 'user') li.classList.add('chat-user');
+      else if (m.role === 'ai') li.classList.add('chat-ai');
       const html = formatMessageHtml(m, !!(latestExt && latestExt.msg === m));
       const textSpan = document.createElement('span');
       textSpan.innerHTML = html;
@@ -1862,6 +2051,7 @@
         }
       }
       appendImageThumbs(li, m);
+      if (m.role === 'ai') appendToolCallsBlock(li, m);
       if (m.role === 'ai' && !extractExtensionCode(m.text) && (NS.svgMode() || /<svg[\s\S]*?<\/svg>/i.test(m.text))) appendSvgBlock(li, m);
       if (m.thinking) {
         NS.thinkOpen = NS.thinkOpen || new WeakSet();
@@ -1911,6 +2101,96 @@
       host.appendChild(li);
     }
     host.scrollTop = host.scrollHeight;
+  }
+
+  // Roll back the last exchange: remove the newest user+AI pair (or just the
+  // newest user message if no answer arrived yet) and put that prompt back into
+  // the input box so the user can edit and resend it. Images attached to that
+  // prompt (if any) are restored to the pending tray.
+  // ALSO reloads the system prompt cache (P.reload()) — the user's workflow is
+  // "edit the prompt files, then rollback + resend", so the next send must use
+  // the CURRENT prompt files, never a stale cached copy.
+  function rollbackLastTurn() {
+    if (NS.activeAbort) return false;
+    const items = NS.log.filter(m => m.role !== 'sys');
+    if (!items.length) return false;
+    const last = items[items.length - 1];
+    let promptText = '';
+    let restoreImgs = null;
+    if (last.role === 'ai') {
+      NS.log.splice(NS.log.indexOf(last), 1);
+      const prevItems = NS.log.filter(m => m.role !== 'sys');
+      const prev = prevItems[prevItems.length - 1];
+      if (prev && prev.role === 'user') {
+        promptText = String(prev.text || '');
+        if (Array.isArray(prev.images) && prev.images.length) restoreImgs = prev.images.slice();
+        NS.log.splice(NS.log.indexOf(prev), 1);
+      }
+    } else if (last.role === 'user') {
+      promptText = String(last.text || '');
+      if (Array.isArray(last.images) && last.images.length) restoreImgs = last.images.slice();
+      NS.log.splice(NS.log.indexOf(last), 1);
+    } else {
+      return false;
+    }
+    // Drop cached policy/system-prompt assets so the next send refetches them
+    // (same as the Fork button does).
+    try {
+      if (window.MiniSketchAIPrompt && window.MiniSketchAIPrompt.reload) {
+        window.MiniSketchAIPrompt.reload();
+      }
+    } catch (e) { /* reload is best-effort */ }
+    NS.liveMsg = null;
+    NS.liveRefs = null;
+    if (restoreImgs) NS.pendingImages = restoreImgs;
+    scheduleSave();
+    renderPending();
+    renderLog();
+    const inp = document.getElementById('chat-input');
+    if (inp) {
+      inp.value = promptText;
+      if (typeof inp.dispatchEvent === 'function') {
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      try { inp.focus(); } catch (e) {}
+    }
+    return true;
+  }
+
+  function appendToolCallsBlock(li, m) {
+    const calls = (m.toolCalls || []);
+    if (!calls.length) return;
+    const det = document.createElement('details');
+    det.className = 'chat-toolcalls';
+    const sum = document.createElement('summary');
+    sum.textContent = tr('chat.toolCalls', 'tool calls ({n})', { n: calls.length });
+    det.appendChild(sum);
+    const body = document.createElement('div');
+    body.className = 'chat-toolcalls-body';
+    for (const c of calls) {
+      const row = document.createElement('div');
+      row.className = 'chat-toolcall' + (c.ok ? ' is-ok' : ' is-err');
+      const nm = document.createElement('b');
+      nm.textContent = c.name;
+      row.appendChild(nm);
+      const ar = document.createElement('code');
+      try { ar.textContent = JSON.stringify(c.args).slice(0, 200); } catch (e) {}
+      row.appendChild(ar);
+      if (c.error) {
+        const er = document.createElement('span');
+        er.className = 'muted';
+        er.textContent = ' ✗ ' + c.error;
+        row.appendChild(er);
+      }
+      if (c.snippet) {
+        const sn = document.createElement('pre');
+        sn.textContent = c.snippet;
+        row.appendChild(sn);
+      }
+      body.appendChild(row);
+    }
+    det.appendChild(body);
+    li.appendChild(det);
   }
 
   function makeForkButton() {
@@ -2252,7 +2532,7 @@
         else NS.builderMode = 'ext';
         const prompt = curLang() === 'id'
           ? ('Kode ekstensi sebelumnya gagal validasi:\n- ' + val.errors.join('\n- ') +
-             '\n\nTolong perbaiki error tersebut dan kirim ulang SATU blok kode ```js ... ``` yang lengkap dan valid untuk window.MiniSketchTools.register({...}).')
+             '\n\nPerbaiki error tersebut dan kirim ulang SATU blok kode ```js ... ``` yang lengkap dan valid untuk window.MiniSketchTools.register({...}).')
           : ('The previous extension code failed validation:\n- ' + val.errors.join('\n- ') +
              '\n\nPlease fix those errors and resend ONE complete, valid ```js ... ``` code block for window.MiniSketchTools.register({...}).');
         send(prompt);
@@ -2496,27 +2776,6 @@
       });
       if (window.syncAiModelSelect) window.syncAiModelSelect();
       loadM(true);
-      // Filter teks: sembunyikan opsi yang tidak cocok (free/vision/nama).
-      const filterEl = document.getElementById('chat-model-filter');
-      if (filterEl && modelSel) {
-        filterEl.addEventListener('input', () => {
-          const q = filterEl.value.trim().toLowerCase();
-          const opts = modelSel.options;
-          for (let i = 1; i < opts.length; i++) {
-            const o = opts[i];
-            let show = true;
-            if (q) {
-              const terms = q.split(/\s+/).filter(Boolean);
-              show = terms.every(t => {
-                if (t === 'free') return o.dataset.free === '1';
-                if (t === 'vision') return o.dataset.vision === '1';
-                return String(o.dataset.q || '').includes(t);
-              });
-            }
-            o.style.display = show ? '' : 'none';
-          }
-        });
-      }
     }
 
     // Reasoning level quick-control (Off/Low/Normal).
@@ -2573,11 +2832,20 @@
         NS.sessionId = newSessionId();
         NS.sessionAt = Date.now();
         lsSet(CURRENT_ID_KEY, NS.sessionId);
+        NS._lastExtTotal = 0;
+        NS.extSelIdx = null;
         refreshMeta();
         setTab('chat');
         renderLog();
         if (input) input.focus();
       });
+    });
+    const rollbackBtn = document.getElementById('chat-rollback');
+    if (rollbackBtn) rollbackBtn.addEventListener('click', () => {
+      if (!rollbackLastTurn()) {
+        if (NS.activeAbort) return;
+        api && api.toast && api.toast(tr('chat.rollbackEmpty', 'Nothing to roll back.'));
+      }
     });
     const go = () => {
       // When a request is running the single button is Stop: abort instead of
@@ -2604,6 +2872,7 @@
   NS.editExtension = (code, meta) => {
     const src = String(code == null ? '' : code).trim();
     if (!src) return false;
+    NS._lastAutoContSig = null;
     if (typeof NS.setBuilderMode === 'function') NS.setBuilderMode('ext');
     else NS.builderMode = 'ext';
     // Make sure the sidebar and the AI Chat panel are visible.

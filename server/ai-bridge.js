@@ -39,6 +39,10 @@ const UPSTREAM_IDLE_MS = (() => {
   return Number.isFinite(v) && v > 0 ? Math.round(v * 1000) : 300000;
 })();
 
+// Build identity: printed on boot, in every chat log line and served via
+// /health. Helps detect a stale server process (frontend newer than bridge).
+const BRIDGE_BUILD = '2026-11-28.v4';
+
 // ---- CORS -----------------------------------------------------------------
 // The bridge forwards a paid API call, so a random web page must not be able to
 // reach it. Allowed: the app itself (a file:// page sends Origin: null), any
@@ -220,6 +224,12 @@ function postUpstreamOnce(payload, register, cfg) {
     const wire = { ...payload };
     delete wire.onDelta;
     const body = JSON.stringify(wire);
+    const toolCount = Array.isArray(payload.tools) ? payload.tools.length : 0;
+    console.log('[bridge] upstream req · ' + base + ' · model=' + String(payload.model || '').slice(0, 40) +
+      ' · msgs=' + (payload.messages || []).length +
+      ' · tools=' + toolCount +
+      ' · vf=' + (toolCount && JSON.stringify(payload.tools || []).indexOf('vf_') >= 0 ? 1 : 0) +
+      ' · bytes=' + body.length);
     const headers = {
       'Content-Type': 'application/json',
       'Connection': 'close',
@@ -238,6 +248,7 @@ function postUpstreamOnce(payload, register, cfg) {
     }, (res) => {
       let buf = '';
       let rawBody = '';
+      let lastFinishReason = null;
       const assembled = { role: 'assistant', content: '', reasoning_content: '', tool_calls: [], usage: null };
       const tcBuf = {};                  // index -> {id, name, arguments}
       const finish = (err) => {
@@ -248,6 +259,17 @@ function postUpstreamOnce(payload, register, cfg) {
             id: t.id,
             function: { name: t.name || '', arguments: t.arguments || '' }
           });
+        }
+        console.log('[bridge] upstream done · status=' + res.statusCode +
+          ' · contentLen=' + assembled.content.length +
+          ' · reasoningLen=' + assembled.reasoning_content.length +
+          ' · tool_calls=' + assembled.tool_calls.length +
+          ' · finish_reason=' + String(lastFinishReason || '-') +
+          ' · usage=' + (assembled.usage ? (assembled.usage.total_tokens || 0) : '-'));
+        if (!assembled.content.length && !assembled.tool_calls.length) {
+          console.log('[bridge] upstream EMPTY · status=' + res.statusCode +
+            ' · contentType=' + String(res.headers && res.headers['content-type'] || '') +
+            ' · rawHead=' + JSON.stringify(rawBody.slice(0, 400)));
         }
         if (res.statusCode < 200 || res.statusCode >= 300) {
           let msg = (rawBody || buf).trim();
@@ -280,6 +302,9 @@ function postUpstreamOnce(payload, register, cfg) {
             };
           }
           const d = (j.choices && j.choices[0] && j.choices[0].delta) || {};
+          if (j.choices && j.choices[0] && j.choices[0].finish_reason) {
+            lastFinishReason = j.choices[0].finish_reason;
+          }
           const rChunk = d.reasoning_content || d.reasoning || '';
           if (rChunk) {
             assembled.reasoning_content += rChunk;
@@ -750,6 +775,7 @@ function bridgeHandler(req, res) {
     res.end(JSON.stringify({
       ok: true,
       proxy: true,
+      build: BRIDGE_BUILD,
       hasEnvKey: !!envCfg.key,
       hasEnvBase: !!envCfg.base,
       envModel: envCfg.model || undefined,
@@ -890,6 +916,7 @@ function bridgeHandler(req, res) {
         ).toLowerCase();
 
         console.log('\n=== chat ' + new Date().toLocaleTimeString() + ' ===' +
+          ' build=' + BRIDGE_BUILD +
           ' msgs=' + messages.length + ' tools=' + tools.length +
           ' think=' + thinkLevel +
           ' model=' + (cfg.model || '(provider default)') +
@@ -973,14 +1000,22 @@ function bridgeHandler(req, res) {
         const rawCalls = cfg.gemini ? upstream.calls : ((msg && msg.tool_calls) || []);
         const usage = cfg.gemini ? upstream.usage : (upstream.usage || (msg && msg.usage) || null);
         const calls = assembleCalls(rawCalls);
-        console.log('  <- model: ' + (Date.now() - t0) + ' ms (gemini=' + cfg.gemini + '), tool_calls=' + calls.length +
-          (usage && usage.total_tokens ? ', tokens=' + usage.total_tokens : ''));
+        const finishReason = cfg.gemini
+          ? null
+          : ((upstream.choices && upstream.choices[0] && upstream.choices[0].finish_reason) || null);
+        console.log('[bridge] upstream done · ' + (Date.now() - t0) + 'ms (gemini=' + cfg.gemini + ')' +
+          ' · replyLen=' + reply.length +
+          ' · reasoningLen=' + think.length +
+          ' · tool_calls=' + calls.length +
+          ' · finish_reason=' + String(finishReason || '-') +
+          ' · usage=' + (usage ? (usage.total_tokens || 0) : '-'));
         send({
           done: true,
           reply,
           thinking: think.slice(0, 8000),
           tool_calls: calls,
-          ...(usage ? { usage } : {})
+          ...(usage ? { usage } : {}),
+          ...(finishReason ? { finishReason } : {})
         });
         res.end();
       } catch (err) {
@@ -1119,6 +1154,7 @@ server.on('error', (err) => {
   throw err;
 });
 server.listen(PORT, '0.0.0.0', () => {
-  console.log('minisketch ai-bridge (policy-free proxy) on http://localhost:' + PORT);
+  console.log('minisketch ai-bridge (policy-free proxy) on http://localhost:' + PORT +
+    ' · build=' + BRIDGE_BUILD);
   console.log('  policy (prompt/tools/skills) lives in ai/ on the frontend.');
 });

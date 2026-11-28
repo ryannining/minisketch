@@ -446,9 +446,8 @@
             <button type="button" class="chat-tab" role="tab" aria-selected="false" data-chat-tab="log" data-i18n="chat.tabHistory">History</button>
           </div>
           <div class="row chat-model-row" id="chat-model-row">
-            <select id="chat-model-sel" data-i18n-title="chat.modelSelTitle" title="Model (🔄 loads active provider list) — sorted free first; filter on the right" style="flex:1 1 auto;min-width:0;font:inherit;font-size:11px;padding:2px 5px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)"></select>
+            <select id="chat-model-sel" data-i18n-title="chat.modelSelTitle" title="Model (🔄 loads active provider list) — sorted free first" style="flex:1 1 auto;min-width:0;font:inherit;font-size:11px;padding:2px 5px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)"></select>
             <button class="btn small" id="chat-model-refresh" data-i18n-title="chat.modelRefreshTitle" title="Load the model list from the active provider">🔄</button>
-            <input id="chat-model-filter" type="text" data-i18n-placeholder="chat.modelFilterPh" data-i18n-title="chat.modelFilterTitle" placeholder="filter (free/vision)" title="Filter models: type name, 'free', or 'vision' (partial match, case-insensitive)" style="width:84px;font:inherit;font-size:11px;padding:2px 5px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--ink)">
             <select id="chat-think-sel" data-i18n-title="chat.thinkTitle" title="Reasoning level (Off = faster &amp; cheaper, Normal = most thorough)">
               <option value="off" data-i18n="chat.thinkOff">Off</option>
               <option value="low" data-i18n="chat.thinkLow">Low</option>
@@ -461,6 +460,7 @@
               <option value="ext" data-i18n="chat.modeExt">Mode: Extension</option>
             </select>
             <button class="btn small" id="chat-new" data-i18n="chat.newSession" data-i18n-title="chat.newSessionTitle" title="Start a new session — moves the current conversation to History (canvas geometry stays untouched)">New Session</button>
+            <button class="btn small" id="chat-rollback" data-i18n="chat.rollback" data-i18n-title="chat.rollbackTitle" title="Roll back the last exchange: removes the last user+AI pair and puts your last prompt back into the input to edit">Rollback</button>
           </div>
           <ul class="list" id="chat-log"></ul>
           <div id="chat-ext-dock" class="chat-ext-dock" hidden></div>
