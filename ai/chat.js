@@ -2880,6 +2880,8 @@
       if (window.MiniSketchCloud && window.MiniSketchCloud.scheduleSync) {
         window.MiniSketchCloud.scheduleSync('prefs');
       }
+      // The extension testing dock visibility depends on the mode — re-render.
+      if (typeof renderLog === 'function') renderLog();
     };
     NS.setBuilderMode = setBuilderMode;
     if (modeSel) modeSel.addEventListener('change', () => setBuilderMode(modeSel.value));
